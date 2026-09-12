@@ -413,8 +413,8 @@ function GitHubProjectPanel({ project }) {
   const status = hooks.useQuery({ queryKey: STATUS_KEY, queryFn: () => api("/plugins/github/api/status") });
   const connected = status.data?.connected === true;
   const repositories = hooks.useQuery({
-    queryKey: REPOSITORIES_KEY,
-    queryFn: () => api("/plugins/github/api/repositories"),
+    queryKey: [...REPOSITORIES_KEY, project.id],
+    queryFn: () => api(`/plugins/github/api/repositories?projectId=${project.id}`),
     enabled: connected
   });
   const row = repositories.data?.repositories.find((candidate) => candidate.project.id === project.id) ?? null;
@@ -550,8 +550,8 @@ function GitHubProjectPanel({ project }) {
   if (!connected) {
     return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "py-4", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.EmptyState, { title: s.disconnected, description: s.accountHint, icon: Github, action: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { variant: "accent", icon: Github, onClick: () => navigate("/account"), children: s.manageInAccount }) }) });
   }
-  if (repositories.isError) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => repositories.refetch() });
-  if (repositories.isLoading || !row) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" });
+  if (repositories.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.LoadingState, { variant: "list" });
+  if (repositories.isError || !row) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.ErrorState, { message: s.loadError, onRetry: () => repositories.refetch() });
   const mappingLabel = row.mapping ? `${row.mapping.baseOwner}/${row.mapping.baseName}` : row.detected.base ? `${row.detected.base.owner}/${row.detected.base.name}` : "\u2014";
   const pushLabel = row.mapping ? `${row.mapping.pushOwner}/${row.mapping.pushName}` : row.detected.push ? `${row.detected.push.owner}/${row.detected.push.name}` : "\u2014";
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [

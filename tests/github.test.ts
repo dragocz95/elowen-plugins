@@ -6,13 +6,14 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect } from 'node:net';
-import { spawn as nodeSpawn } from 'node:child_process';
+import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 import { DEVICE_LOGIN_ARGS, TOKEN_ARGS, GitHubAuthAdapter, createGitHubAuthEnv, parseDevicePrompt, validateDeviceToken } from '../plugins/github/src/githubAuth.js';
 import type { PluginContext, PluginDb, PluginSecretBag, SandboxPreparedExecution } from 'elowen/plugin-api';
 import { GitHubService } from '../plugins/github/src/service.js';
 import { GitHubStore } from '../plugins/github/src/store.js';
 import { parseGitHubRemote, suggestedRepositories } from '../plugins/github/src/remotes.js';
 import { publishBranch, spawnPrepared, unsafeConfig } from '../plugins/github/src/execution.js';
+import { GitHubPluginError } from '../plugins/github/src/errors.js';
 import type { SpawnPrepared } from '../plugins/github/src/types.js';
 import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
@@ -176,6 +177,133 @@ function harness(root: string, fake: { base: string }, nowRef = { value: Date.no
   return { ctx, db, service, runner, auth, project, projectIndicatorProviders, controls, setUser: (id: number) => { currentUser = id; }, users, instance, routes, pushCalls, workspace, nowRef };
 }
 
+describe('project drawer repository request', () => {
+  function drawerHarness(kind: 'host' | 'managed' = 'managed', slug = 'test-nspawn') {
+    const root = mkdtempSync(join(tmpdir(), 'github-drawer-')); roots.push(root);
+    const h = harness(root, { base: 'https://api.github.com' });
+    Object.assign(h.project, { slug, executionKind: kind, path: kind === 'managed' ? '' : root });
+    const calls: any[] = [];
+    const sandbox = h.ctx.control('sandbox')!;
+    Object.assign(sandbox, {
+      prepareExecution: async (input: any, authority: any) => {
+        calls.push({ input, authority });
+        expect(input.projectRef).toEqual({ kind: 'managed', projectId: 1 });
+        expect(input.cwd).toBe(`/${slug}`);
+        expect(input.command.args).toContain(`/${slug}`);
+        const args = input.command.args.map((arg: string) => arg === `/${slug}` ? root : arg);
+        return { ...prepared({ ...input.command, args }, root, root), mode: 'managed', projectRef: input.projectRef, cancel: async () => {} };
+      },
+    });
+    const service = new GitHubService(h.ctx);
+    registerGitHubApi(h.ctx, service);
+    const request = (query: Record<string, string> = { projectId: '1' }, accessibleProjects: number[] | null = [1]) => h.routes.find(route => route.path === 'repositories').handler({ query, auth: { userId: 1, accessibleProjects, admin: false } });
+    return { ...h, root, sandbox, calls, request };
+  }
+
+  // Both runtimes expose the same prepared-execution contract. This test runs real Git behind that
+  // seam with each reported project slug; it does not launch a Podman or nspawn container.
+  it.each(['test-nspawn', 'test-vm'])('reads unmapped managed project %s at its canonical guest root through the real Git runner', async slug => {
+    const h = drawerHarness('managed', slug);
+    execFileSync('git', ['init', '--initial-branch=main', h.root]);
+    execFileSync('git', ['-C', h.root, 'remote', 'add', 'origin', 'https://github.com/base/repo.git']);
+    const response = await h.request();
+    expect(response.status ?? 200).toBe(200);
+    expect(response.body.repositories).toMatchObject([{ project: { id: 1 }, mapping: null, detected: { base: { owner: 'base', name: 'repo' } } }]);
+    expect(h.calls.length).toBeGreaterThan(0);
+    expect(h.calls[0].authority).toEqual({ accountUserId: 1, roots: [] });
+    h.db.raw.close();
+  });
+
+  it('returns missing-repository data only for Git attesting that the canonical directory is not a repository', async () => {
+    const h = drawerHarness();
+    const response = await h.request();
+    expect(response.status ?? 200).toBe(200);
+    expect(response.body.repositories[0]).toMatchObject({ mapping: null, remotes: [], detected: { base: null } });
+    h.db.raw.close();
+  });
+
+  it('limits the drawer request to its selected host project', async () => {
+    const h = drawerHarness('host');
+    const stores = h.ctx.host.stores();
+    stores.projects.list = () => [h.project, { ...h.project, id: 2, executionKind: 'managed' }];
+    h.ctx.host.stores = () => stores;
+    const response = await h.request({ projectId: '1' }, [1, 2]);
+    expect(response.body.repositories).toHaveLength(1);
+    expect(h.calls).toHaveLength(0);
+    h.db.raw.close();
+  });
+
+  it('keeps the unfiltered list contract and the host missing-repository state', async () => {
+    const h = drawerHarness('host');
+    const git = h.ctx.host.git();
+    git.projectSnapshot = async () => ({ isRepo: false, status: null, remotes: [] });
+    h.ctx.host.git = () => git;
+    expect((await h.request({})).body.repositories).toMatchObject([{ project: { id: 1 }, remotes: [], mapping: null }]);
+    git.projectSnapshot = async () => { throw new GitHubPluginError('project_forbidden', 403, 'Denied'); };
+    expect(await h.request()).toMatchObject({ status: 403, body: { error: 'project_forbidden' } });
+    h.db.raw.close();
+  });
+
+  it('refuses a different current account or selected managed project before execution', async () => {
+    const h = drawerHarness();
+    h.setUser(2);
+    expect(await h.request()).toMatchObject({ status: 403, body: { error: 'account_mismatch' } });
+    h.setUser(1);
+    const access = h.ctx.currentAccess();
+    h.ctx.currentAccess = () => ({ ...access, projectRef: { kind: 'managed', projectId: 2 } });
+    expect(await h.request()).toMatchObject({ status: 403, body: { error: 'project_forbidden' } });
+    expect(h.calls).toHaveLength(0);
+    h.db.raw.close();
+  });
+
+  it.each(['0', 'nope', '1.5'])('rejects invalid project id %s before inspecting repositories', async projectId => {
+    const h = drawerHarness();
+    expect((await h.request({ projectId })).status).toBe(400);
+    expect(h.calls).toHaveLength(0);
+    h.db.raw.close();
+  });
+
+  it('refuses inaccessible and missing projects instead of returning an empty success', async () => {
+    const h = drawerHarness();
+    expect((await h.request({ projectId: '2' })).status).toBe(403);
+    expect((await h.request({ projectId: '2' }, [2])).status).toBe(404);
+    expect(h.calls).toHaveLength(0);
+    h.db.raw.close();
+  });
+
+  it.each(['git-directory', 'process-directory'])('preserves a real missing %s error', async target => {
+    const h = drawerHarness();
+    const missing = join(h.root, 'missing');
+    h.sandbox.prepareExecution = async input => {
+      if (input.command.type !== 'argv') throw new Error('Expected a Git argv command');
+      const args = input.command.args.map(arg => arg === '/test-nspawn' ? target === 'git-directory' ? missing : h.root : arg);
+      return {
+        ...prepared({ ...input.command, args }, target === 'process-directory' ? missing : h.root, h.root),
+        mode: 'managed', projectRef: { kind: 'managed', projectId: 1 }, cancel: async () => {},
+      };
+    };
+    const response = await h.request();
+    expect(response).toMatchObject({ status: 409, body: { error: 'git_command_failed' } });
+    expect(response.body).not.toHaveProperty('repositories');
+    if (target === 'git-directory') expect(response.body.details).toMatchObject({ code: 128, stderr: expect.stringContaining('cannot change to') });
+    h.db.raw.close();
+  });
+
+  it.each([
+    [Object.assign(new Error('denied'), { code: 'project_forbidden' }), 403, 'project_forbidden'],
+    [Object.assign(new Error('Permission denied'), { code: 'EACCES' }), 502, 'github_unavailable'],
+    [new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code: 128, stderr: "fatal: cannot change to '/test-nspawn': Permission denied" }), 409, 'git_command_failed'],
+    [new Error('runtime socket unavailable'), 502, 'github_unavailable'],
+    [new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code: 125, stderr: 'fatal: not a git repository' }), 409, 'git_command_failed'],
+    [new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code: 128, stderr: 'fatal: detected dubious ownership' }), 409, 'git_command_failed'],
+  ])('preserves genuine execution failure %#', async (error, status, code) => {
+    const h = drawerHarness();
+    h.sandbox.prepareExecution = async () => { throw error; };
+    expect(await h.request()).toMatchObject({ status, body: { error: code } });
+    h.db.raw.close();
+  });
+});
+
 async function waitForFlow(service: GitHubService, flowId: string): Promise<any> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const flow = service.deviceAuthStatus(service.currentUserId(), flowId);
@@ -194,6 +322,62 @@ function prepared(command: any, cwd: string, home: string): SandboxPreparedExecu
   mkdirSync(home, { recursive: true });
   return { mode: 'confined', cwd, home, roots: [cwd, home], launch: command.type === 'argv' ? { type: 'argv', file: command.file, args: command.args, env: { HOME: home, GIT_CONFIG_GLOBAL: '/host/config', HTTPS_PROXY: 'http://proxy' } } : { type: 'shell', command: command.command, env: { HOME: home } }, workspace: null, lease: { id: 'lease', accountUserId: 1, workspaceId: 'ws-1', homeGeneration: 1, heartbeat: () => {}, release: () => {} } };
 }
+
+describe('managed publish preview paths', () => {
+  it.each([
+    { cwd: undefined, path: '/test-nspawn', workspaceId: 'project:1' },
+    { cwd: '/test-nspawn', path: '/test-nspawn', workspaceId: 'project:1' },
+    { cwd: '/test-nspawn/src', path: '/test-nspawn', workspaceId: 'project:1' },
+    { cwd: '/worktrees/feature/src', path: '/worktrees/feature', workspaceId: 'wt-1' },
+    { cwd: '/test-nspawn-other', path: null, workspaceId: null },
+    { cwd: '/workspace', path: null, workspaceId: null },
+  ])('resolves publish preview for cwd=$cwd without pushing', async ({ cwd, path, workspaceId }) => {
+    const root = mkdtempSync(join(tmpdir(), 'github-publish-path-')); roots.push(root);
+    const fake = await fakeGitHub();
+    const h = harness(root, fake);
+    try {
+      Object.assign(h.project, { slug: 'test-nspawn', executionKind: 'managed', path: '' });
+      Object.assign(h.ctx, { workDir: () => cwd });
+      const commands: string[][] = [];
+      Object.assign(h.ctx.control('sandbox')!, {
+        managedWorktrees: async (input: unknown) => {
+          expect(input).toEqual({ project: { kind: 'managed', projectId: 1 }, accountUserId: 1, action: { kind: 'list' } });
+          return [{ id: 'wt-1', path: '/worktrees/feature', baseRef: 'main' }];
+        },
+        prepareExecution: async (input: any, actor: any) => {
+          expect(input.projectRef).toEqual({ kind: 'managed', projectId: 1 });
+          expect(actor).toEqual({ accountUserId: 1, roots: [] });
+          expect(input.cwd).toBe(path);
+          return { ...prepared(input.command, root, root), mode: 'managed', projectRef: input.projectRef };
+        },
+      });
+      const service = new GitHubService(h.ctx, { apiBase: fake.base, spawnPrepared: async execution => {
+        if (execution.launch.type !== 'argv') throw new Error('Unexpected shell execution');
+        const args = execution.launch.args;
+        commands.push(args);
+        if (args.includes('symbolic-ref')) return { stdout: 'main\n', stderr: '' };
+        if (args.includes('rev-parse')) return { stdout: `${'a'.repeat(40)}\n`, stderr: '' };
+        throw new Error('Only read-only branch and commit inspection is permitted');
+      } });
+      service.store.saveAccount({ userId: 1, githubUserId: 42, login: 'octocat', name: null, avatarUrl: null, status: 'connected', lastError: null, verifiedAt: 1, updatedAt: 1 });
+      service.store.saveMapping({ userId: 1, projectId: 1, baseRepoId: 1, baseOwner: 'base', baseName: 'repo', pushRepoId: 2, pushOwner: 'fork', pushName: 'repo', baseRemote: 'upstream', pushRemote: 'origin', verifiedAt: 1, active: true });
+      h.ctx.userSecrets()!.set('cli-token', 'access-1');
+      const preview = service.preview(1, { type: 'publish', projectId: 1, sessionId: 'brain-1' }, false);
+      if (path) {
+        await expect(preview).resolves.toMatchObject({ target: { branch: 'main' }, expected: { workspaceId, head: 'a'.repeat(40) } });
+        expect(commands).toEqual([
+          ['-C', path, 'symbolic-ref', '--quiet', '--short', 'HEAD'],
+          ['-C', path, 'rev-parse', '--verify', 'HEAD^{commit}'],
+        ]);
+      } else {
+        await expect(preview).rejects.toMatchObject({ code: 'active_workspace_required' });
+        expect(commands).toHaveLength(0);
+      }
+      expect(fake.state.createCalls).toBe(0);
+      expect(fake.state.mergeCalls).toBe(0);
+    } finally { fake.server.close(); h.db.raw.close(); }
+  });
+});
 
 describe('GitHub plugin', () => {
   it('reads managed repository metadata through the guest without ambient API execution identity', async () => {
@@ -218,7 +402,11 @@ describe('GitHub plugin', () => {
     const rows = await service.repositories(1, [1], false);
     expect(rows).toMatchObject([{ project: { id: 1 }, remotes: [{ name: 'origin', fetchUrl: 'https://github.com/base/repo.git' }] }]);
     expect(JSON.stringify(rows)).not.toContain('secret');
-    expect(commands).toEqual([['-C', '/workspace', 'status', '--porcelain=v2', '--branch'], ['-C', '/workspace', 'remote', '-v']]);
+    expect(commands).toEqual([
+      ['-c', 'core.fsmonitor=false', '-C', '/project', 'rev-parse', '--is-inside-work-tree'],
+      ['-c', 'core.fsmonitor=false', '-C', '/project', 'status', '--porcelain=v2', '--branch'],
+      ['-c', 'core.fsmonitor=false', '-C', '/project', 'remote', '-v'],
+    ]);
   });
   it('refuses a runtime that prepares a different managed project and gives back the lease it took', async () => {
     // The service endpoints answer a mismatched runtime as a typed 403. Publishing answers the same

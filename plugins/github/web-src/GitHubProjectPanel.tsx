@@ -16,8 +16,8 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
   const connected = status.data?.connected === true;
 
   const repositories = hooks.useQuery<{ repositories: RepositoryRow[] }>({
-    queryKey: REPOSITORIES_KEY,
-    queryFn: () => api('/plugins/github/api/repositories'),
+    queryKey: [...REPOSITORIES_KEY, project.id],
+    queryFn: () => api(`/plugins/github/api/repositories?projectId=${project.id}`),
     enabled: connected,
   });
   const row = repositories.data?.repositories.find((candidate) => candidate.project.id === project.id) ?? null;
@@ -137,8 +137,8 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
     return <div className="py-4"><C.EmptyState title={s.disconnected} description={s.accountHint} icon={Github} action={<C.Button variant="accent" icon={Github} onClick={() => navigate('/account')}>{s.manageInAccount}</C.Button>} /></div>;
   }
 
-  if (repositories.isError) return <C.ErrorState message={s.loadError} onRetry={() => repositories.refetch()} />;
-  if (repositories.isLoading || !row) return <C.LoadingState variant="list" />;
+  if (repositories.isLoading) return <C.LoadingState variant="list" />;
+  if (repositories.isError || !row) return <C.ErrorState message={s.loadError} onRetry={() => repositories.refetch()} />;
 
   const mappingLabel = row.mapping ? `${row.mapping.baseOwner}/${row.mapping.baseName}` : row.detected.base ? `${row.detected.base.owner}/${row.detected.base.name}` : '—';
   const pushLabel = row.mapping ? `${row.mapping.pushOwner}/${row.mapping.pushName}` : row.detected.push ? `${row.detected.push.owner}/${row.detected.push.name}` : '—';
