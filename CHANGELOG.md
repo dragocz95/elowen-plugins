@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.11.0 - 2026-09-12
+
+- Derive the published-sites hostname from the instance's own public URL when a forked tool runner holds no gateway broker, so SiteCreate and SitePublish report the address the daemon serves instead of refusing, and report each site row's recorded certificate state in SiteList without a TLS handshake per site.
+
 ## sites 0.10.29 - 2026-09-11
 
 - Register new Site environments with a persistent exploded root filesystem, preserving installed applications and system configuration across container recreation and source rebinding.

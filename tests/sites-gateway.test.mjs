@@ -25,7 +25,7 @@ const makeResolver = (overrides = {}) => {
   return { resolver, queries };
 };
 
-const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {} } = {}) => {
+const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {}, publicWebUrl = `https://${APP_HOST}` } = {}) => {
   const values = new Map();
   const warnings = [];
   const calls = { status: 0, sync: 0, ensure: [], remove: [] };
@@ -58,7 +58,7 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
   const ctx = {
     config: { contactEmail, ...(gatewayDnsTarget === undefined ? {} : { gatewayDnsTarget }) },
     instanceSecrets: () => bag,
-    publicWebUrl: () => `https://${APP_HOST}`,
+    publicWebUrl: () => publicWebUrl,
     logger: { warn: (message) => warnings.push(message), info: () => {} },
     control: (name) => name === 'publishedSitesGateway' ? control : undefined,
   };
@@ -436,5 +436,24 @@ test('the site address comes from the broker, so a forked tool runner reports th
   assert.equal(harness.manager.hostnameBase(), HOSTNAME_BASE);
   assert.equal(harness.manager.isActive(), false, 'having an address is not the same as it working');
 
-  assert.equal(makeHarness({ hostnameBase: null }).manager.requiredRecord(), null);
+  // The record names the base sites are ACTUALLY addressed at, which is why this harness — a broker
+  // answering null beside an HTTPS app — now produces a record rather than nothing. It used to assert
+  // `null` here, and that reading was only ever true because the hostname had a single source; it is
+  // rewritten rather than dropped because the invariant it was protecting still has to hold, and it holds
+  // at the other end: a record is named where a base exists and nowhere else.
+  const brokerless = makeHarness({ hostnameBase: null });
+  assert.equal(brokerless.manager.hostnameBase(), HOSTNAME_BASE,
+    'the app URL derives the same base core would, so no process is left addressless');
+  assert.deepEqual(brokerless.manager.requiredRecord(), {
+    type: 'CNAME', name: `*.${HOSTNAME_BASE}`, value: `${APP_HOST}.`,
+  }, 'the record an operator is told to create must name the base the sites use');
+});
+
+test('no hostname from any source means no DNS record to instruct, and no invented one', () => {
+  // The invariant the rewritten assertion above used to carry: nothing derivable anywhere is still nothing.
+  for (const publicWebUrl of [null, 'http://agent.example.invalid', 'https://localhost']) {
+    const harness = makeHarness({ hostnameBase: null, publicWebUrl });
+    assert.equal(harness.manager.hostnameBase(), null, String(publicWebUrl));
+    assert.equal(harness.manager.requiredRecord(), null, String(publicWebUrl));
+  }
 });

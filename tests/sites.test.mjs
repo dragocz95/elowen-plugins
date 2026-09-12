@@ -1282,6 +1282,44 @@ test('an environment reports its newest snapshot, never a publish it cannot have
   assert.match(listed.content[0].text, /snapshot {3}2026-09-04T21:30:00\.000Z/, 'SiteList reports it too');
 });
 
+test('SiteList reports what each row records about its certificate, and probes nothing to do it', async (t) => {
+  // A listing is the one place an agent sees every site at once, so it is where a failed certificate has to
+  // be visible — and the one place a TLS handshake per site cannot be afforded. The stubs below fail loudly
+  // if the listing reaches for the certificate service at all: what it prints comes from the row.
+  const { store, call } = toolHarness(t, {
+    certificates: {
+      publish: async () => { throw new Error('a listing must never ask for a certificate'); },
+      readiness: async () => { throw new Error('a listing must never probe a certificate'); },
+    },
+  });
+  // `sourceRel` explicitly: the shared fixture in this file still names the column `sourceDir`, which the
+  // store stopped reading, and a summary line built from a null source throws before anything is printed.
+  store.insertSite(site({ id: 'waiting', slug: 'waiting-a1b2c3', status: 'live', sourceRel: 'sites/waiting-a1b2c3' }));
+  store.insertSite(site({ id: 'failed', slug: 'failed-a1b2c3', status: 'live', sourceRel: 'sites/failed-a1b2c3' }));
+  store.insertSite(site({ id: 'clean', slug: 'clean-a1b2c3', status: 'live', sourceRel: 'sites/clean-a1b2c3' }));
+  store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null, sourceRel: 'sites/draft-a1b2c3' }));
+  // Written the way the certificate path writes them: the columns are updated on an existing row, never
+  // supplied at insert.
+  store.updateSite('waiting', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
+  store.updateSite('failed', { certificateError: 'certbot failed: DNS problem' });
+
+  const listed = await call('SiteList', {});
+  const body = listed.content[0].text;
+
+  assert.match(body, /certificate requested \(recorded\) - requested at 2026-09-12T02:40:00\.000Z/);
+  assert.match(body, /certificate error \(recorded\) - the last recorded attempt failed: certbot failed: DNS problem/);
+  // A row holding nothing says so plainly, and says what that ALSO looks like: a completed issuance clears
+  // both columns, so this reader cannot distinguish the two and must not pretend otherwise.
+  assert.match(body, /certificate nothing recorded - no pending request and no recorded failure, which is equally what a completed issuance leaves behind/);
+  // Nothing in a listing may read as a working certificate: only SiteGet observes one.
+  assert.doesNotMatch(body, /certificate ready|Certificate: verified/);
+
+  const byId = new Map(listed.details.sites.map((entry) => [entry.id, entry]));
+  assert.equal(byId.get('waiting').certificate.state, 'requested');
+  assert.equal(byId.get('failed').certificate.state, 'error');
+  assert.equal(byId.get('draft').certificate, undefined, 'a draft has no certificate line to report');
+});
+
 test('a site answers to its slug as readily as to its id', async (t) => {
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));

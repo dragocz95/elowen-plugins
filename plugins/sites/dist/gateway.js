@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
-import { canonicalDnsAddress, resolveGatewayDnsTarget } from './config.js';
+import { canonicalDnsAddress, derivedHostnameBase, resolveGatewayDnsTarget } from './config.js';
 const GATEWAY_TOKEN_KEY = 'gatewayToken';
 const DNS_TIMEOUT_MS = 5_000;
 const MIN_BACKOFF_MS = 60_000;
@@ -51,12 +51,18 @@ export class SiteGatewayManager {
     status() {
         return this.current;
     }
-    /** The base every site hostname is built on. Read straight from the broker, which derives it from
-     *  trusted install metadata — NOT from the last reconcile. A tool call runs in a forked runner that
-     *  never reconciles, and a site's address must be the same fact there as in the daemon. Whether the
-     *  address currently WORKS is a separate question, answered by `isActive`. */
+    /** The base every site hostname is built on. The broker answers it wherever it exists, because it derives
+     *  it from trusted install metadata — NOT from the last reconcile. A tool call runs in a forked runner
+     *  that never reconciles, and a site's address must be the same fact there as in the daemon. Whether the
+     *  address currently WORKS is a separate question, answered by `isActive`.
+     *
+     *  A forked runner holds no broker at all, and answering null there made every site in it addressless: the
+     *  same instance reported an address from the daemon and "no HTTPS domain" from a tool. The fallback
+     *  recomputes the broker's own rule from the app URL the plugin context carries in BOTH processes, so the
+     *  answer is one fact rather than a property of which process asked. It grants nothing: naming a hostname
+     *  is not issuing a certificate, and every privileged operation below still goes through the control. */
     hostnameBase() {
-        return this.brokerHostnameBase();
+        return this.brokerHostnameBase() ?? derivedHostnameBase(this.ctx.publicWebUrl());
     }
     /** Whether THIS process can ask for a certificate at all.
      *
@@ -86,9 +92,11 @@ export class SiteGatewayManager {
         return this.cachedToken;
     }
     /** The record an operator must create for this instance. Its value and readiness expectation are the
-     *  same parsed target, so the UI can never instruct one destination while validation checks another. */
+     *  same parsed target, so the UI can never instruct one destination while validation checks another. The
+     *  name is the SAME base sites are addressed at, for the same reason: a record naming a base no site is
+     *  served from is a wildcard an operator creates and nothing ever uses. */
     requiredRecord() {
-        const base = this.brokerHostnameBase();
+        const base = this.hostnameBase();
         const { target } = this.dnsTarget();
         if (!base || !target)
             return null;
