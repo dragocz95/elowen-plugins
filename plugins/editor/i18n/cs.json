@@ -1,5 +1,5 @@
 {
-  "description": "Projektový editor souborů s Monaco editorem, správou souborů, náhledy Markdownu, obrázků, PDF, médií, Office a CSV souborů, stažením binárních souborů a historií Git. Vypnutím se odstraní editor i jeho rozhraní pro soubory projektů; správa projektů a Git historie úkolů zůstávají dostupné.",
+  "description": "Projektový editor souborů s Monaco editorem, správou souborů, náhledy Markdownu, obrázků, PDF, médií, Office a CSV souborů, stažením binárních souborů a historií Git. Spravovaný projekt nabízí dva oddělené kořeny: Projekt v jeho vlastním adresáři v prostředí a Systém s celým trvalým souborovým systémem prostředí; historie verzí patří ke kořeni Projekt. Vypnutím se odstraní editor i jeho rozhraní pro soubory projektů; správa projektů a Git historie úkolů zůstávají dostupné.",
   "web": {
     "nav": {
       "": "Editor"
@@ -8,6 +8,11 @@
       "title": "Editor",
       "project": "Projekt",
       "systemRoot": "Systém (/)",
+      "rootLabel": "Kořen souborů",
+      "rootProject": "Projekt",
+      "rootSystem": "Systém",
+      "rootProjectHint": "Soubory projektu v jeho vlastním adresáři prostředí.",
+      "rootSystemHint": "Celý trvalý souborový systém prostředí projektu, včetně adresáře projektu.",
       "empty": "Žádný dostupný projekt",
       "workspaceEyebrow": "Pracovní prostor kódu",
       "workspaceReady": "{project} připojen",

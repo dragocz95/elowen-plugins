@@ -24,7 +24,7 @@ async function fixture(options: { office?: boolean } = { office: true }) {
   await mkdir(join(root, 'src'));
   await writeFile(join(root, 'src/a.ts'), 'initial content');
   const operations: GuestFileOperation[] = [];
-  const guest = (path: string) => path.startsWith('/workspace') ? root + path.slice('/workspace'.length) : path.startsWith('/tmp/') ? join(root, 'tmp', path.slice(5)) : path;
+  const guest = (path: string) => path.startsWith('/sdilene') ? root + path.slice('/sdilene'.length) : path.startsWith('/tmp/') ? join(root, 'tmp', path.slice(5)) : path;
   const routes: PluginApiRoute[] = [];
   const provider = {
     async prepareExecution(input: { command: { type: string; file: string; args: string[] }; projectRef: unknown }): Promise<SandboxPreparedExecution> {
@@ -41,7 +41,7 @@ async function fixture(options: { office?: boolean } = { office: true }) {
         }
       }
       if (input.command.file === 'sh' && options.office === false) file = '/bin/false';
-      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/workspace', roots: ['/'], workspace: null, launch: { type: 'argv', file, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: text => text.replaceAll(root, '/workspace') };
+      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, launch: { type: 'argv', file, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: text => text.replaceAll(root, '/sdilene') };
     },
     async projectFiles({ operation }: { operation: GuestFileOperation }) {
       operations.push(operation);
@@ -58,7 +58,7 @@ async function fixture(options: { office?: boolean } = { office: true }) {
           for (const name of (await readdir(dir)).sort()) {
             const child = join(dir, name);
             const info = await lstat(child);
-            const guestChild = '/workspace' + child.slice(root.length);
+            const guestChild = '/sdilene' + child.slice(root.length);
             // A link is REPORTED with its own size and time and never descended into.
             if (info.isSymbolicLink()) entries.push({ path: guestChild, kind: 'symlink', size: info.size, mtime: info.mtimeMs });
             else if (info.isDirectory()) {
@@ -111,7 +111,7 @@ async function fixture(options: { office?: boolean } = { office: true }) {
       return { kind: 'read', base64: bytes.subarray(start, start + Math.min(operation.length ?? operation.maxBytes, operation.maxBytes)).toString('base64'), totalBytes: bytes.length, version };
     },
   };
-  const ctx = { control: () => provider, registerApiRoute: (route: PluginApiRoute) => routes.push(route), host: { projectFiles: () => ({ safe: () => { throw new Error('host route called'); } }), stores: () => ({ projects: { get: () => ({ id: 7, executionKind: 'managed', path: '/host-must-not-be-used' }) } }) } } as unknown as PluginContext;
+  const ctx = { control: () => provider, registerApiRoute: (route: PluginApiRoute) => routes.push(route), host: { projectFiles: () => ({ safe: () => { throw new Error('host route called'); } }), stores: () => ({ projects: { get: () => ({ id: 7, slug: 'sdilene', executionKind: 'managed', path: '/host-must-not-be-used' }) } }) } } as unknown as PluginContext;
   registerEditorApi(ctx);
   const call = async (name: string, method = 'GET', path?: string, body?: unknown, hash?: string) => {
     const route = routes.find(route => route.rootMount === `/projects/:id/${name}` && route.method === method)!;
@@ -140,7 +140,7 @@ describe('managed editor compound operations with an executable provider fixture
       expect(await readFile(join(f.root, 'src/a.ts'), 'utf8')).toBe('initial content');
       expect((await f.call('entry', 'DELETE', 'renamed')).body).toEqual({ ok: true });
       await expect(access(join(f.root, 'renamed'))).rejects.toThrow();
-      expect((await f.call('entry', 'DELETE', '/workspace')).status).toBe(400);
+      expect((await f.call('entry', 'DELETE', '/sdilene')).status).toBe(400);
     } finally { await f.dispose(); }
   });
   it('reads editable text through bounded chunks and reports oversized text as truncated', async () => {
@@ -270,7 +270,7 @@ async function saveFixture(guard: (path: string, expectedVersion: string | null)
       },
     }),
     registerApiRoute: (route: PluginApiRoute) => routes.push(route),
-    host: { projectFiles: () => ({ safe: () => { throw new Error('host filesystem must not be used'); } }), stores: () => ({ projects: { get: () => ({ id: 7, executionKind: 'managed', path: '/host-must-not-be-used' }) } }) },
+    host: { projectFiles: () => ({ safe: () => { throw new Error('host filesystem must not be used'); } }), stores: () => ({ projects: { get: () => ({ id: 7, slug: 'sdilene', executionKind: 'managed', path: '/host-must-not-be-used' }) } }) },
   } as unknown as PluginContext;
   registerEditorApi(ctx);
   const save = async (content: string, version?: string) => {

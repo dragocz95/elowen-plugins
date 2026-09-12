@@ -5,6 +5,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { http, HttpResponse, listen, resetHandlers, setDefaults, close } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
+import { editorFileKey } from '../plugins/editor/web-src/editor/fileData';
 import manifest from '../plugins/editor/elowen-plugin.json' with { type: 'json' };
 
 // View copy is served per-plugin by /plugins/ui; serving the REAL manifest en fallback keeps the
@@ -140,6 +141,9 @@ setDefaults(
   }),
   // The tree's changed-file highlighting; a save invalidates it, so it is refetched for real.
   http.get('/api/projects/:id/changed', () => HttpResponse.json({ changed: [] })),
+  // The editor reads the project row for one decision: whether this project has a second root. A HOST
+  // project has one, which is what every case below exercises; the managed pair has its own test file.
+  http.get('/api/projects', () => HttpResponse.json([{ id: 5, slug: 'demo', path: '/srv/demo', notes: '', icon: '', executionKind: 'host' }])),
 );
 // Nothing serves /head, /commit or /changes: those queries are disabled while the edit tab is open on
 // the working tree, and an unhandled request here would fail loudly rather than answer a plausible
@@ -167,7 +171,7 @@ afterAll(() => close());
 const editorEl = () => screen.getByLabelText('editor') as HTMLTextAreaElement;
 const openInTree = (name: string) => fireEvent.click(within(screen.getByRole('tree')).getByRole('button', { name }));
 const cachedContent = (client: QueryClient, path: string) =>
-  (client.getQueryData(['project-file', 5, path]) as { content: string } | undefined)?.content;
+  (client.getQueryData(editorFileKey(5, 'project', path)) as { content: string } | undefined)?.content;
 
 async function renderEditor() {
   const { wrapper: Base, client } = createWrapper();
@@ -193,7 +197,7 @@ describe('managed editor content versions', () => {
     act(() => gates.get('a.ts')?.());
     await waitFor(() => expect(cachedContent(client, 'a.ts')).toBe('managed edit'));
     expect(editorEl().value).toBe('managed edit');
-    expect(client.getQueryData(['project-file', 5, 'a.ts'])).toMatchObject({ version: 'v2' });
+    expect(client.getQueryData(editorFileKey(5, 'project', 'a.ts'))).toMatchObject({ version: 'v2' });
   });
   it('advances the baseline to the returned version so the next save sends the current one', async () => {
     versioned = true;
@@ -213,7 +217,7 @@ describe('managed editor content versions', () => {
     await screen.findByText('Saved a.ts');
     expect(stored.get('a.ts')).toBe('second managed edit');
     await waitFor(() => expect(cachedContent(client, 'a.ts')).toBe('second managed edit'));
-    expect(client.getQueryData(['project-file', 5, 'a.ts'])).toMatchObject({ version: 'v2' });
+    expect(client.getQueryData(editorFileKey(5, 'project', 'a.ts'))).toMatchObject({ version: 'v2' });
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
   it('does not replace a dirty draft baseline with another member’s refetched version', async () => {
@@ -221,7 +225,7 @@ describe('managed editor content versions', () => {
     const client = await renderEditor();
     fireEvent.change(editorEl(), { target: { value: 'my draft' } });
     serverVersion = 'v2'; stored.set('a.ts', 'another member');
-    await act(async () => { await client.invalidateQueries({ queryKey: ['project-file', 5, 'a.ts'] }); });
+    await act(async () => { await client.invalidateQueries({ queryKey: editorFileKey(5, 'project', 'a.ts') }); });
     await saveNow('a.ts');
     act(() => gates.get('a.ts')?.());
     await screen.findByText(/content version conflict/);
@@ -472,7 +476,9 @@ describe('ProjectEditor save', () => {
     act(() => { gates.get('b.ts')?.(); });
     await screen.findByText('Saved b.ts');
     act(() => { gates.get('a.ts')?.(); });
-    await screen.findByText(/elowen 500/);
+    // The failed save reports the server's OWN refusal. Both roots answer with a curated message, so the
+    // toast says what went wrong instead of repeating an `elowen 500 on /projects/5/file` diagnostic.
+    await screen.findByText('boom');
 
     // b.ts is saved and clean…
     await waitFor(() => expect(editorEl().value).toBe('edited b\n'));

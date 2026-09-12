@@ -1,4 +1,6 @@
 import { MAX_BUFFERED_BYTES, MAX_UPLOAD_CHUNK_BYTES } from '../../src/fileTypes';
+import type { EditorRoot } from '../../src/editorRoots';
+import { editorFileUrl } from './fileUrls';
 
 /** A refusal worth showing the user verbatim. */
 export class UploadError extends Error {}
@@ -16,6 +18,7 @@ async function refusal(response: Response): Promise<string> {
  *  reason this is a plain fetch: neither is a query, so neither belongs in the host's query hooks. */
 export async function uploadFile(
   projectId: number,
+  root: EditorRoot,
   path: string,
   file: File,
   options?: { overwrite?: boolean; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal },
@@ -30,8 +33,10 @@ export async function uploadFile(
     const final = offset + chunk.size >= file.size;
     // `size` declares the file's total on every chunk: the managed transport opens its guest upload
     // with write-begin, and the canonical begin must know the size up front, before the last chunk.
-    const query = `path=${encodeURIComponent(path)}&offset=${offset}&size=${file.size}&overwrite=${overwrite}${final ? '&final=1' : ''}`;
-    const response = await fetch(`/api/projects/${projectId}/upload?${query}`, {
+    const url = editorFileUrl(projectId, 'upload', root, {
+      path, offset: String(offset), size: String(file.size), overwrite, ...(final ? { final: '1' } : {}),
+    });
+    const response = await fetch(url, {
       method: 'PUT',
       body: chunk,
       headers: { 'content-type': 'application/octet-stream' },

@@ -1,5 +1,12 @@
 # Changelog
 
+## editor 0.4.0 - 2026-09-12
+
+- A managed Project's files are read at the directory it is actually mounted at, taken from core's canonical slug rule, instead of a hardcoded `/workspace`. That directory belongs to the base image and is empty in every Project, which is why a Project such as Sdilene showed an empty tree with no error at all.
+- A managed Project now offers two separate roots. Project is its own directory inside the environment and keeps the Git history; System is the whole persistent environment filesystem, where the Project directory appears beside the base image. Kernel filesystems (`/dev`, `/proc`, `/run`, `/sys`) are excluded from System, and version history is reported as unavailable there rather than Git being run at `/`.
+- The root travels as a named value on every request and the daemon resolves the directory from the authorized Project, so a path can never select its own confinement. Each root keeps its own listing cache, and switching roots closes what was open, because a relative path means a different file under the other root.
+- Host Projects are unchanged and gain no filesystem root; browsing the server filesystem remains the separate administrator capability it already was.
+
 ## github 0.1.16 - 2026-09-12
 
 - Read a managed Project's repository at its canonical guest root and request only the selected Project, so the Project drawer reports real Git state instead of a load failure; genuine Git, permission and runtime failures still surface as errors.

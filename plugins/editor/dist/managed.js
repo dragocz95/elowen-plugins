@@ -2,14 +2,32 @@ import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { editorExecute } from './execution.js';
 import { parseProjectCommitLog } from './files.js';
+import { managedGuestRoot } from 'elowen/dist/shared/projectExecution.js';
 import { MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES, MAX_UPLOAD_CHUNK_BYTES, baseName, mimeTypeOf, fileKindOf } from './fileTypes.js';
+import { GUEST_SYSTEM_ROOT, isVirtualGuestPath } from './editorRoots.js';
 const TEXT_LIMIT = 2 * 1024 * 1024;
 const RANGE_LIMIT = 8 * 1024 * 1024;
 /** Decoded bytes per guest chunk; every chunk except the last carries exactly this size. Mirrors the
  *  canonical `GUEST_FILE_CHUNK_BYTES` until the parent refreshes the linked `elowen` package, which
  *  does not export it yet. */
 const GUEST_CHUNK_BYTES = 512 * 1024;
+/** Build output and dependency trees a PROJECT tree does not show. They are a statement about what a
+ *  repository looks like, so the system root does not apply them: `/` is not a checkout, and hiding a
+ *  directory of the base image because a repository would have ignored one by that name would be a lie
+ *  about the filesystem the root exists to show. */
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
+/** How deep each root is walked in one crossing.
+ *
+ *  A project arrives whole, because eight levels of a project is a few thousand entries. A guest root
+ *  filesystem is not that — two levels below `/` already hold tens of thousands of entries — so the
+ *  system root is served one directory at a time and the browser asks for the next level as a folder is
+ *  opened, exactly as the host system root is served. */
+const ROOT_WALK_DEPTH = { project: 8, system: 0 };
+/** The mounts that read the project's Git history, and therefore exist only under the project root. */
+const GIT_MOUNTS = new Set([
+    '/projects/:id/diff', '/projects/:id/head', '/projects/:id/changes', '/projects/:id/changed',
+    '/projects/:id/commit/:hash', '/projects/:id/commit/:hash/diff', '/projects/:id/commits',
+]);
 /** The tree view's own node bound. The guest ceiling is one higher, so a tree of exactly this many nodes
  *  answers complete while one node more comes back `truncated` — the view can tell the two apart without
  *  counting. */
@@ -90,24 +108,71 @@ function requireVersion(entry) {
         throw new Error('guest stat returned no content version');
     return entry.version;
 }
-/** Editor paths remain workspace-relative. The provider resolves symlinks inside the guest. */
-function guestPath(value) {
+/** The guest directory one root resolves to.
+ *
+ *  The project root is the canonical slug-derived mount from core's `managedGuestRoot` — the single rule
+ *  the agent, the tool rows and the container's own mount target already share, so the editor names the
+ *  same directory they do instead of re-deriving one. The system root is the guest's own `/`.
+ *
+ *  Neither is ever taken from the request: the caller supplies a root NAME and the identity of a project
+ *  it is authorized for, and the directory follows from those two. */
+function rootPath(root, slug, projectId) {
+    return root === 'system' ? GUEST_SYSTEM_ROOT : managedGuestRoot(slug, projectId);
+}
+/** One path, resolved against the root it is confined to and returned absolute.
+ *
+ *  Paths are relative to the selected root and stay that way in both directions. Resolution normalises
+ *  `..` away before the confinement test, so traversal cannot leave the root — and under the system root,
+ *  where `/` IS the root, the guest filesystem is the boundary the container already enforces. A
+ *  backslash is refused rather than normalised: it is not a separator here, and accepting it would let
+ *  one name mean two different files depending on who reads it. The guest resolves symlinks and refuses
+ *  the ones that leave the environment.
+ *
+ *  This is the shared rule for BOTH the path a caller asks for and the absolute paths the guest reports
+ *  back in a listing. The extra refusal a caller's path carries is applied by `requestPath` below, not
+ *  here: a listing of `/` legitimately reports `/proc` as one of its entries, and refusing the entry
+ *  would turn "this directory is not browsable" into "the whole filesystem is unreadable". */
+function guestPathIn(base, value) {
     if (typeof value !== 'string' || !value || value.includes('\0') || value.includes('\\'))
         throw new InputError('path required');
-    const path = posix.resolve('/workspace', value);
-    if (path !== '/workspace' && !path.startsWith('/workspace/'))
+    const path = posix.resolve(base, value);
+    const prefix = base === GUEST_SYSTEM_ROOT ? GUEST_SYSTEM_ROOT : `${base}/`;
+    if (path !== base && !path.startsWith(prefix))
         throw new InputError('invalid path');
     return path;
 }
-export async function managedEditorRequest(ctx, req, projectId, mount, method) {
+export async function managedEditorRequest(ctx, req, target, mount, method) {
     const accountUserId = req.auth.userId;
     if (!accountUserId)
         return { status: 403, body: { error: 'a linked account is required' } };
     const provider = ctx.control('sandbox');
     if (!provider)
         return { status: 503, body: { error: 'project environment unavailable' } };
+    const { projectId, root } = target;
     const project = { kind: 'managed', projectId };
-    const execute = (file, args) => editorExecute(ctx, projectId, accountUserId, { type: 'argv', file, args });
+    const base = rootPath(root, target.slug, projectId);
+    /** An absolute path the guest reported, confined to the selected root. */
+    const entryPath = (value) => guestPathIn(base, value);
+    /** A path the CALLER asked for. Kernel interfaces are refused here and nowhere else: they are not
+     *  files — walking `/proc` walks the process table, and a device or FIFO node is a driver rather than
+     *  content — and none of them survive a restart, so none is part of the persistent root filesystem
+     *  this root exists to show.
+     *
+     *  The test is on the path as written, before any guest crossing, and it is deliberately not a
+     *  privilege boundary. A member who plants a symlink to `/proc` inside their own environment and then
+     *  asks for it through the link reaches it, because resolving every request against the guest would
+     *  cost a container execution per read to enforce a rule that grants nobody anything: the whole guest
+     *  already belongs to this project, and the same member can read the same file from a shell in it.
+     *  What this keeps out is the filesystem offering kernel interfaces as editable files. */
+    const guestPath = (value) => {
+        const path = entryPath(value);
+        if (base === GUEST_SYSTEM_ROOT && isVirtualGuestPath(path))
+            throw new InputError('virtual filesystem paths are unavailable');
+        return path;
+    };
+    // Guest commands run AT the root they serve. A converter or a directory removal prepared at some other
+    // directory would be operating outside the root the caller selected.
+    const execute = (file, args) => editorExecute(ctx, projectId, accountUserId, { type: 'argv', file, args }, base);
     // Resolve the live provider for every operation, including multi-request listings and mutations.
     const files = async (operation) => {
         const live = ctx.control('sandbox');
@@ -255,13 +320,15 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             // — three to ten seconds against roughly 750 ms for a single directory. The guest walks the tree
             // itself and returns the same shape in one crossing.
             const explicit = typeof req.query.path === 'string' && req.query.path !== '';
-            const start = explicit ? guestPath(req.query.path) : '/workspace';
+            const start = explicit ? guestPath(req.query.path) : base;
             // Expanding ONE directory asks for its children and nothing below them, which is `maxDepth: 0`; the
-            // project root keeps the eight levels this view has always shown. `skip` omits an ignored directory
-            // entirely rather than descending into it, which is what the client-side filter did before — and it
-            // applies to CHILDREN only, so asking for an ignored directory by name still expands it.
+            // project root keeps the eight levels this view has always shown, while the system root is served
+            // one level at a time whatever is asked for. `skip` omits an ignored directory entirely rather than
+            // descending into it, which is what the client-side filter did before — and it applies to CHILDREN
+            // only, so asking for an ignored directory by name still expands it.
+            const depthLimit = explicit ? 0 : ROOT_WALK_DEPTH[root];
             const result = await files({
-                kind: 'walk', path: start, limit: LIST_NODE_CAP, maxDepth: explicit ? 0 : 8, skip: [...IGNORE],
+                kind: 'walk', path: start, limit: LIST_NODE_CAP, maxDepth: depthLimit, skip: root === 'system' ? [] : [...IGNORE],
             });
             if (result.kind !== 'walk')
                 throw new Error('invalid guest result');
@@ -273,9 +340,11 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                 throw new InputError('path does not exist', 404);
             const nodes = [];
             const prefix = start === '/' ? '/' : `${start}/`;
-            const hidden = (path) => IGNORE.has(posix.basename(path)) || path.endsWith('.elowen-upload');
+            // The upload suffix is a staging filename the guest has no notion of, so it is dropped under both
+            // roots. The repository ignores apply to the project tree alone.
+            const hidden = (path) => (root === 'project' && IGNORE.has(posix.basename(path))) || path.endsWith('.elowen-upload') || (root === 'system' && isVirtualGuestPath(path));
             /** Levels below the directory that was asked for, counted the way the recursive listing counted
-             *  them: a direct child is 0, so `< 8` is the same bound it always applied. */
+             *  them: a direct child is 0, so `< depthLimit` is the same bound the walk itself applied. */
             const depthOf = (path) => path.slice(prefix.length).split('/').length - 1;
             /** One link the walk reported, resolved to the entry it points at, or null when it points nowhere.
              *  The walk gives the link's own facts and never its target's, so this stat is the only way to know
@@ -294,7 +363,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                     if (nodes.length + page.entries.length > LIST_NODE_CAP)
                         throw new InputError('directory listing is too large; select a subdirectory');
                     for (const original of page.entries) {
-                        const clean = guestPath(original.path);
+                        const clean = entryPath(original.path);
                         if (posix.dirname(clean) !== path)
                             throw new Error('invalid guest entry');
                         // Filter before following: a guest probe per symlink is wasted on entries that are dropped anyway.
@@ -303,12 +372,13 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                         const entry = await followEntry(original);
                         if (!entry)
                             continue;
-                        const child = posix.relative('/workspace', clean);
+                        const child = posix.relative(base, clean);
                         if (entry.kind === 'directory') {
                             nodes.push({ path: child, type: 'dir' });
                             // The depth bound is also what terminates a link that points back at its own ancestor.
-                            // Expanding ONE directory never descends, whatever it is reached through.
-                            if (!explicit && depth < 8)
+                            // Expanding ONE directory never descends, whatever it is reached through — and neither does
+                            // the system root, whose bound is zero.
+                            if (depth < depthLimit)
                                 await expandLink(clean, depth + 1);
                         }
                         else if (entry.kind === 'file')
@@ -339,16 +409,16 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             if (result.truncated)
                 throw new InputError('directory listing is too large; select a subdirectory');
             for (const entry of result.entries) {
-                const clean = guestPath(entry.path);
+                const clean = entryPath(entry.path);
                 // Entries are absolute and must lie under the directory that was asked for. `guestPath` already
-                // confines them to the workspace; this keeps a walk from contributing anything outside its root.
+                // confines them to the selected root; this keeps a walk from contributing anything outside it.
                 if (!clean.startsWith(prefix))
                     throw new Error('invalid guest entry');
                 // `skip` covers the ignored directories; the upload suffix is a filename rule the guest has no
                 // notion of, and the basename check stays as the net for both.
                 if (hidden(clean))
                     continue;
-                const path = posix.relative('/workspace', clean);
+                const path = posix.relative(base, clean);
                 if (entry.kind !== 'symlink') {
                     nodes.push(entry.kind === 'directory' ? { path, type: 'dir' } : { path, type: 'file', size: entry.size });
                     continue;
@@ -363,7 +433,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                     nodes.push({ path, type: 'dir' });
                     // Discovered at `depthOf`, expanded one level deeper — the same two counts the recursive
                     // listing kept, so a linked subtree bottoms out at the level a real one does.
-                    if (!explicit && depthOf(clean) < 8)
+                    if (depthOf(clean) < depthLimit)
                         await expandLink(clean, depthOf(clean) + 1);
                 }
                 else if (target.kind === 'file')
@@ -380,7 +450,7 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         if (mount === '/projects/:id/file' && method === 'PUT') {
             const value = await input();
             const path = guestPath(value.path);
-            if (path === '/workspace')
+            if (path === base)
                 throw new InputError('unsupported file type');
             if (typeof value.content !== 'string')
                 throw new InputError('content required');
@@ -427,8 +497,8 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         if (mount === '/projects/:id/new-file' || mount === '/projects/:id/dir') {
             const value = await input();
             const path = guestPath(value.path);
-            if (path === '/workspace')
-                throw new InputError('cannot replace project root');
+            if (path === base)
+                throw new InputError('cannot replace the root directory');
             await execute('mkdir', ['-p', '--', posix.dirname(path)]);
             const operation = mount.endsWith('/dir') ? { kind: 'mkdir', path } : { kind: 'write', path, base64: '', expectedVersion: null };
             const result = await files(operation);
@@ -470,8 +540,8 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         }
         if (mount === '/projects/:id/entry') {
             const path = guestPath(req.query.path);
-            if (path === '/workspace')
-                throw new InputError('cannot delete project root');
+            if (path === base)
+                throw new InputError('cannot delete the root directory');
             const source = await files({ kind: 'stat', path });
             if (source.kind !== 'stat' || !source.entry)
                 throw new InputError('source does not exist');
@@ -490,7 +560,11 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
             const value = await input();
             const from = guestPath(value.from);
             const to = guestPath(value.to);
-            if (from === '/workspace' || to === '/workspace' || to.startsWith(from + '/'))
+            // Both ends are resolved against the SAME root, so a move can never cross from one root into the
+            // other: one request selects one root and every path in it is confined to that root's directory.
+            // The root itself is neither a source nor a destination — renaming or copying over it would replace
+            // the directory the whole view is anchored to.
+            if (from === base || to === base || to.startsWith(from + '/'))
                 throw new InputError('invalid destination');
             if (mount.endsWith('/rename')) {
                 const source = await files({ kind: 'stat', path: from });
@@ -550,6 +624,11 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
         }
         if (mount === '/projects/:id/upload' && method === 'PUT') {
             const path = guestPath(req.query.path);
+            // The same refusal every other mutating route carries. The guest would reject it too — a directory
+            // has no content version to compare against — but it would arrive as a conflict or a generic
+            // transport failure, which describes neither what was asked for nor why it is not allowed.
+            if (path === base)
+                throw new InputError('cannot replace the root directory');
             const offset = Number(req.query.offset ?? '0');
             if (!Number.isSafeInteger(offset) || offset < 0)
                 throw new InputError('invalid offset');
@@ -636,8 +715,17 @@ export async function managedEditorRequest(ctx, req, projectId, mount, method) {
                 throw error;
             }
         }
-        const git = (...args) => execute('git', ['-C', '/workspace', ...args]);
-        const relative = () => posix.relative('/workspace', guestPath(req.query.path));
+        // Git belongs to the project checkout, and only to it. Under the system root the answer is that this
+        // root has no repository, said once and plainly — running Git at `/` would either find nothing or,
+        // worse, discover some unrelated `.git` above the file being asked about and report a history that
+        // has nothing to do with it. Answering an empty diff would be indistinguishable from a clean file.
+        //
+        // Scoped to the Git mounts rather than placed above them, so a mount this transport simply does not
+        // implement still answers "not supported" instead of an explanation about version history.
+        if (GIT_MOUNTS.has(mount) && root !== 'project')
+            throw new InputError('version history is available only in the project root', 409);
+        const git = (...args) => execute('git', ['-C', base, ...args]);
+        const relative = () => posix.relative(base, guestPath(req.query.path));
         if (mount === '/projects/:id/diff')
             return { body: { diff: await git('diff', '--no-ext-diff', '--no-textconv', '--', relative()) } };
         if (mount === '/projects/:id/head')

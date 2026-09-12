@@ -1,10 +1,15 @@
 import { spawn } from 'node:child_process';
-/** Only the provider's launch reaches the host. Project commands, converters and Git stay in the guest. */
-export async function editorExecute(ctx, projectId, accountUserId, command) {
+/** Only the provider's launch reaches the host. Project commands, converters and Git stay in the guest.
+ *
+ * `cwd` is the guest directory the caller already resolved for the root it is serving: the project's
+ * canonical slug-derived mount, or the guest's own `/`. It is never assumed here. A managed project is
+ * not mounted at an anonymous `/workspace` — that directory belongs to the base image and is empty — so
+ * a command prepared there would run beside the project instead of inside it. */
+export async function editorExecute(ctx, projectId, accountUserId, command, cwd) {
     const provider = ctx.control('sandbox');
     if (!provider)
         throw new Error('project environment unavailable');
-    const prepared = await provider.prepareExecution({ projectRef: { kind: 'managed', projectId }, cwd: '/workspace', command, leaseKind: 'editor' }, { accountUserId, roots: [] });
+    const prepared = await provider.prepareExecution({ projectRef: { kind: 'managed', projectId }, cwd, command, leaseKind: 'editor' }, { accountUserId, roots: [] });
     if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== projectId || !prepared.cancel) {
         await prepared.lease.release();
         throw new Error('managed execution unavailable');

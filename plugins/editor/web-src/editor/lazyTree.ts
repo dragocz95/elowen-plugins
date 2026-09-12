@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runtime } from '../runtime';
 import type { FileNode } from '../runtime';
+import type { EditorRoot } from '../../src/editorRoots';
+import { editorApiPath } from './fileUrls';
 
-/** The directory levels the user has opened under the system root.
+/** The directory levels the user has opened under a root that is served one level at a time.
  *
- *  A project tree arrives whole, because eight levels of a project is a few thousand entries. The server
- *  filesystem is not that: two levels below `/` already hold tens of thousands of entries and the project
- *  depth would hold millions, so the daemon serves the system root ONE level at a time and this asks for
- *  the next one as a folder is opened. What comes back is merged into the same flat `FileNode` list the
- *  tree is built from, so nothing downstream has to know which root it is looking at.
+ *  A project tree arrives whole, because eight levels of a project is a few thousand entries. A root
+ *  filesystem is not that — the server's own and a managed project's guest one alike: two levels below
+ *  `/` already hold tens of thousands of entries and the project depth would hold millions. So the daemon
+ *  serves those roots ONE level at a time and this asks for the next one as a folder is opened. What
+ *  comes back is merged into the same flat `FileNode` list the tree is built from, so nothing downstream
+ *  has to know which root it is looking at.
+ *
+ *  `root` is part of the reset key, not only of the request: a managed project's two roots share its id,
+ *  and levels read under one of them describe nothing under the other.
  *
  *  `epoch` is bumped by the caller after a file operation. Every cached level is dropped and the open
  *  ones are read again — a file created inside an opened folder is invisible to the root listing that
  *  react-query refetches on its own. */
-export function useSystemDirs(projectId: number, enabled: boolean, expanded: Set<string>, epoch: number): FileNode[] {
+export function useLazyDirs(projectId: number, root: EditorRoot, enabled: boolean, expanded: Set<string>, epoch: number): FileNode[] {
   const [levels, setLevels] = useState<Record<string, FileNode[]>>({});
   // Which directories this generation has already asked for, so re-rendering (or opening a second
   // folder) does not re-fetch the ones already on screen.
@@ -26,7 +32,7 @@ export function useSystemDirs(projectId: number, enabled: boolean, expanded: Set
     generation.current += 1;
     requested.current = new Set();
     setLevels({});
-  }, [projectId, enabled, epoch]);
+  }, [projectId, root, enabled, epoch]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -36,7 +42,7 @@ export function useSystemDirs(projectId: number, enabled: boolean, expanded: Set
       requested.current.add(dir);
       void (async () => {
         try {
-          const nodes = await runtime().api(`/projects/${projectId}/files?path=${encodeURIComponent(dir)}`) as FileNode[];
+          const nodes = await runtime().api(editorApiPath(projectId, 'files', root, { path: dir })) as FileNode[];
           if (generation.current !== mine) return;
           setLevels((current) => ({ ...current, [dir]: nodes }));
         } catch {
@@ -46,7 +52,7 @@ export function useSystemDirs(projectId: number, enabled: boolean, expanded: Set
         }
       })();
     }
-  }, [projectId, enabled, expanded, epoch]);
+  }, [projectId, root, enabled, expanded, epoch]);
 
   return useMemo(() => Object.values(levels).flat(), [levels]);
 }

@@ -1,6 +1,8 @@
 import { Download, File as FileIcon } from 'lucide-react';
 import { runtime } from '../runtime';
 import { baseName, mimeTypeOf } from './helpers';
+import type { EditorRoot } from '../../src/editorRoots';
+import { editorFileUrl } from './fileUrls';
 
 const { components } = runtime();
 const { Button } = components;
@@ -14,8 +16,9 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
 }
 
-export function BinaryPreview({ projectId, path, size, message, downloadLabel, sizeLabel, typeLabel, downloadUnavailableLabel, downloadAvailable }: {
+export function BinaryPreview({ projectId, root, path, size, message, downloadLabel, sizeLabel, typeLabel, downloadUnavailableLabel, downloadAvailable }: {
   projectId: number;
+  root: EditorRoot;
   path: string;
   size: number;
   message: string;
@@ -27,7 +30,7 @@ export function BinaryPreview({ projectId, path, size, message, downloadLabel, s
 }) {
   const download = () => {
     const anchor = document.createElement('a');
-    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.href = editorFileUrl(projectId, 'raw', root, { path, download: '1' });
     anchor.download = baseName(path);
     document.body.appendChild(anchor);
     anchor.click();

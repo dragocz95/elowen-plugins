@@ -9,28 +9,49 @@ import {
 } from './files.js';
 import { baseName, mimeTypeOf, MAX_UPLOAD_CHUNK_BYTES } from './fileTypes.js';
 import { SYSTEM_LIST_DEPTH, SYSTEM_PROJECT_ID, SYSTEM_ROOT } from './systemRoot.js';
-import { managedEditorRequest } from './managed.js';
+import { DEFAULT_EDITOR_ROOT, parseEditorRoot } from './editorRoots.js';
+import { managedEditorRequest, type ManagedEditorTarget } from './managed.js';
 
-/** The root one request operates on. `system` is deliberately NOT derived from `path`: it is the record
+/** What one request operates on. `hostSystem` is deliberately NOT derived from `path`: it is the record
  *  that this request came through the reserved id and cleared the admin check. A project row registered
- *  at `/` must not pick up the system root's relaxed path guard just by matching the string — that would
- *  hand the whole filesystem to whoever is assigned to that project. */
-interface EditorRoot { path: string; system: boolean; managedProjectId?: number }
+ *  at `/` must not pick up the host system root's relaxed path guard just by matching the string — that
+ *  would hand the whole server filesystem to whoever is assigned to that project.
+ *
+ *  `managed` carries the project identity the guest transport resolves its root from. A host project has
+ *  no `managed` half and exactly one root, which is why the two are different fields rather than one
+ *  string every consumer would have to interpret. */
+interface EditorTarget { path: string; hostSystem: boolean; managed?: ManagedEditorTarget }
 
-function projectFor(ctx: PluginContext, req: PluginApiRequest): EditorRoot | PluginHttpResponse {
+/** A root name that this target cannot serve. Refused rather than answered from the only root it has:
+ *  a request that asked for the guest root filesystem and quietly received the project tree would look
+ *  like an empty environment, which is precisely the failure this selector exists to end. */
+const unknownRoot = (): PluginHttpResponse => ({ status: 400, body: { error: 'this project does not have that root' } });
+
+function projectFor(ctx: PluginContext, req: PluginApiRequest): EditorTarget | PluginHttpResponse {
+  const root = parseEditorRoot(req.query.root);
+  if (!root) return { status: 400, body: { error: 'unknown editor root' } };
   const id = Number(req.params.id);
-  // The system root is an administrator capability and nothing else. Guessing the reserved id buys a
+  // The host system root is an administrator capability and nothing else. Guessing the reserved id buys a
   // caller the same refusal as guessing a project they were never assigned — and it is checked BEFORE
-  // the store lookup, because no project row backs it.
+  // the store lookup, because no project row backs it. Its root is implied by the id, so it answers only
+  // the default selector; naming a root there would be a second way to say the same thing.
   if (id === SYSTEM_PROJECT_ID) {
-    return req.auth.admin ? { path: SYSTEM_ROOT, system: true } : { status: 403, body: { error: 'forbidden' } };
+    if (root !== DEFAULT_EDITOR_ROOT) return unknownRoot();
+    return req.auth.admin ? { path: SYSTEM_ROOT, hostSystem: true } : { status: 403, body: { error: 'forbidden' } };
   }
   if (!Number.isSafeInteger(id) || id <= 0) return { status: 404, body: { error: 'project not found' } };
   if (req.auth.accessibleProjects === null ? !req.auth.admin : !req.auth.accessibleProjects.includes(id)) return { status: 403, body: { error: 'forbidden' } };
   const project = ctx.host.stores().projects.get(id);
-  return project ? { path: project.path, system: false, ...(project.executionKind === 'managed' ? { managedProjectId: id } : {}) } : { status: 404, body: { error: 'project not found' } };
+  if (!project) return { status: 404, body: { error: 'project not found' } };
+  // The slug comes from the row, never from the request: it is what the canonical guest root is derived
+  // from, and a caller who could supply it would be choosing the directory it is confined to.
+  if (project.executionKind === 'managed') return { path: project.path, hostSystem: false, managed: { projectId: id, slug: project.slug, root } };
+  // A host project is a directory on this server and gains no second root here. The whole-filesystem view
+  // stays what it has always been: an administrator capability behind the reserved id.
+  if (root !== DEFAULT_EDITOR_ROOT) return unknownRoot();
+  return { path: project.path, hostSystem: false };
 }
-function isResponse(value: EditorRoot | PluginHttpResponse): value is PluginHttpResponse { return !('path' in value); }
+function isResponse(value: EditorTarget | PluginHttpResponse): value is PluginHttpResponse { return !('path' in value); }
 async function body(req: PluginApiRequest): Promise<Record<string, unknown> | null> {
   const value = await req.json<unknown>().catch(() => null);
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -63,13 +84,13 @@ export function registerEditorApi(ctx: PluginContext): void {
    *  and every route is handed the guard for the root it actually resolved, rather than one captured for
    *  the whole registration, so a system request and a project request are each confined by the rule
    *  that is correct for it. */
-  const guardFor = (root: EditorRoot): SafePath => (root.system ? safeSystemPath : hostSafe);
-  const route = (rootMount: string, method: string, handler: (req: PluginApiRequest, project: EditorRoot, safe: SafePath) => Promise<PluginHttpResponse> | PluginHttpResponse) => {
+  const guardFor = (target: EditorTarget): SafePath => (target.hostSystem ? safeSystemPath : hostSafe);
+  const route = (rootMount: string, method: string, handler: (req: PluginApiRequest, project: EditorTarget, safe: SafePath) => Promise<PluginHttpResponse> | PluginHttpResponse) => {
     ctx.registerApiRoute({ rootMount, path: '', method, access: 'user', handler: async (req) => {
       if (req.path !== '') return { status: 404, body: { error: 'not found' } };
       const project = projectFor(ctx, req);
       if (isResponse(project)) return project;
-      if (project.managedProjectId) return managedEditorRequest(ctx, req, project.managedProjectId, rootMount, method);
+      if (project.managed) return managedEditorRequest(ctx, req, project.managed, rootMount, method);
       return handler(req, project, guardFor(project));
     } });
   };
@@ -79,7 +100,7 @@ export function registerEditorApi(ctx: PluginContext): void {
   route('/projects/:id/files', 'GET', (req, project, safe) => {
     const from = requiredString(req.query.path);
     try {
-      return { body: listProjectFiles(project.path, project.system ? SYSTEM_LIST_DEPTH : undefined, from ? safe(project.path, from) : undefined) };
+      return { body: listProjectFiles(project.path, project.hostSystem ? SYSTEM_LIST_DEPTH : undefined, from ? safe(project.path, from) : undefined) };
     } catch (error) { return fileError(error); }
   });
   route('/projects/:id/file', 'GET', (req, project, safe) => {

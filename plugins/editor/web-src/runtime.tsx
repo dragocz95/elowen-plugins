@@ -9,7 +9,11 @@ type MutationResult<T> = {
   isPending: boolean;
 };
 
-interface Project { id: number; slug: string; path: string; notes: string; icon?: string; pr_enabled: boolean | null }
+/** `executionKind` and `guestRoot` come straight from the host's project projection. The editor reads
+ *  them for one decision each: whether this project has a second root to offer at all, and which guest
+ *  directory to NAME in the interface. The path itself is never derived here — the daemon resolves every
+ *  request from the project row, and a client that re-derived the mount rule would drift from it. */
+interface Project { id: number; slug: string; path: string; notes: string; icon?: string; pr_enabled: boolean | null; executionKind?: 'host' | 'managed'; guestRoot?: string }
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
 /** Only what the editor asks of the signed-in account: whether it may reach the system root. */
@@ -40,19 +44,17 @@ interface EditorRuntime {
      *  system root, and the daemon refuses the reserved id for everyone else regardless. */
     useMe(): QueryResult<Me>;
     useProjects(): QueryResult<Project[]>;
-    useProjectFiles(id: number | null): QueryResult<FileNode[]>;
-    useProjectFile(id: number | null, path: string | null): QueryResult<{ content: string; truncated: boolean; version?: string }>;
+    /** Git reads describe the project checkout and are asked for only under the project root. */
     useProjectFileAtHead(id: number | null, path: string | null, enabled: boolean): QueryResult<{ content: string }>;
     useProjectCommit(id: number | null, hash: string | null): QueryResult<{ diff: string; files: string[] }>;
     useProjectCommitFileDiff(id: number | null, hash: string | null, path: string | null): QueryResult<{ diff: string }>;
     useProjectChanged(id: number | null): QueryResult<{ changed: string[] }>;
     useProjectChanges(id: number | null, enabled: boolean): QueryResult<{ diff: string }>;
-    useWriteProjectFile(): MutationResult<{ id: number; path: string; content: string }>;
-    useNewProjectFile(): MutationResult<{ id: number; path: string }>;
-    useNewProjectDir(): MutationResult<{ id: number; path: string }>;
-    useRenameProjectEntry(): MutationResult<{ id: number; from: string; to: string }>;
-    useCopyProjectEntry(): MutationResult<{ id: number; from: string; to: string }>;
-    useDeleteProjectEntry(): MutationResult<{ id: number; path: string }>;
+    /** Raw React Query against the host's single QueryClient. The editor's file reads and tree mutations
+     *  are keyed by project AND root, which the host's project-file hooks cannot express, so they are
+     *  built here instead of borrowed — on the same cache, through the same invalidation path. */
+    useQuery<T>(options: Record<string, unknown>): QueryResult<T>;
+    useMutation<_TData, _TError, TVars>(options: Record<string, unknown>): MutationResult<TVars>;
     useMobile(): boolean;
     /** The persisted project filter the built-in workspaces share, keyed by storage key. */
     useProjectFilter(storageKey: string): { selectedProject: number | 'all'; setProject(value: number | 'all'): void };
@@ -70,8 +72,8 @@ interface EditorRuntime {
     /** Which of those tables matches the app's current design — a skin may run the UI light. */
     editorTheme(): string;
   };
-  /** Same-origin JSON call against the daemon through the BFF. The editor uses it for the one read the
-   *  host publishes no hook for: listing a single directory of the system root. */
+  /** Same-origin JSON call against the daemon through the BFF. Every editor file request goes through
+   *  it, because each one names the root it operates on and the host's project-file client does not. */
   api(path: string, init?: RequestInit): Promise<unknown>;
   navigate(href: string): void;
 }

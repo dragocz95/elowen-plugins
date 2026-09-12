@@ -17,6 +17,7 @@ const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/cronjob/web-src/JobsSettings.tsx', mode: 'canonical' },
   { path: 'plugins/msteams/web-src/TeamsWorkspace.tsx', mode: 'canonical' },
   { path: 'plugins/editor/web-src/editor/ProjectEditor.tsx', mode: 'explicit-save', reason: 'source-file checkpoints and uploads' },
+  { path: 'plugins/editor/web-src/editor/fileData.ts', mode: 'explicit-save', reason: 'root-scoped file and tree writes: a create, rename, copy or delete of a source file is a deliberate action, and a debounced one would act on a path the user is still typing' },
   { path: 'plugins/editor/web-src/editor/upload.ts', mode: 'explicit-save', reason: 'explicit file upload transfer' },
   { path: 'plugins/github/web-src/GitHubConnectionPanel.tsx', mode: 'explicit-save', reason: 'OAuth/device flow and external account actions' },
   { path: 'plugins/github/web-src/GitHubProjectPanel.tsx', mode: 'explicit-save', reason: 'external publish/review/merge actions and mapping form' },
