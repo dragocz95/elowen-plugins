@@ -242,7 +242,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.17",
+      "version": "0.2.18",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
