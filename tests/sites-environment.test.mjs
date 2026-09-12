@@ -975,10 +975,14 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   for (const source of [index, readiness]) {
     assert.doesNotMatch(source, /report\.steps|report\.available|report\.ok|report\.error/);
   }
-  // The newest core seam this plugin cannot work without. It was the streaming response body (0.28.35);
-  // it is now the account-independent project publication transport, without which a proxy publication
-  // cannot be re-established for a visitor who owns no account.
-  assert.equal(manifest.requiresCore, '0.28.42');
+  // The newest core seam this plugin cannot work without. It was the streaming response body (0.28.35),
+  // then the account-independent project publication transport (0.28.42); it is now the Sandbox manifest
+  // DECLARING `provides.controls: ['sandbox']`. Sites requires that control, and on a core whose Sandbox
+  // never declares it nothing publishes the key — so the daemon's dependency gate refuses to enable
+  // Sites, and no amount of switching plugins on can satisfy it. The floor is what turns that dead end
+  // into a refusal at install time.
+  assert.equal(manifest.requiresCore, '0.28.43');
+  assert.deepEqual(manifest.requiresControls, ['sandbox']);
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));
   assert.ok(manifest.provides.tools.includes('SiteSnapshot'));

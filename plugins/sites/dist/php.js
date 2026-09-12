@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { resolveWithin } from './publish.js';
+import { requireSandbox } from './sandboxControl.js';
 import { runtimeResponseHeaders } from './proxy.js';
 const HEARTBEAT_MS = 5_000;
 const HEADER_CAP_BYTES = 64 * 1024;
@@ -101,9 +102,7 @@ export async function executePhp(deps, site, releaseDir, req, rest, viewer, limi
     const target = phpTarget(releaseDir, rest);
     if (!target)
         throw new PhpError('the PHP entry script does not exist');
-    const sandbox = deps.ctx.control('sandbox');
-    if (!sandbox)
-        throw new PhpError('the Sandbox plugin is disabled');
+    const sandbox = requireSandbox(deps.ctx.control('sandbox'));
     // Read the bounded hook body before acquiring a durable execution lease. If body decoding fails there
     // is then no lease to orphan and no child to clean up.
     const body = await req.body();

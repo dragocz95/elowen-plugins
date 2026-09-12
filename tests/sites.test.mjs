@@ -1751,6 +1751,44 @@ test('a proxy publication is refused without a usable port, a managed Project, o
   assert.deepEqual(harness.store.allSites(), [], 'a refused create persists nothing');
 });
 
+test('SiteCreate names the Sandbox plugin when it is off, on both paths that cannot do without it', async (t) => {
+  // Sites declares `requiresControls: ['sandbox']`, so this is the reload window between the daemon
+  // refusing to enable Sites without a provider and refusing to switch that provider off underneath it.
+  // Both paths used to say "The Sandbox environment runtime is unavailable", which reads as a broken
+  // container rather than as a switch somebody turned off.
+  const proxy = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    projectRef: { kind: 'managed', projectId: 7 },
+    runtimeAvailable: false,
+  });
+  await assert.rejects(
+    () => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }),
+    /Sandbox plugin, which is not enabled[\s\S]*Settings › Plugins/,
+  );
+
+  // A managed source folder is created THROUGH the Sandbox, so a file publication out of one is the
+  // second path with no fallback of its own.
+  const managedSource = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    projectRef: { kind: 'managed', projectId: 7 },
+    workDir: '/kolin',
+    runtimeAvailable: false,
+  });
+  await assert.rejects(
+    () => managedSource.call('SiteCreate', { title: 'Static' }),
+    /Sandbox plugin, which is not enabled/,
+  );
+
+  // The refusal must arrive as itself. The tool wraps an unexpected failure in "Could not create the
+  // site:", which would bury the one sentence naming what to switch on.
+  await assert.rejects(() => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }), (error) => {
+    assert.doesNotMatch(error.message, /Could not create the site/);
+    return true;
+  });
+  assert.deepEqual(proxy.store.allSites(), [], 'a refused create persists nothing');
+  assert.deepEqual(managedSource.store.allSites(), []);
+});
+
 test('SitePublish verifies a proxy publication through the transport and flips it live', async (t) => {
   const adopted = [];
   const harness = toolHarness(t, {

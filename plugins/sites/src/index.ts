@@ -23,6 +23,7 @@ import { RuntimeMigrationService } from './migration.js';
 import { deleteSiteResources } from './deletion.js';
 import type { AccessDeps } from './access.js';
 import { ProjectPreviewService } from './preview.js';
+import { requireSandbox } from './sandboxControl.js';
 import { ProjectPublicationService, type ProjectEnvironmentView, type PublicationControl } from './publication.js';
 
 const SESSION_SECRET_KEY = 'sessionSigningKey';
@@ -128,8 +129,7 @@ export function register(published: PluginContext): void {
   };
   const sourceHostPath = async (site: Site): Promise<string> => {
     if (!site.sourceRel) throw new Error('this Site has no Project source');
-    const sandbox = ctx.control('sandbox');
-    if (!sandbox) throw new Error('the Sandbox environment runtime is unavailable');
+    const sandbox = requireSandbox(ctx.control('sandbox'));
     const root = await sandbox.projectWorkspaceHostPath({ projectId: site.projectId });
     return join(root, ...site.sourceRel.split('/'));
   };
@@ -237,6 +237,9 @@ export function register(published: PluginContext): void {
   /** The state of the environment a proxy publication is served by. Read through the current manager,
    *  because the environment state seam is account-scoped even though the publication transport is not. */
   const projectEnvironment = async (projectId: number, actor: number): Promise<ProjectEnvironmentView | null> => {
+    // Deliberately NOT `requireSandbox`: this reports a state for a listing, and null already means
+    // "unknown" to every reader of it — the same answer an unreachable environment gives one line below.
+    // Throwing would take out the whole listing over a row that has nothing to say.
     const control = ctx.control('sandbox');
     if (!control?.environmentFor) return null;
     try {
@@ -250,6 +253,8 @@ export function register(published: PluginContext): void {
   const provisioning = new EnvironmentProvisioningService({
     control: () => ctx.control('publishedSitesGateway'),
     imageExists: async () => {
+      // Deliberately NOT `requireSandbox`: null is this seam's "could not be checked", which readiness
+      // renders as an informational `unknown` row rather than an installable failure.
       const sandbox = ctx.control('sandbox');
       if (!sandbox?.siteImageStatus) return null;
       return (await sandbox.siteImageStatus({ imageKind: 'base' })).present;
@@ -355,8 +360,7 @@ export function register(published: PluginContext): void {
       // and credentials into this site's archive, volume and rollback.
       const recipe = loadAppRecipe(migrationArtifactDir(siteDir(site.id)));
       if (recipe.dataIncludes.length === 0) return null;
-      const sandbox = ctx.control('sandbox');
-      if (!sandbox) throw new Error('the Sandbox plugin is disabled, so this site\'s data directory cannot be resolved');
+      const sandbox = requireSandbox(ctx.control('sandbox'));
       const cwd = releaseDir(site.id, site.currentReleaseId);
       const prepared = await sandbox.prepareExecution(
         { command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config().runtimeNetwork },

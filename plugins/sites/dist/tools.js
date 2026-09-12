@@ -10,6 +10,7 @@ import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } fr
 import { isDaemonProcess } from './runtime.js';
 import { publicationPort } from './publication.js';
 import { recordedCertificate } from './certificate.js';
+import { requireSandbox, SandboxRequiredError } from './sandboxControl.js';
 /** A command runtime is only offered where the operator has turned it on. */
 function commandRuntimeRefusal(config) {
     if (!config.allowCommandRuntime) {
@@ -23,6 +24,10 @@ const text = (body, details = {}) => ({ content: [{ type: 'text', text: body }],
  *  failure and tries another guess. The host turns a throw into an error result. */
 class ToolError extends Error {
 }
+/** Errors whose message is already written for the model. A tool refusal is one; so is the shared Sandbox
+ *  refusal, which names the plugin to switch on and would be useless behind a "Could not publish: Error:"
+ *  prefix. Everything else is an unexpected failure and keeps the prefix that says which operation lost. */
+const isRefusal = (error) => error instanceof ToolError || error instanceof SandboxRequiredError;
 const modelLabel = (ctx) => {
     const model = ctx.currentModel();
     if (!model)
@@ -359,8 +364,7 @@ export function registerTools(deps) {
                     if (selected?.kind !== 'managed') {
                         throw new ToolError('A proxy publication is served by a managed Project environment, so select that Project before creating it.');
                     }
-                    if (!ctx.control('sandbox'))
-                        throw new ToolError('The Sandbox environment runtime is unavailable.');
+                    requireSandbox(ctx.control('sandbox'));
                     if (store.countOwnedBy(userId) - store.countEnvironmentOwnedBy(userId) >= config.maxSitesPerAccount) {
                         throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
                     }
@@ -468,9 +472,7 @@ export function registerTools(deps) {
                 const siteId = randomUUID();
                 let allowed;
                 if (managed) {
-                    const sandbox = ctx.control('sandbox');
-                    if (!sandbox)
-                        throw new ToolError('The Sandbox environment runtime is unavailable.');
+                    const sandbox = requireSandbox(ctx.control('sandbox'));
                     allowed = dir;
                     await sandbox.projectFiles({ project: { kind: 'managed', projectId }, accountUserId: userId, operation: { kind: 'mkdir', path: dir } });
                 }
@@ -556,7 +558,7 @@ export function registerTools(deps) {
                 });
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(`Could not create the site: ${String(error)}`);
+                throw isRefusal(error) ? error : new Error(`Could not create the site: ${String(error)}`);
             }
         },
     }));
@@ -847,7 +849,7 @@ export function registerTools(deps) {
                 });
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(`Could not publish: ${String(error)}`);
+                throw isRefusal(error) ? error : new Error(`Could not publish: ${String(error)}`);
             }
         },
     }));
@@ -887,7 +889,7 @@ export function registerTools(deps) {
                 });
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));
@@ -967,7 +969,7 @@ export function registerTools(deps) {
                 });
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));
@@ -1096,7 +1098,7 @@ export function registerTools(deps) {
                 return text(`Updated.\n\n${describe(updated, deps.config(), environment, latestSnapshotAt(store, updated), projectOf(updated))}`, environment ? { limits: environment.limits } : {});
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));
@@ -1137,7 +1139,7 @@ export function registerTools(deps) {
                 return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));
@@ -1186,7 +1188,7 @@ export function registerTools(deps) {
                 ].join('\n'));
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));
@@ -1253,7 +1255,7 @@ export function registerTools(deps) {
                 return text(`Deleted "${site.title}". Its Project source folder ${site.sourceRel} was left in place.`);
             }
             catch (error) {
-                throw error instanceof ToolError ? error : new Error(String(error));
+                throw isRefusal(error) ? error : new Error(String(error));
             }
         },
     }));

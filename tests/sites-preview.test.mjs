@@ -85,8 +85,10 @@ test('SDK unavailability and application failure are explicit, with no host fall
   assert.equal((await h.request(slug)).status, 503);
   assert.equal(h.released(), h.calls.length);
   h.unavailable();
+  // A visitor's request still answers 503: naming a plugin they cannot switch on would not help them.
   assert.equal((await h.request(slug)).status, 503);
-  await assert.rejects(h.service.request(11, 8080, 7), /unavailable/);
+  // Asking for a preview is an operator action, so it gets the shared refusal that names what to switch on.
+  await assert.rejects(h.service.request(11, 8080, 7), /Sandbox plugin, which is not enabled/);
 });
 
 test('a preview answers through the preview record, never through a publication transport', async t => {

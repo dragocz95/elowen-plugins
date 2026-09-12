@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { cookieName } from './access.js';
 import { siteUrl } from './config.js';
 import { proxyToEnvironment } from './proxy.js';
+import { requireSandbox } from './sandboxControl.js';
 /** Preview records contain no ownership or visibility grants. Current Project membership is authority. */
 export class ProjectPreviewService {
     deps;
@@ -21,9 +22,7 @@ export class ProjectPreviewService {
             throw new Error('invalid Project preview port or identity');
         if (!this.allowed(projectId, accountUserId))
             throw new Error('current managed Project access is required');
-        const control = this.deps.control();
-        if (!control)
-            throw new Error('the Sandbox environment runtime is unavailable');
+        const control = requireSandbox(this.deps.control());
         // Resolve the actual running target before creating an address. This lease never becomes a URL.
         const binding = await control.projectPreviewBinding({ project: { kind: 'managed', projectId }, accountUserId, port });
         await binding.release();
@@ -65,6 +64,9 @@ export class ProjectPreviewService {
         const preview = this.deps.store.previewById(site.id);
         if (!preview || viewer.userId === null || !this.allowed(preview.projectId, viewer.userId))
             return denied();
+        // Deliberately NOT `requireSandbox`: this is a browser request from a visitor, and a plugin the
+        // reader cannot switch on is not their answer. The unavailability is reported as the transport
+        // status it is, and the operator gets the named refusal on every path they can act on.
         const control = this.deps.control();
         if (!control)
             return { status: 503, headers: { 'cache-control': 'no-store' }, body: 'The environment runtime is unavailable.' };
