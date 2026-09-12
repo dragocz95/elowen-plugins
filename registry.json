@@ -43,7 +43,7 @@
     },
     {
       "name": "discord",
-      "version": "0.3.18",
+      "version": "0.3.19",
       "requiresCore": "0.28.11",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
@@ -123,7 +123,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "requiresCore": "0.28.23",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -193,7 +193,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.14",
+      "version": "0.2.15",
       "requiresCore": "0.28.11",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
@@ -242,7 +242,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.17",
+      "version": "0.2.18",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
