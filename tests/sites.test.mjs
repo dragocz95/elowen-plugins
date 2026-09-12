@@ -1305,6 +1305,33 @@ test('naming a site that does not exist FAILS, and says what would work', async 
   });
 });
 
+// A deletion the daemon has not finished yet leaves the row queued for seconds rather than for the
+// microseconds one process used to need. Nothing may reach that row in the meantime: a publish landing
+// on it would write `live` over the durable marker and revive a site whose members and tickets are gone.
+test('a site queued for deletion is out of reach of every per-site tool', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
+  store.beginDelete('id-1');
+
+  for (const name of ['SiteGet', 'SiteShare', 'SiteDelete']) {
+    await assert.rejects(() => call(name, { site: 'report-a1b2c3', person: 'josef.kvitek' }),
+      /No site of yours matches|No manageable site matches/, `${name} must not resolve a deleting site`);
+  }
+  await assert.rejects(() => call('SitePublish', { site: 'id-1' }), /No site of yours matches/);
+  assert.equal(store.siteById('id-1').status, 'deleting', 'the durable marker survives every refusal');
+});
+
+// The runtime's preflight counts dependents with `allSites`, which excludes a site queued for deletion.
+// Counting one here refused the Project removal in the post-removal hook, after the Project row was gone.
+test('a site queued for deletion no longer holds its Project', () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', projectId: 7 }));
+  assert.deepEqual(store.siteIdsInProject(7), ['id-1']);
+
+  store.beginDelete('id-1');
+  assert.deepEqual(store.siteIdsInProject(7), []);
+});
+
 test('an agent can share a site with a person by name, and take it back', async (t) => {
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
