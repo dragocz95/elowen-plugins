@@ -1164,8 +1164,12 @@ export class SitesStore {
         return this.db.prepare('SELECT id FROM p_sites_sites WHERE owner_user_id = ?')
             .all(userId).map((row) => row.id);
     }
+    /** The sites that keep a Project alive, by the SAME selector the runtime's `projectDependents`
+     *  preflight uses. A site queued for deletion is not one of them: counting it here would let the
+     *  preflight allow a Project removal that the post-removal hook then refuses, after the Project row
+     *  is already gone. */
     siteIdsInProject(projectId) {
-        return this.db.prepare('SELECT id FROM p_sites_sites WHERE project_id = ?')
+        return this.db.prepare("SELECT id FROM p_sites_sites WHERE project_id = ? AND status <> 'deleting'")
             .all(projectId).map((row) => row.id);
     }
     /** Guest rows of an account that no longer exists. Removing the account must not leave it able to

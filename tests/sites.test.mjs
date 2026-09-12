@@ -1305,6 +1305,33 @@ test('naming a site that does not exist FAILS, and says what would work', async 
   });
 });
 
+// A deletion the daemon has not finished yet leaves the row queued for seconds rather than for the
+// microseconds one process used to need. Nothing may reach that row in the meantime: a publish landing
+// on it would write `live` over the durable marker and revive a site whose members and tickets are gone.
+test('a site queued for deletion is out of reach of every per-site tool', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
+  store.beginDelete('id-1');
+
+  for (const name of ['SiteGet', 'SiteShare', 'SiteDelete']) {
+    await assert.rejects(() => call(name, { site: 'report-a1b2c3', person: 'josef.kvitek' }),
+      /No site of yours matches|No manageable site matches/, `${name} must not resolve a deleting site`);
+  }
+  await assert.rejects(() => call('SitePublish', { site: 'id-1' }), /No site of yours matches/);
+  assert.equal(store.siteById('id-1').status, 'deleting', 'the durable marker survives every refusal');
+});
+
+// The runtime's preflight counts dependents with `allSites`, which excludes a site queued for deletion.
+// Counting one here refused the Project removal in the post-removal hook, after the Project row was gone.
+test('a site queued for deletion no longer holds its Project', () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', projectId: 7 }));
+  assert.deepEqual(store.siteIdsInProject(7), ['id-1']);
+
+  store.beginDelete('id-1');
+  assert.deepEqual(store.siteIdsInProject(7), []);
+});
+
 test('an agent can share a site with a person by name, and take it back', async (t) => {
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
@@ -1392,6 +1419,7 @@ test('deletion completes when the environment was already deleted', async () => 
     await deleteSiteResources(target.id, {
       store,
       siteDir: (id) => join(root, id),
+      hasGatewayBroker: () => true,
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async () => { throw new Error('The environment has been deleted'); },
@@ -1420,6 +1448,7 @@ test('deletion succeeds when broker teardown is unavailable after environment re
     await deleteSiteResources(target.id, {
       store,
       siteDir: (id) => join(root, id),
+      hasGatewayBroker: () => true,
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async (_id, options) => {
@@ -1442,6 +1471,42 @@ test('deletion succeeds when broker teardown is unavailable after environment re
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+// A tool call runs in a forked runner, which is refused the privileged gateway broker on purpose. The
+// gateway removal is a no-op there and nothing asks again once the Site row is gone, so a deletion that
+// ran the resource phase anyway left the vhost and the certificate serving a site that no longer exists.
+test('a process without the gateway broker leaves the whole resource phase to the daemon sweep', async () => {
+  const store = new SitesStore(makeDb());
+  const root = tempDir('delete-without-gateway-broker');
+  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
+  store.insertSite(target);
+  mkdirSync(join(root, target.id), { recursive: true });
+  store.beginDelete(target.id);
+  const calls = [];
+  const deps = (hasGatewayBroker) => ({
+    store,
+    siteDir: (id) => join(root, id),
+    hasGatewayBroker: () => hasGatewayBroker,
+    stopLegacy: async () => { calls.push('stopLegacy'); },
+    releasePublication: async () => { calls.push('releasePublication'); },
+    deleteEnvironment: async () => { calls.push('deleteEnvironment'); },
+    removeRuntimeSocket: async (id) => { calls.push(`removeRuntimeSocket:${id}`); },
+    removeGateway: async (slug) => { calls.push(`removeGateway:${slug}`); },
+  });
+
+  try {
+    await deleteSiteResources(target.id, deps(false));
+    assert.deepEqual(calls, [], 'a process that cannot remove the gateway removes nothing');
+    assert.equal(store.siteById(target.id)?.status, 'deleting', 'the durable marker keeps the deletion queued');
+    assert.equal(existsSync(join(root, target.id)), true);
+
+    // The daemon's cleanup sweep reaches the same call with the broker in hand and finishes the job.
+    await deleteSiteResources(target.id, deps(true));
+    assert.deepEqual(calls, ['deleteEnvironment', `removeRuntimeSocket:${target.id}`, `removeGateway:${target.slug}`]);
+    assert.equal(store.siteById(target.id), null);
+    assert.equal(existsSync(join(root, target.id)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('deletion explicitly hands over a mismatched Sandbox binding and removes the Site row', async () => {
   const store = new SitesStore(makeDb());
   const root = tempDir('delete-mismatched-binding');
@@ -1457,6 +1522,7 @@ test('deletion explicitly hands over a mismatched Sandbox binding and removes th
     await deleteSiteResources(target.id, {
       store,
       siteDir: (id) => join(root, id),
+      hasGatewayBroker: () => true,
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async (siteId, options) => {
@@ -1504,6 +1570,7 @@ test('deleting retained legacy resources and a runtime tombstone removes the Sit
     await deleteSiteResources(target.id, {
       store,
       siteDir: (id) => join(root, id),
+      hasGatewayBroker: () => true,
       stopLegacy: async () => {},
       releasePublication: async () => {},
       deleteEnvironment: async () => { tombstoneDiscarded = true; },

@@ -110,7 +110,10 @@ function resolveSourceRoot(ctx, slug) {
 const requireOwned = (deps, ref, userId) => {
     const wanted = ref.trim();
     const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
-    if (!site || site.ownerUserId !== userId) {
+    // A site queued for deletion is already gone from every listing and answers nothing. Handing its row
+    // back would let a publish write `live` over the durable marker and revive a site whose members and
+    // tickets have been destroyed, while the slug it still holds waits to be swept.
+    if (!site || site.status === 'deleting' || site.ownerUserId !== userId) {
         const owned = deps.store.sitesOwnedBy(userId);
         const known = owned.length === 0
             ? 'This account has no sites yet - create one with SiteCreate.'
@@ -122,7 +125,7 @@ const requireOwned = (deps, ref, userId) => {
 const requireManaged = (deps, ref, userId) => {
     const wanted = ref.trim();
     const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
-    if (!site || (site.ownerUserId !== userId && !deps.access.isAdmin(userId))) {
+    if (!site || site.status === 'deleting' || (site.ownerUserId !== userId && !deps.access.isAdmin(userId))) {
         throw new ToolError(`No manageable site matches "${wanted}".`);
     }
     return site;
