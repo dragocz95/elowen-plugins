@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
 
 function fixture(overrides = {}) {
-  const site = { id: 'a', projectId: 1, ownerUserId: 2, sourceDir: '/sources/a', runtime: 'environment', environmentDesiredState: 'stopped', slug: 'a', status: 'live' };
+  // The row carries a Project-RELATIVE source; the host path is resolved per call from the Project's
+  // current workspace root, which is what `projectWorkspaceHostPath` below answers.
+  const site = { id: 'a', projectId: 1, ownerUserId: 2, sourceRel: 'a', runtime: 'environment', environmentDesiredState: 'stopped', slug: 'a', status: 'live' };
   const records = new Map();
   const calls = [];
   const control = {
@@ -12,6 +14,7 @@ function fixture(overrides = {}) {
     requestSiteEnvironment: async input => { calls.push(input); return { ...input, id: 'op', status: 'succeeded' }; },
     siteEnvironmentFor: async () => ({ siteId: 'a', generation: 1, state: 'stopped', desiredState: 'stopped', limits: {}, lastError: null }),
     siteEnvironmentSnapshots: async () => [],
+    projectWorkspaceHostPath: async () => '/sources',
   };
   let available = true;
   const environment = new EnvironmentSupervisor({
@@ -37,17 +40,23 @@ function fixture(overrides = {}) {
   return { environment, control, calls, records, site, disable: () => { available = false; } };
 }
 
-test('a new environment provisions its fixed image before requesting its first start', async () => {
+test('a new environment starts from its registered image without a separate provisioning step', async () => {
+  // A native environment is registered with `persistentRootfs`, so the runtime materializes the container
+  // directly from the image tag in its binding: a `provision-image` request would be refused outright
+  // (`EnvironmentSupervisor.provision`). The legacy image-backed path that still provisions first is
+  // covered by tests/sites-environment.test.mjs.
   const f = fixture();
   f.site.environmentDesiredState = 'running';
   f.control.registerSiteEnvironment = async () => {
     const binding = await f.control.authority.resolve({ siteId: 'a', accountUserId: 2, access: 'manage' });
     assert.equal(binding.initialIntent.desiredState, 'stopped');
+    assert.equal(binding.persistentRootfs, true);
     return { generation: 1 };
   };
   await f.environment.state(f.site);
-  assert.deepEqual(f.calls.map(call => call.action.kind), ['provision-image', 'start']);
-  assert.equal(f.calls[0].action.imageKind, 'base');
+  assert.deepEqual(f.calls.map(call => call.action.kind), ['start']);
+  assert.equal(f.calls.some(call => call.action.kind === 'provision-image'), false,
+    'a persistent-rootfs Site must never be asked to provision an image');
   assert.equal(f.records.get('a:bootstrap-intent'), 'complete');
 });
 
@@ -129,7 +138,7 @@ test('project deletion dependencies include published Sites independently of run
 test('publication exports guest paths through retained typed artifacts, never host file reads', async () => {
   const f = fixture();
   f.site.runtime = 'static';
-  f.site.sourceDir = '/workspace/sites/a';
+  f.site.sourceRel = 'sites/a';
   await f.environment.exportProject(f.site, { kind: 'managed', projectId: 1 }, '/workspace/sites/a/dist', '/sites/sites/a/exports/release-1', 2);
   const request = f.calls.at(-1);
   assert.equal(request.action.kind, 'export-project');

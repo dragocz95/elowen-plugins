@@ -76,7 +76,6 @@ const legacySite = (overrides = {}) => ({
   ownerUserId: 7,
   visibility: 'authenticated',
   accessGeneration: 4,
-  sourceDir: '/data/project/sites/legacy-demo',
   sourceRel: 'sites/legacy-demo',
   spa: false,
   kind: 'static',
@@ -343,7 +342,7 @@ const sourceDirOf = (h) => join(h.root, 'project', 'sites', 'legacy-demo');
 
 const seedLiveStatic = (h, overrides = {}) => {
   mkdirSync(sourceDirOf(h), { recursive: true });
-  h.store.insertSite(legacySite({ sourceDir: sourceDirOf(h), ...overrides }));
+  h.store.insertSite(legacySite(overrides));
   h.store.insertRelease(release());
   return h.seedRelease(SITE_ID, RELEASE_ID, { 'index.html': '<h1>live</h1>', 'assets/app.js': 'console.log(1)' });
 };
@@ -468,7 +467,7 @@ test('preparation stages the RELEASE copy and never the editable source director
     assert.equal(digestTree(workspace), digestTree(releaseDir));
     // The container is handed the staged copy, not the site's own source root.
     assert.equal(h.calls.prepareContainer[0].workspace, workspace);
-    assert.notEqual(h.calls.prepareContainer[0].workspace, legacySite().sourceDir);
+    assert.notEqual(h.calls.prepareContainer[0].workspace, sourceDirOf(h));
   } finally { h.cleanup(); }
 });
 
@@ -1041,9 +1040,7 @@ test('a completed command conversion with dataDir under /data restores the same 
     },
   });
   try {
-    h.store.insertSite(legacySite({
-      sourceDir: sourceDirOf(h), runtime: 'command', startCommand: 'node server.mjs',
-    }));
+    h.store.insertSite(legacySite({ runtime: 'command', startCommand: 'node server.mjs' }));
     h.store.insertRelease(release());
     h.seedRelease(SITE_ID, RELEASE_ID, { 'server.mjs': 'run()' });
     mkdirSync(join(h.legacyHome, 'state'), { recursive: true });
@@ -1424,13 +1421,16 @@ test('the real supervisor stages a container without starting it or touching the
 
     assert.equal(result.created, true);
     assert.equal(h.calls.some(call => call.action.kind === 'start'), false);
-    assert.deepEqual(h.calls.map(call => call.action.kind), ['provision-image', 'prepare']);
+    // A staging binding is registered with `persistentRootfs`, so the container is materialized straight
+    // from the image in its binding and no `provision-image` is requested — `provision()` refuses one.
+    assert.deepEqual(h.calls.map(call => call.action.kind), ['prepare']);
     const binding = await h.authority().resolve({ siteId: SITE_ID, accountUserId: 7, access: 'manage' });
+    assert.equal(binding.persistentRootfs, true);
     assert.equal(binding.limits.memoryMb, 384);
     assert.equal(binding.limits.cpus, 0.5);
     assert.equal(binding.limits.pidsLimit, 128);
     assert.equal(binding.sourcePath, workspace);
-    assert.notEqual(binding.sourcePath, legacySite().sourceDir);
+    assert.notEqual(binding.sourcePath, sourceDirOf(h));
   } finally { h.cleanup(); }
 });
 
