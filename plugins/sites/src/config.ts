@@ -231,8 +231,10 @@ export function resolveConfig(
  *  without being handed every unrelated setting. */
 export type SiteAddressing = Pick<SitesConfig, 'siteHostBase' | 'siteScheme' | 'appBaseUrl'>;
 
-/** The hostname one site is served from, or null while the gateway is unprovisioned. */
-const siteHost = (config: SiteAddressing, slug: string): string | null =>
+/** The hostname one site is served from, or null while the gateway is unprovisioned. Exported because the
+ *  certificate probe asks the gateway for exactly this name by SNI, and a second derivation of it could
+ *  report a certificate as ready for a hostname the serving path never uses. */
+export const siteHost = (config: SiteAddressing, slug: string): string | null =>
   config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
 
 /** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the

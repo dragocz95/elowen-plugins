@@ -99,6 +99,8 @@ const toSite = (row) => {
         lastError: runtime.runtime === 'unsupported'
             ? `Unsupported site runtime: ${runtime.unsupportedRuntime}`
             : row.last_error,
+        certificateRequestedAt: row.certificate_requested_at,
+        certificateError: row.certificate_error,
     };
 };
 const toRuntimeMigration = (row) => ({
@@ -407,6 +409,17 @@ export class SitesStore {
                 // row is read, so an invalid absolute legacy source cannot be mistaken for a relative reference.
                 up: handle => handle.exec('ALTER TABLE p_sites_sites ADD COLUMN source_rel TEXT;'),
             },
+            {
+                version: 18,
+                // Publication readiness, as opposed to a claim about it. The request column is the seam a forked
+                // runner asks through; the error column is the only way a process without the privileged broker can
+                // learn why an issuance attempt failed. Both default to null, so every existing site starts out as
+                // "nothing requested, nothing failed" and its state is decided by the certificate actually served.
+                up: handle => handle.exec(`
+          ALTER TABLE p_sites_sites ADD COLUMN certificate_requested_at TEXT;
+          ALTER TABLE p_sites_sites ADD COLUMN certificate_error TEXT;
+        `),
+            },
         ]);
     }
     migrateSourceReferences(projectRoot) {
@@ -598,6 +611,8 @@ export class SitesStore {
             lastPublishAt: 'last_publish_at',
             lastPublishModel: 'last_publish_model',
             lastError: 'last_error',
+            certificateRequestedAt: 'certificate_requested_at',
+            certificateError: 'certificate_error',
         };
         const sets = [];
         const values = [];

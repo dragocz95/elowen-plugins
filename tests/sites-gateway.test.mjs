@@ -385,19 +385,35 @@ test('the certificate sweep consults the backoff, skips drafts, and runs often e
   // rate-limit budget is already spent, a draft slug is already in a public Certificate Transparency
   // log, or a freshly published page has already been unreachable for hours.
   const source = readFileSync(new URL('../plugins/sites/dist/index.js', import.meta.url), 'utf8');
-  // Scoped to the sweep's OWN body: both guards appear elsewhere in this file, so matching the whole
-  // module would keep passing after either one is deleted from the loop that has to enforce it.
+  // Scoped to the sweep's OWN body: the selector call appears elsewhere in this file (the cheap guard in
+  // front of the sweep reads it too), so matching the whole module would keep passing after the loop that
+  // has to enforce it stopped consulting it.
   const start = source.indexOf('const syncGateway =');
   const end = source.indexOf('if (isDaemonProcess())', start);
   assert.ok(start > -1 && end > start, 'syncGateway must still be recognisable in the build');
   const sweep = source.slice(start, end);
 
+  // Both rules now live in `sitesDueForCertificate`, where they ALSO have direct behavioural tests
+  // (sites-certificate.test.mjs). This still has to hold, because a sweep that stopped asking the selector
+  // would enforce neither: the selector is the only thing between a reload and the authority's per-hostname
+  // failure budget, and between a draft and a public Certificate Transparency entry.
+  assert.match(sweep, /sitesDueForCertificate\(/, 'syncGateway must route through the due-site selector');
+  const selector = readFileSync(new URL('../plugins/sites/dist/certificate.js', import.meta.url), 'utf8');
+  // Bounded at BOTH ends, like the sweep slice above: an open-ended `slice(indexOf(...))` still matches when
+  // the function is gone, because the rules also appear in the service further down the same module.
+  // The opening paren is part of the marker, so renaming the function away is caught too, not only deleting it.
+  const rulesStart = selector.indexOf('export function sitesDueForCertificate(');
+  assert.ok(rulesStart > -1, 'the due-site selector must still be recognisable in the build');
+  const rulesEnd = selector.indexOf('\n}', rulesStart);
+  assert.ok(rulesEnd > rulesStart, 'the due-site selector must still be a single function');
+  const rules = selector.slice(rulesStart, rulesEnd);
+
   // `mayAttempt` existed and the backoff map was maintained correctly — and NOTHING called it, so every
   // plugin reload re-attempted each failing site against the authority's per-hostname failure budget.
-  assert.match(sweep, /mayAttempt\(/, 'syncGateway must skip slugs that are still backed off');
+  assert.match(rules, /mayAttempt\(/, 'the selector must skip slugs that are still backed off');
 
   // A draft has no release to serve, so issuing for it only publishes its slug before anybody chose to.
-  assert.match(sweep, /status !== 'live'/, 'only a live site earns a certificate');
+  assert.match(rules, /status !== 'live'/, 'only a live site earns a certificate');
 
   // A publish arrives from a forked runner that never reconciles. Without a sweep between the 12-hour
   // renewals, the site is live in the store while nginx has no server block for it.

@@ -93,6 +93,15 @@ export class SiteGatewayManager {
     return this.brokerHostnameBase();
   }
 
+  /** Whether THIS process can ask for a certificate at all.
+   *
+   *  The privileged broker is withheld from a forked tool runner on purpose, so a publish arriving there has
+   *  to route its request through the daemon rather than pretend it issued anything. Asked of the registry
+   *  rather than inferred from the process, so the answer is the real capability. */
+  hasBroker(): boolean {
+    return this.ctx.control('publishedSitesGateway') !== undefined;
+  }
+
   gatewayToken(): string {
     if (this.cachedToken) return this.cachedToken;
     const bag = this.ctx.instanceSecrets();
@@ -307,7 +316,11 @@ export class SiteGatewayManager {
       }
       this.nextAttempt.delete(slug);
       this.backoffMs.delete(slug);
-      if (result.slugs) this.current = { ...this.current, slugs: result.slugs };
+      // `active` comes along, because the check above already refused anything else: the broker has just
+      // confirmed a live gateway. Without it a stale `active: false` from an earlier failed reconcile made
+      // `issuedSlugs` answer with nothing right after a successful issuance, and a caller asking which
+      // certificates exist was told none of them did.
+      if (result.slugs) this.current = { ...this.current, active: true, slugs: result.slugs };
     } catch (error) {
       const next = Math.min(MAX_BACKOFF_MS, (this.backoffMs.get(slug) ?? MIN_BACKOFF_MS / 2) * 2);
       this.backoffMs.set(slug, next);
