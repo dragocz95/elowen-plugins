@@ -1226,6 +1226,36 @@ test('SitePublish never announces a plain address while the certificate is unver
   }
 });
 
+test('the pending certificate line ends in exactly one full stop', async (t) => {
+  // A detail is one or more sentences the certificate reader wrote. Appending a period to one that already
+  // ends in a sentence printed "... on its next gateway sweep..", and dropping the period unconditionally
+  // would leave the other details unterminated, so both cases are pinned here.
+  for (const { detail, expected } of [
+    {
+      detail: 'the gateway answers demo-abc123.sites.elowen.example with a certificate for another-site.sites.elowen.example. The certificate has been requested and the daemon issues it on its next gateway sweep.',
+      expected: 'Certificate pending: the gateway answers demo-abc123.sites.elowen.example with a certificate for another-site.sites.elowen.example. The certificate has been requested and the daemon issues it on its next gateway sweep.',
+    },
+    {
+      detail: 'this process holds no gateway broker, so the certificate cannot be observed here',
+      expected: 'Certificate pending: this process holds no gateway broker, so the certificate cannot be observed here.',
+    },
+  ]) {
+    const certificate = { state: 'pending', detail };
+    const harness = toolHarness(t, {
+      certificates: { publish: async () => certificate, readiness: async () => certificate },
+    });
+    const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
+    harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+
+    const published = await harness.call('SitePublish', { site: 'site-1' });
+    const line = published.content[0].text.split('\n').find((candidate) => candidate.startsWith('Certificate pending:'));
+
+    assert.equal(line, expected);
+  }
+});
+
 test('SitePublish returns truthful command success when the public hostname is unavailable', async (t) => {
   const harness = toolHarness(t, {
     gatewayHost: null,
