@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, HardDrive, FolderTree, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
+import { File as FileIcon, Save, Code2, GitCompare, HardDrive, FolderTree, AlertTriangle, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
 import { runtime } from '../runtime';
 import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, langOf, type TreeNode } from './helpers';
 import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
@@ -455,6 +455,21 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   // through a check in the icon slot rather than a marker glued into the label.
   const menus: MenuDescriptor[] = [
     { id: 'file', label: s.menuFile, items: [
+      // Which root is open belongs with the file actions rather than beside the view mode: it decides
+      // WHICH files everything else in this menu operates on. As a submenu it costs the toolbar no
+      // width, and the host's menu is the shadcn/Radix one, so arrow keys, Enter, Escape and the
+      // checked state come with it. Only a managed project has a second root to offer.
+      ...(dualRoot ? [
+        {
+          label: s.rootLabel,
+          icon: rootDisplay === GUEST_SYSTEM_ROOT ? HardDrive : FolderTree,
+          items: [
+            { label: s.rootProject, icon: root === 'project' ? Check : FolderTree, onClick: () => changeRoot('project') },
+            { label: s.rootSystem, icon: root === 'system' ? Check : HardDrive, onClick: () => changeRoot('system') },
+          ],
+        } as MenuEntry,
+        DIVIDER,
+      ] : []),
       { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: 'newFile', dir: uploadDir }) },
       { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: 'newFolder', dir: uploadDir }) },
       DIVIDER,
@@ -540,21 +555,6 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             <span className="text-sm font-semibold text-foreground">{s.editorTitle}</span>
           </>
         )}
-        {/* A managed project has two roots and they are different filesystems, so which one is open has
-            to be visible and changeable without leaving the editor. A segmented control is the same
-            shape the view mode uses, and the roots stay separate: picking one replaces the tree rather
-            than folding the environment into the project's own files. */}
-        {dualRoot && !commit && !working ? (
-          <ViewSwitch
-            label={s.rootLabel}
-            value={root}
-            onChange={changeRoot}
-            options={[
-              { id: 'project' as EditorRoot, label: s.rootProject, hint: s.rootProjectHint, icon: FolderTree },
-              { id: 'system' as EditorRoot, label: s.rootSystem, hint: s.rootSystemHint, icon: HardDrive },
-            ]}
-          />
-        ) : null}
         {/* A path relative to a root the user cannot see is a path relative to nothing, so the header
             carries the absolute one. It is also the only place the root itself is named once a file is
             open, and for a managed project it is the guest directory the daemon resolved — reported by
@@ -613,7 +613,25 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               </div>
             ) : null}
             <div className="editor-file-tree-scroll min-h-0 flex-1 overflow-auto p-1.5">
-              {files.isLoading ? <LoadingState />
+              {/* A listing that FAILED is not an empty folder, and rendering it as one is how a project
+                  full of files reads as a project with none — the exact appearance of the bug this root
+                  work exists to end. The refusal is shown with the daemon's own wording, which already
+                  names what went wrong (a listing too large to render, an environment that is not
+                  running, access that was revoked), and the retry is offered beside it. */}
+              {files.isError ? (
+                <div role="alert" aria-label={s.treeFailed} className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center">
+                  <AlertTriangle size={18} className="text-warning" aria-hidden />
+                  <p className="text-xs font-medium text-foreground">{s.treeFailed}</p>
+                  <p className="break-words text-xs text-muted-foreground">{utils.apiErrorMessage(files.error)}</p>
+                  <button
+                    type="button"
+                    onClick={() => files.refetch()}
+                    className="overlay-menu-item rounded-md border border-border bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {s.treeRetry}
+                  </button>
+                </div>
+              ) : files.isLoading ? <LoadingState />
                 : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />}
             </div>
             {/* Only the way IN. A takeover has exactly one exit — its own back control — and a second

@@ -1,10 +1,7 @@
 'use client';
 import type { ComponentType } from 'react';
 
-/** `hint` is the one-line explanation of what a segment selects, shown on hover and to assistive
- *  technology. A view mode needs none — Edit and Diff say what they are — but a root does: "System"
- *  alone does not say that it is this project's environment rather than the server. */
-export interface ViewOption<T extends string> { id: T; label: string; hint?: string; icon?: ComponentType<{ size?: number; className?: string }> }
+export interface ViewOption<T extends string> { id: T; label: string; icon?: ComponentType<{ size?: number; className?: string }> }
 
 /** Edit / Preview / Diff as ONE segmented control.
  *
@@ -31,8 +28,6 @@ export function ViewSwitch<T extends string>({ options, value, onChange, label }
             type="button"
             role="tab"
             aria-selected={active}
-            title={option.hint}
-            aria-description={option.hint}
             onClick={() => onChange(option.id)}
             className={`overlay-menu-item flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               active ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'

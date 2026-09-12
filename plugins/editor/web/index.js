@@ -743,6 +743,19 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+var TriangleAlert = createLucideIcon("TriangleAlert", [
+  [
+    "path",
+    {
+      d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3",
+      key: "wmoenq"
+    }
+  ],
+  ["path", { d: "M12 9v4", key: "juzpu7" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/type.js
 var Type = createLucideIcon("Type", [
   ["polyline", { points: "4 7 4 4 20 4 20 7", key: "1nosan" }],
@@ -1965,8 +1978,6 @@ function ViewSwitch({ options, value, onChange, label }) {
         type: "button",
         role: "tab",
         "aria-selected": active,
-        title: option.hint,
-        "aria-description": option.hint,
         onClick: () => onChange(option.id),
         className: `overlay-menu-item flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${active ? "bg-accent text-accent-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"}`,
         children: [
@@ -5463,6 +5474,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
   };
   const menus = [
     { id: "file", label: s.menuFile, items: [
+      // Which root is open belongs with the file actions rather than beside the view mode: it decides
+      // WHICH files everything else in this menu operates on. As a submenu it costs the toolbar no
+      // width, and the host's menu is the shadcn/Radix one, so arrow keys, Enter, Escape and the
+      // checked state come with it. Only a managed project has a second root to offer.
+      ...dualRoot ? [
+        {
+          label: s.rootLabel,
+          icon: rootDisplay === GUEST_SYSTEM_ROOT ? HardDrive : FolderTree,
+          items: [
+            { label: s.rootProject, icon: root === "project" ? Check : FolderTree, onClick: () => changeRoot("project") },
+            { label: s.rootSystem, icon: root === "system" ? Check : HardDrive, onClick: () => changeRoot("system") }
+          ]
+        },
+        DIVIDER
+      ] : [],
       { label: s.ctxNewFile, icon: FilePlus, onClick: () => setDialog({ kind: "newFile", dir: uploadDir }) },
       { label: s.ctxNewFolder, icon: FolderPlus, onClick: () => setDialog({ kind: "newFolder", dir: uploadDir }) },
       DIVIDER,
@@ -5544,18 +5570,6 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CodeXml, { size: 15, className: "shrink-0 text-primary", "aria-hidden": true }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-sm font-semibold text-foreground", children: s.editorTitle })
       ] }),
-      dualRoot && !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
-        ViewSwitch,
-        {
-          label: s.rootLabel,
-          value: root,
-          onChange: changeRoot,
-          options: [
-            { id: "project", label: s.rootProject, hint: s.rootProjectHint, icon: FolderTree },
-            { id: "system", label: s.rootSystem, hint: s.rootSystemHint, icon: HardDrive }
-          ]
-        }
-      ) : null,
       absoluteHint ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 truncate font-mono text-xs text-muted-foreground", title: absoluteHint, children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(HardDrive, { size: 11, className: "mr-1 inline shrink-0 text-primary", "aria-hidden": true }),
         absoluteHint
@@ -5601,7 +5615,20 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
           className: `relative flex shrink-0 flex-col border-r border-border ${mobile && fullscreen ? "absolute inset-y-0 left-0 z-10 w-[80%] max-w-72 bg-card shadow-[var(--shadow-raised)]" : "w-[clamp(11rem,18vw,16rem)] bg-background"} ${dropping ? "ring-2 ring-inset ring-primary" : ""}`,
           children: [
             dropping ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 px-3 text-center text-xs font-medium text-primary", children: s.dropHere.replace("{dir}", uploadDir || "/") }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "editor-file-tree-scroll min-h-0 flex-1 overflow-auto p-1.5", children: files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "editor-file-tree-scroll min-h-0 flex-1 overflow-auto p-1.5", children: files.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { role: "alert", "aria-label": s.treeFailed, className: "flex h-full flex-col items-center justify-center gap-2 px-3 text-center", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TriangleAlert, { size: 18, className: "text-warning", "aria-hidden": true }),
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "text-xs font-medium text-foreground", children: s.treeFailed }),
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "break-words text-xs text-muted-foreground", children: utils.apiErrorMessage(files.error) }),
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => files.refetch(),
+                  className: "overlay-menu-item rounded-md border border-border bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+                  children: s.treeRetry
+                }
+              )
+            ] }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
               selectInTree(p);
               if (mobile && fullscreen) setShowTree(false);
             }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),

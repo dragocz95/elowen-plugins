@@ -2,7 +2,10 @@ import type { ComponentType } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 
 type AnyComponent = ComponentType<any>;
-type QueryResult<T> = { data?: T; isLoading: boolean; isError: boolean; refetch(): void };
+/** `error` carries the refusal a failed query was rejected with. Without it a caller can only say that
+ *  something went wrong, and a failed listing would have to be drawn as an empty folder — the one
+ *  outcome the person looking at it cannot tell apart from a real one. */
+type QueryResult<T> = { data?: T; error?: unknown; isLoading: boolean; isError: boolean; refetch(): void };
 type MutationResult<T> = {
   mutate(vars: T, callbacks?: { onSuccess?: () => void; onError?: (error: unknown) => void }): void;
   mutateAsync(vars: T): Promise<unknown>;

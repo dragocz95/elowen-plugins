@@ -426,6 +426,9 @@
     --tw-font-weight: var(--font-weight-semibold, 600);
     font-weight: var(--font-weight-semibold, 600);
   }
+  .break-words {
+    overflow-wrap: break-word;
+  }
   .break-all {
     word-break: break-all;
   }
