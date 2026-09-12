@@ -965,12 +965,11 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   assert.doesNotMatch(seams, /environmentsStatus|provisionEnvironments|PublishedSitesEnvironmentStatus/);
   assert.doesNotMatch(index, /EnvironmentProvisioningService|environments\/readiness|environments\/provision/);
   // The newest core seam this plugin cannot work without. It was the streaming response body (0.28.35),
-  // then the account-independent project publication transport (0.28.42); it is now the Sandbox manifest
-  // DECLARING `provides.controls: ['sandbox']`. Sites requires that control, and on a core whose Sandbox
-  // never declares it nothing publishes the key — so the daemon's dependency gate refuses to enable
-  // Sites, and no amount of switching plugins on can satisfy it. The floor is what turns that dead end
-  // into a refusal at install time.
-  assert.equal(manifest.requiresCore, '0.28.43');
+  // then the account-independent project publication transport (0.28.42) and the Sandbox control declaration.
+  // It is now the completed nspawn-only cleanup and host-runtime contract in 0.28.44. Sites depends on that
+  // contract to keep publication and environment deletion durable; the floor turns an unsafe mixed-version
+  // install into a refusal before the plugin is enabled.
+  assert.equal(manifest.requiresCore, '0.28.44');
   assert.deepEqual(manifest.requiresControls, ['sandbox']);
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));

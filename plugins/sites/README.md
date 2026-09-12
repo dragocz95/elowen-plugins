@@ -8,8 +8,8 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.10.29` |
-| Requires core | `0.28.42` |
+| Version | `0.11.3-chetty.1` |
+| Requires core | `0.28.44` |
 | Requires shared API | `not declared` |
 | User-grantable | No |
 
