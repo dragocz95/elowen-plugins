@@ -420,8 +420,9 @@ export function register(published) {
             ctx.logger.warn(`site conversion ${settled.siteId} could not be completed: ${settled.lastError}`);
         }
     };
-    /** Deletion is crash-safe and synchronous for the caller. The durable marker removes access before any
-     * resource cleanup, while the same idempotent path is also safe for daemon reconciliation after a crash. */
+    /** Deletion is crash-safe. The durable marker removes access before any resource cleanup, while the
+     * same idempotent path is also safe for daemon reconciliation after a crash — and for a forked tool
+     * runner, which holds no privileged broker and therefore leaves the resource phase to that sweep. */
     const deleteSite = async (siteId) => {
         const site = store.siteById(siteId);
         if (!site)
@@ -434,6 +435,7 @@ export function register(published) {
             await deleteSiteResources(siteId, {
                 store,
                 siteDir,
+                hasGatewayBroker: () => gateway.hasBroker(),
                 stopLegacy: (id) => supervisor.stop(id),
                 releasePublication: (target) => publications.release(target),
                 deleteEnvironment: (id, options) => environment.delete(id, options),

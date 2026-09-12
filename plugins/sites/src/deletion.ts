@@ -8,6 +8,9 @@ export const environmentAlreadyDeleted = (error: unknown): boolean =>
 export interface SiteDeletionDeps {
   store: SitesStore;
   siteDir(siteId: string): string;
+  /** Whether THIS process holds the privileged gateway broker. False in a forked tool runner, where the
+   *  control is withheld so a runner never gains a path to sudo. */
+  hasGatewayBroker(): boolean;
   stopLegacy(siteId: string): Promise<void>;
   releasePublication(site: Site): Promise<void>;
   deleteEnvironment(siteId: string, options: { removeBroker: false; handover: true }): Promise<void>;
@@ -21,6 +24,11 @@ export interface SiteDeletionDeps {
 export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps): Promise<void> {
   const site = deps.store.siteById(siteId);
   if (!site) return;
+  // Without the broker this phase cannot finish: the gateway removal below is a silent no-op there, and
+  // once the Site row is gone nothing ever asks for it again — the vhost and the certificate outlive the
+  // site for good. The durable `deleting` marker has already taken the site out of every read path, so
+  // leaving the phase untouched lets the daemon's cleanup sweep run it where the broker exists.
+  if (!deps.hasGatewayBroker()) return;
   if (site.runtime !== 'environment') await deps.stopLegacy(siteId);
   if (site.kind === 'proxy') await deps.releasePublication(site);
   if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
