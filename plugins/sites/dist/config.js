@@ -172,8 +172,10 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         appBaseUrl: appOrigin,
     };
 }
-/** The hostname one site is served from, or null while the gateway is unprovisioned. */
-const siteHost = (config, slug) => config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
+/** The hostname one site is served from, or null while the gateway is unprovisioned. Exported because the
+ *  certificate probe asks the gateway for exactly this name by SNI, and a second derivation of it could
+ *  report a certificate as ready for a hostname the serving path never uses. */
+export const siteHost = (config, slug) => config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
 /** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the
  *  null as "not addressable yet" rather than inventing a URL on the app's own origin. */
 export const siteUrl = (config, slug) => {

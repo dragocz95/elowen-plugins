@@ -58,6 +58,14 @@ export class SiteGatewayManager {
     hostnameBase() {
         return this.brokerHostnameBase();
     }
+    /** Whether THIS process can ask for a certificate at all.
+     *
+     *  The privileged broker is withheld from a forked tool runner on purpose, so a publish arriving there has
+     *  to route its request through the daemon rather than pretend it issued anything. Asked of the registry
+     *  rather than inferred from the process, so the answer is the real capability. */
+    hasBroker() {
+        return this.ctx.control('publishedSitesGateway') !== undefined;
+    }
     gatewayToken() {
         if (this.cachedToken)
             return this.cachedToken;

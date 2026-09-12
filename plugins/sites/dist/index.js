@@ -3,7 +3,8 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
-import { resolveConfig, siteUrl } from './config.js';
+import { resolveConfig, siteHost, siteUrl } from './config.js';
+import { SiteCertificateService, sitesDueForCertificate } from './certificate.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
@@ -76,6 +77,16 @@ export function register(published) {
     };
     const gateway = new SiteGatewayManager(ctx);
     const config = () => resolveConfig(ctx.config, ctx.publicWebUrl(), gateway.hostnameBase());
+    /** The per-site certificate seam. It is deliberately the ONLY certificate authority a tool reaches: the
+     *  privileged broker stays behind `gateway`, and what a publish gets is "ask for THIS site" plus "tell me
+     *  what is actually served", for a site the tool has already proved the caller owns. */
+    const certificates = new SiteCertificateService({
+        canIssue: () => gateway.hasBroker(),
+        issue: (slug) => gateway.ensureSite(slug),
+        store,
+    });
+    /** The hostname the serving path uses, so a readiness verdict can never be about a different name. */
+    const certificateHost = (site) => siteHost(config(), site.slug);
     /** The live account and project facts every access decision reads. Resolved per call, never captured:
      *  a Project taken away or an account deleted has to change the answer immediately. */
     const access = {
@@ -588,7 +599,14 @@ export function register(published) {
     // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
     // admin tier, so the check has to live where the auth is actually read.
     ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
-    registerTools({ ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment, publications, projectEnvironment, people, previews });
+    registerTools({
+        ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor, environment,
+        publications, projectEnvironment, people, previews,
+        certificates: {
+            publish: (site) => certificates.publish(site, certificateHost(site)),
+            readiness: (site) => certificates.readiness(site, certificateHost(site)),
+        },
+    });
     ctx.registerReadinessCheck(() => gateway.readiness());
     // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
     // card lists what is checked, and a failing item shows its own cause where a reader is looking.
@@ -613,24 +631,26 @@ export function register(published) {
         if (!status.active)
             return;
         const issued = new Set(gateway.issuedSlugs());
-        for (const site of store.allSites()) {
-            // Only a site that is actually being served earns a certificate. A draft has no release behind it,
-            // and issuing for one would publish its slug in a public Certificate Transparency log before
-            // anybody decided to publish the page at all.
-            if (site.status !== 'live')
-                continue;
-            if (!all && issued.has(site.slug))
-                continue;
-            // A plugin reload runs this again from the top, and a certificate authority counts FAILED
-            // validations per hostname per hour. Without this the third reload in a row spends the budget the
-            // working sites need on the one site whose DNS is simply wrong.
-            if (!gateway.mayAttempt(site.slug))
-                continue;
+        // Only a site that is actually being served earns a certificate. A draft has no release behind it, and
+        // issuing for one would publish its slug in a public Certificate Transparency log before anybody
+        // decided to publish the page at all. The selector also carries the backoff and request rules.
+        for (const site of sitesDueForCertificate(store.allSites(), { all, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) })) {
+            // Cleared by the attempt that answers it, whatever the attempt's outcome — the recorded reason below
+            // is what a later reader consults, and leaving the request set would re-ask on every single tick.
+            if (site.certificateRequestedAt != null)
+                store.updateSite(site.id, { certificateRequestedAt: null });
             try {
                 await gateway.ensureSite(site.slug);
+                if (store.siteById(site.id)?.certificateError != null)
+                    store.updateSite(site.id, { certificateError: null });
             }
             catch (error) {
-                ctx.logger.warn(`site ${site.slug} has no certificate yet: ${error instanceof Error ? error.message : String(error)}`);
+                const message = error instanceof Error ? error.message : String(error);
+                // Recorded, not only logged: a forked runner cannot read the certificate directory, the nginx
+                // config or this log, so the row is the only place it can learn why the hostname has no
+                // certificate. Without it every failure reads to an agent as "still pending".
+                store.updateSite(site.id, { certificateError: message });
+                ctx.logger.warn(`site ${site.slug} has no certificate yet: ${message}`);
             }
         }
         await previews.syncGateway(issued, all);
@@ -713,8 +733,9 @@ export function register(published) {
         if (!gateway.isActive())
             return;
         const issued = new Set(gateway.issuedSlugs());
-        const pending = store.allSites().some((site) => site.status === 'live' && !issued.has(site.slug) && gateway.mayAttempt(site.slug));
-        if (pending)
+        // The SAME selector the sweep routes on, so this guard can never skip a pass the sweep had work for.
+        const pending = sitesDueForCertificate(store.allSites(), { all: false, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) });
+        if (pending.length > 0)
             await syncGateway();
     }, ISSUE_SWEEP_MS);
     ctx.registerInterval('renew-site-gateway', async () => {

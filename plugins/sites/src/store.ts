@@ -70,6 +70,14 @@ export interface Site {
   lastPublishAt: string | null;
   lastPublishModel: string | null;
   lastError: string | null;
+  /** Set when a publish asks for this site's certificate and cleared by the attempt that answers it. It is
+   *  how a forked runner — which holds no gateway broker — asks the daemon for ONE site's certificate, and
+   *  it overrides the per-slug issuance backoff for that one request. Optional like every other column
+   *  added after the table existed: a row is INSERTED without it and reads always carry it. */
+  certificateRequestedAt?: string | null;
+  /** Why the last issuance attempt the daemon actually made failed, or null when it succeeded. The only
+   *  way a process without the broker can learn the authority's own reason. */
+  certificateError?: string | null;
 }
 
 export interface Release {
@@ -291,6 +299,8 @@ interface SiteDbRow {
   last_publish_at: string | null;
   last_publish_model: string | null;
   last_error: string | null;
+  certificate_requested_at: string | null;
+  certificate_error: string | null;
 }
 
 interface ReleaseDbRow {
@@ -360,6 +370,8 @@ const toSite = (row: SiteDbRow): Site => {
     lastError: runtime.runtime === 'unsupported'
       ? `Unsupported site runtime: ${runtime.unsupportedRuntime}`
       : row.last_error,
+    certificateRequestedAt: row.certificate_requested_at,
+    certificateError: row.certificate_error,
   };
 };
 
@@ -669,6 +681,17 @@ export class SitesStore {
         // row is read, so an invalid absolute legacy source cannot be mistaken for a relative reference.
         up: handle => handle.exec('ALTER TABLE p_sites_sites ADD COLUMN source_rel TEXT;'),
       },
+      {
+        version: 18,
+        // Publication readiness, as opposed to a claim about it. The request column is the seam a forked
+        // runner asks through; the error column is the only way a process without the privileged broker can
+        // learn why an issuance attempt failed. Both default to null, so every existing site starts out as
+        // "nothing requested, nothing failed" and its state is decided by the certificate actually served.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_sites ADD COLUMN certificate_requested_at TEXT;
+          ALTER TABLE p_sites_sites ADD COLUMN certificate_error TEXT;
+        `),
+      },
     ]);
   }
 
@@ -876,7 +899,8 @@ export class SitesStore {
   updateSite(id: string, patch: Partial<Pick<Site,
     'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' | 'bind' | 'port' |
     'startCommand' | 'lastPublishAt' | 'lastPublishModel' | 'lastError' | 'environmentCpus' |
-    'environmentMemoryMb' | 'environmentPidsLimit' | 'environmentDesiredState'>>): void {
+    'environmentMemoryMb' | 'environmentPidsLimit' | 'environmentDesiredState' |
+    'certificateRequestedAt' | 'certificateError'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
@@ -894,6 +918,8 @@ export class SitesStore {
       lastPublishAt: 'last_publish_at',
       lastPublishModel: 'last_publish_model',
       lastError: 'last_error',
+      certificateRequestedAt: 'certificate_requested_at',
+      certificateError: 'certificate_error',
     };
     const sets: string[] = [];
     const values: unknown[] = [];

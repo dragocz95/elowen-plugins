@@ -1031,7 +1031,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, projectEnvironment } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, projectEnvironment, certificates } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -1088,6 +1088,13 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
       adopt: () => {},
     },
     projectEnvironment: projectEnvironment ?? (async () => null),
+    // Certificate readiness is exercised against the real service in sites-certificate.test.mjs. Here it
+    // reports the one state a harness with no gateway can honestly claim, so a publish test asserts the
+    // publish and never the certificate.
+    certificates: certificates ?? {
+      publish: async () => ({ state: 'pending', detail: 'no gateway is stubbed in this harness' }),
+      readiness: async () => ({ state: 'pending', detail: 'no gateway is stubbed in this harness' }),
+    },
   });
   return { store, dir, registered, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
 };
@@ -1169,6 +1176,50 @@ test('SitePublish never reports the new address as one that already answers', as
   assert.match(body, /https:\/\/demo-abc123\.sites\.elowen\.example/, 'the address is still reported');
   assert.doesNotMatch(body, /\bLive at\b/, 'but never as an address that already works');
   assert.match(body, /certificate/i, 'and the wait for its certificate is stated');
+});
+
+test('SitePublish presents the address as usable only against a verified certificate', async (t) => {
+  const harness = toolHarness(t, {
+    certificates: {
+      publish: async () => ({ state: 'ready', detail: 'the gateway serves a certificate for demo-abc123.sites.elowen.example' }),
+      readiness: async () => ({ state: 'ready', detail: 'verified' }),
+    },
+  });
+  const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
+  harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+
+  const published = await harness.call('SitePublish', { site: 'site-1' });
+
+  assert.equal(published.details.certificate.state, 'ready');
+  assert.match(published.content[0].text, /^Address: https:\/\/demo-abc123\.sites\.elowen\.example\/$/m);
+  assert.match(published.content[0].text, /Certificate: verified/);
+});
+
+test('SitePublish never announces a plain address while the certificate is unverified', async (t) => {
+  for (const certificate of [
+    { state: 'pending', detail: 'the gateway answers it with a certificate for another-site.sites.elowen.example' },
+    { state: 'error', detail: 'certbot failed: too many failed authorizations recently' },
+  ]) {
+    const harness = toolHarness(t, {
+      certificates: { publish: async () => certificate, readiness: async () => certificate },
+    });
+    const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
+    harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+
+    const published = await harness.call('SitePublish', { site: 'site-1' });
+    const text = published.content[0].text;
+
+    // The whole defect: a bare address line reads as a working HTTPS page, and until the certificate is
+    // observed it is a page every browser refuses.
+    assert.doesNotMatch(text, /^Address: \S+$/m, `bare address line for ${certificate.state}`);
+    assert.match(text, /not usable over HTTPS/i);
+    assert.equal(published.details.certificate.state, certificate.state);
+    assert.match(text, new RegExp(certificate.state === 'error' ? 'Certificate error' : 'Certificate pending'));
+  }
 });
 
 test('SitePublish returns truthful command success when the public hostname is unavailable', async (t) => {

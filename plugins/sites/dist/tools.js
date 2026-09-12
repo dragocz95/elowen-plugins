@@ -196,19 +196,21 @@ const addressOf = (config, slug) => {
 };
 /** What a just-published address is actually worth to whoever opens it next.
  *
- *  Publishing writes the release and marks the site live; the certificate for its hostname is issued
- *  afterwards, by the daemon's own gateway sweep. This tool cannot close that gap and cannot even observe
- *  it: the privileged gateway control is withheld from the forked runner a publish arrives from, and the
- *  issued-slug list exists only behind the root helper, so a republication of an already-certified slug is
- *  indistinguishable here from a first publication. Until issuance lands the hostname is answered by the
- *  catch-all block holding another site's certificate, which a browser rejects outright — so announcing
- *  the address as already live reported a working publication as a broken product. */
-const publishedAddressLines = (address) => (address
-    ? [
-        `Address: ${address}`,
-        'The certificate for this hostname is issued shortly after publishing, normally within a minute. Opening the address before then shows a certificate warning.',
-    ]
-    : ['The public hostname is unavailable until the instance domain gateway is configured.']);
+ *  Publishing writes the release and marks the site live; the certificate for its hostname is a separate
+ *  fact. Until it exists the hostname is answered by the catch-all block holding ANOTHER site's
+ *  certificate, which a browser rejects outright, so the address is presented as usable HTTPS only against
+ *  an observed certificate: `ready` means a TLS handshake established that the gateway serves THIS
+ *  hostname's certificate, and nothing weaker earns the plain address line. */
+const publishedAddressLines = (address, certificate) => {
+    if (address === null)
+        return [`The public hostname is unavailable: ${certificate.detail}.`];
+    if (certificate.state === 'ready')
+        return [`Address: ${address}`, `Certificate: verified - ${certificate.detail}.`];
+    if (certificate.state === 'error') {
+        return [`Address: ${address} - NOT usable over HTTPS.`, `Certificate error: ${certificate.detail}.`];
+    }
+    return [`Address: ${address} - not usable over HTTPS yet.`, `Certificate pending: ${certificate.detail}.`];
+};
 /** What an environment has instead of a publish.
  *
  *  SitePublish refuses an environment outright, so its `lastPublishAt` stays null forever. Reading the
@@ -697,9 +699,12 @@ export function registerTools(deps) {
                         lastPublishModel: model,
                         lastError: null,
                     });
+                    // Only now: the row has to be live before a certificate is asked for, because the gateway serves
+                    // what the store says is published and the HTTP-01 challenge is answered through that config.
+                    const certificate = await deps.certificates.publish(site);
                     return text([
                         `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
-                        ...publishedAddressLines(address),
+                        ...publishedAddressLines(address, certificate),
                         `Transport socket: ${socketPath}`,
                         `Visible to: ${site.visibility}`,
                         '',
@@ -707,6 +712,7 @@ export function registerTools(deps) {
                     ].join('\n'), {
                         siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
                         url: address, socketPath, visibility: site.visibility, status: 'live', answered: probe.status,
+                        certificate,
                     });
                 }
                 const relative = (input.outputDir ?? '').replace(/^\/+/, '');
@@ -808,9 +814,12 @@ export function registerTools(deps) {
                     if (relativeWarning)
                         warnings.push(relativeWarning);
                 }
+                // After the release is the live one and any runtime restart has succeeded: a certificate for a
+                // hostname whose publish then failed would be issued for a page nobody published.
+                const certificate = await deps.certificates.publish(site);
                 return text([
                     `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
-                    ...publishedAddressLines(address),
+                    ...publishedAddressLines(address, certificate),
                     `Visible to: ${site.visibility}`,
                     ...(site.runtime === 'command' && !isDaemonProcess()
                         ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
@@ -819,6 +828,7 @@ export function registerTools(deps) {
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, releaseId, url: address,
                     visibility: site.visibility, fileCount: snapshot.fileCount, sizeBytes: snapshot.sizeBytes, warnings,
+                    certificate,
                 });
             }
             catch (error) {
@@ -891,9 +901,13 @@ export function registerTools(deps) {
                 const people = deps.people();
                 const guests = store.memberIds(site.id)
                     .map((id) => ({ id, name: people.get(id)?.name || people.get(id)?.username || `#${id}` }));
+                // One handshake for the one site being read. A published page that a browser refuses is the single
+                // most useful thing this tool can report, and it is only true if it is observed each time.
+                const certificate = site.status === 'live' ? await deps.certificates.readiness(site) : null;
                 return text([
                     describe(site, config, environment, latestSnapshotAt(store, site), projectInfo),
                     `  base path  ${SITE_BASE_PATH}`,
+                    ...(certificate ? [`  certificate ${certificate.state} - ${certificate.detail}`] : []),
                     `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
                     '',
                     site.kind === 'proxy'
@@ -913,6 +927,7 @@ export function registerTools(deps) {
                     runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
                     network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
                     guests, currentReleaseId: site.currentReleaseId,
+                    ...(certificate ? { certificate } : {}),
                     ...(projectInfo ? { project: { id: site.projectId, ...projectInfo } } : {}),
                     ...(environment ? { environment, environmentAction } : {}),
                     releases: releases.map((release) => ({

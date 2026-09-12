@@ -837,8 +837,9 @@ test('migration v5 preserves existing runtimes, exposes environment counts and f
   // durable crash-recovery state on it, v11/v12 the runtime records and provider-owned lifecycle
   // columns, v13 drops the disk threshold column nothing enforced, v14 adds the publication kind and
   // target, v15 adds durable rollback and completion state, v16 identifies each conversion attempt, and
-  // v17 stages the Project-relative source backfill performed at plugin boot; none changes runtime meaning.
-  assert.equal(db.appliedVersion(), 17);
+  // v17 stages the Project-relative source backfill performed at plugin boot, and v18 adds the certificate
+  // request and recorded failure reason; none changes runtime meaning.
+  assert.equal(db.appliedVersion(), 18);
   for (const runtime of ['static', 'command', 'php']) assert.equal(store.siteById(`legacy-${runtime}`).runtime, runtime);
   // The rows seeded above predate the publication model, so the migration's defaults make them static
   // publications with nothing to proxy — which is exactly how the serving path treated them before.
@@ -1093,6 +1094,12 @@ function phase2ToolHarness(t, { userId = 1, admin = false, projectAccess = true,
     deleteSite: async () => {},
     runtime: { allocatePort: async () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
     environment,
+    // No gateway is stubbed here, so this reports the one state such a harness can honestly claim.
+    // Certificate readiness itself is exercised in sites-certificate.test.mjs.
+    certificates: {
+      publish: async () => ({ state: 'pending', detail: 'no gateway is stubbed in this harness' }),
+      readiness: async () => ({ state: 'pending', detail: 'no gateway is stubbed in this harness' }),
+    },
   });
   return { store, environment, environmentCalls, call: (name, input = {}) => registered.get(name).execute('call-1', input) };
 }
