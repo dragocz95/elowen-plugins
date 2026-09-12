@@ -198,6 +198,9 @@ const addressOf = (config, slug) => {
     }
     return url;
 };
+/** End a detail as one sentence. A certificate detail may be several sentences and already carry its own
+ *  closing punctuation, so appending a period unconditionally printed "... on its next gateway sweep..". */
+const ended = (detail) => (/[.!?]$/.test(detail) ? detail : `${detail}.`);
 /** What a just-published address is actually worth to whoever opens it next.
  *
  *  Publishing writes the release and marks the site live; the certificate for its hostname is a separate
@@ -207,13 +210,13 @@ const addressOf = (config, slug) => {
  *  hostname's certificate, and nothing weaker earns the plain address line. */
 const publishedAddressLines = (address, certificate) => {
     if (address === null)
-        return [`The public hostname is unavailable: ${certificate.detail}.`];
+        return [`The public hostname is unavailable: ${ended(certificate.detail)}`];
     if (certificate.state === 'ready')
-        return [`Address: ${address}`, `Certificate: verified - ${certificate.detail}.`];
+        return [`Address: ${address}`, `Certificate: verified - ${ended(certificate.detail)}`];
     if (certificate.state === 'error') {
-        return [`Address: ${address} - NOT usable over HTTPS.`, `Certificate error: ${certificate.detail}.`];
+        return [`Address: ${address} - NOT usable over HTTPS.`, `Certificate error: ${ended(certificate.detail)}`];
     }
-    return [`Address: ${address} - not usable over HTTPS yet.`, `Certificate pending: ${certificate.detail}.`];
+    return [`Address: ${address} - not usable over HTTPS yet.`, `Certificate pending: ${ended(certificate.detail)}`];
 };
 /** How a listing prints one site's certificate facts. The verdict comes from the row, so the line says so:
  *  `SiteGet` is the only reader that opens a handshake and the only one entitled to describe what is being

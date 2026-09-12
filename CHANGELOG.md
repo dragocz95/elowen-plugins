@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.11.2 - 2026-09-12
+
+- the published address no longer ends a certificate detail that is already a sentence with a second full stop
+
 ## sites 0.11.1 - 2026-09-12
 
 - SiteGet no longer reports a host Project path the caller cannot use
