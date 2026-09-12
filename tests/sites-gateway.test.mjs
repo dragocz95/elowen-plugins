@@ -25,7 +25,7 @@ const makeResolver = (overrides = {}) => {
   return { resolver, queries };
 };
 
-const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {}, publicWebUrl = `https://${APP_HOST}` } = {}) => {
+const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {}, publicWebUrl = `https://${APP_HOST}`, gatewayAvailable = true } = {}) => {
   const values = new Map();
   const warnings = [];
   const calls = { status: 0, sync: 0, ensure: [], remove: [] };
@@ -60,7 +60,7 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
     instanceSecrets: () => bag,
     publicWebUrl: () => publicWebUrl,
     logger: { warn: (message) => warnings.push(message), info: () => {} },
-    control: (name) => name === 'publishedSitesGateway' ? control : undefined,
+    control: (name) => gatewayAvailable && name === 'publishedSitesGateway' ? control : undefined,
   };
   const resolved = makeResolver(dns);
   return {
@@ -353,12 +353,21 @@ test('a broker that refuses the site is a failed publish, not a published site w
   await assert.rejects(harness.manager.ensureSite('demo-abc123'), /certbot timed out/);
 });
 
-test('removing a site never throws, because the site is already gone', async () => {
+test('removing a site propagates broker failure so durable deletion can retry it', async () => {
   const harness = makeHarness();
   harness.control.removeSite = async () => { throw new Error('certbot is holding the lineage'); };
-  await harness.manager.removeSite('demo-abc123');
-  assert.equal(harness.warnings.length, 1, 'the stuck certificate is reported, not raised');
-  assert.match(harness.warnings[0], /demo-abc123/);
+  await assert.rejects(harness.manager.removeSite('demo-abc123'), /certbot is holding the lineage/);
+});
+
+test('removing a site treats an unavailable broker verdict as cleanup failure', async () => {
+  const harness = makeHarness();
+  harness.control.removeSite = async () => ({ available: false, active: false, hostnameBase: HOSTNAME_BASE, detail: 'nginx reload failed' });
+  await assert.rejects(harness.manager.removeSite('demo-abc123'), /nginx reload failed/);
+});
+
+test('removing a site refuses to complete when the gateway control disappears', async () => {
+  const harness = makeHarness({ gatewayAvailable: false });
+  await assert.rejects(harness.manager.removeSite('demo-abc123'), /no published-sites gateway broker/);
 });
 
 test('issuance refuses to start without the contact address a certificate authority requires', async () => {

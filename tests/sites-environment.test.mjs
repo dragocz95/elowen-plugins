@@ -28,7 +28,6 @@ import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { proxyToEnvironment } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
-import { EnvironmentProvisioningService } from '../plugins/sites/dist/provisioning.js';
 import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
 import { installAppRecipe } from '../plugins/sites/dist/recipe.js';
 import {
@@ -962,19 +961,9 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
   const index = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
   const lifecycle = readFileSync(new URL('../plugins/sites/src/environment.ts', import.meta.url), 'utf8');
-  const readiness = readFileSync(new URL('../plugins/sites/src/readiness.ts', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
-  assert.match(seams, /environmentsStatus\(\)/);
-  assert.match(seams, /provisionEnvironments\(\)/);
-  assert.match(seams, /ready: boolean/);
-  assert.match(seams, /items: PublishedSitesEnvironmentStatusItem\[\]/);
-  assert.doesNotMatch(seams, /EnvironmentProvision|steps: Environment|status: Environment|error\?: string/);
-  // The provisioning report is consumed where the readiness rows are built; index.ts only wires it up.
-  assert.match(readiness, /report\.items/);
-  assert.match(readiness, /report\.ready/);
-  for (const source of [index, readiness]) {
-    assert.doesNotMatch(source, /report\.steps|report\.available|report\.ok|report\.error/);
-  }
+  assert.doesNotMatch(seams, /environmentsStatus|provisionEnvironments|PublishedSitesEnvironmentStatus/);
+  assert.doesNotMatch(index, /EnvironmentProvisioningService|environments\/readiness|environments\/provision/);
   // The newest core seam this plugin cannot work without. It was the streaming response body (0.28.35),
   // then the account-independent project publication transport (0.28.42); it is now the Sandbox manifest
   // DECLARING `provides.controls: ['sandbox']`. Sites requires that control, and on a core whose Sandbox
@@ -986,8 +975,8 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   assert.ok(manifest.provides.tools.includes('SiteExec'));
   assert.ok(manifest.provides.tools.includes('SiteControl'));
   assert.ok(manifest.provides.tools.includes('SiteSnapshot'));
-  assert.ok(manifest.provides.apiRoutes.includes('environments/readiness'));
-  assert.ok(manifest.provides.apiRoutes.includes('environments/provision'));
+  assert.equal(manifest.provides.apiRoutes.includes('environments/readiness'), false);
+  assert.equal(manifest.provides.apiRoutes.includes('environments/provision'), false);
   assert.ok(manifest.capabilities.mutates.includes('events'));
   assert.equal(manifest.configSchema.find((field) => field.key === 'environmentNetwork')?.default, 'shared');
   assert.equal(manifest.configSchema.find((field) => field.key === 'runtimeNetwork')?.default, 'isolated');
@@ -1327,7 +1316,7 @@ const apiRequest = ({ method = 'GET', path = '', admin = false, userId = 1, body
   json: async () => body,
 });
 
-function phase2ApiHarness({ provisioning } = {}) {
+function phase2ApiHarness() {
   const store = new SitesStore(makeDb());
   const target = environmentSite({ ownerUserId: 1, projectId: 7 });
   store.insertSite(target);
@@ -1391,7 +1380,6 @@ function phase2ApiHarness({ provisioning } = {}) {
     },
     applyEnvironmentLimits: async (site, limits, actor) => { calls.push(['limits', site.id, limits, actor]); store.updateSite(site.id, limits); },
     projectEnvironment: async (projectId, actor) => { calls.push(['project-environment', projectId, actor]); return { state: 'running', lastError: null }; },
-    provisioning: provisioning ?? { status: async () => ({ ready: true, items: [] }), provision: async () => ({ ready: true, items: [] }) },
     migration: { status: () => null, prepare: async () => null, flip: async () => null, complete: async () => null, rollback: async () => null, pending: () => [], registerRecipe: async () => null },
   });
   return { store, handlers, calls };
@@ -1451,50 +1439,16 @@ test('API environment detail, control, snapshot and rollback actions use durable
   assert.deepEqual(calls.map(([name]) => name), ['state', 'action', 'logs', 'control', 'snapshot', 'state', 'action', 'rollback']);
 });
 
-test('API schedules and polls administrator-only environment migrations idempotently', async () => {
+test('API never advertises or accepts removed disk and runtime migration operations', async () => {
   const { handlers, calls } = phase2ApiHarness();
-  const owner = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, body: {
-    action: 'migrate-disk', requestId: 'site-migration-disk-1',
-  } }));
-  assert.equal(owner.status, 403);
+  for (const action of ['migrate-disk', 'migrate-runtime']) {
+    const response = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
+      action, requestId: `removed-${action}`,
+    } }));
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, 'unknown environment action');
+  }
   assert.equal(calls.some(([name]) => name === 'control'), false);
-
-  const missingKey = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
-    action: 'migrate-disk',
-  } }));
-  assert.equal(missingKey.status, 400);
-
-  const request = { method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
-    action: 'migrate-disk', requestId: 'site-migration-disk-1',
-  } };
-  const scheduled = await handlers.site(apiRequest(request));
-  const repeated = await handlers.site(apiRequest(request));
-  assert.equal(scheduled.status, 200);
-  assert.equal(scheduled.body.action, 'migrate-disk');
-  assert.deepEqual(repeated.body.operation, scheduled.body.operation);
-  assert.deepEqual(scheduled.body.operation, {
-    id: 'env_1', siteId: SITE_ID, generation: 2,
-    action: 'migrate-disk', status: 'pending', percent: 0, error: null,
-  });
-
-  const ownerPoll = await handlers.site(apiRequest({ path: `${SITE_ID}/operation`, query: { operationId: 'env_1' } }));
-  assert.equal(ownerPoll.status, 403);
-  const polled = await handlers.site(apiRequest({ path: `${SITE_ID}/operation`, admin: true, query: { operationId: 'env_1' } }));
-  assert.equal(polled.status, 200);
-  assert.deepEqual(polled.body.operation, scheduled.body.operation);
-
-  const runtime = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
-    action: 'migrate-runtime', requestId: 'site-migration-runtime-1',
-  } }));
-  assert.equal(runtime.status, 200);
-  assert.equal(runtime.body.operation.action, 'migrate-runtime');
-  assert.notEqual(runtime.body.operation.id, scheduled.body.operation.id);
-
-  const conflict = await handlers.site(apiRequest({ method: 'POST', path: `${SITE_ID}/control`, admin: true, body: {
-    action: 'migrate-runtime', requestId: 'site-migration-disk-1',
-  } }));
-  assert.equal(conflict.status, 409);
-  assert.deepEqual(calls.filter(([name]) => name === 'operation'), [['operation', SITE_ID, 'env_1', 1]]);
 });
 
 test('API environment routes refuse a proxy publication with a 409 code instead of an empty environment', async () => {
@@ -1573,115 +1527,6 @@ test('API environment limit overrides are admin-only and persist through the app
   assert.deepEqual(calls.find(([name]) => name === 'limits'), ['limits', SITE_ID, {
     environmentCpus: 8, environmentMemoryMb: 128, environmentPidsLimit: 16,
   }, 1]);
-});
-
-test('provisioning API is admin-only, guards concurrency and handles an old core', async () => {
-  const oldCore = new EnvironmentProvisioningService({
-    control: () => undefined,
-    imageExists: async () => false,
-    buildImage: async () => {},
-  });
-  const unavailable = await oldCore.status();
-  assert.equal(unavailable.ready, false);
-  assert.match(unavailable.detail, /0\.28\.31|unavailable/i);
-  assert.equal((await new EnvironmentProvisioningService({
-    control: () => ({}), imageExists: async () => true, buildImage: async () => {},
-  }).status()).ready, false);
-  const missingImage = await new EnvironmentProvisioningService({
-    control: () => ({
-      environmentsStatus: async () => ({ ready: true, items: [] }),
-      provisionEnvironments: async () => ({ ready: true, items: [] }),
-    }),
-    imageExists: async () => false,
-    buildImage: async () => {},
-  }).status();
-  assert.equal(missingImage.ready, false);
-  assert.equal(missingImage.items.find((item) => item.id === 'base-image').ok, false);
-
-  const unknownImage = await new EnvironmentProvisioningService({
-    control: () => ({
-      environmentsStatus: async () => ({ ready: true, items: [] }),
-      provisionEnvironments: async () => ({ ready: true, items: [] }),
-    }),
-    imageExists: async () => null,
-    buildImage: async () => {},
-  }).status();
-  assert.equal(unknownImage.ready, true, 'an unavailable read-only probe is not an installation failure');
-  assert.deepEqual(unknownImage.items.find((item) => item.id === 'base-image'), {
-    id: 'base-image', label: 'Deterministic Sites base image', ok: false, unknown: true,
-    detail: 'The installed core cannot check the Sites base image.',
-  });
-
-  let release;
-  const pending = new Promise((resolve) => { release = resolve; });
-  let provisions = 0;
-  let imageReady = false;
-  let builds = 0;
-  const audits = [];
-  const service = new EnvironmentProvisioningService({
-    control: () => ({
-      provisionEnvironments: async () => { provisions += 1; await pending; return { ready: true, items: [] }; },
-      environmentsStatus: async () => ({ ready: true, items: [{ id: 'podman', label: 'Podman', ok: true }] }),
-    }),
-    imageExists: async () => imageReady,
-    buildImage: async () => { builds += 1; imageReady = true; },
-    audit: (status, actorUserId) => audits.push({ status, actorUserId }),
-  });
-  const { handlers } = phase2ApiHarness({ provisioning: service });
-  const ownerReadiness = await handlers.environmentsReadiness(apiRequest({ admin: false }));
-  assert.equal(ownerReadiness.status, 200);
-  assert.equal(ownerReadiness.body.canProvision, false);
-  assert.equal(ownerReadiness.body.items.find((item) => !item.ok).detail, 'An administrator must complete this dependency.');
-  assert.equal((await handlers.environmentsReadiness(apiRequest({ admin: true }))).body.canProvision, true);
-  assert.equal((await handlers.environmentsProvision(apiRequest({ method: 'POST', admin: false }))).status, 403);
-  const first = handlers.environmentsProvision(apiRequest({ method: 'POST', admin: true }));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal((await handlers.environmentsProvision(apiRequest({ method: 'POST', admin: true }))).status, 409);
-  release();
-  const completed = await first;
-  assert.equal(completed.status, 200);
-  assert.equal(completed.body.ready, true);
-  assert.equal(completed.body.canProvision, true);
-  assert.equal(provisions, 1);
-  assert.equal(builds, 1);
-  assert.equal(completed.body.items.find((item) => item.id === 'base-image').ok, true);
-  assert.equal(audits.length, 1);
-  assert.equal(audits[0].actorUserId, 1);
-
-  const failedAudits = [];
-  const failed = new EnvironmentProvisioningService({
-    control: () => ({
-      provisionEnvironments: async () => { throw new Error('package failure'); },
-      environmentsStatus: async () => ({ ready: false, items: [] }),
-    }),
-    imageExists: async () => false,
-    buildImage: async () => {},
-    audit: (status) => failedAudits.push(status),
-  });
-  await assert.rejects(() => failed.provision(9), /package failure/);
-  assert.equal(failedAudits.length, 1);
-  assert.match(failedAudits[0].detail, /package failure/);
-
-  const buildAudits = [];
-  const buildFailure = new EnvironmentProvisioningService({
-    control: () => ({
-      provisionEnvironments: async () => ({ ready: true, items: [] }),
-      environmentsStatus: async () => ({
-        ready: true,
-        detail: 'Core dependencies are ready.',
-        items: [{ id: 'podman', label: 'Podman', ok: true, detail: 'Rootless Podman is available.' }],
-      }),
-    }),
-    imageExists: async () => false,
-    buildImage: async () => { throw new Error('base build failed'); },
-    audit: (status) => buildAudits.push(status),
-  });
-  const buildStatus = await buildFailure.provision(9);
-  assert.equal(buildStatus.ready, false);
-  assert.match(buildStatus.detail, /base build failed/);
-  assert.equal(buildStatus.items.find((item) => item.id === 'podman').ok, true);
-  assert.equal(buildStatus.items.find((item) => item.id === 'base-image').ok, false);
-  assert.deepEqual(buildAudits[0], buildStatus);
 });
 
 // --- Ingress proxy -------------------------------------------------------------------------------

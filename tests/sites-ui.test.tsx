@@ -346,7 +346,7 @@ describe('environment setup settings', () => {
         expectedRecord: status === 'ready' ? null : { type: 'CNAME', name: '*.sites.example.com', value: 'app.example.com.' },
         observedTargets: [],
       })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: true, canProvision: false, items: [] })),
+      http.get('/api/plugins/sandbox/api/runtime/host', () => HttpResponse.json({ ready: true })),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
@@ -362,7 +362,7 @@ describe('environment setup settings', () => {
         expectedRecord: { type: 'A', name: '*.sites.example.com', value: '198.51.100.77' },
         observedTargets: [],
       })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: true, canProvision: false, items: [] })),
+      http.get('/api/plugins/sandbox/api/runtime/host', () => HttpResponse.json({ ready: true })),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
@@ -372,9 +372,8 @@ describe('environment setup settings', () => {
     expect(screen.getByText('*.sites.example.com')).toBeVisible();
   });
 
-  it('shows authoritative DNS states and provisions only after one confirmed request', async () => {
-    let ready = false;
-    const posts: unknown[] = [];
+  it('reads Sandbox readiness from its owning plugin and never calls removed Sites provisioning routes', async () => {
+    let removedRouteCalls = 0;
     use(
       http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({
         ready: false,
@@ -383,111 +382,55 @@ describe('environment setup settings', () => {
         expectedRecord: { type: 'CNAME', name: '*.sites.example.com', value: 'app.example.com.' },
         observedTargets: ['203.0.113.8'],
       })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
-        ready,
-        canProvision: true,
-        items: [
-          { id: 'podman', label: 'Podman', ok: ready, detail: ready ? 'Rootless Podman is available.' : 'Podman is missing.' },
-          { id: 'base-image', label: 'Deterministic Sites base image', ok: ready },
-        ],
-      })),
-      http.post('/api/plugins/sites/api/environments/provision', async ({ request }) => {
-        posts.push(await request.text());
-        ready = true;
-        return HttpResponse.json({ ready: true, canProvision: true, items: [] });
-      }),
+      http.get('/api/plugins/sandbox/api/runtime/host', () => HttpResponse.json({ ready: true })),
+      http.get('/api/plugins/sites/api/environments/readiness', () => { removedRouteCalls += 1; return HttpResponse.json({}); }),
+      http.post('/api/plugins/sites/api/environments/provision', () => { removedRouteCalls += 1; return HttpResponse.json({}); }),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 
-    expect(await screen.findByText(strings.environmentGatewayTitle)).toBeVisible();
+    expect(await screen.findByText(strings.sandboxRequiredTitle)).toBeVisible();
+    expect(screen.getByText(strings.sandboxRequiredReady)).toBeVisible();
     expect(screen.getAllByText(strings.environmentStatusMisdirected).length).toBeGreaterThan(0);
-    expect(screen.getByText('*.sites.example.com')).toBeVisible();
     expect(screen.getByText('203.0.113.8', { exact: false })).toBeVisible();
-    const install = screen.getByRole('button', { name: strings.environmentProvision });
-    fireEvent.click(install);
-    expect(posts).toHaveLength(0);
-    const dialog = await screen.findByRole('dialog', { name: strings.environmentProvisionConfirmTitle });
-    for (const expected of ['Podman', 'crun', 'uidmap', 'dbus-user-session', 'passt', 'slirp4netns', 'fuse-overlayfs', 'subordinate IDs', 'linger', 'cgroup delegation']) {
-      expect(dialog).toHaveTextContent(expected);
+    expect(screen.queryByRole('button', { name: strings.openSandboxSettings })).not.toBeInTheDocument();
+    expect(removedRouteCalls).toBe(0);
+  });
+
+  it('points an unavailable Sandbox runtime to the Sandbox settings page', async () => {
+    use(
+      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
+      http.get('/api/plugins/sandbox/api/runtime/host', () => HttpResponse.json({ error: 'Sandbox is disabled' }, { status: 503 })),
+    );
+    const uiRuntime = (window as unknown as { ElowenUiRuntime: { navigate(href: string): void } }).ElowenUiRuntime;
+    const originalNavigate = uiRuntime.navigate;
+    const navigate = vi.fn();
+    uiRuntime.navigate = navigate;
+    try {
+      const { wrapper: Wrapper } = createWrapper();
+      render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+      expect(await screen.findByText(strings.sandboxRequiredUnavailable)).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: strings.openSandboxSettings }));
+      expect(navigate).toHaveBeenCalledWith('/p/sandbox');
+    } finally {
+      uiRuntime.navigate = originalNavigate;
     }
-    expect(dialog).toHaveTextContent('does not restart Elowen, web or nginx');
-    const confirm = within(dialog).getByRole('button', { name: strings.environmentProvision });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    await waitFor(() => expect(posts).toHaveLength(1));
-    await waitFor(() => expect(screen.getAllByText(strings.pass).length).toBeGreaterThan(0));
-    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
   });
 
-  it('handles failed provisioning without an unhandled rejection and remeasures once', async () => {
-    let readinessRequests = 0;
-    use(
-      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => {
-        readinessRequests += 1;
-        return HttpResponse.json({ ready: false, canProvision: true, items: [{ id: 'podman', label: 'Podman', ok: false }] });
-      }),
-      http.post('/api/plugins/sites/api/environments/provision', () => HttpResponse.json({ error: 'package installation failed' }, { status: 502 })),
-    );
-    const { wrapper: Wrapper } = createWrapper();
-    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
-    fireEvent.click(await screen.findByRole('button', { name: strings.environmentProvision }));
-    const dialog = await screen.findByRole('dialog', { name: strings.environmentProvisionConfirmTitle });
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.environmentProvision }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('package installation failed');
-    await waitFor(() => expect(readinessRequests).toBe(2));
-  });
-
-  it('renders an unavailable base-image probe as neutral and offers no installation', async () => {
-    use(
-      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
-        ready: true,
-        canProvision: true,
-        items: [{
-          id: 'base-image', label: 'Deterministic Sites base image', ok: false, unknown: true,
-          detail: 'The installed core cannot check the Sites base image.',
-        }],
-      })),
-    );
-    const { wrapper: Wrapper } = createWrapper();
-    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
-
-    const unknown = await screen.findByText('Not checked');
-    expect(unknown.closest('[data-tone]')).toHaveAttribute('data-tone', 'muted');
-    expect(screen.getByText('The installed core cannot check the Sites base image.')).toBeVisible();
-    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
-  });
-
-  it('localizes readiness labels instead of rendering the helper English', async () => {
+  it('localizes the Sandbox prerequisite copy', async () => {
     use(
       http.get('/api/plugins/ui', () => HttpResponse.json([
         { name: 'sites', url: '/plugins/sites/web/index.js', apiVersion: 7, nav: [], settings: [], strings: csStrings },
       ])),
       http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({
-        ready: true,
-        canProvision: false,
-        items: [{ id: 'os:supported', label: 'Supported operating system', ok: true, detail: 'Debian is supported' }],
-      })),
+      http.get('/api/plugins/sandbox/api/runtime/host', () => HttpResponse.json({ ready: false })),
     );
     const { wrapper: Wrapper } = createWrapper();
     render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 
-    expect(await screen.findByText('Podporovaný operační systém')).toBeVisible();
-    expect(screen.queryByText('Supported operating system')).not.toBeInTheDocument();
-  });
-
-  it('never renders the provisioning action without admin capability', async () => {
-    use(
-      http.get('/api/plugins/sites/api/gateway/readiness', () => HttpResponse.json({ ready: true, status: 'ready', detail: 'sites.example.com', expectedRecord: null, observedTargets: [] })),
-      http.get('/api/plugins/sites/api/environments/readiness', () => HttpResponse.json({ ready: false, canProvision: false, items: [{ id: 'podman', label: 'Podman', ok: false }] })),
-    );
-    const { wrapper: Wrapper } = createWrapper();
-    render(<Wrapper><ToastProvider><EnvironmentsSetup plugin="sites" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
-    expect(await screen.findByText('Podman')).toBeVisible();
-    expect(screen.queryByRole('button', { name: strings.environmentProvision })).not.toBeInTheDocument();
+    expect(await screen.findByText(csStrings.sandboxRequiredTitle)).toBeVisible();
+    expect(screen.getByText(csStrings.sandboxRequiredUnavailable)).toBeVisible();
+    expect(screen.queryByText(strings.sandboxRequiredTitle)).not.toBeInTheDocument();
   });
 });
 

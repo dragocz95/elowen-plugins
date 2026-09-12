@@ -198,10 +198,10 @@ test('a proxy publication separates "no Sandbox" from "a Sandbox without this tr
   control = { projectPublicationRelease: async () => {} };
   await assert.rejects(() => service.establish(managed, 7), /publication transport is unavailable on this instance/);
 
-  // Teardown stays best-effort: with no Sandbox there is no container, so no forwarder is left answering
-  // and there is nothing for a deletion to fail over.
+  // A missing control during teardown is not proof that the durable forwarder is gone. The Site deletion
+  // row remains queued until the Sandbox seam can confirm the release.
   control = undefined;
-  await assert.doesNotReject(() => service.release(managed));
+  await assert.rejects(() => service.release(managed), /publication transport is unavailable/);
 });
 
 test('every Sandbox resolution in the Sites source is either routed through the accessor or marked optional', () => {
@@ -210,14 +210,8 @@ test('every Sandbox resolution in the Sites source is either routed through the 
   // never names the cause. Either route it through `requireSandbox`, or say in a comment why absence is
   // a legitimate answer here.
   const src = join(import.meta.dirname, '..', 'plugins', 'sites', 'src');
-  // `provisioning.ts` holds a `control()` of its own, but it is the published-sites gateway rather than
-  // the Sandbox, so its resolutions are not this rule's business. Asserted from the wiring rather than
-  // assumed, so the exemption cannot quietly outlive the reason for it.
-  assert.match(readFileSync(join(src, 'index.ts'), 'utf8'),
-    /new EnvironmentProvisioningService\(\{\s*\n\s*control: \(\) => ctx\.control\('publishedSitesGateway'\)/);
-
   const undecided = [];
-  for (const name of readdirSync(src).filter((file) => file.endsWith('.ts') && file !== 'provisioning.ts')) {
+  for (const name of readdirSync(src).filter((file) => file.endsWith('.ts'))) {
     const lines = readFileSync(join(src, name), 'utf8').split('\n');
     lines.forEach((line, index) => {
       const resolves = line.includes("control('sandbox')") || /\bthis\.deps\.control\(\)|\bdeps\.control\(\)/.test(line);

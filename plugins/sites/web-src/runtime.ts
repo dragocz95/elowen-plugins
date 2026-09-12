@@ -137,8 +137,7 @@ export interface GatewayReadinessResponse {
 export interface EnvironmentReadinessResponse {
   ready: boolean;
   detail?: string;
-  canProvision: boolean;
-  items: { id: string; label: string; ok: boolean; unknown?: boolean; detail?: string }[];
+  items: { id: string; label: string; ok: boolean; detail?: string }[];
 }
 
 export interface EnvironmentLogsResponse {

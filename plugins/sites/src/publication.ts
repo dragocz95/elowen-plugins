@@ -130,11 +130,12 @@ export class ProjectPublicationService {
     this.endpoints.delete(site.id);
     this.nextAttempt.delete(site.id);
     if (!this.managed(site)) return;
-    // Deliberately NOT `requireSandbox`: without the Sandbox there is no container and therefore no
-    // forwarder left answering for this site, so there is nothing to stop and no reason to fail a
-    // deletion over its absence.
+    // Deliberately NOT `requireSandbox`: cleanup owns a durable retry marker and must report the missing
+    // publication seam as its own failure instead of translating it into a start-time plugin hint.
     const control = this.deps.control();
-    if (!control?.projectPublicationRelease) return;
+    if (!control?.projectPublicationRelease) {
+      throw new Error('the Sandbox publication transport is unavailable on this instance');
+    }
     await control.projectPublicationRelease({
       project: { kind: 'managed', projectId: site.projectId },
       publicationId: site.id,

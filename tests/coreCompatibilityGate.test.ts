@@ -15,7 +15,9 @@ import { isNewer } from 'elowen/dist/cli/version.js';
 import { parseManifest } from 'elowen/dist/plugins/manifest.js';
 
 const require_ = createRequire(import.meta.url);
-const candidateVersion = JSON.parse(readFileSync(require_.resolve('elowen/package.json'), 'utf8')).version as string;
+const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
+const candidatePackage = configuredCoreRoot ? join(configuredCoreRoot, 'package.json') : require_.resolve('elowen/package.json');
+const candidateVersion = JSON.parse(readFileSync(candidatePackage, 'utf8')).version as string;
 
 /** The last core published without the environment control. Anything that consumes one must refuse here. */
 const BASELINE_WITHOUT_ENVIRONMENTS = '0.28.34';

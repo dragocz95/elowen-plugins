@@ -16,8 +16,6 @@ export interface SiteDeletionDeps {
   deleteEnvironment(siteId: string, options: { removeBroker: false; handover: true }): Promise<void>;
   removeRuntimeSocket(siteId: string): Promise<void>;
   removeGateway(slug: string): Promise<void>;
-  reportRuntimeSocketError?(site: Site, error: unknown): void;
-  reportGatewayError?(site: Site, error: unknown): void;
 }
 
 /** Finish the daemon-owned phase of a durable site deletion. */
@@ -32,15 +30,13 @@ export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps
   if (site.runtime !== 'environment') await deps.stopLegacy(siteId);
   if (site.kind === 'proxy') await deps.releasePublication(site);
   if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
-    // The gateway is finalized below, after the environment, plugin files and durable Site rows are gone.
-    // Keeping broker removal out of the environment delete makes an unavailable gateway a harmless final no-op.
+    // Sandbox leaves the broker for the privileged Sites phase. The Site row remains the retry owner until
+    // both that socket directory and the public vhost/certificate have been confirmed absent.
     try { await deps.deleteEnvironment(siteId, { removeBroker: false, handover: true }); }
     catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
   }
   rmSync(deps.siteDir(siteId), { recursive: true, force: true });
+  await deps.removeRuntimeSocket(siteId);
+  await deps.removeGateway(site.slug);
   deps.store.deleteSite(siteId);
-  try { await deps.removeRuntimeSocket(siteId); }
-  catch (error) { deps.reportRuntimeSocketError?.(site, error); }
-  try { await deps.removeGateway(site.slug); }
-  catch (error) { deps.reportGatewayError?.(site, error); }
 }

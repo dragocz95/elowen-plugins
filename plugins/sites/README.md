@@ -28,7 +28,7 @@ Sites created before this model keep working unchanged: an `environment` site ke
 
 ## Tools
 
-Fourteen `Site*` tools cover the full lifecycle: creating, inspecting, listing, updating, sharing and deleting sites, publishing (a release for a static publication, a verified address for a proxy one) and rolling back to an earlier release, reading logs, running commands inside a persistent environment, controlling its start and stop, and taking environment snapshots. `SitePreview` opens the running application on an isolated preview origin.
+Fourteen `Site*` tools cover the full lifecycle: creating, inspecting, listing, updating, sharing and deleting sites, publishing (a release for a static publication, a verified address for a proxy one) and rolling back to an earlier release, reading logs, running commands inside a persistent environment, controlling its start and stop, and taking environment snapshots. A snapshot belongs to the Site that created it and cannot be imported into another Site. `SitePreview` opens the running application on an isolated preview origin.
 
 ## Runtime conversion
 

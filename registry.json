@@ -178,7 +178,7 @@
       "provides": {
         "tools": 14,
         "httpRoutes": 1,
-        "apiRoutes": 9
+        "apiRoutes": 7
       }
     },
     {

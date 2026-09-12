@@ -206,7 +206,10 @@ for (const name of folders) {
  *  daemon — and treating this registry as the only possible provider declared a satisfiable dependency
  *  orphaned. */
 const coreControls = () => {
-  const dir = join(root, 'node_modules', 'elowen', 'plugins');
+  const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
+  const dir = configuredCoreRoot
+    ? join(configuredCoreRoot, 'plugins')
+    : join(root, 'node_modules', 'elowen', 'plugins');
   if (!existsSync(dir)) return null;
   const keys = new Set();
   for (const name of readdirSync(dir)) {

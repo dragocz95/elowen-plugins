@@ -31,8 +31,6 @@
       "ticket",
       "directory",
       "gateway/readiness",
-      "environments/readiness",
-      "environments/provision",
       "preview",
       "conversion"
     ]
@@ -127,7 +125,7 @@
       "default": false,
       "risk": "high",
       "hint": "Let a published release run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
-      "help": "Command and PHP runtimes use the existing Sandbox confinement and the command/PHP network policy below. They are separate from persistent Podman environments. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
+      "help": "Command and PHP runtimes use the existing Sandbox confinement and the command/PHP network policy below. Persistent environments use the Sandbox machine runtime. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
     },
     {
       "key": "allowEnvironments",
@@ -135,7 +133,7 @@
       "type": "boolean",
       "default": false,
       "risk": "high",
-      "hint": "Allow Sites to run persistent rootless Podman environments with systemd, a private root filesystem and a single host-owned ingress socket."
+      "hint": "Allow Sites to run persistent systemd-nspawn environments through Sandbox, with a private root filesystem and a single host-owned ingress socket."
     },
     {
       "key": "environmentNetwork",
@@ -153,7 +151,7 @@
           "label": "No network"
         }
       ],
-      "hint": "Outbound internet uses rootless slirp4netns with host loopback disabled. No network gives the environment no network interface beyond its own loopback."
+      "hint": "Outbound internet follows the Sandbox machine policy. No network blocks outbound traffic while the private Site ingress socket remains available."
     },
     {
       "key": "environmentCpus",
@@ -443,6 +441,12 @@
       "environmentStatusMisdirected": "Wrong destination",
       "environmentStatusUnavailable": "Check unavailable",
       "environmentStatusUnknown": "Not checked",
+      "sandboxRequiredTitle": "Sandbox prerequisite",
+      "sandboxRequiredDescription": "Persistent Site environments use the shared Sandbox machine runtime. Install and activate Sandbox before creating or starting one.",
+      "sandboxRequiredCheck": "Sandbox machine runtime",
+      "sandboxRequiredReady": "Sandbox is installed and the machine runtime is ready.",
+      "sandboxRequiredUnavailable": "Sandbox is missing, disabled or not ready. Finish its installation before using persistent Site environments.",
+      "openSandboxSettings": "Open Sandbox settings",
       "state_unprovisioned": "Not provisioned",
       "state_starting": "Starting",
       "state_running": "Running",
@@ -453,34 +457,11 @@
       "state_paused": "Paused",
       "state_restarting": "Restarting",
       "state_unknown": "Unknown",
-      "readiness_os_supported": "Supported operating system",
-      "readiness_package_podman": "Podman",
-      "readiness_package_crun": "crun",
-      "readiness_package_uidmap": "uidmap",
-      "readiness_package_dbus_user_session": "User D-Bus package",
-      "readiness_package_passt": "passt",
-      "readiness_package_slirp4netns": "slirp4netns",
-      "readiness_package_fuse_overlayfs": "fuse-overlayfs",
-      "readiness_subuid": "Subordinate user IDs",
-      "readiness_subgid": "Subordinate group IDs",
-      "readiness_linger": "Persistent user manager",
-      "readiness_user_bus": "User D-Bus",
-      "readiness_cgroup_cpu": "CPU cgroup delegation",
-      "readiness_cgroup_memory": "Memory cgroup delegation",
-      "readiness_cgroup_pids": "Process cgroup delegation",
-      "readiness_podman_rootless": "Rootless Podman",
-      "readiness_base_image": "Deterministic Sites base image",
       "environmentObservedTarget": "Observed target",
       "environmentRecordType": "Type",
       "environmentRecordName": "Name",
       "environmentRecordValue": "Value",
-      "environmentDependenciesTitle": "Environment dependencies",
-      "environmentDependenciesDescription": "System packages, rootless Podman support and the deterministic Sites base image.",
-      "environmentProvisionHelp": "Installation adds Podman, crun, uidmap, dbus-user-session, passt, slirp4netns and fuse-overlayfs when required; configures subordinate IDs, user linger and cgroup delegation; and builds the deterministic base image. It does not restart Elowen, web or nginx.",
-      "environmentSetupReady": "Environment dependencies are ready",
-      "environmentSetupAttention": "Environment dependencies need attention",
-      "environmentProvisionConfirmTitle": "Install environment dependencies",
-      "environmentProvisionConfirmDescription": "This installs Podman, crun, uidmap, dbus-user-session, passt, slirp4netns and fuse-overlayfs when required; configures subordinate IDs, user linger and cgroup delegation; and builds the deterministic base image. It does not restart Elowen, web or nginx.",
+      "environmentSetupAttention": "Setup needs attention",
       "environmentObservedState": "Observed state",
       "projectEnvironmentLink": "The environment of project {project} serves this publication.",
       "projectEnvironmentMissing": "The project environment is not available right now.",
