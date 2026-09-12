@@ -170,14 +170,21 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     [commit, commitData.data?.files, workingChanged],
   );
 
-  // The root listing plus every level opened under it (a system root only; a project arrives whole).
-  const lazyDirs = useLazyDirs(projectId, root, systemRoot && rootReady, expanded, treeEpoch);
+  // The root listing plus every level opened under it. Both roots are read one directory at a time: a
+  // project is not small enough to arrive whole, and a depth bound that holds for a repository with a
+  // vendored dependency tree does not exist.
+  //
+  // A project folder that cannot be read is reported, and it collapses rather than sitting open and
+  // empty. A filesystem root stays silent, where an unreadable directory is ordinary.
+  const lazyDirs = useLazyDirs(projectId, root, rootReady, expanded, treeEpoch, systemRoot ? undefined : (dir, error) => {
+    setExpanded((current) => { const next = new Set(current); next.delete(dir); return next; });
+    toast(`${dir}: ${utils.apiErrorMessage(error)}`, 'error');
+  });
   const nodes = useMemo(() => {
-    if (!systemRoot) return files.data ?? [];
     const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
     for (const node of lazyDirs) byPath.set(node.path, node);
     return [...byPath.values()];
-  }, [systemRoot, files.data, lazyDirs]);
+  }, [files.data, lazyDirs]);
 
   const selectedFile = selected ? nodes.find((node) => node.type === 'file' && node.path === selected) : undefined;
   const fileKind = selected ? fileKindOf(selected) : null;

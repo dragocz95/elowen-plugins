@@ -4,12 +4,10 @@ import type { FileNode } from '../runtime';
 import type { EditorRoot } from '../../src/editorRoots';
 import { editorApiPath } from './fileUrls';
 
-/** The directory levels the user has opened under a root that is served one level at a time.
+/** The directory levels the user has opened. Every root is read one level at a time, so this is how all
+ *  of them are read past their first.
  *
- *  A project tree arrives whole, because eight levels of a project is a few thousand entries. A root
- *  filesystem is not that — the server's own and a managed project's guest one alike: two levels below
- *  `/` already hold tens of thousands of entries and the project depth would hold millions. So the daemon
- *  serves those roots ONE level at a time and this asks for the next one as a folder is opened. What
+ *  The daemon answers one directory per request and this asks for the next as a folder is opened. What
  *  comes back is merged into the same flat `FileNode` list the tree is built from, so nothing downstream
  *  has to know which root it is looking at.
  *
@@ -18,8 +16,20 @@ import { editorApiPath } from './fileUrls';
  *
  *  `epoch` is bumped by the caller after a file operation. Every cached level is dropped and the open
  *  ones are read again — a file created inside an opened folder is invisible to the root listing that
- *  react-query refetches on its own. */
-export function useLazyDirs(projectId: number, root: EditorRoot, enabled: boolean, expanded: Set<string>, epoch: number): FileNode[] {
+ *  react-query refetches on its own.
+ *
+ *  `onFailed` receives a directory that could not be read. A caller that passes nothing keeps the silence
+ *  a filesystem root wants, where an unreadable directory is ordinary and reporting each one would be
+ *  noise. A caller that passes a handler is told, because a folder drawn open and empty says the same
+ *  untrue thing about a project that an empty tree did. */
+export function useLazyDirs(
+  projectId: number,
+  root: EditorRoot,
+  enabled: boolean,
+  expanded: Set<string>,
+  epoch: number,
+  onFailed?: (dir: string, error: unknown) => void,
+): FileNode[] {
   const [levels, setLevels] = useState<Record<string, FileNode[]>>({});
   // Which directories this generation has already asked for, so re-rendering (or opening a second
   // folder) does not re-fetch the ones already on screen.
@@ -34,6 +44,10 @@ export function useLazyDirs(projectId: number, root: EditorRoot, enabled: boolea
     setLevels({});
   }, [projectId, root, enabled, epoch]);
 
+  // Held in a ref so a caller can pass an inline handler without re-running the effect on every render.
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
+
   useEffect(() => {
     if (!enabled) return;
     const mine = generation.current;
@@ -45,10 +59,12 @@ export function useLazyDirs(projectId: number, root: EditorRoot, enabled: boolea
           const nodes = await runtime().api(editorApiPath(projectId, 'files', root, { path: dir })) as FileNode[];
           if (generation.current !== mine) return;
           setLevels((current) => ({ ...current, [dir]: nodes }));
-        } catch {
-          // A directory the daemon user cannot read stays empty in the tree. There is nothing to tell
-          // the user that opening a folder they may not read did not work — the folder simply has
-          // nothing in it, which is exactly what they can see of it.
+        } catch (error) {
+          if (generation.current !== mine) return;
+          // Asked for again if the user opens it again: a refusal that was answered once is not a
+          // standing verdict, and the folder never got its contents from this attempt.
+          requested.current.delete(dir);
+          failed.current?.(dir, error);
         }
       })();
     }

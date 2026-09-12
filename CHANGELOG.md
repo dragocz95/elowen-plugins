@@ -1,5 +1,10 @@
 # Changelog
 
+## editor 0.4.2 - 2026-09-12
+
+- A managed Project's files are read one directory at a time, the way the environment filesystem already was. The Project tree was read eight levels deep in one crossing, which a real Project exceeds: Sdilene answered `directory listing is too large; select a subdirectory` on its own root, so the whole editor was unusable there. The root now returns its direct children and each folder is read as it is opened, so the size below a folder can no longer decide whether the root opens at all. The node limit is unchanged and no listing is trimmed and reported as whole.
+- A folder that cannot be read is reported and collapses again, instead of sitting open and empty.
+
 ## editor 0.4.1 - 2026-09-12
 
 - A file listing that fails is reported as a failure. It was drawn as an empty folder, so a refusal the daemon had already explained — a tree too large to render, an environment that is not running, access that was revoked — reached the browser as "No files" with no reason and nothing to retry. The refusal is now shown in the tree with the daemon's own wording and a retry beside it.

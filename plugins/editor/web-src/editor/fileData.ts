@@ -18,8 +18,8 @@ export interface EditorFileContent { content: string; truncated: boolean; versio
 export const editorTreeKey = (projectId: number, root: EditorRoot): unknown[] => ['editor-tree', projectId, root];
 export const editorFileKey = (projectId: number, root: EditorRoot, path: string | null): unknown[] => ['editor-file', projectId, root, path];
 
-/** The tree of one root. The project root arrives whole; the system root arrives one level at a time and
- *  this is its first level, with the rest merged in by `useLazyDirs`. */
+/** The FIRST level of one root: its direct children and nothing below them. Every level opened after
+ *  that is read by `useLazyDirs` and merged into the same list. */
 export function useEditorTree(projectId: number | null, root: EditorRoot, enabled: boolean) {
   return runtime().hooks.useQuery<FileNode[]>({
     queryKey: editorTreeKey(projectId ?? 0, root),

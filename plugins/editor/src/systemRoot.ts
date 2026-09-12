@@ -24,8 +24,8 @@ export const isSystemRoot = (root: string): boolean => root === SYSTEM_ROOT;
 
 /** How deep a system-root listing walks: one level, and not one more.
  *
- *  A project tree is fetched whole because eight levels of a project is a few thousand entries. The
- *  server filesystem is not that: two levels below `/` already hold ~13 000 entries on a plain Debian
- *  host, and the project depth would hold millions. So the system root is served a directory at a time
- *  and the browser asks for the next level as the user opens it. */
+ *  Two levels below `/` already hold ~13 000 entries on a plain Debian host, so a listing that reaches
+ *  further answers with a refusal rather than a tree. The root is served a directory at a time and the
+ *  browser asks for the next level as the user opens it — which is how every root is served now, the
+ *  project tree included. */
 export const SYSTEM_LIST_DEPTH = 0;

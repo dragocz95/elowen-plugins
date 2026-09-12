@@ -7,10 +7,10 @@ import type { PluginContext, PluginApiRequest, PluginApiRoute } from 'elowen/dis
 import type { GuestFileOperation, GuestFileResult, GuestFileStat } from 'elowen/dist/plugins/environmentTypes.js';
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 
-/** The project tree view used to be driven from the host: one `list` per directory, each one a container
- *  execution, so a root of four directories paid five crossings and answered in three to ten seconds while
- *  a single directory answered in about 750 ms. It now consumes ONE guest `walk`, and reaches for the
- *  per-directory listing only to see what lies BEHIND a symlink, which the walk reports but never follows.
+/** The project tree reads ONE directory per request: a guest `walk` bounded to the directory asked for
+ *  and its direct children, with the per-directory listing reached for only to see what lies BEHIND a
+ *  symlink, which the walk reports but never follows. Reading eight levels at once is what made a real
+ *  project answer `directory listing is too large` on its own root.
  *
  *  The provider below is a faithful stand-in for those operations over a REAL directory tree, written from
  *  the guest's own rules rather than from the editor's expectations: depth first with each directory's
@@ -141,19 +141,18 @@ const paths = (body: unknown): string[] => (body as Node[]).map(node => node.pat
 const kinds = (operations: GuestFileOperation[]): string[] => operations.map(operation => operation.kind);
 
 describe('managed project tree over one guest walk', () => {
-  it('answers a link-free project root in EXACTLY ONE guest call, eight levels deep', async () => {
+  it('answers a link-free project root in EXACTLY ONE guest call, one level deep', async () => {
     const f = fixture(plain);
     const response = await f.list();
 
     expect(f.projectFiles).toHaveBeenCalledTimes(1);
     expect(f.operations).toEqual([{
-      kind: 'walk', path: '/sdilene', limit: 10000, maxDepth: 8,
+      kind: 'walk', path: '/sdilene', limit: 10000, maxDepth: 0,
       skip: ['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache'],
     }]);
     expect(f.safe).not.toHaveBeenCalled();
-    expect(paths(response.body)).toEqual([
-      'a.ts', 'empty', 'src', 'src/b.ts', 'src/deep', 'src/deep/c.ts', 'src/deep/deeper', 'src/deep/deeper/d.ts',
-    ]);
+    // The direct children, and nothing below them: what lies inside `src` is read when `src` is opened.
+    expect(paths(response.body)).toEqual(['a.ts', 'empty', 'src']);
   });
 
   it('answers ONE expanded directory in exactly one call, and does not go below it', async () => {
@@ -175,8 +174,11 @@ describe('managed project tree over one guest walk', () => {
     const f = fixture(plain);
     const nodes = (await f.list()).body as Node[];
     expect(nodes.find(node => node.path === 'a.ts')).toEqual({ path: 'a.ts', type: 'file', size: 2 });
-    expect(nodes.find(node => node.path === 'src/b.ts')).toEqual({ path: 'src/b.ts', type: 'file', size: 4 });
+    expect(nodes.find(node => node.path === 'src')).toEqual({ path: 'src', type: 'dir' });
     expect(nodes.every(node => !node.path.startsWith('/'))).toBe(true);
+    // A level below keeps the same shape, and its paths stay relative to the root rather than to itself.
+    const nested = (await f.list({ path: 'src' })).body as Node[];
+    expect(nested.find(node => node.path === 'src/b.ts')).toEqual({ path: 'src/b.ts', type: 'file', size: 4 });
   });
 
   it('omits the ignored directories entirely, and the upload leftover with them', async () => {
@@ -255,13 +257,12 @@ describe('symlinks in the managed project tree', () => {
     expect(nodes.find(node => node.path === 'to-file')).toEqual({ path: 'to-file', type: 'file', size: 15 });
   });
 
-  it('shows a link to a directory as a directory and lists what is behind it', async () => {
+  it('shows a link to a directory as a directory, without reading what is behind it', async () => {
     const f = fixture(linked);
     const listed = paths((await f.list()).body);
-    expect(listed).toEqual([
-      'src', 'src/a.ts', 'src/nested', 'src/nested/b.ts',
-      'to-dir', 'to-dir/a.ts', 'to-dir/nested', 'to-dir/nested/b.ts', 'to-file',
-    ]);
+    expect(listed).toEqual(['src', 'to-dir', 'to-file']);
+    // The link is a folder the browser may open; its contents are read then, not now.
+    expect(listed.some(path => path.startsWith('to-dir/'))).toBe(false);
   });
 
   it('drops a link that points nowhere', async () => {
@@ -269,15 +270,14 @@ describe('symlinks in the managed project tree', () => {
     expect(paths((await f.list()).body)).not.toContain('broken');
   });
 
-  /** The whole point of the change: an ordinary tree is one call, and only the links cost more — one stat
-   *  each, plus a listing per directory behind a linked one. */
-  it('costs one walk plus one stat per link, and lists nothing outside a linked subtree', async () => {
+  /** One directory costs one walk, plus one stat per link in it to learn what it points at. Nothing
+   *  behind a link is read until the link itself is opened. */
+  it('costs one walk plus one stat per link, and reads nothing behind them', async () => {
     const f = fixture(linked);
     await f.list();
     expect(kinds(f.operations).filter(kind => kind === 'walk')).toEqual(['walk']);
     expect(kinds(f.operations).filter(kind => kind === 'stat')).toHaveLength(3);
-    expect(f.operations.filter(operation => operation.kind === 'list').map(operation => operation.path))
-      .toEqual(['/sdilene/to-dir', '/sdilene/to-dir/nested']);
+    expect(f.operations.filter(operation => operation.kind === 'list')).toEqual([]);
   });
 
   it('expands one directory without descending through any link below it', async () => {
@@ -287,13 +287,12 @@ describe('symlinks in the managed project tree', () => {
     expect(kinds(f.operations)).toEqual(['walk']);
   });
 
-  /** A link pointing back at its own ancestor terminates on the depth bound, which is what bounded it
-   *  before the walk existed too. */
-  it('bottoms out on a cycle at the depth a real tree bottoms out at', async () => {
+  /** A link pointing back at its own ancestor has nothing left to run away with: one level is read, so
+   *  the cycle is simply a folder that can be opened, as many times as someone cares to. */
+  it('shows a cycle as an ordinary folder rather than descending into it', async () => {
     const f = fixture(cyclic);
-    const listed = paths((await f.list()).body);
-    expect(listed).toContain('self/self/f.ts');
-    expect(Math.max(...listed.map(path => path.split('/').length))).toBe(9);
+    expect(paths((await f.list()).body)).toEqual(['f.ts', 'self']);
+    expect(paths((await f.list({ path: 'self' })).body)).toEqual(['self/f.ts', 'self/self']);
   });
 
   /** Expanding a LINKED folder by name. The walk answers a symlink root from its parent, so the editor
@@ -326,15 +325,13 @@ describe('symlinks in the managed project tree', () => {
     expect(response.body).toEqual({ error: 'path does not exist' });
   });
 
-  /** The depth bound is one count, kept in two places now: the walk's `maxDepth` for the real tree and the
-   *  fallback's own descent for what is behind a link. This proves the two agree, level for level. */
-  it('cuts a linked subtree off at exactly the depth the real one is cut off at', async () => {
+  /** A deep tree costs nothing at the root, and a link into it reads the same single level the real
+   *  directory does. Ten levels below is no longer the root's problem. */
+  it('reads a deep tree one level at a time, through a link exactly as through the directory', async () => {
     const f = fixture(deep);
-    const listed = paths((await f.list()).body);
-    const direct = listed.filter(path => path.startsWith('l1'));
-    const behind = listed.filter(path => path.startsWith('via'));
-    expect(Math.max(...direct.map(path => path.split('/').length))).toBe(9);
-    expect(behind.map(path => path.replace(/^via/, 'l1'))).toEqual(direct);
+    expect(paths((await f.list()).body)).toEqual(['l1', 'via']);
+    expect(paths((await f.list({ path: 'l1' })).body)).toEqual(['l1/l2']);
+    expect(paths((await f.list({ path: 'via' })).body)).toEqual(['via/l2']);
   });
 
   it('refuses a linked subtree that pushes the view past its node cap', async () => {
@@ -347,7 +344,8 @@ describe('symlinks in the managed project tree', () => {
       }));
       return { kind: 'list', entries, truncated: false, nextCursor: null };
     });
-    const response = await f.list();
+    // Reached by opening the LINK, which is the only path that lists through one.
+    const response = await f.list({ path: 'self' });
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ error: 'directory listing is too large; select a subdirectory' });
   });
