@@ -44,7 +44,10 @@ const site = (overrides = {}) => ({
   ownerUserId: 1,
   visibility: 'private',
   accessGeneration: 1,
-  sourceDir: '/tmp/source',
+  // The row records a Project-RELATIVE source, exactly as SiteCreate writes it: the absolute host path is
+  // resolved per process from the Project's current workspace. A proxy publication owns no folder at all
+  // and stores the empty string, which is what the store reads back for it.
+  sourceRel: overrides.kind === 'proxy' ? '' : `sites/${overrides.slug ?? 'demo-abc123'}`,
   spa: false,
   kind: 'static',
   target: '',
@@ -1144,13 +1147,14 @@ test('SiteCreate builds a managed Project site folder under the guest root the P
   const result = await harness.call('SiteCreate', { title: 'Kontrolní panel' });
   const expected = `/kolin/sites/${result.details.slug}`;
   assert.deepEqual(created, [expected], 'the source folder is created inside the Project root');
-  assert.equal(harness.store.siteById(result.details.siteId).sourceDir, expected);
+  assert.equal(harness.store.siteById(result.details.siteId).sourceRel, `sites/${result.details.slug}`,
+    'and the row records it Project-relatively, so the guest root is resolved rather than stored');
   assert.match(result.content[0].text, new RegExp(expected), 'and the agent is told to write there');
 });
 
 test('SitePublish refuses a removed Project without interpreting its guest source as a host path', async (t) => {
   const harness = toolHarness(t, { projects: [] });
-  harness.store.insertSite(site({ sourceDir: '/workspace/sites/deleted-project' }));
+  harness.store.insertSite(site({ sourceRel: 'sites/deleted-project' }));
   await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /source Project no longer exists/);
   assert.equal(harness.store.releases('site-1').length, 0);
 });
@@ -1166,7 +1170,7 @@ test('SitePublish never reports the new address as one that already answers', as
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, 'index.html'), '<!doctype html><title>ok</title>');
   harness.store.insertSite(site({
-    sourceDir, sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
+    sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
   }));
 
   const published = await harness.call('SitePublish', { site: 'site-1' });
@@ -1231,7 +1235,7 @@ test('SitePublish returns truthful command success when the public hostname is u
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, 'server.mjs'), 'console.log("ok")');
   harness.store.insertSite(site({
-    sourceDir,
+    sourceRel: 'command-site',
     runtime: 'command',
     startCommand: 'node server.mjs',
     status: 'draft',
@@ -1249,7 +1253,7 @@ test('SitePublish returns truthful command success when the public hostname is u
 
 test('SitePublish cannot cross the selected managed Project through another owned Site', async (t) => {
   const harness = toolHarness(t, { projectRef: { kind: 'managed', projectId: 99 } });
-  harness.store.insertSite(site({ sourceDir: '/workspace/sites/other-project' }));
+  harness.store.insertSite(site({ sourceRel: 'sites/other-project' }));
   await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /outside the selected managed Project/);
   assert.equal(harness.store.releases('site-1').length, 0);
 });
@@ -1292,12 +1296,10 @@ test('SiteList reports what each row records about its certificate, and probes n
       readiness: async () => { throw new Error('a listing must never probe a certificate'); },
     },
   });
-  // `sourceRel` explicitly: the shared fixture in this file still names the column `sourceDir`, which the
-  // store stopped reading, and a summary line built from a null source throws before anything is printed.
-  store.insertSite(site({ id: 'waiting', slug: 'waiting-a1b2c3', status: 'live', sourceRel: 'sites/waiting-a1b2c3' }));
-  store.insertSite(site({ id: 'failed', slug: 'failed-a1b2c3', status: 'live', sourceRel: 'sites/failed-a1b2c3' }));
-  store.insertSite(site({ id: 'clean', slug: 'clean-a1b2c3', status: 'live', sourceRel: 'sites/clean-a1b2c3' }));
-  store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null, sourceRel: 'sites/draft-a1b2c3' }));
+  store.insertSite(site({ id: 'waiting', slug: 'waiting-a1b2c3', status: 'live' }));
+  store.insertSite(site({ id: 'failed', slug: 'failed-a1b2c3', status: 'live' }));
+  store.insertSite(site({ id: 'clean', slug: 'clean-a1b2c3', status: 'live' }));
+  store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
   // Written the way the certificate path writes them: the columns are updated on an existing row, never
   // supplied at insert.
   store.updateSite('waiting', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
@@ -1583,7 +1585,7 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
   const sourceDir = join(dir, 'project', 'report-source');
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, 'source.txt'), 'keep me');
-  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, sourceDir }));
+  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, sourceRel: 'report-source' }));
   store.addMember('id-1', 3);
   store.insertRelease({ id: 'rel-1', siteId: 'id-1', createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
 
@@ -1685,7 +1687,7 @@ test('a model that echoes every optional property still creates a proxy publicat
   assert.equal(stored.kind, 'proxy');
   assert.equal(stored.target, '3000');
   assert.equal(stored.status, 'draft', 'nothing is served until the application is verified');
-  assert.equal(stored.sourceDir, '', 'a proxy publication owns no folder');
+  assert.equal(stored.sourceRel, '', 'a proxy publication owns no folder');
   assert.equal(created.details.target, '3000');
   assert.match(created.content[0].text, /127\.0\.0\.1:3000/);
   assert.match(created.content[0].text, /kolin/);

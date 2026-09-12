@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.11.1 - 2026-09-12
+
+- SiteGet no longer reports a host Project path the caller cannot use
+
 ## sites 0.11.0 - 2026-09-12
 
 - Derive the published-sites hostname from the instance's own public URL when a forked tool runner holds no gateway broker, so SiteCreate and SitePublish report the address the daemon serves instead of refusing, and report each site row's recorded certificate state in SiteList without a TLS handshake per site.

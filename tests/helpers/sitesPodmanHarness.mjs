@@ -83,7 +83,9 @@ const site0 = (overrides = {}) => ({
   ownerUserId: 7,
   visibility: 'private',
   accessGeneration: 4,
-  sourceDir: '/unused/source',
+  // Project-RELATIVE, as the row records it. `sourceDir(slug)` below resolves it against the harness's
+  // stand-in workspace root, which is the same join the plugin performs per process.
+  sourceRel: 'sites/conv-demo',
   spa: false,
   kind: 'static',
   target: '',
@@ -348,7 +350,10 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     const engineRoot = mkdtempSync(join(tmpdir(), 'sites-pod-'));
     try {
       const provider = await realProvider({ engineRoot, dataDir: join(root, 'engine-data') });
-      control = provider.control;
+      // The real runtime resolves a Project's workspace root out of the host Project store, which this
+      // harness does not populate: its Project IS the plain `project/` directory under the harness root.
+      // Everything else on the control surface stays the real implementation.
+      control = { ...provider.control, projectWorkspaceHostPath: async () => join(root, 'project') };
       requests = provider.requests;
       providerReconcile = provider.reconcile;
       // The daemon is the only lifecycle performer: it reconciles durable operations into containers.
@@ -396,6 +401,8 @@ const podmanHarness = async ({ convertedApp } = {}) => {
         return { stdout: '', stderr: '', code: absent && existsSync(join(volumeDir(siteId), absent[1])) ? 1 : 0, truncated: false };
       },
       async siteEnvironmentLogs() { return { lifecycle: 'private provider stand-in', journal: '' }; },
+      // The harness's Project is the plain `project/` directory under its root, as in the real-engine branch.
+      async projectWorkspaceHostPath() { return join(root, 'project'); },
       async siteEnvironmentSnapshots() { return []; },
       async requestSiteEnvironment(input) {
         requests.push({ ...input });
@@ -582,6 +589,12 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     brokerDirectoryExists: (siteId) => environment.brokerDirectoryExists(siteId),
     prepareBrokerDirectory: async (siteId) => { await environment.prepareBrokerDirectory(siteId); },
     removeStaged: (paths) => environment.removeStaged(paths),
+    // Mirrors `index.ts`: the Site's Project-relative source resolved against the workspace root the
+    // control surface reports, which is the one seam that knows where the Project lives right now.
+    sourcePath: async (site) => {
+      if (!site.sourceRel) throw new Error('this Site has no Project source');
+      return join(await control.projectWorkspaceHostPath({ projectId: site.projectId }), ...site.sourceRel.split('/'));
+    },
     rebindToSource: (site) => environment.rebindToSource(site),
     publishBinding: (site) => environment.publishBinding(site),
     clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),

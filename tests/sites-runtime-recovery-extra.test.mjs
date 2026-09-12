@@ -8,7 +8,7 @@ import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
  *  arrives through the reconcile recovery. These tests pin the contract between the two. */
 
 function fixture(overrides = {}) {
-  const site = { id: 'a', projectId: 1, ownerUserId: 2, sourceDir: '/sources/a', runtime: 'environment', environmentDesiredState: 'stopped', slug: 'a', status: 'live', currentReleaseId: null };
+  const site = { id: 'a', projectId: 1, ownerUserId: 2, sourceRel: 'a', runtime: 'environment', environmentDesiredState: 'stopped', slug: 'a', status: 'live', currentReleaseId: null };
   const records = new Map();
   const releases = new Map();
   const calls = [];

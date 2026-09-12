@@ -25,15 +25,18 @@ import {
 
 const staticCutover = test('a static site converts end to end and answers over its own sealed ingress socket', { timeout: SLOW_MS }, async () => {
   const h = await podmanHarness();
-  const site = site0({ sourceDir: h.sourceDir('conv-demo') });
+  const site = site0();
+  // Where the row's Project-relative source resolves to in this harness: what the author edits, and what
+  // a completed conversion must end up serving.
+  const projectSource = h.sourceDir('conv-demo');
   try {
     h.store.insertSite(site);
     h.store.insertRelease(release0(site.id));
     h.seedRelease(site.id, { 'index.html': '<h1>converted-static</h1>', 'assets/app.js': 'console.log(1)' });
     // The Project folder the author actually edits, as it stands when the conversion starts.
-    mkdirSync(site.sourceDir, { recursive: true });
-    writeFileSync(join(site.sourceDir, 'index.html'), '<h1>converted-static</h1>');
-    writeFileSync(join(site.sourceDir, 'NOTES.md'), 'kept only in the Project folder');
+    mkdirSync(projectSource, { recursive: true });
+    writeFileSync(join(projectSource, 'index.html'), '<h1>converted-static</h1>');
+    writeFileSync(join(projectSource, 'NOTES.md'), 'kept only in the Project folder');
     const modeBefore = (path) => (statSync(path).mode & 0o777).toString(8);
     const sharedModesBefore = [join(h.root, 'sites'), h.root].map(modeBefore);
     const releaseModeBefore = modeBefore(h.releaseDir(site.id, RELEASE_ID));
@@ -117,17 +120,17 @@ const staticCutover = test('a static site converts end to end and answers over i
     // ONE WORKING COPY. The container is bound to the site's own source folder and nothing is staging.
     // The protected conversion directory remains only as completed rollback material.
     const binding = JSON.parse(h.store.runtimeRecord(site.id, 'binding'));
-    assert.equal(binding.sourcePath, converted.sourceDir);
+    assert.equal(binding.sourcePath, projectSource);
     assert.equal(binding.staging, false);
     assert.equal(existsSync(join(h.siteDir(site.id), 'migration')), true);
     assert.equal(existsSync(stagedWorkspace({ siteDir: h.siteDir }, site.id)), false);
-    assert.equal(readFileSync(join(site.sourceDir, 'NOTES.md'), 'utf8'), 'kept only in the Project folder');
-    assert.equal(readFileSync(join(site.sourceDir, 'assets/app.js'), 'utf8'), 'console.log(1)',
+    assert.equal(readFileSync(join(projectSource, 'NOTES.md'), 'utf8'), 'kept only in the Project folder');
+    assert.equal(readFileSync(join(projectSource, 'assets/app.js'), 'utf8'), 'console.log(1)',
       'what only the staged copy held arrived in the Project folder');
 
     // And the served site now follows the Project folder, which is the whole point of completing.
     assert.match((await httpOverSocketWhenUp(h.brokerPath(site.id), '/')).body, /converted-static/);
-    writeFileSync(join(site.sourceDir, 'index.html'), '<h1>edited-in-project</h1>');
+    writeFileSync(join(projectSource, 'index.html'), '<h1>edited-in-project</h1>');
     assert.match((await httpOverSocket(h.brokerPath(site.id), '/')).body, /edited-in-project/);
   } finally {
     await h.cleanup(site.id);

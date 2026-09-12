@@ -119,7 +119,7 @@ test('Project cleanup removes only preview addresses and keeps independently pub
   const h = harness(t);
   const { url } = await h.service.request(11, 8080, 7);
   const slug = new URL(url).hostname.split('.')[0];
-  h.store.insertSite({ ...h.service.siteBySlug(slug), id: 'published', slug: 'published-site', kind: 'static', target: '', runtime: 'static', ownerUserId: 7, sourceDir: '/published/source' });
+  h.store.insertSite({ ...h.service.siteBySlug(slug), id: 'published', slug: 'published-site', kind: 'static', target: '', runtime: 'static', ownerUserId: 7, sourceRel: 'sites/published-site' });
   await h.service.removeProject(11);
   assert.equal(h.service.siteBySlug(slug), null);
   assert.ok(h.store.siteById('published'));

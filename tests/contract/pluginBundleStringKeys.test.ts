@@ -64,6 +64,31 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'statusLive', 'statusDraft', 'statusFailed',
     ],
   },
+  // `stateLabel` builds `state_<runtime state>` and falls back to `state_unknown`, so a state whose label
+  // is missing renders as a raw enum value. Declared from the manifest's own set, which is wider than the
+  // runtime union: `paused` and `restarting` are not states the environment row reports today.
+  {
+    file: 'sites/web-src/EnvironmentDetail.tsx',
+    keys: [
+      'state_unprovisioned', 'state_starting', 'state_running', 'state_stopped', 'state_failed',
+      'state_deleting', 'state_deleted', 'state_paused', 'state_restarting', 'state_unknown',
+    ],
+  },
+  // `readinessLabel` builds `readiness_<check id>` with `:` and `-` folded to `_`. Its fallback is the
+  // server's own English detail, so a renamed key degrades silently rather than loudly — which is exactly
+  // why the whole set is declared instead of left outside the scan. The `core` and `provision` ids that
+  // provisioning.ts emits for a failed probe have no manifest string and are therefore not listed.
+  {
+    file: 'sites/web-src/EnvironmentsSetup.tsx',
+    keys: [
+      'readiness_os_supported', 'readiness_package_podman', 'readiness_package_crun',
+      'readiness_package_uidmap', 'readiness_package_dbus_user_session', 'readiness_package_passt',
+      'readiness_package_slirp4netns', 'readiness_package_fuse_overlayfs',
+      'readiness_subuid', 'readiness_subgid', 'readiness_linger', 'readiness_user_bus',
+      'readiness_cgroup_cpu', 'readiness_cgroup_memory', 'readiness_cgroup_pids',
+      'readiness_podman_rootless', 'readiness_base_image',
+    ],
+  },
 ];
 
 interface Manifest { web?: { strings?: Record<string, string> } }

@@ -948,7 +948,14 @@ export function registerTools(deps) {
                     network: site.runtime === 'environment' ? config.environmentNetwork : config.runtimeNetwork,
                     guests, currentReleaseId: site.currentReleaseId,
                     ...(certificate ? { certificate } : {}),
-                    ...(projectInfo ? { project: { id: site.projectId, ...projectInfo } } : {}),
+                    // `projectInfo.path` exists for `describe`, which needs the HOST root to print a host Project's
+                    // source line. It must not be spread into the structured result: a managed Project is addressed
+                    // by its guest root everywhere else in this payload, so a host path the agent cannot use is a
+                    // leak rather than a fact.
+                    ...(projectInfo ? { project: {
+                            id: site.projectId, slug: projectInfo.slug,
+                            executionKind: projectInfo.executionKind, environment: projectInfo.environment,
+                        } } : {}),
                     ...(environment ? { environment, environmentAction } : {}),
                     releases: releases.map((release) => ({
                         id: release.id, createdAt: release.createdAt, note: release.note, kind: release.kind,
