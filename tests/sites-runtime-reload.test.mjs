@@ -43,7 +43,7 @@ const site = (overrides = {}) => ({
   ownerUserId: 7,
   visibility: 'authenticated',
   accessGeneration: 1,
-  sourceDir: '/unused',
+  sourceRel: 'sites/legacy-demo',
   spa: false,
   kind: 'static',
   target: '',
