@@ -3,15 +3,21 @@ import { describe, it, expect, vi } from 'vitest';
 import type { PluginContext, PluginApiRequest, PluginApiRoute } from 'elowen/dist/plugins/api.js';
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 
+/** The fixture project has a real slug, so every path below is the CANONICAL guest root the container
+ *  mounts it at. `/workspace` is a directory of the base image and is empty in every project — asking
+ *  the guest for it is what made the tree answer with nothing at all. */
+const SLUG = 'sdilene';
+const ROOT = `/${SLUG}`;
+
 function fixture(admin = false, allowed = [7], provider: unknown = null) {
   const routes: PluginApiRoute[] = [];
   const safe = vi.fn(() => { throw new Error('host filesystem must not be used'); });
   const ctx = {
-    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, path: '/host-secret', executionKind: 'managed' }) } }) },
+    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, slug: SLUG, path: '/host-secret', executionKind: 'managed' }) } }) },
     control: vi.fn(() => provider), registerApiRoute: (route: PluginApiRoute) => routes.push(route),
   } as unknown as PluginContext;
   registerEditorApi(ctx);
-  const call = (mount: string, method = 'GET', query = { path: 'src/a.ts' }, input: unknown = undefined) => {
+  const call = (mount: string, method = 'GET', query: Record<string, string> = { path: 'src/a.ts' }, input: unknown = undefined) => {
     const route = routes.find(r => r.rootMount === `/projects/:id/${mount}` && r.method === method)!;
     return route.handler({ path: '', params: { id: '7' }, query, headers: {}, auth: { admin, accessibleProjects: allowed, userId: 11 }, json: async () => input } as unknown as PluginApiRequest);
   };
@@ -33,7 +39,7 @@ describe('managed editor routing', () => {
     const projectFiles = vi.fn(async () => ({ kind: 'read', base64: Buffer.from('guest data').toString('base64'), totalBytes: 10, version: 'v1' }));
     const f = fixture(false, [7], { projectFiles });
     expect((await f.call('file')).body).toEqual({ content: 'guest data', truncated: false, version: 'v1' });
-    expect(projectFiles).toHaveBeenCalledWith({ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'read', path: '/workspace/src/a.ts', offset: 0, length: 262144, maxBytes: 262144 } });
+    expect(projectFiles).toHaveBeenCalledWith({ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'read', path: `${ROOT}/src/a.ts`, offset: 0, length: 262144, maxBytes: 262144 } });
     expect(f.safe).not.toHaveBeenCalled();
   });
   it('rejects traversal without asking the guest or host', async () => {
@@ -47,7 +53,7 @@ describe('managed editor routing', () => {
     const projectFiles = vi.fn(async () => ({ kind: 'write', entry: { version: 'v2' } }));
     const f = fixture(false, [7], { projectFiles });
     expect((await f.call('file', 'PUT', { path: '' }, { path: 'src/a.ts', content: 'next', version: 'v1' })).body).toEqual({ ok: true, version: 'v2' });
-    expect(projectFiles.mock.calls[0]).toEqual([{ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'write', path: '/workspace/src/a.ts', base64: Buffer.from('next').toString('base64'), expectedVersion: 'v1' } }]);
+    expect(projectFiles.mock.calls[0]).toEqual([{ project: { kind: 'managed', projectId: 7 }, accountUserId: 11, operation: { kind: 'write', path: `${ROOT}/src/a.ts`, base64: Buffer.from('next').toString('base64'), expectedVersion: 'v1' } }]);
   });
   it('does not mask a provider refusal or use the host', async () => {
     const f = fixture(true, [7], { projectFiles: async () => { throw new Error('membership revoked'); } });

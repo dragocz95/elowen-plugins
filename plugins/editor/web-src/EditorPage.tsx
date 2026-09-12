@@ -3,6 +3,7 @@ import { Code2, HardDrive } from 'lucide-react';
 import { runtime } from './runtime';
 import { ProjectEditor } from './editor/ProjectEditor';
 import { SYSTEM_PROJECT_ID } from '../src/systemRoot';
+import { parseEditorRoot, type EditorRoot } from '../src/editorRoots';
 
 const { useProjects, usePluginStrings, useProjectFilter, useFillHeight, useMobile, useMe, usePersistentState } = runtime().hooks;
 const {
@@ -19,15 +20,18 @@ const SYSTEM_CHOICES = ['on', 'off'] as const;
 /** The dropdown value for the system entry — a non-numeric string, so it can never be read as an id. */
 const SYSTEM_OPTION = 'system';
 
-/** A deep link from Projects or the Timeline opens one project — and optionally one commit or the
- *  working tree — instead of the remembered filter. */
-function linkTarget(): { project: number | null; commit: string | null; working: boolean } {
+/** A deep link from Projects or the Timeline opens one project — and optionally one commit, the working
+ *  tree, or one of a managed project's two roots — instead of the remembered filter. An unrecognized
+ *  root is dropped rather than refused: the rest of the link is still a perfectly good destination. */
+function linkTarget(): { project: number | null; commit: string | null; working: boolean; root: EditorRoot | undefined } {
   const params = new URLSearchParams(window.location.search);
   const id = Number(params.get('project'));
+  const root = params.get('root');
   return {
     project: Number.isInteger(id) && id > 0 ? id : null,
     commit: params.get('commit'),
     working: params.get('working') === '1',
+    root: root === null ? undefined : parseEditorRoot(root) ?? undefined,
   };
 }
 
@@ -111,7 +115,7 @@ export function EditorPage() {
           <MotionPresence mode="wait">
             {projectId == null
               ? <MotionLayoutItem key="empty" className="h-full"><EmptyState title={s.noProjects} description={s.noProjectsDescription} icon={Code2} /></MotionLayoutItem>
-              : <MotionLayoutItem key={`${projectId}:${link.commit ?? ''}:${link.working}`} className="h-full"><ProjectEditor projectId={projectId} initialCommit={link.commit} initialWorking={link.working} onClose={onClose} fill /></MotionLayoutItem>}
+              : <MotionLayoutItem key={`${projectId}:${link.commit ?? ''}:${link.working}`} className="h-full"><ProjectEditor projectId={projectId} initialCommit={link.commit} initialWorking={link.working} initialRoot={link.root} onClose={onClose} fill /></MotionLayoutItem>}
           </MotionPresence>
         </div>
       </WorkspacePage>

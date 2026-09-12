@@ -621,6 +621,26 @@ var FolderPlus = createLucideIcon("FolderPlus", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/folder-tree.js
+var FolderTree = createLucideIcon("FolderTree", [
+  [
+    "path",
+    {
+      d: "M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z",
+      key: "hod4my"
+    }
+  ],
+  [
+    "path",
+    {
+      d: "M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z",
+      key: "w4yl2u"
+    }
+  ],
+  ["path", { d: "M3 5a2 2 0 0 0 2 2h3", key: "f2jnh7" }],
+  ["path", { d: "M3 3v13a2 2 0 0 0 2 2h3", key: "k8epm1" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/folder.js
 var Folder = createLucideIcon("Folder", [
   [
@@ -955,9 +975,77 @@ function copyName(path) {
 var SYSTEM_PROJECT_ID = -1;
 var SYSTEM_ROOT = "/";
 
-// plugins/editor/web-src/editor/systemTree.ts
+// plugins/editor/src/editorRoots.ts
+var EDITOR_ROOTS = ["project", "system"];
+var DEFAULT_EDITOR_ROOT = "project";
+var GUEST_SYSTEM_ROOT = "/";
+function parseEditorRoot(value) {
+  if (value === void 0 || value === null || value === "") return DEFAULT_EDITOR_ROOT;
+  return typeof value === "string" && EDITOR_ROOTS.includes(value) ? value : null;
+}
+
+// plugins/editor/web-src/editor/fileUrls.ts
+function editorFileUrl(projectId, route, root, params) {
+  const query = new URLSearchParams({ root });
+  for (const [name, value] of Object.entries(params ?? {})) if (value !== void 0) query.set(name, value);
+  return `/api/projects/${projectId}/${route}?${query.toString()}`;
+}
+function editorApiPath(projectId, route, root, params) {
+  return editorFileUrl(projectId, route, root, params).replace(/^\/api/, "");
+}
+
+// plugins/editor/web-src/editor/fileData.ts
+var editorTreeKey = (projectId, root) => ["editor-tree", projectId, root];
+var editorFileKey = (projectId, root, path) => ["editor-file", projectId, root, path];
+function useEditorTree(projectId, root, enabled) {
+  return runtime().hooks.useQuery({
+    queryKey: editorTreeKey(projectId ?? 0, root),
+    queryFn: () => runtime().api(editorApiPath(projectId, "files", root)),
+    enabled: !!projectId && enabled
+  });
+}
+function useEditorFile(projectId, root, path) {
+  return runtime().hooks.useQuery({
+    queryKey: editorFileKey(projectId ?? 0, root, path),
+    queryFn: () => runtime().api(editorApiPath(projectId, "file", root, { path })),
+    enabled: !!projectId && !!path
+  });
+}
+async function saveEditorFile(projectId, root, path, content, version) {
+  const result = await runtime().api(editorApiPath(projectId, "file", root), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(version === void 0 ? { path, content } : { path, content, version })
+  });
+  if (!result || typeof result !== "object") throw new Error("Malformed save response");
+  const next = result.version;
+  if (version !== void 0 && typeof next !== "string") throw new Error("Missing saved content version");
+  return typeof next === "string" ? next : void 0;
+}
+function useEditorTreeMutations(projectId, root) {
+  const { useMutation, useQueryClient } = runtime().hooks;
+  const client = useQueryClient();
+  const settle = () => {
+    void client.invalidateQueries({ queryKey: editorTreeKey(projectId, root) });
+    void client.invalidateQueries({ queryKey: ["project-changed", projectId] });
+    void client.invalidateQueries({ queryKey: ["project-git", projectId] });
+  };
+  const post = (route, body) => runtime().api(editorApiPath(projectId, route, root), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return {
+    newFile: useMutation({ mutationFn: (v3) => post("new-file", { path: v3.path }), onSuccess: settle }),
+    newDir: useMutation({ mutationFn: (v3) => post("dir", { path: v3.path }), onSuccess: settle }),
+    rename: useMutation({ mutationFn: (v3) => post("rename", v3), onSuccess: settle }),
+    copy: useMutation({ mutationFn: (v3) => post("copy", v3), onSuccess: settle }),
+    remove: useMutation({
+      mutationFn: (v3) => runtime().api(editorApiPath(projectId, "entry", root, { path: v3.path }), { method: "DELETE" }),
+      onSuccess: settle
+    })
+  };
+}
+
+// plugins/editor/web-src/editor/lazyTree.ts
 var import_react3 = __toESM(require_react(), 1);
-function useSystemDirs(projectId, enabled, expanded, epoch) {
+function useLazyDirs(projectId, root, enabled, expanded, epoch) {
   const [levels, setLevels] = (0, import_react3.useState)({});
   const requested = (0, import_react3.useRef)(/* @__PURE__ */ new Set());
   const generation = (0, import_react3.useRef)(0);
@@ -965,7 +1053,7 @@ function useSystemDirs(projectId, enabled, expanded, epoch) {
     generation.current += 1;
     requested.current = /* @__PURE__ */ new Set();
     setLevels({});
-  }, [projectId, enabled, epoch]);
+  }, [projectId, root, enabled, epoch]);
   (0, import_react3.useEffect)(() => {
     if (!enabled) return;
     const mine = generation.current;
@@ -974,14 +1062,14 @@ function useSystemDirs(projectId, enabled, expanded, epoch) {
       requested.current.add(dir);
       void (async () => {
         try {
-          const nodes = await runtime().api(`/projects/${projectId}/files?path=${encodeURIComponent(dir)}`);
+          const nodes = await runtime().api(editorApiPath(projectId, "files", root, { path: dir }));
           if (generation.current !== mine) return;
           setLevels((current) => ({ ...current, [dir]: nodes }));
         } catch {
         }
       })();
     }
-  }, [projectId, enabled, expanded, epoch]);
+  }, [projectId, root, enabled, expanded, epoch]);
   return (0, import_react3.useMemo)(() => Object.values(levels).flat(), [levels]);
 }
 
@@ -1877,6 +1965,8 @@ function ViewSwitch({ options, value, onChange, label }) {
         type: "button",
         role: "tab",
         "aria-selected": active,
+        title: option.hint,
+        "aria-description": option.hint,
         onClick: () => onChange(option.id),
         className: `overlay-menu-item flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${active ? "bg-accent text-accent-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"}`,
         children: [
@@ -1943,15 +2033,21 @@ async function refusal(response) {
   const body = await response.json().catch(() => null);
   return typeof body?.error === "string" ? body.error : `HTTP ${response.status}`;
 }
-async function uploadFile(projectId, path, file, options) {
+async function uploadFile(projectId, root, path, file, options) {
   if (file.size > MAX_BUFFERED_BYTES) throw new UploadError("file too large");
   const overwrite = options?.overwrite ? "1" : "0";
   let offset = 0;
   do {
     const chunk = file.slice(offset, offset + MAX_UPLOAD_CHUNK_BYTES);
     const final = offset + chunk.size >= file.size;
-    const query = `path=${encodeURIComponent(path)}&offset=${offset}&size=${file.size}&overwrite=${overwrite}${final ? "&final=1" : ""}`;
-    const response = await fetch(`/api/projects/${projectId}/upload?${query}`, {
+    const url = editorFileUrl(projectId, "upload", root, {
+      path,
+      offset: String(offset),
+      size: String(file.size),
+      overwrite,
+      ...final ? { final: "1" } : {}
+    });
+    const response = await fetch(url, {
       method: "PUT",
       body: chunk,
       headers: { "content-type": "application/octet-stream" },
@@ -4815,7 +4911,7 @@ function MarkdownPreview({ source }) {
 // plugins/editor/web-src/editor/ImagePreview.tsx
 var import_react19 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
-function ImagePreview({ projectId, path }) {
+function ImagePreview({ projectId, root, path }) {
   const [url, setUrl] = (0, import_react19.useState)(null);
   const [failed, setFailed] = (0, import_react19.useState)(false);
   (0, import_react19.useEffect)(() => {
@@ -4823,7 +4919,7 @@ function ImagePreview({ projectId, path }) {
     let objectUrl = null;
     setUrl(null);
     setFailed(false);
-    fetch(`/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`, { credentials: "same-origin" }).then((response) => {
+    fetch(editorFileUrl(projectId, "raw", root, { path }), { credentials: "same-origin" }).then((response) => {
       if (!response.ok) throw new Error(`raw ${response.status}`);
       return response.blob();
     }).then((blob) => {
@@ -4837,14 +4933,14 @@ function ImagePreview({ projectId, path }) {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, path]);
+  }, [projectId, root, path]);
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-background p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "text-sm text-muted-foreground", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
 }
 
 // plugins/editor/web-src/editor/PdfPreview.tsx
 var import_react20 = __toESM(require_react(), 1);
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-function PdfPreview({ projectId, path, failedLabel, office = false }) {
+function PdfPreview({ projectId, root, path, failedLabel, office = false }) {
   const [url, setUrl] = (0, import_react20.useState)(null);
   const [failed, setFailed] = (0, import_react20.useState)(false);
   (0, import_react20.useEffect)(() => {
@@ -4853,7 +4949,7 @@ function PdfPreview({ projectId, path, failedLabel, office = false }) {
     setUrl(null);
     setFailed(false);
     const route = office ? "office-preview" : "raw";
-    fetch(`/api/projects/${projectId}/${route}?path=${encodeURIComponent(path)}`, { credentials: "same-origin" }).then((response) => {
+    fetch(editorFileUrl(projectId, route, root, { path }), { credentials: "same-origin" }).then((response) => {
       if (!response.ok) throw new Error(`${route} ${response.status}`);
       return response.blob();
     }).then((blob) => {
@@ -4867,14 +4963,14 @@ function PdfPreview({ projectId, path, failedLabel, office = false }) {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, path, office]);
+  }, [projectId, root, path, office]);
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "h-full overflow-hidden bg-background p-3", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "p-4 text-center text-sm text-destructive", children: failedLabel.replace("{path}", path) }) : url ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("iframe", { src: url, title: path, className: "h-full w-full rounded-md border border-border bg-background" }) : null });
 }
 
 // plugins/editor/web-src/editor/MediaPreview.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
-function MediaPreview({ projectId, path, kind }) {
-  const src = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`;
+function MediaPreview({ projectId, root, path, kind }) {
+  const src = editorFileUrl(projectId, "raw", root, { path });
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-background p-6", children: kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("video", { controls: true, preload: "metadata", src, className: "max-h-full max-w-full rounded-md bg-background" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("audio", { controls: true, preload: "metadata", src, className: "w-full max-w-2xl" }) });
 }
 
@@ -4893,10 +4989,10 @@ function formatBytes2(bytes) {
   }
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
 }
-function BinaryPreview({ projectId, path, size, message, downloadLabel, sizeLabel, typeLabel, downloadUnavailableLabel, downloadAvailable }) {
+function BinaryPreview({ projectId, root, path, size, message, downloadLabel, sizeLabel, typeLabel, downloadUnavailableLabel, downloadAvailable }) {
   const download = () => {
     const anchor = document.createElement("a");
-    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.href = editorFileUrl(projectId, "raw", root, { path, download: "1" });
     anchor.download = baseName(path);
     document.body.appendChild(anchor);
     anchor.click();
@@ -4961,19 +5057,31 @@ function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
 // plugins/editor/web-src/editor/ProjectEditor.tsx
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var { hooks, components: components2, utils } = runtime();
-var { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings } = hooks;
+var { useProjects, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings, usePersistentState } = hooks;
 var { Button: Button3, LoadingState, EmptyState, ContextMenu, PatchView, WorkspaceTakeover } = components2;
 var EDITOR_H_KEY = "elowen:editor:height";
 var PREFS_KEY = "elowen:editor:prefs";
+var ROOT_KEY = "elowen.editor.root";
 var MIN_EDITOR_H = 320;
 var clampEditorH = (px) => Math.max(MIN_EDITOR_H, Math.min(typeof window !== "undefined" ? window.innerHeight * 0.96 : 4e3, px));
-function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }) {
+function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, initialRoot, fill = false }) {
   const s = usePluginStrings("editor");
   const queryClient = hooks.useQueryClient();
   const { t } = useTranslation2();
   const { toast } = useToast();
-  const system = projectId === SYSTEM_PROJECT_ID;
-  const files = useProjectFiles(projectId);
+  const hostSystem = projectId === SYSTEM_PROJECT_ID;
+  const projects = useProjects();
+  const projectRow = projects.data?.find((item) => item.id === projectId);
+  const dualRoot = projectRow?.executionKind === "managed";
+  const [storedRoot, setStoredRoot] = usePersistentState(ROOT_KEY, initialRoot ?? DEFAULT_EDITOR_ROOT, EDITOR_ROOTS);
+  const root = dualRoot ? storedRoot : DEFAULT_EDITOR_ROOT;
+  const systemRoot = hostSystem || root === "system";
+  const [restored, setRestored] = (0, import_react22.useState)(false);
+  (0, import_react22.useEffect)(() => {
+    setRestored(true);
+  }, []);
+  const rootReady = restored && !projects.isLoading;
+  const files = useEditorTree(projectId, root, rootReady);
   const [treeEpoch, setTreeEpoch] = (0, import_react22.useState)(0);
   const bumpTree = () => setTreeEpoch((n) => n + 1);
   const [selected, setSelected] = (0, import_react22.useState)(null);
@@ -4986,6 +5094,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const [cursor, setCursor] = (0, import_react22.useState)(null);
   const [openMenu, setOpenMenu] = (0, import_react22.useState)(null);
   const [uploading, setUploading] = (0, import_react22.useState)(false);
+  const [saving, setSaving] = (0, import_react22.useState)(false);
   const [dropping, setDropping] = (0, import_react22.useState)(false);
   const fileInput = (0, import_react22.useRef)(null);
   const [fullscreen, setFullscreen] = (0, import_react22.useState)(false);
@@ -5039,7 +5148,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       return next;
     });
   };
-  const gitId = system ? null : projectId;
+  const gitId = systemRoot ? null : projectId;
   const commitData = useProjectCommit(gitId, commit);
   const changesData = useProjectChanges(gitId, working);
   const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
@@ -5048,23 +5157,18 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
     [commit, commitData.data?.files, workingChanged]
   );
-  const systemDirs = useSystemDirs(projectId, system, expanded, treeEpoch);
+  const lazyDirs = useLazyDirs(projectId, root, systemRoot && rootReady, expanded, treeEpoch);
   const nodes = (0, import_react22.useMemo)(() => {
-    if (!system) return files.data ?? [];
+    if (!systemRoot) return files.data ?? [];
     const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
-    for (const node of systemDirs) byPath.set(node.path, node);
+    for (const node of lazyDirs) byPath.set(node.path, node);
     return [...byPath.values()];
-  }, [system, files.data, systemDirs]);
+  }, [systemRoot, files.data, lazyDirs]);
   const selectedFile = selected ? nodes.find((node) => node.type === "file" && node.path === selected) : void 0;
   const fileKind = selected ? fileKindOf(selected) : null;
   const textFile = fileKind === "text" || fileKind === "markdown" || fileKind === "csv";
-  const fileData = useProjectFile(projectId, textFile ? selected : null);
-  const write = useWriteProjectFile();
-  const newFile = useNewProjectFile();
-  const newDir = useNewProjectDir();
-  const rename = useRenameProjectEntry();
-  const copy = useCopyProjectEntry();
-  const del = useDeleteProjectEntry();
+  const fileData = useEditorFile(projectId, root, textFile ? selected : null);
+  const { newFile, newDir, rename, copy, remove: del } = useEditorTreeMutations(projectId, root);
   const tree = (0, import_react22.useMemo)(() => buildTree(nodes), [nodes]);
   const serverContent = fileData.data?.content ?? "";
   const draft = selected != null ? drafts[selected] : void 0;
@@ -5072,8 +5176,10 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const dirty = selected != null && dirtyPaths.has(selected);
   const previewableText = fileKind === "markdown" || fileKind === "csv";
   const editable = selected != null && textFile && !commit && !working;
-  const effTab = tab === "preview" && !previewableText || tab === "diff" && system ? "edit" : tab;
+  const effTab = tab === "preview" && !previewableText || tab === "diff" && systemRoot ? "edit" : tab;
   const fileSize = selectedFile?.size ?? 0;
+  const rootDisplay = hostSystem ? SYSTEM_ROOT : root === "system" ? GUEST_SYSTEM_ROOT : projectRow?.guestRoot ?? null;
+  const absoluteHint = rootDisplay === null ? null : rootDisplay === "/" ? `/${selected ?? ""}` : selected ? `${rootDisplay}/${selected}` : rootDisplay;
   const headData = useProjectFileAtHead(gitId, selected, editable && effTab === "diff");
   const openFile = (p) => {
     setSelected(p);
@@ -5109,6 +5215,26 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     return n;
   });
   const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.discardChanges);
+  const changeRoot = (next) => {
+    if (next === root || !dualRoot) return;
+    if (!confirmDiscard()) return;
+    updateDrafts(() => ({}));
+    draftVersions.current = {};
+    setDirtyPaths(/* @__PURE__ */ new Set());
+    setOpenTabs([]);
+    setSelected(null);
+    setExpanded(/* @__PURE__ */ new Set());
+    setTab("edit");
+    setStoredRoot(next);
+    bumpTree();
+  };
+  const linkedRoot = (0, import_react22.useRef)(initialRoot);
+  (0, import_react22.useEffect)(() => {
+    if (!linkedRoot.current || !dualRoot) return;
+    const wanted = linkedRoot.current;
+    linkedRoot.current = void 0;
+    setStoredRoot(wanted);
+  }, [dualRoot, setStoredRoot]);
   const leaveFullscreen = () => {
     if (menu) {
       setMenu(null);
@@ -5147,13 +5273,14 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     const path = selected;
     const sent = value;
     const version = draftVersions.current[path] ?? fileData.data?.version;
-    const operation = version === void 0 ? write.mutateAsync({ id: projectId, path, content: sent }) : (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => void 0).then(async () => {
-      const result = await runtime().api(`/projects/${projectId}/file`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, content: sent, version: draftVersions.current[path] ?? version }) });
-      if (!result || typeof result !== "object" || !("version" in result) || typeof result.version !== "string") throw new Error("Missing saved content version");
-      draftVersions.current[path] = result.version;
-      queryClient.setQueryData(["project-file", projectId, path], { content: sent, truncated: false, version: result.version });
-      void queryClient.invalidateQueries({ queryKey: ["project-file", projectId, path] });
-      void queryClient.invalidateQueries({ queryKey: ["project-files", projectId] });
+    const fileKey = editorFileKey(projectId, root, path);
+    setSaving(true);
+    const operation = (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => void 0).then(async () => {
+      const next = await saveEditorFile(projectId, root, path, sent, draftVersions.current[path] ?? version);
+      if (next !== void 0) draftVersions.current[path] = next;
+      queryClient.setQueryData(fileKey, { content: sent, truncated: false, version: next });
+      void queryClient.invalidateQueries({ queryKey: fileKey });
+      void queryClient.invalidateQueries({ queryKey: editorTreeKey(projectId, root) });
       void queryClient.invalidateQueries({ queryKey: ["project-changed", projectId] });
     });
     saveQueues.current.set(path, operation);
@@ -5174,8 +5301,9 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         }
         toast(s.fileSaved.replace("{path}", path));
       },
-      (e) => toast(version === void 0 ? String(e) : utils.apiErrorMessage(e), "error")
+      (e) => toast(utils.apiErrorMessage(e), "error")
     ).finally(() => {
+      setSaving(false);
       if (saveQueues.current.get(path) === operation) saveQueues.current.delete(path);
     });
   };
@@ -5224,7 +5352,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     setDirtyPaths((cur) => new Set([...cur].map(remap)));
     setSelected((cur) => cur ? remap(cur) : cur);
   };
-  const err = (e) => toast(String(e), "error");
+  const err = (e) => toast(utils.apiErrorMessage(e), "error");
   const copyPath = (p) => {
     void utils.copyText(p).then((ok) => {
       if (ok) toast(s.pathCopied);
@@ -5239,7 +5367,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       let done = 0;
       for (const file of chosen) {
         try {
-          await uploadFile(projectId, joinPath(dir, file.name), file);
+          await uploadFile(projectId, root, joinPath(dir, file.name), file);
           done += 1;
         } catch (error) {
           toast(`${file.name}: ${error instanceof UploadError ? error.message : String(error)}`, "error");
@@ -5256,7 +5384,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   };
   const download = (path) => {
     const anchor = document.createElement("a");
-    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.href = editorFileUrl(projectId, "raw", root, { path, download: "1" });
     anchor.download = baseName(path);
     document.body.appendChild(anchor);
     anchor.click();
@@ -5266,7 +5394,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
     if (!dialog) return;
     if (dialog.kind === "newFile") {
       const path = joinPath(dialog.dir, val);
-      newFile.mutate({ id: projectId, path }, { onSuccess: () => {
+      newFile.mutate({ path }, { onSuccess: () => {
         bumpTree();
         expandPath(dialog.dir);
         openFile(path);
@@ -5274,21 +5402,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       }, onError: err });
     } else if (dialog.kind === "newFolder") {
       const path = joinPath(dialog.dir, val);
-      newDir.mutate({ id: projectId, path }, { onSuccess: () => {
+      newDir.mutate({ path }, { onSuccess: () => {
         bumpTree();
         expandPath(path);
         toast(s.folderCreated.replace("{path}", path));
       }, onError: err });
     } else if (dialog.kind === "rename") {
       const to = joinPath(parentDir(dialog.target), val);
-      rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+      rename.mutate({ from: dialog.target, to }, { onSuccess: () => {
         bumpTree();
         remapPath(dialog.target, to);
         toast(s.renamed.replace("{path}", to));
       }, onError: err });
     } else if (dialog.kind === "duplicate") {
       const to = joinPath(parentDir(dialog.target), val);
-      copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => {
+      copy.mutate({ from: dialog.target, to }, { onSuccess: () => {
         bumpTree();
         toast(s.duplicated.replace("{path}", to));
       }, onError: err });
@@ -5298,7 +5426,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
   const confirmDelete = () => {
     if (dialog?.kind !== "delete") return;
     const path = dialog.target;
-    del.mutate({ id: projectId, path }, { onSuccess: () => {
+    del.mutate({ path }, { onSuccess: () => {
       bumpTree();
       forgetPath(path);
       toast(s.deleted.replace("{path}", path));
@@ -5391,12 +5519,12 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         options: [
           { id: "edit", label: s.tabEdit, icon: CodeXml },
           ...previewableText ? [{ id: "preview", label: s.tabPreview, icon: Eye }] : [],
-          // Nothing to diff against under the system root — there is no HEAD behind `/`.
-          ...system ? [] : [{ id: "diff", label: s.tabDiff, icon: GitCompare }]
+          // Nothing to diff against under a system root — there is no HEAD behind `/`.
+          ...systemRoot ? [] : [{ id: "diff", label: s.tabDiff, icon: GitCompare }]
         ]
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Button3, { variant: "accent", icon: Save, disabled: !dirty || write.isPending, onClick: save, children: t.common.save })
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Button3, { variant: "accent", icon: Save, disabled: !dirty || saving, onClick: save, children: t.common.save })
   ] }) : null;
   const surface = /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { role: "toolbar", "aria-label": s.editorTitle, className: "flex max-w-full flex-wrap items-center gap-2 border-b border-border px-3 py-2", children: [
@@ -5416,9 +5544,21 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CodeXml, { size: 15, className: "shrink-0 text-primary", "aria-hidden": true }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-sm font-semibold text-foreground", children: s.editorTitle })
       ] }),
-      system ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 truncate font-mono text-xs text-muted-foreground", title: SYSTEM_ROOT + (selected ?? ""), children: [
+      dualRoot && !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+        ViewSwitch,
+        {
+          label: s.rootLabel,
+          value: root,
+          onChange: changeRoot,
+          options: [
+            { id: "project", label: s.rootProject, hint: s.rootProjectHint, icon: FolderTree },
+            { id: "system", label: s.rootSystem, hint: s.rootSystemHint, icon: HardDrive }
+          ]
+        }
+      ) : null,
+      absoluteHint ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 truncate font-mono text-xs text-muted-foreground", title: absoluteHint, children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(HardDrive, { size: 11, className: "mr-1 inline shrink-0 text-primary", "aria-hidden": true }),
-        SYSTEM_ROOT + (selected ?? "")
+        absoluteHint
       ] }) : null,
       working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
@@ -5483,7 +5623,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
       ),
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
         !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ImagePreview, { projectId, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MediaPreview, { projectId, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(BinaryPreview, { projectId, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "p-4 text-center text-sm text-muted-foreground", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value, prefs }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, prefs, onCursor: setCursor }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ImagePreview, { projectId, root, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MediaPreview, { projectId, root, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(BinaryPreview, { projectId, root, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "p-4 text-center text-sm text-muted-foreground", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value, prefs }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, prefs, onCursor: setCursor }) }),
         selected && textFile && !commit && !working && effTab === "edit" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           StatusBar,
           {
@@ -5563,7 +5703,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill
 
 // plugins/editor/web-src/EditorPage.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-var { useProjects, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2, useMe, usePersistentState } = runtime().hooks;
+var { useProjects: useProjects2, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2, useMe, usePersistentState: usePersistentState2 } = runtime().hooks;
 var {
   ModuleHeader,
   EmptyState: EmptyState2,
@@ -5582,21 +5722,23 @@ var SYSTEM_OPTION = "system";
 function linkTarget() {
   const params = new URLSearchParams(window.location.search);
   const id = Number(params.get("project"));
+  const root = params.get("root");
   return {
     project: Number.isInteger(id) && id > 0 ? id : null,
     commit: params.get("commit"),
-    working: params.get("working") === "1"
+    working: params.get("working") === "1",
+    root: root === null ? void 0 : parseEditorRoot(root) ?? void 0
   };
 }
 function EditorPage() {
   const s = usePluginStrings2("editor");
   const mobile = useMobile2();
-  const projects = useProjects();
+  const projects = useProjects2();
   const me3 = useMe();
   const surfaceRef = (0, import_react23.useRef)(null);
   const fillHeight = useFillHeight(surfaceRef);
   const { selectedProject, setProject } = useProjectFilter("elowen.editor.project");
-  const [systemChoice, setSystemChoice] = usePersistentState(SYSTEM_KEY, "off", SYSTEM_CHOICES);
+  const [systemChoice, setSystemChoice] = usePersistentState2(SYSTEM_KEY, "off", SYSTEM_CHOICES);
   const [link] = (0, import_react23.useState)(linkTarget);
   const list = projects.data ?? [];
   const admin = me3.data?.user.is_admin === true;
@@ -5643,7 +5785,7 @@ function EditorPage() {
           action: picker
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { ref: surfaceRef, className: "min-h-0 overflow-hidden pt-4", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) })
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { ref: surfaceRef, className: "min-h-0 overflow-hidden pt-4", style: fillHeight ? { height: fillHeight } : void 0, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionPresence, { mode: "wait", children: projectId == null ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(EmptyState2, { title: s.noProjects, description: s.noProjectsDescription, icon: CodeXml }) }, "empty") : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(MotionLayoutItem, { className: "h-full", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ProjectEditor, { projectId, initialCommit: link.commit, initialWorking: link.working, initialRoot: link.root, onClose, fill: true }) }, `${projectId}:${link.commit ?? ""}:${link.working}`) }) })
     ] })
   ] });
 }

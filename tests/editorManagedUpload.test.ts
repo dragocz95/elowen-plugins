@@ -37,7 +37,7 @@ async function managedFixture() {
   const root = await mkdtemp(join(tmpdir(), 'elowen-managed-upload-'));
   const operations: GuestFileOperation[] = [];
   const actors: number[] = [];
-  const guest = (absolute: string) => absolute.startsWith('/workspace') ? root + absolute.slice('/workspace'.length) : absolute;
+  const guest = (absolute: string) => absolute.startsWith('/sdilene') ? root + absolute.slice('/sdilene'.length) : absolute;
   const exists = async (path: string) => { try { await stat(path); return true; } catch { return false; } };
   const versionOf = async (path: string) => sha(await readFile(path));
   const entryOf = async (path: string) => {
@@ -64,8 +64,8 @@ async function managedFixture() {
   const provider = {
     async prepareExecution(input: { command: { type: string; file: string; args: string[] }; projectRef: unknown }): Promise<SandboxPreparedExecution> {
       expect(input.projectRef).toEqual({ kind: 'managed', projectId: 7 });
-      const args = input.command.args.map((value: string) => value.startsWith('/workspace') ? root + value.slice('/workspace'.length) : value);
-      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/workspace', roots: ['/'], workspace: null, launch: { type: 'argv', file: `/usr/bin/${input.command.file}`, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: (text: string) => text.replaceAll(root, '/workspace') };
+      const args = input.command.args.map((value: string) => value.startsWith('/sdilene') ? root + value.slice('/sdilene'.length) : value);
+      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, launch: { type: 'argv', file: `/usr/bin/${input.command.file}`, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: (text: string) => text.replaceAll(root, '/sdilene') };
     },
     async projectFiles(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; operation: GuestFileOperation }): Promise<GuestFileResult> {
       expect(input.project).toEqual({ kind: 'managed', projectId: 7 });
@@ -167,7 +167,7 @@ async function managedFixture() {
   // hands back the REGISTERED control object itself (src/plugins/registry.ts `control()` — the same
   // identity on every call, never a per-call proxy), so provider-keyed upload sessions survive across
   // requests and the fixture mirrors that by returning the same provider each time.
-  const ctx = { control: () => provider, registerApiRoute: (route: PluginApiRoute) => routes.push(route), host: { projectFiles: () => ({ safe: () => { throw new Error('host route called'); } }), stores: () => ({ projects: { get: () => ({ id: 7, executionKind: 'managed', path: '/host-must-not-be-used' }) } }) } } as unknown as PluginContext;
+  const ctx = { control: () => provider, registerApiRoute: (route: PluginApiRoute) => routes.push(route), host: { projectFiles: () => ({ safe: () => { throw new Error('host route called'); } }), stores: () => ({ projects: { get: () => ({ id: 7, slug: 'sdilene', executionKind: 'managed', path: '/host-must-not-be-used' }) } }) } } as unknown as PluginContext;
   registerEditorApi(ctx);
   const upload = async (query: Record<string, string>, bytes: Buffer, accountUserId = 11): Promise<PluginHttpResponse> => {
     const route = routes.find(route => route.rootMount === '/projects/:id/upload' && route.method === 'PUT')!;
@@ -197,7 +197,7 @@ describe('browser upload transport', () => {
     serve();
     const payload = new Uint8Array(5 * 1024 * 1024 + 7).map((_, i) => i % 251);
     const progress: Array<[number, number]> = [];
-    await uploadFile(7, 'assets/blob.bin', new File([payload], 'blob.bin'), { onProgress: (sent, total) => progress.push([sent, total]) });
+    await uploadFile(7, 'project', 'assets/blob.bin', new File([payload], 'blob.bin'), { onProgress: (sent, total) => progress.push([sent, total]) });
     expect(recorded.map(chunk => chunk.offset)).toEqual([0, MAX_UPLOAD_CHUNK_BYTES, 2 * MAX_UPLOAD_CHUNK_BYTES]);
     expect(recorded.map(chunk => chunk.final)).toEqual([false, false, true]);
     expect(recorded.every(chunk => chunk.bytes.length <= MAX_UPLOAD_CHUNK_BYTES)).toBe(true);
@@ -210,19 +210,19 @@ describe('browser upload transport', () => {
 
   it('refuses a file above the 50 MiB upload cap before a single byte is sent', async () => {
     serve();
-    await expect(uploadFile(7, 'big.bin', new File([new Uint8Array(MAX_BUFFERED_BYTES + 1)], 'big.bin'))).rejects.toThrow('file too large');
+    await expect(uploadFile(7, 'project', 'big.bin', new File([new Uint8Array(MAX_BUFFERED_BYTES + 1)], 'big.bin'))).rejects.toThrow('file too large');
     expect(recorded).toHaveLength(0);
   });
 
   it('sends a zero-byte file as one final empty chunk so it still lands', async () => {
     serve();
-    await uploadFile(7, 'empty.txt', new File([], 'empty.txt'));
+    await uploadFile(7, 'project', 'empty.txt', new File([], 'empty.txt'));
     expect(recorded).toEqual([{ offset: 0, final: true, overwrite: false, size: 0, bytes: Buffer.alloc(0) }]);
   });
 
   it('surfaces the server refusal verbatim as an UploadError', async () => {
     serve(() => HttpResponse.json({ error: 'upload out of order' }, { status: 400 }));
-    const error = await uploadFile(7, 'blob.bin', new File([new Uint8Array(16)], 'blob.bin')).catch((e: unknown) => e);
+    const error = await uploadFile(7, 'project', 'blob.bin', new File([new Uint8Array(16)], 'blob.bin')).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(UploadError);
     expect((error as Error).message).toBe('upload out of order');
   });
@@ -257,7 +257,7 @@ describe('managed upload parity', () => {
         if (op.kind === 'write-chunk') {
           expect(op.offset % GUEST_FILE_CHUNK_BYTES).toBe(0);
           expect(Buffer.from(op.base64, 'base64').length).toBeLessThanOrEqual(GUEST_FILE_CHUNK_BYTES);
-          expect(op.path.startsWith('/workspace/')).toBe(true);
+          expect(op.path.startsWith('/sdilene/')).toBe(true);
         }
       }
       // An assembled upload leaves no half-written marker behind: it is listed nowhere.

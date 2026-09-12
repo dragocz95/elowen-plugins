@@ -1,10 +1,13 @@
 import { useMemo, useRef, useState, useEffect, type MouseEvent } from 'react';
-import { File as FileIcon, Save, Code2, GitCompare, HardDrive, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
+import { File as FileIcon, Save, Code2, GitCompare, HardDrive, FolderTree, X, FilePlus, FolderPlus, Pencil, Copy, Trash2, ClipboardCopy, Eye, WrapText, Maximize2, Minimize2, PanelLeft, Upload, Download, Type, AlignLeft, Map as MapIcon, Check } from 'lucide-react';
 import { runtime } from '../runtime';
 import { buildTree, parentDir, joinPath, copyName, fileKindOf, baseName, langOf, type TreeNode } from './helpers';
 import { MAX_BUFFERED_BYTES, MAX_MEDIA_PREVIEW_BYTES, MAX_OFFICE_BYTES } from '../../src/fileTypes';
 import { SYSTEM_PROJECT_ID, SYSTEM_ROOT } from '../../src/systemRoot';
-import { useSystemDirs } from './systemTree';
+import { DEFAULT_EDITOR_ROOT, EDITOR_ROOTS, GUEST_SYSTEM_ROOT, type EditorRoot } from '../../src/editorRoots';
+import { useEditorFile, useEditorTree, useEditorTreeMutations, editorFileKey, editorTreeKey, saveEditorFile } from './fileData';
+import { editorFileUrl } from './fileUrls';
+import { useLazyDirs } from './lazyTree';
 import { FileTree } from './FileTree';
 import { PromptDialog, ConfirmDialog } from './dialogs';
 import { EditorPane, type CursorState } from './EditorPane';
@@ -24,7 +27,7 @@ import { CsvPreview } from './CsvPreview';
 import { Tabs } from './Tabs';
 
 const { hooks, components, utils } = runtime();
-const { useProjectFiles, useProjectFile, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useWriteProjectFile, useNewProjectFile, useNewProjectDir, useRenameProjectEntry, useCopyProjectEntry, useDeleteProjectEntry, useMobile, useToast, useTranslation, usePluginStrings } = hooks;
+const { useProjects, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useMobile, useToast, useTranslation, usePluginStrings, usePersistentState } = hooks;
 // PatchView is the host's own diff renderer — the editor carried a verbatim copy of it until the
 // runtime started publishing it.
 const { Button, LoadingState, EmptyState, ContextMenu, PatchView, WorkspaceTakeover } = components;
@@ -38,6 +41,10 @@ type Dialog =
 // (see the resize handle below); Monaco reflows itself via `automaticLayout`.
 const EDITOR_H_KEY = 'elowen:editor:height';
 const PREFS_KEY = 'elowen:editor:prefs';
+/** The root a managed project reopens on. Remembered across reloads so returning to the environment does
+ *  not silently drop back to the project tree, and validated on restore because the slot is
+ *  user-writable. A deep link naming a root still wins over it. */
+const ROOT_KEY = 'elowen.editor.root';
 const MIN_EDITOR_H = 320;
 const clampEditorH = (px: number) =>
   Math.max(MIN_EDITOR_H, Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.96 : 4000, px));
@@ -45,18 +52,36 @@ const clampEditorH = (px: number) =>
 /** Full project code editor: file tree with a right-click file-manager (new/rename/duplicate/delete),
  *  open-file tabs, Monaco editor (Cmd+S save), side-by-side working diff, Markdown/image previews,
  *  plus read-only commit-diff views when opened from the git log. */
-export function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, fill = false }: { projectId: number; onClose?: () => void; initialCommit?: string | null; initialWorking?: boolean; fill?: boolean }) {
+export function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, initialRoot, fill = false }: { projectId: number; onClose?: () => void; initialCommit?: string | null; initialWorking?: boolean; initialRoot?: EditorRoot; fill?: boolean }) {
   // `s` is this plugin's own copy (manifest `web.strings` + i18n/<lang>.json); `t` is the host's shared
   // vocabulary, which still owns the generic Save/Close/Back labels the whole app spells the same way.
   const s = usePluginStrings('editor');
   const queryClient = hooks.useQueryClient();
   const { t } = useTranslation();
   const { toast } = useToast();
-  // The system root is the whole server filesystem behind a reserved project id (admin only — the
+  // The HOST system root is the whole server filesystem behind a reserved project id (admin only — the
   // daemon, not this flag, is what refuses it to anyone else). It is browsed one directory at a time and
-  // has no repository behind it, so the git views are not offered.
-  const system = projectId === SYSTEM_PROJECT_ID;
-  const files = useProjectFiles(projectId);
+  // has no repository behind it, so the git views are not offered. It is a different thing from a managed
+  // project's system root below, which is that project's own guest filesystem.
+  const hostSystem = projectId === SYSTEM_PROJECT_ID;
+  const projects = useProjects();
+  const projectRow = projects.data?.find((item) => item.id === projectId);
+  // Only a managed project has two roots. A host project is a directory on this server and keeps the one
+  // it always had; the whole-filesystem view stays an administrator capability behind the reserved id.
+  const dualRoot = projectRow?.executionKind === 'managed';
+  const [storedRoot, setStoredRoot] = usePersistentState<EditorRoot>(ROOT_KEY, initialRoot ?? DEFAULT_EDITOR_ROOT, EDITOR_ROOTS);
+  // Clamped, not merely defaulted: a remembered `system` must not travel to a project that has no such
+  // root, where every request would be refused and the tree would read as an empty project.
+  const root: EditorRoot = dualRoot ? storedRoot : DEFAULT_EDITOR_ROOT;
+  const systemRoot = hostSystem || root === 'system';
+  // Which root to ask for is known only after TWO things have settled: the remembered choice, which
+  // localStorage hands over in an effect, and the project row, which says whether this project has a
+  // second root at all. Asking before then spends a guest crossing on the wrong root — for a managed
+  // project that is a container execution — and flashes its files before replacing them.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => { setRestored(true); }, []);
+  const rootReady = restored && !projects.isLoading;
+  const files = useEditorTree(projectId, root, rootReady);
   // Bumped after every file operation so the opened levels are read again: react-query refetches the
   // root listing on its own, but it knows nothing about the levels below it.
   const [treeEpoch, setTreeEpoch] = useState(0);
@@ -71,6 +96,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const [cursor, setCursor] = useState<CursorState | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [dropping, setDropping] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -127,9 +153,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     });
   };
 
-  // Every git read is disabled under the system root rather than left to answer empty: `/` is not a
-  // repository, and a query per panel would spend a request each to be told so.
-  const gitId = system ? null : projectId;
+  // Every git read is disabled under a system root rather than left to answer empty: `/` is not a
+  // checkout, and a query per panel would spend a request each to be told so. The daemon says the same
+  // thing on its own — version history belongs to the project root — so this is the view agreeing with
+  // it rather than the only thing enforcing it.
+  const gitId = systemRoot ? null : projectId;
   const commitData = useProjectCommit(gitId, commit);
   const changesData = useProjectChanges(gitId, working);
   const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
@@ -142,25 +170,20 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     [commit, commitData.data?.files, workingChanged],
   );
 
-  // The root listing plus every level opened under it (system root only; a project arrives whole).
-  const systemDirs = useSystemDirs(projectId, system, expanded, treeEpoch);
+  // The root listing plus every level opened under it (a system root only; a project arrives whole).
+  const lazyDirs = useLazyDirs(projectId, root, systemRoot && rootReady, expanded, treeEpoch);
   const nodes = useMemo(() => {
-    if (!system) return files.data ?? [];
+    if (!systemRoot) return files.data ?? [];
     const byPath = new Map((files.data ?? []).map((node) => [node.path, node]));
-    for (const node of systemDirs) byPath.set(node.path, node);
+    for (const node of lazyDirs) byPath.set(node.path, node);
     return [...byPath.values()];
-  }, [system, files.data, systemDirs]);
+  }, [systemRoot, files.data, lazyDirs]);
 
   const selectedFile = selected ? nodes.find((node) => node.type === 'file' && node.path === selected) : undefined;
   const fileKind = selected ? fileKindOf(selected) : null;
   const textFile = fileKind === 'text' || fileKind === 'markdown' || fileKind === 'csv';
-  const fileData = useProjectFile(projectId, textFile ? selected : null);
-  const write = useWriteProjectFile();
-  const newFile = useNewProjectFile();
-  const newDir = useNewProjectDir();
-  const rename = useRenameProjectEntry();
-  const copy = useCopyProjectEntry();
-  const del = useDeleteProjectEntry();
+  const fileData = useEditorFile(projectId, root, textFile ? selected : null);
+  const { newFile, newDir, rename, copy, remove: del } = useEditorTreeMutations(projectId, root);
 
   const tree = useMemo(() => buildTree(nodes), [nodes]);
   const serverContent = fileData.data?.content ?? '';
@@ -169,8 +192,16 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const dirty = selected != null && dirtyPaths.has(selected);
   const previewableText = fileKind === 'markdown' || fileKind === 'csv';
   const editable = selected != null && textFile && !commit && !working;
-  const effTab: Tab = (tab === 'preview' && !previewableText) || (tab === 'diff' && system) ? 'edit' : tab;
+  const effTab: Tab = (tab === 'preview' && !previewableText) || (tab === 'diff' && systemRoot) ? 'edit' : tab;
   const fileSize = selectedFile?.size ?? 0;
+  // Where the open file actually lives, for the roots whose relative paths mean nothing on their own.
+  // A managed project's mount comes from the host's projection (`guestRoot`), so the slug rule is stated
+  // once — on the daemon, which also resolves every request from it — and the interface only repeats it.
+  // A host project shows nothing here: its tree is the project and there is no second place to be.
+  const rootDisplay = hostSystem ? SYSTEM_ROOT : root === 'system' ? GUEST_SYSTEM_ROOT : (projectRow?.guestRoot ?? null);
+  const absoluteHint = rootDisplay === null ? null
+    : rootDisplay === '/' ? `/${selected ?? ''}`
+    : selected ? `${rootDisplay}/${selected}` : rootDisplay;
 
   const headData = useProjectFileAtHead(gitId, selected, editable && effTab === 'diff');
 
@@ -187,6 +218,38 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const expandPath = (dir: string) => setExpanded((cur) => { const n = new Set(cur); let acc = ''; for (const part of dir.split('/').filter(Boolean)) { acc = acc ? `${acc}/${part}` : part; n.add(acc); } return n; });
 
   const confirmDiscard = () => dirtyPaths.size === 0 || window.confirm(s.discardChanges);
+
+  /** Switch which root the editor is looking at.
+   *
+   *  Everything that names a path is cleared rather than carried over. `src/app.ts` is a file in the
+   *  project tree and, under the system root, a path that usually does not exist at all — and where it
+   *  does, it is a different file. Remapping would therefore be a guess; the tabs, drafts, expanded
+   *  folders and selection are dropped, and unsaved work is confirmed first exactly as closing a tab
+   *  confirms it. */
+  const changeRoot = (next: EditorRoot) => {
+    if (next === root || !dualRoot) return;
+    if (!confirmDiscard()) return;
+    updateDrafts(() => ({}));
+    draftVersions.current = {};
+    setDirtyPaths(new Set());
+    setOpenTabs([]);
+    setSelected(null);
+    setExpanded(new Set());
+    setTab('edit');
+    setStoredRoot(next);
+    bumpTree();
+  };
+  // A deep link naming a root wins over the remembered one, the way a linked project wins over the
+  // remembered filter, and then BECOMES the remembered one so a reload stays where the link put the
+  // user. It waits for the project row: until that arrives nothing knows whether this project has a
+  // second root at all, and consuming the link before then would drop it silently.
+  const linkedRoot = useRef(initialRoot);
+  useEffect(() => {
+    if (!linkedRoot.current || !dualRoot) return;
+    const wanted = linkedRoot.current;
+    linkedRoot.current = undefined;
+    setStoredRoot(wanted);
+  }, [dualRoot, setStoredRoot]);
 
   // The one exit from the fullscreen takeover — its back control and Escape both land here. On a phone
   // the takeover replaced the app navigation and fullscreen is not the user's choice (it is forced
@@ -234,17 +297,20 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     const path = selected;
     const sent = value;
     const version = draftVersions.current[path] ?? fileData.data?.version;
-    const operation = version === undefined
-      ? write.mutateAsync({ id: projectId, path, content: sent })
-      : (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => undefined).then(async () => {
-          const result = await runtime().api(`/projects/${projectId}/file`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, content: sent, version: draftVersions.current[path] ?? version }) });
-          if (!result || typeof result !== 'object' || !('version' in result) || typeof result.version !== 'string') throw new Error('Missing saved content version');
-          draftVersions.current[path] = result.version;
-          queryClient.setQueryData(['project-file', projectId, path], { content: sent, truncated: false, version: result.version });
-          void queryClient.invalidateQueries({ queryKey: ['project-file', projectId, path] });
-          void queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
-          void queryClient.invalidateQueries({ queryKey: ['project-changed', projectId] });
-        });
+    const fileKey = editorFileKey(projectId, root, path);
+    setSaving(true);
+    // Every save of one path queues behind the previous one, whether or not the destination carries a
+    // content version. Two overlapping writes to the same file used to be ordered only on the versioned
+    // path, so on a host project the slower, older request could settle last and put stale text back
+    // into the cache and onto disk.
+    const operation = (saveQueues.current.get(path) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      const next = await saveEditorFile(projectId, root, path, sent, draftVersions.current[path] ?? version);
+      if (next !== undefined) draftVersions.current[path] = next;
+      queryClient.setQueryData(fileKey, { content: sent, truncated: false, version: next });
+      void queryClient.invalidateQueries({ queryKey: fileKey });
+      void queryClient.invalidateQueries({ queryKey: editorTreeKey(projectId, root) });
+      void queryClient.invalidateQueries({ queryKey: ['project-changed', projectId] });
+    });
     saveQueues.current.set(path, operation);
     void operation.then(
       () => {
@@ -258,8 +324,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         }
         toast(s.fileSaved.replace('{path}', path));
       },
-      (e: unknown) => toast(version === undefined ? String(e) : utils.apiErrorMessage(e), 'error'),
-    ).finally(() => { if (saveQueues.current.get(path) === operation) saveQueues.current.delete(path); });
+      (e: unknown) => toast(utils.apiErrorMessage(e), 'error'),
+    ).finally(() => {
+      setSaving(false);
+      if (saveQueues.current.get(path) === operation) saveQueues.current.delete(path);
+    });
   };
 
   const closeTab = (p: string) => {
@@ -292,7 +361,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     setSelected((cur) => (cur ? remap(cur) : cur));
   };
 
-  const err = (e: unknown) => toast(String(e), 'error');
+  const err = (e: unknown) => toast(utils.apiErrorMessage(e), 'error');
   const copyPath = (p: string) => { void utils.copyText(p).then((ok) => { if (ok) toast(s.pathCopied); else toast(s.copyFailed, 'error'); }); };
 
   // A picked or dropped file lands beside whatever is selected, and in the project root otherwise —
@@ -305,7 +374,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
       let done = 0;
       for (const file of chosen) {
         try {
-          await uploadFile(projectId, joinPath(dir, file.name), file);
+          await uploadFile(projectId, root, joinPath(dir, file.name), file);
           done += 1;
         } catch (error) {
           // Report per file and keep going: refusing the whole drop because the third file already
@@ -325,7 +394,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   };
   const download = (path: string) => {
     const anchor = document.createElement('a');
-    anchor.href = `/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}&download=1`;
+    anchor.href = editorFileUrl(projectId, 'raw', root, { path, download: '1' });
     anchor.download = baseName(path);
     document.body.appendChild(anchor);
     anchor.click();
@@ -336,23 +405,23 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
     if (!dialog) return;
     if (dialog.kind === 'newFile') {
       const path = joinPath(dialog.dir, val);
-      newFile.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); expandPath(dialog.dir); openFile(path); toast(s.fileCreated.replace('{path}', path)); }, onError: err });
+      newFile.mutate({ path }, { onSuccess: () => { bumpTree(); expandPath(dialog.dir); openFile(path); toast(s.fileCreated.replace('{path}', path)); }, onError: err });
     } else if (dialog.kind === 'newFolder') {
       const path = joinPath(dialog.dir, val);
-      newDir.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); expandPath(path); toast(s.folderCreated.replace('{path}', path)); }, onError: err });
+      newDir.mutate({ path }, { onSuccess: () => { bumpTree(); expandPath(path); toast(s.folderCreated.replace('{path}', path)); }, onError: err });
     } else if (dialog.kind === 'rename') {
       const to = joinPath(parentDir(dialog.target), val);
-      rename.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { bumpTree(); remapPath(dialog.target, to); toast(s.renamed.replace('{path}', to)); }, onError: err });
+      rename.mutate({ from: dialog.target, to }, { onSuccess: () => { bumpTree(); remapPath(dialog.target, to); toast(s.renamed.replace('{path}', to)); }, onError: err });
     } else if (dialog.kind === 'duplicate') {
       const to = joinPath(parentDir(dialog.target), val);
-      copy.mutate({ id: projectId, from: dialog.target, to }, { onSuccess: () => { bumpTree(); toast(s.duplicated.replace('{path}', to)); }, onError: err });
+      copy.mutate({ from: dialog.target, to }, { onSuccess: () => { bumpTree(); toast(s.duplicated.replace('{path}', to)); }, onError: err });
     }
     setDialog(null);
   };
   const confirmDelete = () => {
     if (dialog?.kind !== 'delete') return;
     const path = dialog.target;
-    del.mutate({ id: projectId, path }, { onSuccess: () => { bumpTree(); forgetPath(path); toast(s.deleted.replace('{path}', path)); }, onError: err });
+    del.mutate({ path }, { onSuccess: () => { bumpTree(); forgetPath(path); toast(s.deleted.replace('{path}', path)); }, onError: err });
     setDialog(null);
   };
 
@@ -437,11 +506,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         options={[
           { id: 'edit' as Tab, label: s.tabEdit, icon: Code2 },
           ...(previewableText ? [{ id: 'preview' as Tab, label: s.tabPreview, icon: Eye }] : []),
-          // Nothing to diff against under the system root — there is no HEAD behind `/`.
-          ...(system ? [] : [{ id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare }]),
+          // Nothing to diff against under a system root — there is no HEAD behind `/`.
+          ...(systemRoot ? [] : [{ id: 'diff' as Tab, label: s.tabDiff, icon: GitCompare }]),
         ]}
       />
-      <Button variant="accent" icon={Save} disabled={!dirty || write.isPending} onClick={save}>{t.common.save}</Button>
+      <Button variant="accent" icon={Save} disabled={!dirty || saving} onClick={save}>{t.common.save}</Button>
     </>
   ) : null;
 
@@ -471,13 +540,29 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             <span className="text-sm font-semibold text-foreground">{s.editorTitle}</span>
           </>
         )}
-        {/* Under the system root a path relative to the project is a path relative to nothing the user
-            can see, so the header carries the absolute one — which is also the only place the root
-            itself is named once a file is open. */}
-        {system ? (
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={SYSTEM_ROOT + (selected ?? '')}>
+        {/* A managed project has two roots and they are different filesystems, so which one is open has
+            to be visible and changeable without leaving the editor. A segmented control is the same
+            shape the view mode uses, and the roots stay separate: picking one replaces the tree rather
+            than folding the environment into the project's own files. */}
+        {dualRoot && !commit && !working ? (
+          <ViewSwitch
+            label={s.rootLabel}
+            value={root}
+            onChange={changeRoot}
+            options={[
+              { id: 'project' as EditorRoot, label: s.rootProject, hint: s.rootProjectHint, icon: FolderTree },
+              { id: 'system' as EditorRoot, label: s.rootSystem, hint: s.rootSystemHint, icon: HardDrive },
+            ]}
+          />
+        ) : null}
+        {/* A path relative to a root the user cannot see is a path relative to nothing, so the header
+            carries the absolute one. It is also the only place the root itself is named once a file is
+            open, and for a managed project it is the guest directory the daemon resolved — reported by
+            the host projection, never re-derived here. */}
+        {absoluteHint ? (
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={absoluteHint}>
             <HardDrive size={11} className="mr-1 inline shrink-0 text-primary" aria-hidden />
-            {SYSTEM_ROOT + (selected ?? '')}
+            {absoluteHint}
           </span>
         ) : null}
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
@@ -557,12 +642,12 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               : commit && selected ? <PatchView diff={commitFileDiff.data?.diff ?? ''} loading={commitFileDiff.isLoading} empty={s.noChanges} />
               : commit ? <PatchView diff={commitData.data?.diff ?? ''} loading={commitData.isLoading} empty={s.noChanges} />
               : !selected ? <EmptyState title={s.selectFile} icon={FileIcon} />
-              : fileKind === 'image' && fileSize <= MAX_BUFFERED_BYTES ? <ImagePreview projectId={projectId} path={selected} />
-              : fileKind === 'pdf' && fileSize <= MAX_BUFFERED_BYTES ? <PdfPreview projectId={projectId} path={selected} failedLabel={s.previewFailed} />
-              : fileKind === 'office' && fileSize <= MAX_OFFICE_BYTES ? <PdfPreview projectId={projectId} path={selected} failedLabel={s.previewFailed} office />
-              : (fileKind === 'video' || fileKind === 'audio') && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? <MediaPreview projectId={projectId} path={selected} kind={fileKind} />
+              : fileKind === 'image' && fileSize <= MAX_BUFFERED_BYTES ? <ImagePreview projectId={projectId} root={root} path={selected} />
+              : fileKind === 'pdf' && fileSize <= MAX_BUFFERED_BYTES ? <PdfPreview projectId={projectId} root={root} path={selected} failedLabel={s.previewFailed} />
+              : fileKind === 'office' && fileSize <= MAX_OFFICE_BYTES ? <PdfPreview projectId={projectId} root={root} path={selected} failedLabel={s.previewFailed} office />
+              : (fileKind === 'video' || fileKind === 'audio') && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? <MediaPreview projectId={projectId} root={root} path={selected} kind={fileKind} />
               : fileKind === 'binary' || fileKind === 'image' || fileKind === 'pdf' || fileKind === 'office' || fileKind === 'video' || fileKind === 'audio'
-                ? <BinaryPreview projectId={projectId} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
+                ? <BinaryPreview projectId={projectId} root={root} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
               : fileData.isLoading ? <LoadingState />
               : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-muted-foreground">{s.fileTooBig}</p>
               : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} prefs={prefs} />)

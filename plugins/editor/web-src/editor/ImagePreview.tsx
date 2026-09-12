@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-
+import type { EditorRoot } from '../../src/editorRoots';
+import { editorFileUrl } from './fileUrls';
 
 /** Image preview — fetches the raw bytes with the bearer token in an Authorization header (not the
  *  URL query string, which would leak the token into proxy/referrer/history logs — finding W4) and
  *  renders them via a short-lived object URL, revoked on unmount / path change. */
-export function ImagePreview({ projectId, path }: { projectId: number; path: string }) {
+export function ImagePreview({ projectId, root, path }: { projectId: number; root: EditorRoot; path: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -14,12 +15,12 @@ export function ImagePreview({ projectId, path }: { projectId: number; path: str
     let objectUrl: string | null = null;
     setUrl(null);
     setFailed(false);
-    fetch(`/api/projects/${projectId}/raw?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' })
+    fetch(editorFileUrl(projectId, 'raw', root, { path }), { credentials: 'same-origin' })
       .then((response) => { if (!response.ok) throw new Error(`raw ${response.status}`); return response.blob(); })
       .then((blob) => { if (cancelled) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [projectId, path]);
+  }, [projectId, root, path]);
 
   return (
     <div className="flex h-full items-center justify-center overflow-auto bg-background p-6">

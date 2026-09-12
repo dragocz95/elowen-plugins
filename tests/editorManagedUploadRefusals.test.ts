@@ -29,7 +29,7 @@ function fixture(handle: (operation: GuestFileOperation) => GuestFileResult) {
   const ctx = {
     control: () => ({ projectFiles }),
     registerApiRoute: (route: PluginApiRoute) => routes.push(route),
-    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, executionKind: 'managed', path: '/host-must-not-be-used' }) } }) },
+    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, slug: 'sdilene', executionKind: 'managed', path: '/host-must-not-be-used' }) } }) },
   } as unknown as PluginContext;
   registerEditorApi(ctx);
   const upload = (bytes: Buffer, overwrite: boolean): Promise<PluginHttpResponse> => {

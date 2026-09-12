@@ -57,8 +57,8 @@ afterAll(() => {
 });
 
 function provider(root: string) {
-  const hostPath = (guestPath: string): string => root + guestPath.slice('/workspace'.length);
-  const guestOf = (host: string): string => `/workspace${host.slice(root.length)}`;
+  const hostPath = (guestPath: string): string => root + guestPath.slice('/sdilene'.length);
+  const guestOf = (host: string): string => `/sdilene${host.slice(root.length)}`;
   const entryOf = (host: string, follow: boolean): GuestFileStat => {
     const info = follow ? statSync(host) : lstatSync(host);
     return {
@@ -125,7 +125,7 @@ function fixture(root: string, override?: (operation: GuestFileOperation) => Gue
     return override ? override(operation) : guest(operation);
   });
   const ctx = {
-    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, path: '/host-secret', executionKind: 'managed' }) } }) },
+    host: { projectFiles: () => ({ safe }), stores: () => ({ projects: { get: () => ({ id: 7, slug: 'sdilene', path: '/host-secret', executionKind: 'managed' }) } }) },
     control: vi.fn(() => ({ projectFiles })), registerApiRoute: (route: PluginApiRoute) => routes.push(route),
   } as unknown as PluginContext;
   registerEditorApi(ctx);
@@ -147,7 +147,7 @@ describe('managed project tree over one guest walk', () => {
 
     expect(f.projectFiles).toHaveBeenCalledTimes(1);
     expect(f.operations).toEqual([{
-      kind: 'walk', path: '/workspace', limit: 10000, maxDepth: 8,
+      kind: 'walk', path: '/sdilene', limit: 10000, maxDepth: 8,
       skip: ['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache'],
     }]);
     expect(f.safe).not.toHaveBeenCalled();
@@ -161,7 +161,7 @@ describe('managed project tree over one guest walk', () => {
     const response = await f.list({ path: 'src' });
 
     expect(f.projectFiles).toHaveBeenCalledTimes(1);
-    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/workspace/src', limit: 10000, maxDepth: 0 });
+    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene/src', limit: 10000, maxDepth: 0 });
     expect(paths(response.body)).toEqual(['src/b.ts', 'src/deep']);
   });
 
@@ -222,8 +222,8 @@ describe('managed project tree over one guest walk', () => {
 
   it('refuses an entry the guest reports outside the directory that was asked for', async () => {
     const f = fixture(plain, () => ({
-      kind: 'walk', root: '/workspace/src', rootKind: 'directory',
-      entries: [{ path: '/workspace/elsewhere.ts', kind: 'file', size: 1, mtime: 0 }], truncated: false,
+      kind: 'walk', root: '/sdilene/src', rootKind: 'directory',
+      entries: [{ path: '/sdilene/elsewhere.ts', kind: 'file', size: 1, mtime: 0 }], truncated: false,
     }));
     const response = await f.list({ path: 'src' });
     expect(response.status).toBe(503);
@@ -231,8 +231,8 @@ describe('managed project tree over one guest walk', () => {
 
   it('refuses an entry that leaves the workspace at all', async () => {
     const f = fixture(plain, () => ({
-      kind: 'walk', root: '/workspace', rootKind: 'directory',
-      entries: [{ path: '/workspace/../escape.ts', kind: 'file', size: 1, mtime: 0 }], truncated: false,
+      kind: 'walk', root: '/sdilene', rootKind: 'directory',
+      entries: [{ path: '/sdilene/../escape.ts', kind: 'file', size: 1, mtime: 0 }], truncated: false,
     }));
     expect((await f.list()).status).toBe(400);
   });
@@ -277,7 +277,7 @@ describe('symlinks in the managed project tree', () => {
     expect(kinds(f.operations).filter(kind => kind === 'walk')).toEqual(['walk']);
     expect(kinds(f.operations).filter(kind => kind === 'stat')).toHaveLength(3);
     expect(f.operations.filter(operation => operation.kind === 'list').map(operation => operation.path))
-      .toEqual(['/workspace/to-dir', '/workspace/to-dir/nested']);
+      .toEqual(['/sdilene/to-dir', '/sdilene/to-dir/nested']);
   });
 
   it('expands one directory without descending through any link below it', async () => {
@@ -304,9 +304,9 @@ describe('symlinks in the managed project tree', () => {
     const response = await f.list({ path: 'to-dir' });
 
     expect(kinds(f.operations)).toEqual(['walk', 'stat', 'list']);
-    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/workspace/to-dir', maxDepth: 0 });
-    expect(f.operations[1]).toMatchObject({ kind: 'stat', path: '/workspace/to-dir', followSymlinks: true });
-    expect(f.operations[2]).toMatchObject({ kind: 'list', path: '/workspace/to-dir' });
+    expect(f.operations[0]).toMatchObject({ kind: 'walk', path: '/sdilene/to-dir', maxDepth: 0 });
+    expect(f.operations[1]).toMatchObject({ kind: 'stat', path: '/sdilene/to-dir', followSymlinks: true });
+    expect(f.operations[2]).toMatchObject({ kind: 'list', path: '/sdilene/to-dir' });
     // Direct children only, and nothing from the directory the walk answered from.
     expect(paths(response.body)).toEqual(['to-dir/a.ts', 'to-dir/nested']);
   });
