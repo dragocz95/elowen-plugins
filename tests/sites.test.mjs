@@ -1529,7 +1529,12 @@ test('deleting retained legacy resources and a runtime tombstone removes the Sit
 test('a row written before the publication model is a static publication', () => {
   const db = makeDb();
   const store = new SitesStore(db);
-  assert.equal(db.appliedVersion(), 16, 'the additive migration is the last one applied');
+  // What this test needs is the additive publication migration, not a particular migration count: the
+  // INSERT below omits `kind` and `target` on purpose and relies on the defaults that migration added.
+  // The deliberate schema-head pin, reviewed against seeded legacy rows, lives in sites-environment.test.mjs.
+  const columns = db.prepare("PRAGMA table_info('p_sites_sites')").all().map((column) => column.name);
+  assert.ok(columns.includes('kind'), 'the additive publication migration has been applied');
+  assert.ok(columns.includes('target'), 'the additive publication migration has been applied');
 
   // As an older release left it: no kind and no target columns at all in the INSERT.
   db.exec(`INSERT INTO p_sites_sites

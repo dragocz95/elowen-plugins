@@ -10,19 +10,41 @@ import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificat
 const HOSTNAME = 'demo-abc123.sites.elowen.example';
 const OTHER_HOSTNAME = 'someone-else.sites.elowen.example';
 
-const makeDb = () => {
-  const db = new Database(':memory:');
-  let version = 0;
+/** The plugin database as the daemon's `makePluginDb` behaves: steps run in version order, each one at
+ *  most once, and the record of what ran survives the database being opened again. `through` stops the
+ *  chain where an older release left it; `from` reopens a database an earlier `makeDb` produced. */
+const makeDb = ({ beforeStep, through = Infinity, from } = {}) => {
+  const db = from?.raw ?? new Database(':memory:');
+  const applied = new Set(from?.applied ?? []);
   const handle = { exec: (sql) => db.exec(sql), prepare: (sql) => db.prepare(sql) };
   return {
     ...handle,
+    raw: db,
+    applied,
     migrate: (steps) => {
-      for (const step of steps) if (step.version > version) { step.up(handle); version = step.version; }
+      for (const step of [...steps].sort((a, b) => a.version - b.version)) {
+        if (step.version > through || applied.has(step.version)) continue;
+        beforeStep?.(step.version, handle);
+        step.up(handle);
+        applied.add(step.version);
+      }
     },
-    appliedVersion: () => version,
+    appliedVersion: () => Math.max(0, ...applied),
     transaction: (fn) => db.transaction(fn)(),
   };
 };
+
+/** Column definitions as SQLite reports them, reduced to what a migration decides. */
+const tableShape = (db, table) => db.prepare(`PRAGMA table_info('${table}')`).all()
+  .map(({ name, type, notnull, dflt_value: dflt }) => ({ name, type, notnull, dflt }));
+
+/** A site row exactly as a release before the certificate columns wrote one. */
+const insertLegacySite = (handle, id) => handle.prepare(`INSERT INTO p_sites_sites (
+  id, slug, title, project_id, owner_user_id, source_dir, runtime, status, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  id, `${id}-abc123`, 'Legacy', 7, 1, '/tmp/legacy', 'static', 'live',
+  '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+);
 
 const site = (overrides = {}) => ({
   id: 'site-1',
@@ -320,4 +342,74 @@ test('a hostname this process cannot derive is pending without the broker and an
   assert.equal(daemon.state, 'error');
   assert.match(daemon.detail, /no sites domain/);
   assert.deepEqual(withBroker.issued, []);
+});
+
+// ── the schema half: migration v18 ───────────────────────────────────────────────────────────────
+//
+// The two certificate columns are what the readiness path reads and writes, so an upgrade that does not
+// produce them, or that disturbs the rows already there, breaks every behaviour above on a real database
+// while every test using a freshly built schema still passes.
+
+test('migration v18 adds two nullable certificate columns and leaves a row written before them intact', () => {
+  const db = makeDb({ beforeStep: (version, handle) => { if (version === 18) insertLegacySite(handle, 'legacy'); } });
+  const store = new SitesStore(db);
+
+  const columns = new Map(tableShape(db, 'p_sites_sites').map((column) => [column.name, column]));
+  for (const name of ['certificate_requested_at', 'certificate_error']) {
+    assert.deepEqual(columns.get(name), { name, type: 'TEXT', notnull: 0, dflt: null },
+      `${name} must be nullable with no default, so an existing row needs no value`);
+  }
+
+  const row = store.siteById('legacy');
+  assert.equal(row.slug, 'legacy-abc123');
+  assert.equal(row.status, 'live');
+  assert.equal(row.runtime, 'static');
+  assert.equal(row.certificateRequestedAt, null, 'a row that predates the columns has requested nothing');
+  assert.equal(row.certificateError, null, 'and has recorded no failure');
+  // It also behaves as one: a live site nobody has issued for is exactly what the sweep must pick up.
+  assert.deepEqual(
+    sitesDueForCertificate([row], { all: false, issued: new Set(), mayAttempt: () => true }).map((entry) => entry.slug),
+    ['legacy-abc123'],
+  );
+});
+
+test('opening a database that already carries migration v18 alters nothing and keeps its values', () => {
+  const first = makeDb({ beforeStep: (version, handle) => { if (version === 18) insertLegacySite(handle, 'legacy'); } });
+  const before = new SitesStore(first);
+  before.updateSite('legacy', { certificateError: 'certbot failed: DNS problem' });
+  const shapeBefore = tableShape(first, 'p_sites_sites');
+
+  // The plugin is loaded again over the same database, as every daemon boot does.
+  const reopened = makeDb({ from: first });
+  const store = new SitesStore(reopened);
+
+  assert.equal(reopened.appliedVersion(), 18);
+  assert.deepEqual(tableShape(reopened, 'p_sites_sites'), shapeBefore, 'a second load adds no column a second time');
+  assert.equal(store.siteById('legacy').certificateError, 'certbot failed: DNS problem');
+});
+
+test('a database left at the schema before the certificate columns upgrades into the shape of a fresh one', () => {
+  const stamps = {
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    lastPublishAt: '2026-01-01T00:00:00.000Z',
+  };
+  const older = makeDb({ through: 17 });
+  const olderStore = new SitesStore(older);
+  olderStore.insertSite(site({ ...stamps }));
+  assert.equal(older.appliedVersion(), 17, 'the older release stopped before the certificate columns');
+
+  const upgraded = makeDb({ from: older });
+  const store = new SitesStore(upgraded);
+  const fresh = makeDb();
+  const freshStore = new SitesStore(fresh);
+  freshStore.insertSite(site({ ...stamps }));
+
+  assert.equal(upgraded.appliedVersion(), 18);
+  assert.deepEqual(tableShape(upgraded, 'p_sites_sites'), tableShape(fresh, 'p_sites_sites'));
+  assert.deepEqual(store.siteById('site-1'), freshStore.siteById('site-1'),
+    'an upgraded row reads back exactly like one written against the current schema');
+
+  // And the upgraded database accepts what the readiness path writes.
+  store.updateSite('site-1', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
+  assert.equal(store.siteById('site-1').certificateRequestedAt, '2026-09-12T02:40:00.000Z');
 });
