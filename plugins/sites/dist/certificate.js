@@ -1,9 +1,27 @@
 import { checkServerIdentity, connect as tlsConnect } from 'node:tls';
-/** The gateway answers on the machine's own loopback interface, which is where nginx terminates TLS for
- *  every site hostname. Probing it there rather than through public DNS keeps the observation about THIS
- *  machine's configuration instead of about the resolver in front of it. */
-const GATEWAY_HOST = '127.0.0.1';
-const GATEWAY_PORT = 443;
+/** Where the handshake goes, derived rather than configured — because no configuration states it. The
+ *  deployment record the gateway helper reads carries the app host and the daemon port; its state file
+ *  carries whether the gateway is active and which hostname base it serves; the privileged gateway control
+ *  exposes no address at all. Two configured facts fix the target between them.
+ *
+ *  The port is the default HTTPS one because a published address is `https://<slug>.<base>/` with no port
+ *  component, and a site hostname is refused outright unless the app itself is HTTPS — so that is the port
+ *  a visitor connects on, and a probe of any other port would answer a question nobody asked.
+ *
+ *  The host is loopback because the gateway IS this machine's nginx: the privileged broker writes the site
+ *  server blocks into this machine's nginx configuration and reloads it here. Every one of those blocks is
+ *  emitted with `listen 443 ssl` AND `listen [::]:443 ssl`, neither carrying a bind address, so a running
+ *  gateway always has the IPv4 wildcard listener this address reaches. One address is therefore enough: a
+ *  gateway that does not answer here is not serving sites at all, and that is what the verdict says.
+ *  Asking over loopback also keeps the observation about this machine's gateway rather than about the
+ *  resolver in front of it.
+ *
+ *  The limit of that derivation: it holds while the gateway is the broker-managed nginx on this machine.
+ *  An instance terminating site TLS anywhere else would have to express that endpoint as configuration,
+ *  and this probe would then have to read it from there instead of deriving it here. A local process bound
+ *  specifically to this address would shadow the gateway's wildcard bind, and the verdict would then be
+ *  about that process rather than about the gateway. */
+const GATEWAY_ENDPOINT = { host: '127.0.0.1', port: 443 };
 const PROBE_TIMEOUT_MS = 5_000;
 const messageOf = (error) => (error instanceof Error ? error.message : String(error));
 /** The names a certificate claims, as a reader of a mismatch needs to see them. */
@@ -22,8 +40,9 @@ const servedNames = (cert) => {
  *  Name matching is `tls.checkServerIdentity`, the same function Node's own verification uses, so a
  *  wildcard lineage or a multi-name certificate is accepted here for the same reasons it would be
  *  accepted there. `trusted` carries the rest of the browser's question — whether the chain verifies
- *  against the system store — because a correctly named certificate from an authority nobody trusts is
- *  refused by a browser just as firmly as the wrong name, and the handshake answers it for free. */
+ *  against the authorities THIS process trusts — because a correctly named
+ *  certificate from an authority nobody trusts is refused by a browser just as firmly as the wrong name,
+ *  and the handshake answers it for free. */
 export function evaluatePeerCertificate(hostname, cert, now, trust = { trusted: true }) {
     if (!cert || Object.keys(cert).length === 0) {
         return { reachable: true, covered: false, detail: 'the gateway completed the handshake without presenting a certificate' };
@@ -62,7 +81,7 @@ export function evaluatePeerCertificate(hostname, cert, now, trust = { trusted: 
  *  This is the whole reason a readiness answer needs no privilege: the certificate a server presents is
  *  public by construction, so an account that cannot read the certificate directory or the nginx config
  *  can still establish what a visitor would be served. */
-export const probeGatewayCertificate = (hostname, endpoint) => new Promise((resolve) => {
+export const probeGatewayCertificate = (hostname, endpoint = GATEWAY_ENDPOINT) => new Promise((resolve) => {
     let settled = false;
     // Declared before `settle` closes over them: an exception raised synchronously by `tls.connect` would
     // otherwise reach the settle path while both are still uninitialised.
@@ -85,8 +104,8 @@ export const probeGatewayCertificate = (hostname, endpoint) => new Promise((reso
     }, PROBE_TIMEOUT_MS);
     deadline.unref();
     socket = tlsConnect({
-        host: endpoint?.host ?? GATEWAY_HOST,
-        port: endpoint?.port ?? GATEWAY_PORT,
+        host: endpoint.host,
+        port: endpoint.port,
         servername: hostname,
         // Verification still RUNS — `socket.authorized` below is its verdict — but it must not abort the
         // handshake: a gateway serving the wrong site's certificate has to be reported as exactly that rather
