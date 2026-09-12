@@ -64,8 +64,9 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'statusLive', 'statusDraft', 'statusFailed',
     ],
   },
-  // `stateLabel` builds `state_<runtime state>` and falls back to `state_unknown`, so every state an
-  // environment row can report needs its label declared here or it renders as a raw enum value.
+  // `stateLabel` builds `state_<runtime state>` and falls back to `state_unknown`, so a state whose label
+  // is missing renders as a raw enum value. Declared from the manifest's own set, which is wider than the
+  // runtime union: `paused` and `restarting` are not states the environment row reports today.
   {
     file: 'sites/web-src/EnvironmentDetail.tsx',
     keys: [
@@ -75,7 +76,8 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
   },
   // `readinessLabel` builds `readiness_<check id>` with `:` and `-` folded to `_`. Its fallback is the
   // server's own English detail, so a renamed key degrades silently rather than loudly — which is exactly
-  // why the whole set is declared instead of left outside the scan.
+  // why the whole set is declared instead of left outside the scan. The `core` and `provision` ids that
+  // provisioning.ts emits for a failed probe have no manifest string and are therefore not listed.
   {
     file: 'sites/web-src/EnvironmentsSetup.tsx',
     keys: [

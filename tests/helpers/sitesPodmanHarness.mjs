@@ -591,7 +591,10 @@ const podmanHarness = async ({ convertedApp } = {}) => {
     removeStaged: (paths) => environment.removeStaged(paths),
     // Mirrors `index.ts`: the Site's Project-relative source resolved against the workspace root the
     // control surface reports, which is the one seam that knows where the Project lives right now.
-    sourcePath: async (site) => join(await control.projectWorkspaceHostPath({ projectId: site.projectId }), ...site.sourceRel.split('/')),
+    sourcePath: async (site) => {
+      if (!site.sourceRel) throw new Error('this Site has no Project source');
+      return join(await control.projectWorkspaceHostPath({ projectId: site.projectId }), ...site.sourceRel.split('/'));
+    },
     rebindToSource: (site) => environment.rebindToSource(site),
     publishBinding: (site) => environment.publishBinding(site),
     clearConversionStage: (site, stageDir) => environment.clearConversionStage(site, stageDir),

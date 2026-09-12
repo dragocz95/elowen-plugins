@@ -51,7 +51,9 @@ test('a new environment starts from its registered image without a separate prov
     const binding = await f.control.authority.resolve({ siteId: 'a', accountUserId: 2, access: 'manage' });
     assert.equal(binding.initialIntent.desiredState, 'stopped');
     assert.equal(binding.persistentRootfs, true);
-    return { generation: 1 };
+    // `state` decides this: provisioning is considered only for a container that does not exist yet, so
+    // a registration that omits it would make the assertion below pass for the wrong reason.
+    return { generation: 1, state: 'unprovisioned' };
   };
   await f.environment.state(f.site);
   assert.deepEqual(f.calls.map(call => call.action.kind), ['start']);

@@ -37,7 +37,7 @@ const makeDb = () => {
 
 const site = (overrides = {}) => ({
   id: 'site-1',
-  slug: overrides.slug ?? 'demo-abc123',
+  slug: 'demo-abc123',
   title: 'Demo',
   summary: '',
   projectId: 7,
@@ -1170,7 +1170,7 @@ test('SitePublish never reports the new address as one that already answers', as
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, 'index.html'), '<!doctype html><title>ok</title>');
   harness.store.insertSite(site({
-    sourceDir, sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
+    sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
   }));
 
   const published = await harness.call('SitePublish', { site: 'site-1' });
