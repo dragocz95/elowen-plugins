@@ -562,16 +562,6 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             <span className="text-sm font-semibold text-foreground">{s.editorTitle}</span>
           </>
         )}
-        {/* A path relative to a root the user cannot see is a path relative to nothing, so the header
-            carries the absolute one. It is also the only place the root itself is named once a file is
-            open, and for a managed project it is the guest directory the daemon resolved — reported by
-            the host projection, never re-derived here. */}
-        {absoluteHint ? (
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={absoluteHint}>
-            <HardDrive size={11} className="mr-1 inline shrink-0 text-primary" aria-hidden />
-            {absoluteHint}
-          </span>
-        ) : null}
         {working ? <span className="truncate font-mono text-xs text-warning"><GitCompare size={11} className="mr-1 inline" aria-hidden />{s.workingChanges}</span>
           : commit ? <button type="button" onClick={() => setSelected(null)} disabled={!selected} title={selected ? s.viewCommit : undefined} className="overlay-menu-item flex min-w-0 items-center truncate font-mono text-xs text-primary transition-colors enabled:hover:text-primary-hot disabled:cursor-default"><GitCompare size={11} className="mr-1 inline shrink-0" aria-hidden /><span className="truncate">{s.commitLabel} {commit.slice(0, 8)}{selected ? ` · ${selected}` : ''}</span></button>
           : null}
@@ -583,7 +573,24 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
             the space for it. */}
         {!commit && !working ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
         {uploading ? <span className="text-xs text-muted-foreground">{s.uploading}</span> : null}
-        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
+        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+          {/* A path relative to a root the user cannot see is a path relative to nothing, so the header
+              carries the absolute one. It is also the only place the root itself is named once a file is
+              open, and for a managed project it is the guest directory the daemon resolved — reported by
+              the host projection, never re-derived here.
+
+              It reads as a status at the trailing edge rather than sitting between the title and the
+              menus, where a path that grows with every file opened kept pushing the menus along. The
+              flexible gap belongs to this group, so the path is right-aligned and shrinks before
+              anything else does: `min-w-0` with hidden overflow lets it ellipsis down to nothing, which
+              is also what keeps it from wrapping the row. On a phone it is not drawn at all — the menus
+              and the actions are what a narrow row has space for. */}
+          {absoluteHint && !mobile ? (
+            <span className="min-w-0 shrink truncate text-right font-mono text-xs text-muted-foreground" title={absoluteHint}>
+              <HardDrive size={11} className="mr-1 inline shrink-0 text-primary" aria-hidden />
+              {absoluteHint}
+            </span>
+          ) : null}
           {viewControls}
           {!fullscreen && onClose ? <button type="button" aria-label={t.common.close} onClick={closeEditor} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><X size={15} /></button> : null}
         </div>

@@ -5581,10 +5581,6 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CodeXml, { size: 15, className: "shrink-0 text-primary", "aria-hidden": true }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-sm font-semibold text-foreground", children: s.editorTitle })
       ] }),
-      absoluteHint ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 truncate font-mono text-xs text-muted-foreground", title: absoluteHint, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(HardDrive, { size: 11, className: "mr-1 inline shrink-0 text-primary", "aria-hidden": true }),
-        absoluteHint
-      ] }) : null,
       working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "truncate font-mono text-xs text-warning", children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GitCompare, { size: 11, className: "mr-1 inline", "aria-hidden": true }),
         s.workingChanges
@@ -5599,7 +5595,11 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
       ] }) : null,
       !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MenuBar, { menus, openId: openMenu, onOpen: openTopMenu }) : null,
       uploading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "text-xs text-muted-foreground", children: s.uploading }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "ml-auto flex max-w-full flex-wrap items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "ml-auto flex max-w-full flex-wrap items-center justify-end gap-2", children: [
+        absoluteHint && !mobile ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: "min-w-0 shrink truncate text-right font-mono text-xs text-muted-foreground", title: absoluteHint, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(HardDrive, { size: 11, className: "mr-1 inline shrink-0 text-primary", "aria-hidden": true }),
+          absoluteHint
+        ] }) : null,
         viewControls,
         !fullscreen && onClose ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": t.common.close, onClick: closeEditor, className: "overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(X, { size: 15 }) }) : null
       ] })
