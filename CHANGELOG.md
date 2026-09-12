@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.4.3 - 2026-09-12
+
+- The root path moved to the trailing edge of the editor toolbar, where it reads as a status rather than sitting between the title and the File menu and pushing the menus along as it grew with every file opened. File, View and Settings stay compact behind the title. The path is right-aligned, gives way before anything else in the row and is not drawn on a phone, so it can neither wrap the toolbar nor crowd out the actions.
+
 ## editor 0.4.2 - 2026-09-12
 
 - A managed Project's files are read one directory at a time, the way the environment filesystem already was. The Project tree was read eight levels deep in one crossing, which a real Project exceeds: Sdilene answered `directory listing is too large; select a subdirectory` on its own root, so the whole editor was unusable there. The root now returns its direct children and each folder is read as it is opened, so the size below a folder can no longer decide whether the root opens at all. The node limit is unchanged and no listing is trimmed and reported as whole.
