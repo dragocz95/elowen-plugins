@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PluginContext, PluginSecretBag } from 'elowen/plugin-api';
-import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
+import { managedGuestRoot, type ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { ProjectGitSnapshot } from 'elowen/dist/git/gitReader.js';
 import { DEVICE_FLOW_TTL, GitHubAuthAdapter, newFlowId, validateDeviceToken } from './githubAuth.js';
 import { GitHubClient, GitHubHttpError, type GitHubClientOptions } from './githubClient.js';
@@ -367,18 +367,28 @@ export class GitHubService {
     this.store.disconnectAccount(userId);
   }
 
-  private async repositorySnapshot(project: { id: number; path: string; executionKind?: 'host' | 'managed' }, userId: number): Promise<ProjectGitSnapshot> {
+  private async repositorySnapshot(project: { id: number; slug: string; path: string; executionKind?: 'host' | 'managed' }, userId: number): Promise<ProjectGitSnapshot> {
     if (project.executionKind !== 'managed') return this.ctx.host.git().projectSnapshot(project.path);
     const inherited = this.ctx.currentAccess().projectRef;
     if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== project.id)) throw new GitHubPluginError('project_forbidden', 403, 'The repository differs from the selected project.');
     if (this.currentUserId() !== userId) throw new GitHubPluginError('account_mismatch', 403, 'The GitHub account does not belong to the current Elowen account.');
+    const root = managedGuestRoot(project.slug, project.id);
     const git = async (args: string[]) => {
       const prepared = await prepareManagedExecution({
         ctx: this.ctx, project: { kind: 'managed', projectId: project.id }, accountUserId: userId,
-        cwd: '/workspace', command: { type: 'argv', file: 'git', args: ['-C', '/workspace', ...args] },
+        cwd: root, command: { type: 'argv', file: 'git', args: ['-c', 'core.fsmonitor=false', '-C', root, ...args] },
       });
       return (await (this.spawnPrepared ?? spawnPrepared)(prepared)).stdout;
     };
+    try { await git(['rev-parse', '--is-inside-work-tree']); }
+    catch (error) {
+      // Only Git's repository verdict is an empty state. Runtime, permission and other Git failures
+      // retain their original error contract, even when a launcher repeats Git's diagnostic.
+      if (error instanceof GitHubPluginError && error.code === 'git_command_failed'
+        && error.details?.code === 128 && typeof error.details.stderr === 'string'
+        && /fatal: not a git repository/i.test(error.details.stderr)) return { isRepo: false, status: null, remotes: [] };
+      throw error;
+    }
     const statusText = await git(['status', '--porcelain=v2', '--branch']);
     const status: NonNullable<ProjectGitSnapshot['status']> = { branch: '', head: '', upstream: null, ahead: 0, behind: 0, dirty: 0, untracked: 0, clean: true };
     for (const line of statusText.split('\n')) {
@@ -406,8 +416,10 @@ export class GitHubService {
     return { isRepo: true, status, remotes: [...remotes.values()] };
   }
 
-  async repositories(userId: number, accessible: readonly number[] | null, admin: boolean): Promise<unknown[]> {
-    const projects = this.ctx.host.stores().projects.list().filter((project) => accessible === null ? admin : accessible.includes(project.id));
+  async repositories(userId: number, accessible: readonly number[] | null, admin: boolean, projectId?: number): Promise<unknown[]> {
+    const projects = projectId === undefined
+      ? this.ctx.host.stores().projects.list().filter((project) => accessible === null ? admin : accessible.includes(project.id))
+      : [this.project(userId, projectId, accessible, admin)];
     return Promise.all(projects.map(async (project) => {
       const mapping = this.store.mapping(userId, project.id);
       const snapshot = await this.repositorySnapshot(project, userId);
@@ -638,9 +650,10 @@ export class GitHubService {
       if (inherited && (inherited.kind !== 'managed' || inherited.projectId !== projectId)) throw new GitHubPluginError('project_forbidden', 403, 'Select the managed project before publishing.');
       const selected = { kind: 'managed' as const, projectId };
       const worktrees = await managedSandbox(this.ctx).managedWorktrees({ project: selected, accountUserId: userId, action: { kind: 'list' } });
-      const cwd = this.ctx.workDir() ?? '/workspace';
+      const root = managedGuestRoot(project.slug, projectId);
+      const cwd = this.ctx.workDir() ?? root;
       const workspace = worktrees.find(entry => cwd === entry.path || cwd.startsWith(entry.path + '/'));
-      const path = workspace?.path ?? (cwd === '/workspace' || cwd.startsWith('/workspace/') ? '/workspace' : null);
+      const path = workspace?.path ?? (cwd === root || cwd.startsWith(root + '/') ? root : null);
       if (!path) throw new GitHubPluginError('active_workspace_required', 409, 'Select the managed project repository or one of its worktrees before publishing.');
       const git = async (args: string[]) => {
         const prepared = await prepareManagedExecution({

@@ -37,7 +37,7 @@ export function registerGitHubApi(ctx: PluginContext, service: GitHubService): v
     return { body: service.cancelDeviceAuth(userId(req), requiredText(input.flowId, 'flowId')) };
   });
   route(ctx, 'test', 'POST', 'user', async (req) => ({ body: await service.testConnection(userId(req)) }));
-  route(ctx, 'repositories', 'GET', 'user', async (req) => ({ body: { repositories: await service.repositories(userId(req), req.auth.accessibleProjects, req.auth.admin) } }));
+  route(ctx, 'repositories', 'GET', 'user', async (req) => ({ body: { repositories: await service.repositories(userId(req), req.auth.accessibleProjects, req.auth.admin, req.query.projectId === undefined ? undefined : projectId(req, req.query.projectId)) } }));
   route(ctx, 'repositories/detect', 'POST', 'user', async (req) => {
     const input = await objectBody(req);
     return { body: await service.detectMapping(userId(req), integer(input.projectId), req.auth.accessibleProjects, req.auth.admin) as object };

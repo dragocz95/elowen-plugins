@@ -126,6 +126,40 @@ describe('GitHub plugin UI', () => {
     expect(forbiddenFetches).toBe(0);
   });
 
+  it('requests only the selected project and renders the unmapped state', async () => {
+    const requested: string[] = [];
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('projectId') ?? '');
+        return HttpResponse.json({ repositories: [{ ...mappedRepository, mapping: null }] });
+      }),
+    );
+    mountProject();
+    expect(await screen.findAllByText(strings.mappingMissing)).not.toHaveLength(0);
+    expect(requested).toEqual(['1']);
+    expect(screen.queryByText(strings.loadError)).not.toBeInTheDocument();
+  });
+
+  it.each([403, 409, 502])('keeps a genuine repository HTTP %s visible', async status => {
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ error: 'failure' }, { status })),
+    );
+    mountProject();
+    expect(await screen.findByText(strings.loadError)).toBeInTheDocument();
+    expect(screen.queryByText(strings.mappingMissing)).not.toBeInTheDocument();
+  });
+
+  it('reports a missing project row instead of loading indefinitely', async () => {
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ repositories: [] })),
+    );
+    mountProject();
+    expect(await screen.findByText(strings.loadError)).toBeInTheDocument();
+  });
+
   it('renders the status error branch and retries', async () => {
     let calls = 0;
     use(http.get('/api/plugins/github/api/status', () => { calls += 1; return calls === 1 ? HttpResponse.json({ error: 'down' }, { status: 500 }) : HttpResponse.json(disconnected); }));
