@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import type { ComponentType, ReactNode } from 'react';
-import { http, HttpResponse, listen, resetHandlers, setDefaults, close } from './ui/http';
+import { http, HttpResponse, listen, resetHandlers, setDefaults, use, close } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import manifest from '../plugins/editor/elowen-plugin.json' with { type: 'json' };
@@ -69,15 +69,27 @@ function renderEditor(initialRoot?: 'project' | 'system') {
   render(<ProjectEditor projectId={PROJECT_ID} initialRoot={initialRoot} />, { wrapper: Wrapper });
   return client;
 }
-const rootSwitch = () => screen.getByRole('tablist', { name: strings.rootLabel });
-const pickRoot = (label: string) => fireEvent.click(within(rootSwitch()).getByRole('tab', { name: label }));
+/** The root lives in the File menu now, as a submenu beside the actions it decides the targets of.
+ *  Opening it is two clicks through the host's own menu, which is the shadcn/Radix one. */
+const openFileMenu = () => fireEvent.click(screen.getByRole('menuitem', { name: strings.menuFile }));
+const pickRoot = async (label: string) => {
+  openFileMenu();
+  const submenu = await screen.findByRole('menuitem', { name: strings.rootLabel });
+  fireEvent.click(submenu);
+  fireEvent.keyDown(submenu, { key: 'ArrowRight' });
+  const option = await screen.findByRole('menuitem', { name: label });
+  fireEvent.click(option);
+};
 const treeButton = (name: string) => within(screen.getByRole('tree')).getByRole('button', { name });
 
 describe('a managed project offers two roots', () => {
   it('opens on the project root and names the guest directory it is mounted at', async () => {
     renderEditor();
-    await screen.findByRole('tablist', { name: strings.rootLabel });
     expect(await screen.findByText('README.md')).toBeInTheDocument();
+    // The root lives in the File menu, not in the toolbar.
+    openFileMenu();
+    expect(await screen.findByRole('menuitem', { name: strings.rootLabel })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(treeRequests).toEqual(['project']);
     // The mount is reported by the daemon; the interface repeats it rather than deriving it from a slug.
     expect(screen.getByTitle('/sdilene')).toBeInTheDocument();
@@ -86,7 +98,7 @@ describe('a managed project offers two roots', () => {
   it('switches to the guest filesystem and shows the base image beside the project mount', async () => {
     renderEditor();
     await screen.findByText('README.md');
-    pickRoot(strings.rootSystem);
+    await pickRoot(strings.rootSystem);
 
     await waitFor(() => expect(treeButton('etc')).toBeInTheDocument());
     expect(treeButton('sdilene')).toBeInTheDocument();
@@ -99,7 +111,7 @@ describe('a managed project offers two roots', () => {
   it('keeps each root in its own cache entry', async () => {
     const client = renderEditor();
     await screen.findByText('README.md');
-    pickRoot(strings.rootSystem);
+    await pickRoot(strings.rootSystem);
     await waitFor(() => expect(treeButton('etc')).toBeInTheDocument());
 
     // Both listings are cached, under keys that cannot answer for one another.
@@ -107,7 +119,7 @@ describe('a managed project offers two roots', () => {
     expect(client.getQueryData(editorTreeKey(PROJECT_ID, 'system'))).toEqual(TREES.system);
 
     // Going back shows the project tree again without the filesystem leaking into it.
-    pickRoot(strings.rootProject);
+    await pickRoot(strings.rootProject);
     await waitFor(() => expect(treeButton('README.md')).toBeInTheDocument());
     expect(within(screen.getByRole('tree')).queryByRole('button', { name: 'etc' })).toBeNull();
   });
@@ -119,7 +131,7 @@ describe('a managed project offers two roots', () => {
     await waitFor(() => expect((screen.getByLabelText('editor') as HTMLTextAreaElement).value).toBe('project file\n'));
     expect(fileRequests).toEqual([{ root: 'project', path: 'README.md' }]);
 
-    pickRoot(strings.rootSystem);
+    await pickRoot(strings.rootSystem);
     // The selection is dropped rather than carried: the same relative path under the other root is a
     // different file, and usually not a file at all.
     await screen.findByText(strings.selectFile);
@@ -136,7 +148,7 @@ describe('a managed project offers two roots', () => {
     await waitFor(() => expect(screen.getByRole('tablist', { name: strings.viewMode })).toBeInTheDocument());
     expect(within(screen.getByRole('tablist', { name: strings.viewMode })).getByRole('tab', { name: strings.tabDiff })).toBeInTheDocument();
 
-    pickRoot(strings.rootSystem);
+    await pickRoot(strings.rootSystem);
     await waitFor(() => expect(treeButton('etc')).toBeInTheDocument());
     fireEvent.click(treeButton('etc'));
     // Whatever is opened there, the diff tab is not on offer: `/` is not a checkout.
@@ -157,6 +169,33 @@ describe('a managed project offers two roots', () => {
   });
 });
 
+describe('a listing that fails', () => {
+  // The whole point of this work is that a project full of files must never read as a project with
+  // none. A refused listing drawn as an empty folder is the same lie by another route, and it is what
+  // a live environment looked like: "no files", no reason given, nothing to retry.
+  it('shows the refusal and a retry instead of the empty-folder label', async () => {
+    let attempts = 0;
+    // Layered on top of the defaults: only the listing changes, everything else answers as always.
+    use(http.get('/api/projects/:id/files', () => {
+      attempts += 1;
+      return attempts === 1
+        ? HttpResponse.json({ error: 'directory listing is too large; select a subdirectory' }, { status: 400 })
+        : HttpResponse.json(TREES.project);
+    }));
+    renderEditor();
+
+    const alert = await screen.findByRole('alert', { name: strings.treeFailed });
+    expect(alert).toHaveTextContent(strings.treeFailed);
+    // The daemon's own wording, which is the only part that says what to do about it.
+    expect(alert).toHaveTextContent('directory listing is too large; select a subdirectory');
+    expect(screen.queryByText(strings.noFiles)).toBeNull();
+
+    fireEvent.click(within(alert).getByRole('button', { name: strings.treeRetry }));
+    expect(await screen.findByText('README.md')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
 describe('a host project keeps its single root', () => {
   it('offers no root switch and asks for no second tree', async () => {
     resetHandlers();
@@ -169,7 +208,8 @@ describe('a host project keeps its single root', () => {
     );
     renderEditor();
     await screen.findByText('README.md');
-    expect(screen.queryByRole('tablist', { name: strings.rootLabel })).toBeNull();
+    openFileMenu();
+    expect(screen.queryByRole('menuitem', { name: strings.rootLabel })).toBeNull();
     expect(treeRequests).toEqual(['project']);
     // No guest mount to name, so the header carries no absolute path.
     expect(screen.queryByTitle('/kolin')).toBeNull();
