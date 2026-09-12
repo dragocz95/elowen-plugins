@@ -189,6 +189,43 @@ export function sitesDueForCertificate<T extends Pick<Site, 'slug' | 'status' | 
   });
 }
 
+/** What the site row alone says about this site's certificate.
+ *
+ *  Three states, and `ready` is deliberately not among them: the row records that a request was made and why
+ *  the last attempt failed, and neither fact establishes that the gateway is serving the certificate now.
+ *  Only an observed handshake licenses that word, which is what {@link SiteCertificateService.readiness}
+ *  does for the one site a reader asked about. */
+export type RecordedCertificateState = 'error' | 'requested' | 'unrecorded';
+
+export interface RecordedCertificate {
+  state: RecordedCertificateState;
+  detail: string;
+}
+
+/** Read the certificate facts one site row carries, for a listing that must not open a socket per site.
+ *
+ *  A list of sites paid a TLS handshake each to say anything about certificates, so it said nothing at all —
+ *  and an agent reading it had no way to tell a site whose certificate failed from one that is simply
+ *  waiting. Both are recorded on the row already; this reports exactly that and claims nothing more. */
+export function recordedCertificate(
+  site: Pick<Site, 'status' | 'certificateRequestedAt' | 'certificateError'>,
+): RecordedCertificate | null {
+  if (site.status !== 'live') return null;
+  if (site.certificateError) {
+    return { state: 'error', detail: `the last recorded attempt failed: ${site.certificateError}` };
+  }
+  if (site.certificateRequestedAt != null) {
+    return {
+      state: 'requested',
+      detail: `requested at ${site.certificateRequestedAt}; the daemon issues it on its next gateway sweep`,
+    };
+  }
+  return {
+    state: 'unrecorded',
+    detail: 'the row records neither a pending request nor a failure. Read the site with SiteGet to observe what the gateway serves',
+  };
+}
+
 export interface SiteCertificateDeps {
   /** Whether THIS process holds the privileged gateway broker. False in a forked tool runner, where the
    *  control is withheld so a runner never gains a path to sudo. */

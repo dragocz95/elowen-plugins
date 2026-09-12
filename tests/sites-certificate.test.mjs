@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { createServer } from 'node:net';
 
 import { SitesStore } from '../plugins/sites/dist/store.js';
-import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificate, sitesDueForCertificate } from '../plugins/sites/dist/certificate.js';
+import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificate, recordedCertificate, sitesDueForCertificate } from '../plugins/sites/dist/certificate.js';
 
 const HOSTNAME = 'demo-abc123.sites.elowen.example';
 const OTHER_HOSTNAME = 'someone-else.sites.elowen.example';
@@ -342,6 +342,75 @@ test('a hostname this process cannot derive is pending without the broker and an
   assert.equal(daemon.state, 'error');
   assert.match(daemon.detail, /no sites domain/);
   assert.deepEqual(withBroker.issued, []);
+});
+
+// ── the recorded half: what a listing may say without opening a socket ───────────────────────────
+//
+// `SiteList` reports many sites at once, so it cannot pay a TLS handshake each. Everything below is read
+// from the row, and the point of the type is what it CANNOT say: a row records that a request was made and
+// why an attempt failed, and neither establishes that the gateway is serving a certificate right now.
+
+test('a row that has recorded nothing reports exactly that, and never that it is served', () => {
+  const recorded = recordedCertificate(site());
+
+  assert.equal(recorded.state, 'unrecorded');
+  assert.match(recorded.detail, /neither a pending request nor a failure/);
+  assert.doesNotMatch(recorded.detail, /\bserv(ing|ed)\b|\bvalid\b|\bverified\b/);
+});
+
+test('a recorded request reports the wait, with the stamp that says how long it has been waiting', () => {
+  const recorded = recordedCertificate(site({ certificateRequestedAt: '2026-09-12T02:40:00.000Z' }));
+
+  assert.equal(recorded.state, 'requested');
+  assert.match(recorded.detail, /2026-09-12T02:40:00\.000Z/);
+  assert.match(recorded.detail, /next gateway sweep/);
+});
+
+test('a recorded failure reports the authority reason and outranks a stale pending request', () => {
+  // The order matters: a runner records a request BEFORE the daemon has had a chance to fail it again, so a
+  // row can hold both. The failure is the fact a reader has to act on.
+  const failed = recordedCertificate(site({ certificateError: 'certbot failed: too many failed authorizations recently' }));
+  const both = recordedCertificate(site({
+    certificateRequestedAt: '2026-09-12T02:40:00.000Z',
+    certificateError: 'certbot failed: DNS problem',
+  }));
+
+  assert.equal(failed.state, 'error');
+  assert.match(failed.detail, /too many failed authorizations recently/);
+  assert.equal(both.state, 'error');
+  assert.match(both.detail, /DNS problem/);
+});
+
+test('a site that is not live has no certificate line at all', () => {
+  for (const status of ['draft', 'deleting']) {
+    assert.equal(recordedCertificate(site({ status, certificateRequestedAt: '2026-09-12T02:40:00.000Z' })), null, status);
+  }
+});
+
+test('no row in any combination can be read as a certificate that is ready', () => {
+  // The safety assertion, exhaustive over the row shape: `ready` is a word only an observed handshake earns,
+  // and this reader has none. A future state added here without a probe behind it fails this.
+  for (const status of ['live', 'draft', 'deleting']) {
+    for (const certificateRequestedAt of [null, '2026-09-12T02:40:00.000Z']) {
+      for (const certificateError of [null, '', 'certbot failed: DNS problem']) {
+        const recorded = recordedCertificate(site({ status, certificateRequestedAt, certificateError }));
+        if (recorded === null) continue;
+        assert.ok(['error', 'requested', 'unrecorded'].includes(recorded.state),
+          `${status}/${certificateRequestedAt}/${certificateError} produced ${recorded.state}`);
+        assert.notEqual(recorded.state, 'ready');
+      }
+    }
+  }
+});
+
+test('the recorded reading is synchronous, which is what makes it probe-free', () => {
+  // A TLS handshake cannot be awaited from a synchronous function, so returning without a promise IS the
+  // proof that a listing of twenty sites opens no sockets. It also takes the row and nothing else — no
+  // store, no gateway, no probe — so there is nothing it could reach even if it wanted to.
+  assert.equal(recordedCertificate.constructor.name, 'Function', 'an async reader could hide a probe');
+  assert.equal(recordedCertificate.length, 1, 'the row is the only input');
+  const result = recordedCertificate(site());
+  assert.equal(typeof result.then, 'undefined');
 });
 
 // ── the schema half: migration v18 ───────────────────────────────────────────────────────────────

@@ -144,6 +144,28 @@ export function sitesDueForCertificate(sites, options) {
         return options.all || !options.issued.has(site.slug);
     });
 }
+/** Read the certificate facts one site row carries, for a listing that must not open a socket per site.
+ *
+ *  A list of sites paid a TLS handshake each to say anything about certificates, so it said nothing at all —
+ *  and an agent reading it had no way to tell a site whose certificate failed from one that is simply
+ *  waiting. Both are recorded on the row already; this reports exactly that and claims nothing more. */
+export function recordedCertificate(site) {
+    if (site.status !== 'live')
+        return null;
+    if (site.certificateError) {
+        return { state: 'error', detail: `the last recorded attempt failed: ${site.certificateError}` };
+    }
+    if (site.certificateRequestedAt != null) {
+        return {
+            state: 'requested',
+            detail: `requested at ${site.certificateRequestedAt}; the daemon issues it on its next gateway sweep`,
+        };
+    }
+    return {
+        state: 'unrecorded',
+        detail: 'the row records neither a pending request nor a failure. Read the site with SiteGet to observe what the gateway serves',
+    };
+}
 /** The per-site certificate operations a publish needs, and the only two it gets: ask for THIS site's
  *  certificate, and report what is true about it afterwards.
  *

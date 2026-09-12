@@ -116,6 +116,30 @@ const asOrigin = (value) => {
         return null;
     }
 };
+/** The hostname base this instance serves sites under, derived from the app's own public URL.
+ *
+ *  It repeats, exactly, the rule core applies in `createPublishedSitesGatewayControl` — same input, same
+ *  parse, same rejections — because the privileged control that normally answers this question is withheld
+ *  from a forked tool runner, while `publicWebUrl` is not. Without this a runner could not name the address
+ *  of a site the daemon addresses perfectly well, and `SiteCreate` refused as though the instance had no
+ *  HTTPS domain at all.
+ *
+ *  Nothing here is privileged: the hostname is public by construction and deterministic from a URL every
+ *  plugin already holds. `tests/sites-hostname-parity.test.mjs` pins this function against core's own, so
+ *  the two derivations cannot drift into naming different hostnames for the same instance. */
+export function derivedHostnameBase(publicWebUrl) {
+    if (!publicWebUrl)
+        return null;
+    try {
+        const url = new URL(publicWebUrl);
+        if (url.protocol !== 'https:' || !url.hostname.includes('.') || url.hostname === 'localhost')
+            return null;
+        return `sites.${url.hostname.toLowerCase()}`;
+    }
+    catch {
+        return null;
+    }
+}
 /** The broker derives this from trusted install metadata. The plugin accepts only that already-bare
  *  hostname and only beside an HTTPS app: a config form or request header never gets to choose where
  *  another person's site links point. */

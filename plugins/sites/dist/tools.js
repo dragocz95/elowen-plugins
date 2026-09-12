@@ -9,6 +9,7 @@ import { SITE_BASE_PATH, environmentLimitOverrides, siteUrl } from './config.js'
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { isDaemonProcess } from './runtime.js';
 import { publicationPort } from './publication.js';
+import { recordedCertificate } from './certificate.js';
 /** A command runtime is only offered where the operator has turned it on. */
 function commandRuntimeRefusal(config) {
     if (!config.allowCommandRuntime) {
@@ -842,7 +843,7 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteList',
         label: 'List sites',
-        description: 'List owned sites with address, visibility and runtime state. Persistent environments include desired state and effective limits.',
+        description: 'List owned sites with address, visibility and runtime state, plus what each site row records about its certificate. Persistent environments include desired state and effective limits.',
         parameters: Type.Object({}),
         execute: async () => {
             try {
@@ -854,8 +855,15 @@ export function registerTools(deps) {
                 const rows = await Promise.all(sites.map(async (site) => ({
                     site,
                     environment: site.runtime === 'environment' ? await deps.environment.state(site, userId) : undefined,
+                    // Read from the row, never from a handshake: a listing of twenty sites would otherwise open twenty
+                    // TLS connections to answer a question nobody asked about nineteen of them. It is why this line can
+                    // never say a certificate is being served — SiteGet observes that, one site at a time.
+                    certificate: recordedCertificate(site),
                 })));
-                return text(rows.map((row) => describe(row.site, config, row.environment, latestSnapshotAt(store, row.site), projectOf(row.site))).join('\n\n'), {
+                return text(rows.map((row) => [
+                    describe(row.site, config, row.environment, latestSnapshotAt(store, row.site), projectOf(row.site)),
+                    ...(row.certificate ? [`  certificate ${row.certificate.state} (recorded) - ${row.certificate.detail}`] : []),
+                ].join('\n')).join('\n\n'), {
                     sites: rows.map((row) => ({
                         id: row.site.id,
                         slug: row.site.slug,
@@ -863,6 +871,7 @@ export function registerTools(deps) {
                         target: row.site.target,
                         runtime: row.site.runtime,
                         ...(row.environment ? { environment: row.environment } : {}),
+                        ...(row.certificate ? { certificate: row.certificate } : {}),
                     })),
                 });
             }
