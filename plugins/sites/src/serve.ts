@@ -11,7 +11,7 @@ import {
 } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
 import { requestOnSiteHost } from './config.js';
-import { ProxyError, proxyToEnvironment, proxyToRuntime, type ProxyLimits, type ProxyViewer } from './proxy.js';
+import { ProxyError, proxyToProject, proxyToRuntime, type ProxyLimits, type ProxyViewer } from './proxy.js';
 import type { Endpoint } from './runtime.js';
 import type { ProjectPreviewService } from './preview.js';
 
@@ -41,7 +41,7 @@ export interface ServeDeps {
   endpointFor(siteId: string): Endpoint | null;
   previews?: Pick<ProjectPreviewService, 'siteBySlug' | 'isPreview' | 'serve'>;
   proxyLimits(): ProxyLimits;
-  proxyEnvironment?(
+  proxyProject?(
     endpoint: Endpoint,
     req: PluginHttpRequest,
     path: string,
@@ -317,7 +317,7 @@ export function createSiteHandler(deps: ServeDeps) {
       return ingressRefusal(site, 503, 'Not running', refusal.notRunning);
     }
     try {
-      const proxied = await (deps.proxyEnvironment ?? proxyToEnvironment)(
+      const proxied = await (deps.proxyProject ?? proxyToProject)(
         endpoint,
         req,
         rest,
@@ -362,7 +362,7 @@ export function createSiteHandler(deps: ServeDeps) {
     // a proxy publication IS its application and has no release at all.
     if (!site
       || site.status !== 'live'
-      || (site.kind !== 'proxy' && site.runtime !== 'environment' && !site.currentReleaseId)) {
+      || (site.kind !== 'proxy' && !site.currentReleaseId)) {
       return bounceOrNotFound(req, slug, rest, config);
     }
 
@@ -386,13 +386,13 @@ export function createSiteHandler(deps: ServeDeps) {
     if (deps.previews?.isPreview(site.id)) return deps.previews.serve(site, req, rest, viewer, siteRoot);
     deps.countHit(site.id);
 
-    // A proxy publication is an application inside the Project's own environment, reached through the
+    // A proxy publication is an application inside the managed Project, reached through the durable
     // transport Sandbox keeps alive for it. Access, sessions and the preview origin are decided exactly
     // as for every other publication: this branch changes the TRANSPORT, never who may open the page.
     if (site.kind === 'proxy') {
       return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
-        notRunning: 'The project environment that serves this page is not available right now.',
-        noAnswer: 'The project environment did not answer.',
+        notRunning: 'The managed Project transport that serves this page is not available right now.',
+        noAnswer: 'The managed Project application did not answer.',
       });
     }
 
@@ -419,13 +419,6 @@ export function createSiteHandler(deps: ServeDeps) {
           body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This PHP site did not answer.</p>',
         };
       }
-    }
-
-    if (site.runtime === 'environment') {
-      return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
-        notRunning: 'This environment is not running right now.',
-        noAnswer: 'This environment did not answer.',
-      });
     }
 
     if (site.runtime === 'command') {

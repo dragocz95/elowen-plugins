@@ -1,31 +1,14 @@
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath } from './access.js';
-import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl } from './config.js';
-import { MigrationRefused } from './migration.js';
-import { isRecipeKind } from './recipe.js';
+import { SITE_BASE_PATH, siteUrl } from './config.js';
 const json = (status, body) => ({
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
     body: body,
 });
 const TICKET_TTL_MS = 60_000;
-const runtimeActor = (req) => {
-    if (req.auth.userId === null)
-        throw new Error('a linked account is required for environment operations');
-    return req.auth.userId;
-};
-const operationView = (operation) => ({
-    id: operation.id,
-    siteId: operation.siteId,
-    generation: operation.generation,
-    action: operation.action.kind,
-    status: operation.status,
-    percent: operation.percent ?? null,
-    error: operation.error ?? null,
-});
 /** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
 const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
-const canAccessProject = (projectId, auth) => auth.admin || (auth.accessibleProjects !== null && auth.accessibleProjects.includes(projectId));
 const toView = (site, deps, auth) => {
     const config = deps.config();
     return {
@@ -109,29 +92,15 @@ export function createApiHandlers(deps) {
         if (req.method === 'GET' && action === '') {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
-            const environment = target.runtime === 'environment' && canManage(target, req.auth) ? await deps.environmentState(target, runtimeActor(req)) : null;
-            // What serves this publication. Read for whoever may MANAGE the site, like the environment block
-            // above: a guest wants to know whether the page is up, not how its Project is sized or where its
-            // logs are. Null for everything that is not a proxy publication.
-            const projectEnvironment = target.kind === 'proxy' && canManage(target, req.auth)
-                ? await deps.projectEnvironment(target.projectId, runtimeActor(req))
-                : null;
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
                 // who else the owner shared with, which is the owner's business and not part of opening a page.
                 members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
                     ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-                releases: deps.store.releases(target.id).map((release) => ({
-                    id: release.id,
-                    siteId: release.siteId,
-                    createdAt: release.createdAt,
-                    model: release.model,
-                    fileCount: release.fileCount,
-                    sizeBytes: release.sizeBytes,
-                    note: release.note,
-                    kind: release.kind,
-                    ...(release.kind === 'environment-snapshot' ? { includesData: Boolean(release.dataArchive) || deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) === 'true' } : {}),
+                releases: deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
+                    id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
+                    fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
                 })),
                 hits: deps.store.hits(target.id, since),
                 sourceDir: canManage(target, req.auth) ? deps.sourceDisplayPath?.(target) ?? target.sourceRel : null,
@@ -150,57 +119,10 @@ export function createApiHandlers(deps) {
                     logTail: canManage(target, req.auth) ? deps.runtimeState(target.id).logTail : null,
                     lastError: canManage(target, req.auth) ? target.lastError : null,
                 },
-                environment: environment === null ? null : canManage(target, req.auth)
-                    ? {
-                        ...environment,
-                        action: await deps.environmentAction(target, runtimeActor(req)),
-                        limitOverrides: {
-                            cpus: target.environmentCpus ?? null,
-                            memoryMb: target.environmentMemoryMb ?? null,
-                            pidsLimit: target.environmentPidsLimit ?? null,
-                        },
-                        canControl: canAccessProject(target.projectId, req.auth),
-                        canReadLogs: canAccessProject(target.projectId, req.auth),
-                        canSetLimits: req.auth.admin && canAccessProject(target.projectId, req.auth),
-                        transport: { buffered: true, requestBodyLimitBytes: 1024 * 1024 },
-                    }
-                    : { state: environment.state, desiredState: environment.desiredState },
-                projectEnvironment,
             });
         }
         if (!canManage(target, req.auth))
             return json(403, { error: 'forbidden' });
-        // A proxy publication is served by the environment of its Project, and every lifecycle operation
-        // below belongs to that Project and to everything else running in it. The refusals are explicit and
-        // carry a code so the UI can say whose controls these are instead of rendering ones that do nothing.
-        const PROXY_REFUSAL = { error: 'this publication is served by its Project environment', code: 'publication_no_site_environment' };
-        if (req.method === 'GET' && action === 'logs') {
-            if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'read the Project environment logs in the Sandbox plugin' });
-            if (target.runtime !== 'environment')
-                return json(400, { error: 'this site is not an environment' });
-            if (!canAccessProject(target.projectId, req.auth))
-                return json(403, { error: 'project access is required' });
-            const requested = Number(req.query.lines ?? 200);
-            const lines = Number.isFinite(requested) ? Math.min(1000, Math.max(1, Math.round(requested))) : 200;
-            const logs = await deps.environmentLogs(target, lines, runtimeActor(req));
-            return json(200, { ...logs, lines });
-        }
-        if (req.method === 'GET' && action === 'operation') {
-            if (!req.auth.admin)
-                return json(403, { error: 'environment migration operations require an administrator' });
-            if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'read the Project environment operation in the Sandbox plugin' });
-            if (target.runtime !== 'environment')
-                return json(400, { error: 'this site is not an environment' });
-            if (!canAccessProject(target.projectId, req.auth))
-                return json(403, { error: 'project access is required' });
-            const operationId = String(req.query.operationId ?? '');
-            if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(operationId))
-                return json(400, { error: 'invalid operation id' });
-            const operation = await deps.environmentOperation(target, operationId, runtimeActor(req));
-            return operation ? json(200, { operation: operationView(operation) }) : json(404, { error: 'operation not found' });
-        }
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
@@ -220,48 +142,6 @@ export function createApiHandlers(deps) {
             deps.store.bumpAccessGeneration(target.id);
             return json(200, { ok: true });
         }
-        if (req.method === 'POST' && action === 'control') {
-            if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'control the Project environment in the Sandbox plugin' });
-            if (target.runtime !== 'environment')
-                return json(400, { error: 'this site is not an environment' });
-            if (!canAccessProject(target.projectId, req.auth))
-                return json(403, { error: 'project access is required' });
-            const body = await req.json().catch(() => ({}));
-            if (!['start', 'stop', 'restart'].includes(String(body.action)))
-                return json(400, { error: 'unknown environment action' });
-            const action = body.action;
-            const requestId = body.requestId === undefined ? undefined : String(body.requestId);
-            if (requestId !== undefined && !/^[A-Za-z0-9_.:-]{1,160}$/.test(requestId))
-                return json(400, { error: 'invalid request id' });
-            try {
-                const operation = await deps.requestEnvironmentControl(target, action, runtimeActor(req), requestId);
-                return json(200, { ok: true, scheduled: true, action, operation: operationView(operation) });
-            }
-            catch (error) {
-                return json(409, { error: error instanceof Error ? error.message : 'action could not be scheduled' });
-            }
-        }
-        if (req.method === 'POST' && action === 'snapshot') {
-            if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'snapshot the Project environment in the Sandbox plugin' });
-            if (target.runtime !== 'environment')
-                return json(400, { error: 'this site is not an environment' });
-            if (!canAccessProject(target.projectId, req.auth))
-                return json(403, { error: 'project access is required' });
-            const body = await req.json()
-                .catch(() => ({}));
-            try {
-                const snapshot = await deps.snapshotEnvironment(target, {
-                    includeData: body.includeData !== false,
-                    note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
-                }, runtimeActor(req));
-                return json(200, { ok: true, snapshotId: snapshot.id, crashConsistent: true, scheduled: true });
-            }
-            catch (error) {
-                return json(409, { error: error instanceof Error ? error.message : 'snapshot could not be scheduled' });
-            }
-        }
         if (req.method === 'POST' && action === 'restart') {
             if (target.runtime !== 'command')
                 return json(400, { error: 'this site has no command runtime' });
@@ -274,29 +154,10 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'rollback') {
-            if (target.kind === 'proxy')
-                return json(409, { ...PROXY_REFUSAL, detail: 'restore the Project environment in the Sandbox plugin' });
-            const body = await req.json()
-                .catch(() => ({}));
+            const body = await req.json().catch(() => ({}));
             const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
             const release = deps.store.release(target.id, releaseId);
-            if (target.runtime === 'environment') {
-                if (!canAccessProject(target.projectId, req.auth))
-                    return json(403, { error: 'project access is required' });
-                if (!release || release.kind !== 'environment-snapshot') {
-                    return json(404, { error: 'unknown environment snapshot' });
-                }
-                if (body.restoreData === true && !release.dataArchive && deps.store.runtimeRecord(target.id, `snapshot-data:${release.id}`) !== 'true')
-                    return json(400, { error: 'snapshot has no verified data archive' });
-                try {
-                    await deps.rollbackEnvironment(target, { releaseId, restoreData: body.restoreData === true }, runtimeActor(req));
-                }
-                catch (error) {
-                    return json(409, { error: error instanceof Error ? error.message : 'rollback could not be scheduled' });
-                }
-                return json(200, { ok: true, scheduled: true, snapshotId: releaseId });
-            }
-            if (!release)
+            if (!release || release.kind === 'environment-snapshot')
                 return json(404, { error: 'unknown release' });
             deps.activateRelease(target, release.id);
             return json(200, { ok: true });
@@ -308,27 +169,6 @@ export function createApiHandlers(deps) {
         const patch = {};
         let accessChanged = false;
         let runtimeChanged = false;
-        const limitKeys = ['environmentCpus', 'environmentMemoryMb', 'environmentPidsLimit'];
-        const hasLimitOverrides = limitKeys.some((key) => key in body);
-        let limits = null;
-        if (hasLimitOverrides) {
-            if (!req.auth.admin)
-                return json(403, { error: 'environment limit overrides require an administrator' });
-            // Limits belong to the Project's environment and are shared by everything that Project publishes.
-            if (target.kind === 'proxy') {
-                return json(409, { error: 'this publication is served by its Project environment', code: 'publication_no_site_environment', detail: 'set limits on the Project environment in the Sandbox plugin' });
-            }
-            if (target.runtime !== 'environment')
-                return json(400, { error: 'only an environment has resource limits' });
-            if (!canAccessProject(target.projectId, req.auth))
-                return json(403, { error: 'project access is required' });
-            try {
-                limits = environmentLimitOverrides(body);
-            }
-            catch (error) {
-                return json(400, { error: error instanceof Error ? error.message : 'invalid environment limits' });
-            }
-        }
         if (typeof body.title === 'string' && body.title.trim() !== '')
             patch.title = body.title.trim().slice(0, 120);
         if (typeof body.summary === 'string')
@@ -371,14 +211,6 @@ export function createApiHandlers(deps) {
             if (next !== target.visibility) {
                 patch.visibility = next;
                 accessChanged = true;
-            }
-        }
-        if (limits) {
-            try {
-                await deps.applyEnvironmentLimits(target, limits, runtimeActor(req));
-            }
-            catch (error) {
-                return json(502, { error: error instanceof Error ? error.message : 'the environment runtime could not apply the limits' });
             }
         }
         deps.store.updateSite(target.id, patch);
@@ -480,86 +312,5 @@ export function createApiHandlers(deps) {
             observedTargets: readiness.observedTargets ?? [],
         });
     };
-    /** GET|POST /plugins/sites/api/site/<id>/conversion — the runtime conversion operation.
-     *
-     *  ADMINISTRATOR ONLY, and narrow on purpose. The body carries a step name and, for `prepare`, a recipe
-     *  name from a fixed set. It carries no path, no image, no socket, no command and no container spec:
-     *  those are the inputs that would turn an administrator's existing environment rights into arbitrary
-     *  host access, and the operation derives every one of them from the site itself.
-     *
-     *  Kept off the shared `site` handler so no future edit can let an owner reach it through the
-     *  `canManage` branch: converting a runtime is an instance-level change, not a site-owner one. */
-    const conversion = async (req) => {
-        if (!req.auth.admin)
-            return json(403, { error: 'forbidden' });
-        const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-        const siteId = segments[0] ?? '';
-        if (siteId === '') {
-            if (req.method !== 'GET')
-                return json(405, { error: 'method not allowed' });
-            return json(200, { pending: deps.migration.pending() });
-        }
-        const target = deps.store.siteById(siteId);
-        if (!target)
-            return json(404, { error: 'not found' });
-        // Project access is required on top of admin, exactly as the environment lifecycle routes require it:
-        // an administrator outside the Project has no business restarting what it serves.
-        if (!canAccessProject(target.projectId, req.auth))
-            return json(403, { error: 'project access is required' });
-        if (req.method === 'GET')
-            return json(200, { conversion: deps.migration.status(target.id) });
-        if (req.method !== 'POST')
-            return json(405, { error: 'method not allowed' });
-        if (!deps.config().allowEnvironments) {
-            return json(403, { error: 'persistent environments are turned off for this instance' });
-        }
-        const body = await req.json()
-            .catch(() => ({}));
-        try {
-            switch (body.step) {
-                case 'register': {
-                    // The recipe is REGISTERED through the API, validated and bound to this site and the release it
-                    // currently serves. There is no supported way to hand-place the file: an unvalidated,
-                    // unbound artefact is an unsafe installation step, and one that could be edited between
-                    // approval and flip.
-                    if (!target.currentReleaseId)
-                        return json(409, { error: 'this site has no published release to bind a recipe to' });
-                    try {
-                        const installed = await deps.migration.registerRecipe(target.id, target.currentReleaseId, body.recipe);
-                        return json(200, { registered: { image: installed.image, dataIncludes: installed.dataIncludes, readiness: installed.readiness } });
-                    }
-                    catch (error) {
-                        return json(400, { error: error instanceof Error ? error.message : 'the recipe was refused' });
-                    }
-                }
-                case 'prepare': {
-                    if (!isRecipeKind(body.recipe))
-                        return json(400, { error: 'unknown conversion recipe' });
-                    return json(200, { conversion: await deps.migration.prepare(target.id, body.recipe) });
-                }
-                case 'flip':
-                    return json(200, { conversion: await deps.migration.flip(target.id) });
-                case 'complete':
-                    return json(202, { conversion: deps.migration.scheduleCompletion(target.id) });
-                case 'rollback':
-                    // Carrying container writes back is the default, because losing them silently is the worse
-                    // failure; an explicit `false` is how an operator discards a conversion that never really ran.
-                    return json(202, { conversion: deps.migration.scheduleRollback(target.id, { restoreData: body.restoreData !== false }) });
-                case 'retire':
-                    return json(200, { conversion: await deps.migration.retireCompleted(target.id) });
-                default:
-                    return json(400, { error: 'unknown conversion step' });
-            }
-        }
-        catch (error) {
-            // A refusal is a state the caller can act on; anything else is a fault in the machinery.
-            if (error instanceof MigrationRefused)
-                return json(409, { error: error.message });
-            return json(502, {
-                error: error instanceof Error ? error.message : 'the conversion step failed',
-                conversion: deps.migration.status(target.id),
-            });
-        }
-    };
-    return { list, site, ticket, directory, gatewayReadiness, conversion };
+    return { list, site, ticket, directory, gatewayReadiness };
 }

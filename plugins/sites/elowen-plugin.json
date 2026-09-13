@@ -1,9 +1,9 @@
 {
   "name": "sites",
-  "version": "0.11.3-chetty.1",
+  "version": "0.12.0",
   "apiVersion": "1",
   "requiresCore": "0.28.44",
-  "description": "Publish static, command and PHP sites, or run additive persistent systemd-nspawn environments with bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+  "description": "Publish immutable static releases, confined command and PHP applications, or proxy an application from an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -17,10 +17,7 @@
       "SiteLogs",
       "SiteShare",
       "SiteUnshare",
-      "SiteDelete",
-      "SiteExec",
-      "SiteControl",
-      "SiteSnapshot"
+      "SiteDelete"
     ],
     "httpRoutes": [
       "s"
@@ -31,8 +28,7 @@
       "ticket",
       "directory",
       "gateway/readiness",
-      "preview",
-      "conversion"
+      "preview"
     ]
   },
   "requiresControls": [
@@ -46,11 +42,7 @@
   "icons": {
     "Site*": "🌐"
   },
-  "showOutput": [
-    "SiteExec",
-    "SiteControl",
-    "SiteSnapshot"
-  ],
+  "showOutput": [],
   "capabilities": {
     "reads": [
       "db",
@@ -125,72 +117,7 @@
       "default": false,
       "risk": "high",
       "hint": "Let a published release run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
-      "help": "Command and PHP runtimes use the existing Sandbox confinement and the command/PHP network policy below. Persistent environments use the Sandbox machine runtime. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
-    },
-    {
-      "key": "allowEnvironments",
-      "label": "Allow persistent environments",
-      "type": "boolean",
-      "default": false,
-      "risk": "high",
-      "hint": "Allow Sites to run persistent systemd-nspawn environments through Sandbox, with a private root filesystem and a single host-owned ingress socket."
-    },
-    {
-      "key": "environmentNetwork",
-      "label": "Environment network",
-      "type": "enum",
-      "default": "shared",
-      "risk": "high",
-      "options": [
-        {
-          "value": "shared",
-          "label": "Outbound internet"
-        },
-        {
-          "value": "isolated",
-          "label": "No network"
-        }
-      ],
-      "hint": "Outbound internet follows the Sandbox machine policy. No network blocks outbound traffic while the private Site ingress socket remains available."
-    },
-    {
-      "key": "environmentCpus",
-      "label": "Environment CPUs",
-      "type": "number",
-      "default": 1,
-      "min": 0.25,
-      "max": 8,
-      "advanced": true,
-      "hint": "CPU limit applied when an environment container is created."
-    },
-    {
-      "key": "environmentMemoryMb",
-      "label": "Environment memory",
-      "type": "number",
-      "default": 1024,
-      "min": 128,
-      "max": 32768,
-      "advanced": true,
-      "hint": "Memory and memory-plus-swap limit in MB applied when an environment container is created."
-    },
-    {
-      "key": "environmentPidsLimit",
-      "label": "Environment process limit",
-      "type": "number",
-      "default": 512,
-      "min": 16,
-      "max": 4096,
-      "advanced": true,
-      "hint": "Maximum number of processes and threads in one environment."
-    },
-    {
-      "key": "maxEnvironmentsPerAccount",
-      "label": "Environments per account",
-      "type": "number",
-      "default": 3,
-      "min": 1,
-      "max": 20,
-      "hint": "How many persistent environments one account may keep, counted separately from ordinary sites."
+      "help": "Command and PHP runtimes use Sandbox confinement and the command/PHP network policy below. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
     },
     {
       "key": "runtimeNetwork",
@@ -354,14 +281,6 @@
         "icon": "Globe"
       }
     ],
-    "settings": [
-      {
-        "id": "environment-setup",
-        "label": "Environment setup",
-        "icon": "Server",
-        "placement": "pluginDetail"
-      }
-    ],
     "strings": {
       "title": "Sites",
       "subtitle": "Pages your agent published, and who can open them.",
@@ -383,7 +302,7 @@
       "columnPublished": "Published",
       "columnKind": "Publication",
       "kindStatic": "Static files",
-      "kindProxy": "Project environment",
+      "kindProxy": "Managed Project proxy",
       "kindCommand": "Command runtime",
       "kindPhp": "PHP",
       "metricTotal": "Sites",
@@ -414,80 +333,7 @@
       "runtimeNetwork": "Network",
       "runtimeNetworkIsolated": "No network",
       "runtimeNetworkShared": "Host network",
-      "environment": "Persistent environment",
-      "environmentState": "Environment state",
-      "environmentDesiredState": "Desired state",
-      "environmentLimits": "Resource limits",
-      "environmentStart": "Start environment",
-      "environmentStop": "Stop environment",
-      "environmentRestart": "Restart environment",
-      "environmentSnapshot": "Create snapshot",
-      "environmentSnapshots": "Environment snapshots",
-      "environmentCrashConsistent": "Crash-consistent snapshot. Databases may require their own backup procedure.",
-      "environmentReadiness": "Environment dependencies",
-      "environmentProvision": "Install missing dependencies",
-      "environmentBaseImage": "Deterministic base image",
-      "environmentActionPending": "Environment action pending",
-      "environmentActionError": "Environment action needs attention",
-      "environmentActionScheduled": "Environment action scheduled",
-      "environmentSnapshotScheduled": "Snapshot scheduled",
-      "environmentSetupTitle": "Environment setup",
-      "environmentSetupDescription": "Domain routing and host dependencies required by persistent Sites environments.",
-      "environmentGatewayTitle": "Domain gateway",
-      "environmentGatewayDescription": "The wildcard domain must lead to the hostname used by this Elowen instance.",
-      "environmentGatewayCheck": "Wildcard destination",
-      "environmentStatusReady": "Ready",
-      "environmentStatusMissing": "DNS record missing",
-      "environmentStatusMisdirected": "Wrong destination",
-      "environmentStatusUnavailable": "Check unavailable",
-      "environmentStatusUnknown": "Not checked",
-      "sandboxRequiredTitle": "Sandbox prerequisite",
-      "sandboxRequiredDescription": "Persistent Site environments use the shared Sandbox machine runtime. Install and activate Sandbox before creating or starting one.",
-      "sandboxRequiredCheck": "Sandbox machine runtime",
-      "sandboxRequiredReady": "Sandbox is installed and the machine runtime is ready.",
-      "sandboxRequiredUnavailable": "Sandbox is missing, disabled or not ready. Finish its installation before using persistent Site environments.",
-      "openSandboxSettings": "Open Sandbox settings",
-      "state_unprovisioned": "Not provisioned",
-      "state_starting": "Starting",
-      "state_running": "Running",
-      "state_stopped": "Stopped",
-      "state_failed": "Failed",
-      "state_deleting": "Deleting",
-      "state_deleted": "Deleted",
-      "state_paused": "Paused",
-      "state_restarting": "Restarting",
-      "state_unknown": "Unknown",
-      "environmentObservedTarget": "Observed target",
-      "environmentRecordType": "Type",
-      "environmentRecordName": "Name",
-      "environmentRecordValue": "Value",
-      "environmentSetupAttention": "Setup needs attention",
-      "environmentObservedState": "Observed state",
-      "projectEnvironmentLink": "The environment of project {project} serves this publication.",
-      "projectEnvironmentMissing": "The project environment is not available right now.",
-      "openProject": "Open project",
-      "environmentTransportLimit": "Requests are buffered and limited to 1 MB. Streaming, server-sent events and WebSockets are not supported.",
-      "environmentSnapshotNote": "Snapshot note",
-      "environmentSnapshotNotePlaceholder": "Describe the restore point",
-      "environmentIncludeData": "Include the /data volume archive",
-      "environmentIncludeDataHelp": "The root filesystem and optional /data archive are crash-consistent, not database-consistent.",
-      "environmentNoSnapshots": "No environment snapshots have been created.",
-      "environmentSnapshotActive": "Active restore point",
-      "environmentRestore": "Restore snapshot",
-      "environmentRestoreRoot": "Restore system only",
-      "environmentRestoreData": "Restore system and /data",
-      "environmentRestoreConfirmTitle": "Restore environment snapshot",
-      "environmentRestoreRootWarning": "The environment will stop and its root filesystem will be replaced. The current /data volume will be retained.",
-      "environmentRestoreWithDataWarning": "The environment will stop and both its root filesystem and /data volume will be replaced from this snapshot.",
-      "environmentRestoreScheduled": "Snapshot restore scheduled",
-      "environmentLogs": "Environment logs",
-      "environmentLogsLoading": "Loading bounded environment logs…",
-      "environmentLimitsHint": "Blank values inherit the instance defaults.",
-      "environmentLimitCpu": "CPUs",
-      "environmentLimitMemory": "Memory (MB)",
-      "environmentLimitPids": "Processes and threads",
-      "environmentSaveLimits": "Save limits",
-      "environmentLimitsSaved": "Environment limits saved",
+      "openProject": "Open Project",
       "copy": "Copy",
       "refresh": "Refresh",
       "pass": "PASS",
@@ -525,7 +371,8 @@
       "deleted": "Site deleted",
       "saved": "Saved",
       "close": "Close",
-      "releaseLive": "Live"
+      "releaseLive": "Live",
+      "projectRuntimeLink": "This publication uses the managed Project {project} transport."
     }
   }
 }

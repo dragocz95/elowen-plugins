@@ -4,7 +4,7 @@ import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 
 export type Visibility = 'private' | 'project' | 'authenticated' | 'public';
 export type SiteStatus = 'draft' | 'live' | 'failed';
-type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
+type SiteRuntime = 'static' | 'command' | 'php' | 'unsupported';
 /** How a publication reaches a visitor: its own copied release files, or a forwarder inside the managed
  *  Project's environment. A proxy publication has no release and no container of its own, which is why
  *  the drawer renders it from a different set of facts than a static one. */
@@ -47,7 +47,7 @@ export interface SitesListResponse {
   allowPublicSites: boolean;
 }
 
-export interface ReleaseView {
+interface ReleaseView {
   id: string;
   siteId: string;
   createdAt: string;
@@ -55,31 +55,9 @@ export interface ReleaseView {
   fileCount: number;
   sizeBytes: number;
   note: string;
-  kind: 'files' | 'environment-snapshot';
-  includesData?: boolean;
+  kind: 'files';
 }
 
-type EnvironmentAction = {
-  kind: 'snapshot' | 'rollback';
-  snapshotId: string;
-  lastError: string | null;
-  includeData?: boolean;
-  restoreData?: boolean;
-  note?: string;
-};
-
-export interface EnvironmentView {
-  state: string | null;
-  desiredState: 'running' | 'stopped' | 'restarting';
-  limits?: { cpus: number; memoryMb: number; pidsLimit: number };
-  limitOverrides?: { cpus: number | null; memoryMb: number | null; pidsLimit: number | null };
-  lastError?: string | null;
-  action?: EnvironmentAction | null;
-  canControl?: boolean;
-  canReadLogs?: boolean;
-  canSetLimits?: boolean;
-  transport?: { buffered: true; requestBodyLimitBytes: number };
-}
 
 /** A person, in the exact shape the host Avatar takes. Mirrors `Person` in src/api.ts. */
 export interface Person {
@@ -109,11 +87,6 @@ export interface SiteDetailResponse {
     logTail: string | null;
     lastError: string | null;
   } | null;
-  environment: EnvironmentView | null;
-  /** Only ever non-null for a proxy publication, and only when the Project environment's state could be
-   *  read at all — the drawer shows the difference between "not running" and "cannot say" rather than
-   *  inventing a state. A static row is served from its own release, so this stays null for it. */
-  projectEnvironment: { state: string | null; lastError: string | null } | null;
 }
 
 export interface DirectoryResponse {
@@ -126,25 +99,6 @@ export interface TicketResponse {
   title: string;
 }
 
-export interface GatewayReadinessResponse {
-  ready: boolean;
-  status: 'ready' | 'missing' | 'misdirected' | 'unavailable';
-  detail: string;
-  expectedRecord: { type: 'CNAME' | 'A' | 'AAAA'; name: string; value: string } | null;
-  observedTargets: string[];
-}
-
-export interface EnvironmentReadinessResponse {
-  ready: boolean;
-  detail?: string;
-  items: { id: string; label: string; ok: boolean; detail?: string }[];
-}
-
-export interface EnvironmentLogsResponse {
-  lifecycle: string;
-  journal: string;
-  lines: number;
-}
 
 interface QueryResult<T> { data?: T; isLoading: boolean; isError: boolean; error?: unknown; refetch(): void }
 interface MutationResult<TVars, TData = unknown> {

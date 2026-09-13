@@ -103,8 +103,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
   // fact deciding who serves it.
   const publication = site.kind === 'proxy'
     ? { label: strings.kindProxy, target: site.target }
-    : site.runtime === 'environment' ? { label: strings.environment, target: '' }
-      : site.runtime === 'command' ? { label: strings.kindCommand, target: '' }
+    : site.runtime === 'command' ? { label: strings.kindCommand, target: '' }
         : site.runtime === 'php' ? { label: strings.kindPhp, target: '' }
           : { label: strings.kindStatic, target: '' };
 

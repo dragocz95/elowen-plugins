@@ -4,7 +4,7 @@ import { parseEnv } from 'node:util';
 
 const RESERVED_ENV = new Set(['HOME', 'PATH', 'NODE_ENV', 'HOST', 'PORT', 'SOCKET_PATH', 'SOCKET_ABSTRACT']);
 
-/** The legacy runtime and conversion interpret application dotenv files identically. */
+/** Read application dotenv values without allowing a release to replace runtime-owned variables. */
 export function readReleaseEnv(releaseDir: string): Record<string, string> {
   const file = join(releaseDir, '.env');
   let fd: number | null = null;
@@ -20,14 +20,4 @@ export function readReleaseEnv(releaseDir: string): Record<string, string> {
   } finally {
     if (fd !== null) closeSync(fd);
   }
-}
-
-/** EnvironmentFile syntax, not shell or unit-directive syntax. */
-export function systemdEnvironment(env: Readonly<Record<string, string>>): string {
-  return Object.entries(env).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || value.includes('\0')) {
-      throw new Error('application environment cannot be represented in a systemd environment file');
-    }
-    return `${key}="${value.replace(/([\\"$`])/g, '\\$1')}"\n`;
-  }).join('');
 }

@@ -237,7 +237,7 @@ export async function proxyToRuntime(
   });
 }
 
-export const proxyToEnvironment = (
+export const proxyToProject = (
   endpoint: Endpoint,
   req: PluginHttpRequest,
   path: string,

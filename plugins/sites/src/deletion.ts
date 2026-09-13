@@ -2,8 +2,6 @@ import { rmSync } from 'node:fs';
 
 import type { Site, SitesStore } from './store.js';
 
-export const environmentAlreadyDeleted = (error: unknown): boolean =>
-  error instanceof Error && /\benvironment has been deleted\b/i.test(error.message);
 
 export interface SiteDeletionDeps {
   store: SitesStore;
@@ -13,28 +11,21 @@ export interface SiteDeletionDeps {
   hasGatewayBroker(): boolean;
   stopLegacy(siteId: string): Promise<void>;
   releasePublication(site: Site): Promise<void>;
-  deleteEnvironment(siteId: string, options: { removeBroker: false; handover: true }): Promise<void>;
   removeRuntimeSocket(siteId: string): Promise<void>;
   removeGateway(slug: string): Promise<void>;
 }
 
 /** Finish the daemon-owned phase of a durable site deletion. */
 export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps): Promise<void> {
-  const site = deps.store.siteById(siteId);
+  const site = deps.store.siteForCleanup(siteId);
   if (!site) return;
   // Without the broker this phase cannot finish: the gateway removal below is a silent no-op there, and
   // once the Site row is gone nothing ever asks for it again — the vhost and the certificate outlive the
   // site for good. The durable `deleting` marker has already taken the site out of every read path, so
   // leaving the phase untouched lets the daemon's cleanup sweep run it where the broker exists.
   if (!deps.hasGatewayBroker()) return;
-  if (site.runtime !== 'environment') await deps.stopLegacy(siteId);
+  if (site.runtime === 'command') await deps.stopLegacy(siteId);
   if (site.kind === 'proxy') await deps.releasePublication(site);
-  if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
-    // Sandbox leaves the broker for the privileged Sites phase. The Site row remains the retry owner until
-    // both that socket directory and the public vhost/certificate have been confirmed absent.
-    try { await deps.deleteEnvironment(siteId, { removeBroker: false, handover: true }); }
-    catch (error) { if (!environmentAlreadyDeleted(error)) throw error; }
-  }
   rmSync(deps.siteDir(siteId), { recursive: true, force: true });
   await deps.removeRuntimeSocket(siteId);
   await deps.removeGateway(site.slug);

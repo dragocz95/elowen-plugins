@@ -64,16 +64,6 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'statusLive', 'statusDraft', 'statusFailed',
     ],
   },
-  // `stateLabel` builds `state_<runtime state>` and falls back to `state_unknown`, so a state whose label
-  // is missing renders as a raw enum value. Declared from the manifest's own set, which is wider than the
-  // runtime union: `paused` and `restarting` are not states the environment row reports today.
-  {
-    file: 'sites/web-src/EnvironmentDetail.tsx',
-    keys: [
-      'state_unprovisioned', 'state_starting', 'state_running', 'state_stopped', 'state_failed',
-      'state_deleting', 'state_deleted', 'state_paused', 'state_restarting', 'state_unknown',
-    ],
-  },
 ];
 
 interface Manifest { web?: { strings?: Record<string, string> } }

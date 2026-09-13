@@ -13,7 +13,7 @@ import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
-import { proxyToEnvironment, proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
+import { proxyToProject, proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
@@ -771,7 +771,7 @@ test('a Project application receives its own cookies but not the Sites access co
   const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
   const accessCookie = cookieName('site-1');
 
-  await proxyToEnvironment(endpoint, request('', {
+  await proxyToProject(endpoint, request('', {
     headers: { cookie: `app_session=abc; ${accessCookie}=signed-access; preference=compact` },
   }), '', { userId: 4, name: 'amy' }, proxyLimits, SITE_ROOT, accessCookie);
 
@@ -974,6 +974,8 @@ test('authenticated site API updates command and bind settings under the instanc
     runtimeState: () => ({ running: false, logTail: '' }),
     allocatePort: async () => 43000,
     restartRuntime: async () => {},
+    gatewayReadiness: async () => ({ ok: true, status: 'ready', detail: 'ready' }),
+    gatewayRecord: () => null,
   });
   const response = await handlers.site({
     method: 'PATCH',
@@ -1004,10 +1006,13 @@ test('site API exposes an unhealthy live publication and its concrete error with
     config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
     people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
     projectSlug: () => 'demo',
-    environmentState: async () => { throw new Error('a proxy publication has no Site environment'); },
-    environmentAction: async () => null,
-    projectEnvironment: async () => ({ state: 'running', lastError: null }),
     runtimeState: () => ({ running: false, logTail: '' }),
+    deleteSite: async () => {},
+    activateRelease: () => {},
+    allocatePort: async () => 43000,
+    restartRuntime: async () => {},
+    gatewayReadiness: async () => ({ ok: true, status: 'ready', detail: 'ready' }),
+    gatewayRecord: () => null,
   });
   const request = {
     method: 'GET', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
@@ -1029,7 +1034,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, projectEnvironment, certificates } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, certificates } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -1067,17 +1072,6 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
     runtime: { allocatePort: () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
-    environment: {
-      state: async (target) => ({
-        state: 'running',
-        desiredState: target.environmentDesiredState ?? 'running',
-        limits: { cpus: 1, memoryMb: 1024, pidsLimit: 512 },
-      }),
-      exec: async () => ({ stdout: '', stderr: '', code: 0 }),
-      logs: async () => ({ lifecycle: '', journal: '' }),
-      // Nothing is scheduled in these cases, so the durable action slot reads empty.
-      pendingAction: async () => null,
-    },
     // A test that does not stub the publication transport must FAIL loudly if it reaches for one: the
     // default refuses, so a static path that suddenly asked for a transport would not pass quietly.
     publications: publications ?? {
@@ -1085,7 +1079,6 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
       probe: async () => ({ answered: false, status: null, detail: 'not stubbed' }),
       adopt: () => {},
     },
-    projectEnvironment: projectEnvironment ?? (async () => null),
     // Certificate readiness is exercised against the real service in sites-certificate.test.mjs. Here it
     // reports the one state a harness with no gateway can honestly claim, so a publish test asserts the
     // publish and never the certificate.
@@ -1283,34 +1276,6 @@ test('SitePublish cannot cross the selected managed Project through another owne
   assert.equal(harness.store.releases('site-1').length, 0);
 });
 
-test('an environment reports its newest snapshot, never a publish it cannot have', async (t) => {
-  // SitePublish refuses an environment, so lastPublishAt stays null there for good. Reading the summary
-  // line from that field told an agent "snapshot never" seconds after SiteSnapshot had succeeded, which
-  // reads as a failed snapshot and invites a pointless second one.
-  const { store, call } = toolHarness(t, { configRaw: { allowEnvironments: true } });
-  store.insertSite(site({
-    id: 'env-1', slug: 'env-a1b2c3', ownerUserId: 1, runtime: 'environment',
-    status: 'live', currentReleaseId: null, environmentDesiredState: 'running',
-  }));
-
-  const before = await call('SiteGet', { site: 'env-a1b2c3' });
-  assert.match(before.content[0].text, /snapshot {3}never/, 'an environment with no snapshot still says so');
-  assert.doesNotMatch(before.content[0].text, /published/, 'and never borrows the publish wording');
-
-  const snapshot = (id, createdAt) => ({
-    id, siteId: 'env-1', createdAt, model: 'test/model', fileCount: 0, sizeBytes: 0, note: '',
-    kind: 'environment-snapshot', imageRef: `localhost/elowen-site/env-1:${id}`, dataArchive: null,
-  });
-  store.insertRelease(snapshot('snap-old', '2026-09-01T10:00:00.000Z'));
-  store.insertRelease(snapshot('snap-new', '2026-09-04T21:30:00.000Z'));
-
-  const after = await call('SiteGet', { site: 'env-a1b2c3' });
-  assert.match(after.content[0].text, /snapshot {3}2026-09-04T21:30:00\.000Z/, 'the NEWEST snapshot, not the first');
-
-  const listed = await call('SiteList', {});
-  assert.match(listed.content[0].text, /snapshot {3}2026-09-04T21:30:00\.000Z/, 'SiteList reports it too');
-});
-
 test('SiteList reports what each row records about its certificate, and probes nothing to do it', async (t) => {
   // A listing is the one place an agent sees every site at once, so it is where a failed certificate has to
   // be visible — and the one place a TLS handshake per site cannot be afforded. The stubs below fail loudly
@@ -1471,137 +1436,24 @@ test('SiteUpdate changes command runtime settings without republishing', async (
   assert.equal(updated.port, 43000);
 });
 
-test('deletion completes when the environment was already deleted', async () => {
+test('dormant legacy environment rows are invisible and deletion performs zero environment mutations', async () => {
   const store = new SitesStore(makeDb());
-  const root = tempDir('delete-absent-environment');
-  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
+  const root = tempDir('delete-dormant-environment');
+  const target = site({ id: 'legacy-env', slug: 'legacy-a1b2c3', runtime: 'environment' });
   store.insertSite(target);
-  mkdirSync(join(root, target.id), { recursive: true });
-  store.beginDelete(target.id);
-  const cleaned = [];
-
-  try {
-    await deleteSiteResources(target.id, {
-      store,
-      siteDir: (id) => join(root, id),
-      hasGatewayBroker: () => true,
-      stopLegacy: async () => {},
-      releasePublication: async () => {},
-      deleteEnvironment: async () => { throw new Error('The environment has been deleted'); },
-      removeRuntimeSocket: async () => {},
-      removeGateway: async (slug) => { cleaned.push(slug); },
-    });
-
-    assert.equal(store.siteById(target.id), null);
-    assert.equal(existsSync(join(root, target.id)), false);
-    assert.deepEqual(cleaned, [target.slug]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('deletion keeps its durable row until socket and gateway teardown both succeed', async () => {
-  const store = new SitesStore(makeDb());
-  const root = tempDir('delete-without-broker');
-  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
-  store.insertSite(target);
-  mkdirSync(join(root, target.id), { recursive: true });
-  store.beginDelete(target.id);
-  let removeBroker;
-  let socketAttempts = 0;
-  let gatewayAttempts = 0;
-  const deps = {
-    store,
-    siteDir: (id) => join(root, id),
-    hasGatewayBroker: () => true,
-    stopLegacy: async () => {},
-    releasePublication: async () => {},
-    deleteEnvironment: async (_id, options) => { removeBroker = options?.removeBroker; },
-    removeRuntimeSocket: async () => { socketAttempts += 1; if (socketAttempts === 1) throw new Error('the privileged gateway refused socket removal'); },
-    removeGateway: async () => { gatewayAttempts += 1; if (gatewayAttempts === 1) throw new Error('nginx reload failed'); },
-  };
-
-  try {
-    await assert.rejects(deleteSiteResources(target.id, deps), /socket removal/);
-    assert.equal(removeBroker, false, 'broker teardown runs only after the environment resources are gone');
-    assert.equal(store.siteById(target.id)?.status, 'deleting', 'the row remains as the retry owner');
-    assert.equal(existsSync(join(root, target.id)), false, 'plugin files may be removed idempotently before privileged cleanup');
-
-    await assert.rejects(deleteSiteResources(target.id, deps), /nginx reload failed/);
-    assert.equal(store.siteById(target.id)?.status, 'deleting', 'a failed vhost or certificate removal remains queued');
-
-    await deleteSiteResources(target.id, deps);
-    assert.equal(socketAttempts, 3);
-    assert.equal(gatewayAttempts, 2);
-    assert.equal(store.siteById(target.id), null);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-// A tool call runs in a forked runner, which is refused the privileged gateway broker on purpose. The
-// gateway removal is a no-op there and nothing asks again once the Site row is gone, so a deletion that
-// ran the resource phase anyway left the vhost and the certificate serving a site that no longer exists.
-test('a process without the gateway broker leaves the whole resource phase to the daemon sweep', async () => {
-  const store = new SitesStore(makeDb());
-  const root = tempDir('delete-without-gateway-broker');
-  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
-  store.insertSite(target);
-  mkdirSync(join(root, target.id), { recursive: true });
+  store.insertRelease({ id: 'snapshot-1', siteId: target.id, createdAt: new Date().toISOString(), model: 'old', fileCount: 0, sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: 'retained', dataArchive: 'backup.tar' });
+  assert.equal(store.siteById(target.id), null);
+  assert.deepEqual(store.allSites(), []);
+  assert.deepEqual(store.sitesOwnedBy(target.ownerUserId), []);
   store.beginDelete(target.id);
   const calls = [];
-  const deps = (hasGatewayBroker) => ({
-    store,
-    siteDir: (id) => join(root, id),
-    hasGatewayBroker: () => hasGatewayBroker,
-    stopLegacy: async () => { calls.push('stopLegacy'); },
-    releasePublication: async () => { calls.push('releasePublication'); },
-    deleteEnvironment: async () => { calls.push('deleteEnvironment'); },
-    removeRuntimeSocket: async (id) => { calls.push(`removeRuntimeSocket:${id}`); },
-    removeGateway: async (slug) => { calls.push(`removeGateway:${slug}`); },
+  await deleteSiteResources(target.id, {
+    store, siteDir: (id) => join(root, id), hasGatewayBroker: () => true,
+    stopLegacy: async () => calls.push('stop'), releasePublication: async () => calls.push('release'),
+    removeRuntimeSocket: async () => calls.push('socket'), removeGateway: async () => calls.push('gateway'),
   });
-
-  try {
-    await deleteSiteResources(target.id, deps(false));
-    assert.deepEqual(calls, [], 'a process that cannot remove the gateway removes nothing');
-    assert.equal(store.siteById(target.id)?.status, 'deleting', 'the durable marker keeps the deletion queued');
-    assert.equal(existsSync(join(root, target.id)), true);
-
-    // The daemon's cleanup sweep reaches the same call with the broker in hand and finishes the job.
-    await deleteSiteResources(target.id, deps(true));
-    assert.deepEqual(calls, ['deleteEnvironment', `removeRuntimeSocket:${target.id}`, `removeGateway:${target.slug}`]);
-    assert.equal(store.siteById(target.id), null);
-    assert.equal(existsSync(join(root, target.id)), false);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('deletion explicitly hands over a mismatched Sandbox binding and removes the Site row', async () => {
-  const store = new SitesStore(makeDb());
-  const root = tempDir('delete-mismatched-binding');
-  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
-  store.insertSite(target);
-  store.putRuntimeRecord(target.id, 'binding', JSON.stringify({ siteId: target.id, sourcePath: '/new/source' }));
-  store.putRuntimeRecord(target.id, 'handover', 'complete');
-  mkdirSync(join(root, target.id), { recursive: true });
-  store.beginDelete(target.id);
-  const requests = [];
-
-  try {
-    await deleteSiteResources(target.id, {
-      store,
-      siteDir: (id) => join(root, id),
-      hasGatewayBroker: () => true,
-      stopLegacy: async () => {},
-      releasePublication: async () => {},
-      deleteEnvironment: async (siteId, options) => {
-        requests.push({ siteId, ...options });
-        if (options?.handover !== true) {
-          throw new Error('The trusted Site binding changed; an explicit handover is required');
-        }
-      },
-      removeRuntimeSocket: async () => {},
-      removeGateway: async () => {},
-    });
-
-    assert.deepEqual(requests, [{ siteId: target.id, removeBroker: false, handover: true }]);
-    assert.equal(store.siteById(target.id), null);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  assert.deepEqual(calls, ['socket', 'gateway']);
+  assert.equal(store.siteForCleanup(target.id), null);
 });
 
 test('SiteDelete uses the shared cascading cleanup and leaves the Project source alone', async (t) => {
@@ -1612,41 +1464,9 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, sourceRel: 'report-source' }));
   store.addMember('id-1', 3);
   store.insertRelease({ id: 'rel-1', siteId: 'id-1', createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
-
   await call('SiteDelete', { site: 'report-a1b2c3' });
   assert.equal(store.siteById('id-1'), null);
   assert.equal(readFileSync(join(sourceDir, 'source.txt'), 'utf8'), 'keep me');
-});
-
-test('deleting retained legacy resources and a runtime tombstone removes the Site row in one call', async () => {
-  const store = new SitesStore(makeDb());
-  const root = tempDir('delete-retained-runtime');
-  const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'command', startCommand: 'node server.mjs' });
-  store.insertSite(target);
-  store.insertRelease({ id: 'rel-1', siteId: target.id, createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
-  store.putRuntimeRecord(target.id, 'binding', JSON.stringify({ staging: false }));
-  store.putRuntimeRecord(target.id, 'handover', 'complete');
-  mkdirSync(join(root, target.id), { recursive: true });
-  store.beginDelete(target.id);
-  let tombstoneDiscarded = false;
-
-  try {
-    await deleteSiteResources(target.id, {
-      store,
-      siteDir: (id) => join(root, id),
-      hasGatewayBroker: () => true,
-      stopLegacy: async () => {},
-      releasePublication: async () => {},
-      deleteEnvironment: async () => { tombstoneDiscarded = true; },
-      removeRuntimeSocket: async () => {},
-      removeGateway: async () => {},
-    });
-
-    assert.equal(tombstoneDiscarded, true);
-    assert.equal(store.siteById(target.id), null);
-    assert.equal(store.runtimeRecord(target.id, 'binding'), null);
-    assert.deepEqual(store.releases(target.id), []);
-  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 // ── proxy publications ───────────────────────────────────────────────────────────────────────────
@@ -1686,7 +1506,6 @@ test('a proxy publication round trips its kind and port, and only live or failed
   assert.equal(row.kind, 'proxy');
   assert.equal(row.target, '3000');
   assert.deepEqual(store.proxySitesForReconcile().map((entry) => entry.id), ['proxy-1']);
-  assert.deepEqual(store.liveEnvironmentSites(), [], 'a proxy publication is not an environment of its own');
 
   store.updateSite('proxy-1', { status: 'draft' });
   assert.deepEqual(store.proxySitesForReconcile().map((entry) => entry.id), [], 'a draft holds no transport');
@@ -1883,14 +1702,10 @@ test('a proxy publication whose Project environment cannot be reached says so in
   assert.equal(harness.store.siteById('proxy-3').status, 'failed');
 });
 
-test('SiteGet tells the agent which Project environment serves a proxy publication', async (t) => {
+test('SiteGet tells the agent which managed Project transport serves a proxy publication', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     admin: true,
-    projectEnvironment: async (projectId, actor) => {
-      assert.deepEqual([projectId, actor], [7, 1]);
-      return { state: 'running', lastError: null };
-    },
   });
   harness.store.insertSite(site({
     id: 'proxy-4', slug: 'proxy-d1b2c3', ownerUserId: 9, kind: 'proxy', target: '3000', runtime: 'static',
@@ -1899,41 +1714,31 @@ test('SiteGet tells the agent which Project environment serves a proxy publicati
 
   const detail = await harness.call('SiteGet', { site: 'proxy-d1b2c3' });
   const body = detail.content[0].text;
-  assert.match(body, /Served by the environment of project kolin/);
+  assert.match(body, /transport {2}managed Project kolin/);
   assert.match(body, /kind {7}proxy/);
   assert.match(body, /target {5}3000 inside the Project/);
-  assert.match(body, /environment running/);
   assert.match(body, /status {5}degraded/, 'the address stays published while its health is visible');
   assert.doesNotMatch(body, /No releases yet/, 'a proxy publication never claims a release it cannot have');
   assert.equal(detail.details.kind, 'proxy');
   assert.equal(detail.details.target, '3000');
   assert.equal(detail.details.degraded, true);
-  assert.deepEqual(detail.details.project, { id: 7, slug: 'kolin', executionKind: 'managed', environment: { state: 'running', lastError: null } });
+  assert.deepEqual(detail.details.project, { id: 7, slug: 'kolin', executionKind: 'managed' });
 });
 
-test('the per-site lifecycle tools refuse a proxy publication and name the Project instead', async (t) => {
-  const harness = toolHarness(t, { admin: true, configRaw: { allowEnvironments: true } });
+test('the retired per-site lifecycle tools and update fields are absent', async (t) => {
+  const harness = toolHarness(t, { admin: true });
+  for (const tool of ['SiteExec', 'SiteControl', 'SiteSnapshot']) assert.equal(harness.registered.has(tool), false);
+  const update = harness.registered.get('SiteUpdate').parameters.properties;
+  assert.equal('environmentCpus' in update, false);
+  assert.equal('environmentMemoryMb' in update, false);
+  assert.equal('environmentPidsLimit' in update, false);
+
   harness.store.insertSite(site({ id: 'proxy-5', slug: 'proxy-e1b2c3', kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
-
-  for (const [tool, input, expected] of [
-    ['SiteExec', { site: 'proxy-e1b2c3', command: 'ls' }, /Project environment/],
-    ['SiteControl', { site: 'proxy-e1b2c3', action: 'restart' }, /Start, stop and restart belong to that Project/],
-    ['SiteSnapshot', { site: 'proxy-e1b2c3' }, /snapshot of that Project belongs to the Project/],
-    ['SiteLogs', { site: 'proxy-e1b2c3' }, /Sandbox plugin/],
-    ['SiteRollback', { site: 'proxy-e1b2c3', releaseId: 'rel-1' }, /Sandbox plugin/],
-  ]) {
-    await assert.rejects(() => harness.call(tool, input), expected, `${tool} must refuse a proxy publication`);
-  }
-
-  // Resource limits belong to the Project environment, not to the publication in front of it.
-  await assert.rejects(
-    () => harness.call('SiteUpdate', { site: 'proxy-e1b2c3', environmentMemoryMb: 2048 }),
-    /set them on the Project environment/,
-  );
-  // Everything that is about the address itself still works.
+  await assert.rejects(() => harness.call('SiteLogs', { site: 'proxy-e1b2c3' }), /managed Project logs through Sandbox/);
+  await assert.rejects(() => harness.call('SiteRollback', { site: 'proxy-e1b2c3', releaseId: 'rel-1' }), /no file releases/);
   const updated = await harness.call('SiteUpdate', { site: 'proxy-e1b2c3', title: 'Nový název' });
   assert.equal(harness.store.siteById('proxy-5').title, 'Nový název');
-  assert.match(updated.content[0].text, /Served by the environment of project/);
+  assert.match(updated.content[0].text, /transport {2}managed Project/);
 });
 
 test('a proxy publication answers through the project socket, and a stranger cannot tell it exists', async (t) => {
@@ -1981,7 +1786,7 @@ test('a proxy publication without a transport is not served from anything else',
   });
   const response = await handler(request('demo-abc123/'));
   assert.equal(response.status, 503);
-  assert.match(String(response.body), /project environment that serves this page is not available/i);
+  assert.match(String(response.body), /managed Project transport that serves this page is not available/i);
 
   // A draft is not published at all: it answers exactly like a slug nobody took.
   const { handler: draftHandler } = serveHarness(t, {
