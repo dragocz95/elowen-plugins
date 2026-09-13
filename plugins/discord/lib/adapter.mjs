@@ -45,16 +45,29 @@ function askTextPrompt(question, cs) {
   return `**${question.header}**\n${options}\n${instruction}${custom}`;
 }
 
+/** Strip Elowen's `#<generation>` conversation suffix only from a native Discord snowflake. The suffix
+ *  distinguishes durable conversations after `/new`; Discord's REST API accepts the decimal channel or
+ *  thread id alone. Keeping the decimal checks here prevents an opaque legacy target containing `#` from
+ *  being rewritten by a rule that belongs only to this adapter. */
+function canonicalDiscordChannelId(value) {
+  const separator = value.lastIndexOf('#');
+  if (separator <= 0) return value;
+  const channelId = value.slice(0, separator);
+  const generation = value.slice(separator + 1);
+  return /^\d+$/.test(channelId) && /^\d+$/.test(generation) ? channelId : value;
+}
+
 /** A destination field stores an opaque provider-qualified value. Discord's REST API still needs only the
  *  raw channel/thread id; legacy raw ids and stale Discord options remain valid and are never discarded. */
 export function discordDestinationId(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
   const prefix = 'destination:discord:';
-  if (!trimmed.startsWith(prefix)) return trimmed;
+  if (!trimmed.startsWith(prefix)) return canonicalDiscordChannelId(trimmed);
   const encoded = trimmed.slice(prefix.length);
   if (!encoded) return '';
-  try { return decodeURIComponent(encoded); } catch { return encoded; }
+  try { return canonicalDiscordChannelId(decodeURIComponent(encoded)); }
+  catch { return canonicalDiscordChannelId(encoded); }
 }
 
 /** The commands this adapter runs end to end against its own per-channel state. Core DECLARES them
