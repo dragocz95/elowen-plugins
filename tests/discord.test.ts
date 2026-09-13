@@ -83,6 +83,12 @@ describe('discord destination and list config compatibility', () => {
     expect(discordDestinationId('123')).toBe('123');
     expect(discordDestinationId('destination:discord:456')).toBe('456');
     expect(discordDestinationId('destination:discord:thread%3A789')).toBe('thread:789');
+    // Elowen appends the conversation generation after `#`; it distinguishes durable sessions but is
+    // not part of Discord's decimal channel/thread snowflake. Recovery sends through this normalizer.
+    expect(discordDestinationId('1544035768526307389#0')).toBe('1544035768526307389');
+    expect(discordDestinationId('destination:discord:1544035768526307389%230')).toBe('1544035768526307389');
+    expect(discordDestinationId('thread:789#0')).toBe('thread:789#0');
+    expect(discordDestinationId('1544035768526307389#draft')).toBe('1544035768526307389#draft');
 
     const reply = vi.fn(async () => undefined);
     await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply }, 'hello');
@@ -93,6 +99,12 @@ describe('discord destination and list config compatibility', () => {
       'hello', 'destination:discord:123',
     );
     expect(reply).toHaveBeenCalledWith('123', 'hello');
+    reply.mockClear();
+    await DiscordAdapter.prototype.notify.call(
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      'hello', '1544035768526307389#0',
+    );
+    expect(reply).toHaveBeenCalledWith('1544035768526307389', 'hello');
   });
 
   it('accepts legacy and array allowed-thread lists without dropping stale ids', async () => {
