@@ -369,6 +369,15 @@ describe('ProjectEditor copy', () => {
     expect(within(toolbar).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
+  it('shows the full file path with its storage icon in the status bar', async () => {
+    await renderEditor();
+
+    const path = screen.getByTitle('/srv/demo/a.ts');
+    expect(path).toHaveTextContent('/srv/demo/a.ts');
+    expect(path.parentElement?.querySelector('svg.lucide-hard-drive')).not.toBeNull();
+    expect(within(screen.getByRole('toolbar', { name: strings.editorTitle })).queryByTitle('/srv/demo/a.ts')).toBeNull();
+  });
+
   it('reports the caret and the selection size in the status bar', async () => {
     await renderEditor();
 

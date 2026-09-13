@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.4.4 - 2026-09-13
+
+- Keep the editor toolbar focused on controls by moving the full active file path to the bottom status bar, with a storage icon and the complete host or managed-environment path.
+
 ## sites 0.12.0 - 2026-09-13
 
 - Remove the retired per-Site environment runtime, its lifecycle tools and APIs, conversion path, settings, UI and reconciliation. Dormant historical rows and their source values stay as opaque audit data, are ignored by ordinary runtime work and cannot block plugin boot when their former Project path is unavailable.

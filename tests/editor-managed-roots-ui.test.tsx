@@ -83,16 +83,19 @@ const pickRoot = async (label: string) => {
 const treeButton = (name: string) => within(screen.getByRole('tree')).getByRole('button', { name });
 
 describe('a managed project offers two roots', () => {
-  it('opens on the project root and names the guest directory it is mounted at', async () => {
+  it('opens on the project root and shows an opened file at its full guest path', async () => {
     renderEditor();
     expect(await screen.findByText('README.md')).toBeInTheDocument();
-    // The root lives in the File menu, not in the toolbar.
+    // The root switch lives in the File menu, while the toolbar stays free of path text.
     openFileMenu();
     expect(await screen.findByRole('menuitem', { name: strings.rootLabel })).toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(treeRequests).toEqual(['project']);
-    // The mount is reported by the daemon; the interface repeats it rather than deriving it from a slug.
-    expect(screen.getByTitle('/sdilene')).toBeInTheDocument();
+
+    fireEvent.click(treeButton('README.md'));
+    const path = await screen.findByTitle('/sdilene/README.md');
+    expect(path).toHaveTextContent('/sdilene/README.md');
+    expect(within(screen.getByRole('toolbar', { name: strings.editorTitle })).queryByTitle('/sdilene/README.md')).toBeNull();
   });
 
   it('switches to the guest filesystem and shows the base image beside the project mount', async () => {
@@ -105,7 +108,7 @@ describe('a managed project offers two roots', () => {
     // The roots stay separate: nothing of the project tree is mixed into the filesystem listing.
     expect(within(screen.getByRole('tree')).queryByRole('button', { name: 'README.md' })).toBeNull();
     expect(treeRequests).toEqual(['project', 'system']);
-    expect(screen.getByTitle('/')).toBeInTheDocument();
+    expect(within(screen.getByRole('toolbar', { name: strings.editorTitle })).queryByTitle('/')).toBeNull();
   });
 
   it('keeps each root in its own cache entry', async () => {

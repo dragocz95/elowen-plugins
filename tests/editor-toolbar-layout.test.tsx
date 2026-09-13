@@ -6,16 +6,8 @@ import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import manifest from '../plugins/editor/elowen-plugin.json' with { type: 'json' };
 
-/** The editor toolbar's reading order, and what gives way when the row runs out of width.
- *
- *  The root path used to sit between the title and the File menu, so it pushed the menus along as it
- *  grew with every file opened and the row never held still. It belongs at the trailing edge as a
- *  status: right-aligned through the group's flexible gap, and the first thing to shrink.
- *
- *  jsdom has no layout engine, so this asserts the layout CONTRACT — document order, which element owns
- *  the flexible gap, and the shrink and overflow rules that decide who gives way — plus the one piece of
- *  behaviour that is not CSS at all: the path is not drawn on a phone, where the menus and the actions
- *  are what the row has space for. */
+/** The editor toolbar stays dedicated to menus and actions at every width. The full file path belongs
+ *  to the status bar below the editor, where it does not move the controls as files change. */
 
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 
@@ -77,64 +69,24 @@ function renderEditor() {
 }
 
 const toolbar = () => screen.getByRole('toolbar', { name: strings.editorTitle });
-const follows = (first: Element, second: Element): boolean =>
-  (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 describe('the editor toolbar at desktop width', () => {
-  it('reads title, then menus, then the root path at the trailing edge', async () => {
+  it('keeps the root path out of the toolbar', async () => {
     renderEditor();
-    const path = await screen.findByTitle(GUEST_ROOT);
-    const bar = toolbar();
-    const title = within(bar).getByText(strings.editorTitle);
-    const menus = within(bar).getByRole('menubar');
+    const bar = await screen.findByRole('toolbar', { name: strings.editorTitle });
 
-    expect(follows(title, menus)).toBe(true);
-    expect(follows(menus, path)).toBe(true);
-    // The menus stay compact behind the title: nothing of the path lies between them.
-    expect(follows(title, path)).toBe(true);
+    expect(within(bar).getByText(strings.editorTitle)).toBeInTheDocument();
+    expect(within(bar).getByRole('menubar')).toBeInTheDocument();
+    expect(within(bar).queryByTitle(GUEST_ROOT)).toBeNull();
   });
 
-  it('right-aligns the path through the trailing group, which also holds the actions', async () => {
+  it('keeps the trailing action group aligned without path content', async () => {
     renderEditor();
-    const path = await screen.findByTitle(GUEST_ROOT);
-    const group = path.parentElement!;
+    const group = (await screen.findByRole('toolbar', { name: strings.editorTitle })).lastElementChild!;
 
-    // The flexible gap belongs to this group, which is what pushes it to the trailing edge.
     expect(group.className).toContain('ml-auto');
     expect(group.className).toContain('justify-end');
-    // The actions live here too, and AFTER the path, so the path can never displace them.
-    const closeButton = within(group).getByRole('button', { name: /close|zavřít|zavrieť/i });
-    expect(follows(path, closeButton)).toBe(true);
-    // It is the last thing in the row: nothing is placed to the right of the actions.
-    expect(toolbar().lastElementChild).toBe(group);
-  });
-
-  it('is a muted monospace status with no frame and nothing to operate', async () => {
-    renderEditor();
-    const path = await screen.findByTitle(GUEST_ROOT);
-
-    expect(path.tagName).toBe('SPAN');
-    expect(path.className).toContain('font-mono');
-    expect(path.className).toContain('text-muted-foreground');
-    expect(path.className).not.toMatch(/\bborder\b|\bborder-/);
-    expect(path.className).not.toMatch(/\brounded/);
-    // Not a control: nothing to focus, nothing to press, no handler to reach by keyboard.
-    expect(path.getAttribute('tabindex')).toBeNull();
-    expect(within(path).queryByRole('button')).toBeNull();
-    expect(path).not.toHaveAttribute('aria-pressed');
-  });
-
-  it('shrinks and ellipsis before the row wraps, however long the path grows', async () => {
-    renderEditor();
-    // A deep file makes the path the longest thing in the row.
-    const path = await screen.findByTitle(GUEST_ROOT);
-    // `min-w-0` plus hidden overflow is what lets it give way instead of pushing the row to a second
-    // line; `truncate` carries the ellipsis and the nowrap with it.
-    expect(path.className).toContain('min-w-0');
-    expect(path.className).toContain('truncate');
-    expect(path.className).toContain('shrink');
-    // The full value stays reachable on hover even once it is cut.
-    expect(path).toHaveAttribute('title', GUEST_ROOT);
+    expect(within(group as HTMLElement).getByRole('button', { name: /close|zavřít|zavrieť/i })).toBeInTheDocument();
   });
 });
 

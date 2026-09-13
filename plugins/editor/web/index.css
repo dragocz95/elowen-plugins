@@ -1,4 +1,4 @@
-/* plugins/editor/web-src/editor.css */
+/* ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor.css */
 .editor-file-tree-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
@@ -198,9 +198,6 @@
   }
   .flex-1 {
     flex: 1;
-  }
-  .shrink {
-    flex-shrink: 1;
   }
   .shrink-0 {
     flex-shrink: 0;
