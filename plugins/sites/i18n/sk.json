@@ -1,5 +1,5 @@
 {
-  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé rootless prostredia so systemd, obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
+  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé prostredia systemd-nspawn s obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"

@@ -959,6 +959,7 @@ test('migration v17 converts legacy absolute sources and refuses rows outside th
 
 test('core seam, manifest and lifecycle match the final core contract', () => {
   const seams = readFileSync(new URL('../plugins/sites/src/coreSeams.ts', import.meta.url), 'utf8');
+  const api = readFileSync(new URL('../plugins/sites/src/api.ts', import.meta.url), 'utf8');
   const index = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
   const lifecycle = readFileSync(new URL('../plugins/sites/src/environment.ts', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
@@ -979,11 +980,12 @@ test('core seam, manifest and lifecycle match the final core contract', () => {
   assert.ok(manifest.capabilities.mutates.includes('events'));
   assert.equal(manifest.configSchema.find((field) => field.key === 'environmentNetwork')?.default, 'shared');
   assert.equal(manifest.configSchema.find((field) => field.key === 'runtimeNetwork')?.default, 'isolated');
-  assert.match(manifest.description, /persistent rootless environments/i);
+  assert.match(manifest.description, /persistent systemd-nspawn environments/i);
   assert.match(manifest.description, /static/i);
   assert.match(manifest.description, /command/i);
   assert.match(manifest.description, /PHP/i);
   assert.doesNotMatch(seams, /environmentSupportStatus|installEnvironmentSupport/);
+  assert.doesNotMatch(api, /Podman/);
   // All lower container lifecycle belongs to the Sandbox provider: no local driver, no second loop.
   assert.doesNotMatch(lifecycle, /systemd-run|start --attach|podman\.restart|deps\.podman\.restart/);
   assert.doesNotMatch(lifecycle, /PodmanClient/);

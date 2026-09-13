@@ -419,7 +419,7 @@ export function createApiHandlers(deps: ApiDeps) {
     }
     if (limits) {
       try { await deps.applyEnvironmentLimits(target, limits, runtimeActor(req)); }
-      catch (error) { return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' }); }
+      catch (error) { return json(502, { error: error instanceof Error ? error.message : 'the environment runtime could not apply the limits' }); }
     }
     deps.store.updateSite(target.id, patch);
     if (accessChanged) deps.store.bumpAccessGeneration(target.id);
