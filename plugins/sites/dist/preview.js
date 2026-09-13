@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cookieName } from './access.js';
 import { siteUrl } from './config.js';
-import { proxyToEnvironment } from './proxy.js';
+import { proxyToProject } from './proxy.js';
 import { requireSandbox } from './sandboxControl.js';
 /** Preview records contain no ownership or visibility grants. Current Project membership is authority. */
 export class ProjectPreviewService {
@@ -54,7 +54,7 @@ export class ProjectPreviewService {
         // so this value never decides how a preview is answered.
         return { id: preview.id, slug: preview.slug, projectId: preview.projectId, ownerUserId: 0,
             title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
-            sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port), runtime: 'environment',
+            sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port), runtime: 'static',
             startCommand: '', bind: 'socket', port: null,
             status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
             createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
@@ -69,13 +69,13 @@ export class ProjectPreviewService {
         // status it is, and the operator gets the named refusal on every path they can act on.
         const control = this.deps.control();
         if (!control)
-            return { status: 503, headers: { 'cache-control': 'no-store' }, body: 'The environment runtime is unavailable.' };
+            return { status: 503, headers: { 'cache-control': 'no-store' }, body: 'The managed Project transport is unavailable.' };
         let binding;
         try {
             binding = await control.projectPreviewBinding({ project: { kind: 'managed', projectId: preview.projectId }, accountUserId: viewer.userId, port: preview.port });
             if (binding.projectId !== preview.projectId || binding.port !== preview.port)
                 throw new Error('preview binding identity mismatch');
-            const response = await (this.deps.proxy ?? proxyToEnvironment)({ kind: 'socket', path: binding.socketPath }, req, rest, { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot, cookieName(site.id));
+            const response = await (this.deps.proxy ?? proxyToProject)({ kind: 'socket', path: binding.socketPath }, req, rest, { userId: viewer.userId, name: this.deps.usernameOf(viewer.userId) }, this.deps.proxyLimits(), siteRoot, cookieName(site.id));
             // The proxy buffers a bounded response. Revocation during that await must discard it too.
             if (!this.allowed(preview.projectId, viewer.userId))
                 return denied();

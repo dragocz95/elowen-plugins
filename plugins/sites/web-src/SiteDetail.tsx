@@ -8,7 +8,6 @@ import {
   type DirectoryResponse, type SiteDetailResponse, type Visibility,
 } from './runtime.js';
 import { displayStatus, STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
-import { EnvironmentDetail } from './EnvironmentDetail.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
 
@@ -129,19 +128,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     setRuntimeCommand(next.startCommand ?? '');
     setRuntimeBind(next.bind === 'port' ? 'port' : 'socket');
   }, [detail.data?.runtime]);
-  const pollingAction = detail.data?.environment?.action;
-  const pollingDesiredState = detail.data?.environment?.desiredState;
-  const pollingRuntime = detail.data?.site.runtime;
-  const pollingKind = detail.data?.site.kind;
-  useEffect(() => {
-    const actionInFlight = pollingAction?.lastError === null;
-    const lifecycleInFlight = !pollingAction && pollingDesiredState === 'restarting';
-    // A proxy publication owns no environment, so there is never an action of its own to wait on: polling
-    // here would re-fetch the drawer forever over a lifecycle that belongs to the Project.
-    if (pollingKind === 'proxy' || pollingRuntime !== 'environment' || (!actionInFlight && !lifecycleInFlight)) return;
-    const timer = window.setInterval(() => detailRefetch.current(), 2_000);
-    return () => window.clearInterval(timer);
-  }, [pollingAction, pollingDesiredState, pollingKind, pollingRuntime]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
@@ -162,15 +148,10 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   };
 
   const releases = detail.data?.releases ?? [];
-  const snapshots = releases.filter((release) => release.kind === 'environment-snapshot');
-  const fileReleases = releases.filter((release) => release.kind !== 'environment-snapshot');
+  const fileReleases = releases;
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const runtimeState = detail.data?.runtime ?? null;
-  const environment = detail.data?.environment ?? null;
-  const projectEnvironment = detail.data?.projectEnvironment ?? null;
   const displayedStatus = displayStatus(site);
-  const stateLabel = (state: string | null): string =>
-    strings[`state_${state ?? 'unknown'}`] ?? strings.state_unknown;
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
   // Guests are picked from every account except the owner, who already holds the site.
@@ -249,9 +230,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         <Metric
           icon={History}
           label={site.kind === 'proxy' ? strings.kindProxy
-            : site.runtime === 'environment' ? strings.environmentSnapshots : strings.releases}
-          value={site.kind === 'proxy' ? (site.target || '—')
-            : String(site.runtime === 'environment' ? snapshots.length : fileReleases.length)}
+            : strings.releases}
+          value={site.kind === 'proxy' ? (site.target || '—') : String(fileReleases.length)}
         />
       </div>
 
@@ -309,30 +289,12 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       {site.kind === 'proxy' ? (
         <DetailBlock icon={Boxes} title={strings.kindProxy}>
           <p className="text-sm text-foreground">
-            {strings.projectEnvironmentLink.replace('{project}', site.projectSlug ?? '—')}
+            {strings.projectRuntimeLink.replace('{project}', site.projectSlug ?? '—')}
           </p>
-          {projectEnvironment?.state ? (
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-muted-foreground">{strings.environmentObservedState}</span>
-              <Badge tone="muted">{stateLabel(projectEnvironment.state)}</Badge>
-            </div>
-          ) : (
-            <p className="text-[11px] text-muted-foreground">{strings.projectEnvironmentMissing}</p>
-          )}
-          {projectEnvironment?.lastError ? <p className="text-[11px] text-destructive">{projectEnvironment.lastError}</p> : null}
           <div>
             <Button variant="ghost" icon={ExternalLink} onClick={() => runtime().navigate(`/projects?project=${site.projectId}`)}>{strings.openProject}</Button>
           </div>
         </DetailBlock>
-      ) : site.runtime === 'environment' && environment ? (
-        <EnvironmentDetail
-          siteId={siteId}
-          currentReleaseId={site.currentReleaseId}
-          environment={environment}
-          snapshots={snapshots}
-          busy={call.isPending}
-          runCall={runCall}
-        />
       ) : (
         <DetailBlock icon={History} title={strings.releases}>
           {fileReleases.length === 0 ? (

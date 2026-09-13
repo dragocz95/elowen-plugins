@@ -45,11 +45,6 @@ export interface PublicationProbe {
   detail: string;
 }
 
-export interface ProjectEnvironmentView {
-  state: string | null;
-  lastError: string | null;
-}
-
 /** The port a proxy publication's application listens on inside the Project, or null when the stored
  *  target cannot be one. A row in that state is not published, and guessing it a port would be inventing
  *  a transport for whoever happens to hold that port inside the container. */

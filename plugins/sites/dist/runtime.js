@@ -62,14 +62,6 @@ export class SiteRuntimeSupervisor {
     endpointFor(siteId) {
         return this.running.get(siteId)?.endpoint ?? null;
     }
-    /** The HOME the running process was actually launched with, or null when nothing is running.
-     *
-     *  Recorded at spawn from the sandbox preparation that produced this process, because that is the only
-     *  value the live process really has. Asking the sandbox again later can return a different home, and a
-     *  conversion capturing from THAT one would archive the wrong directory. */
-    runningHome(siteId) {
-        return this.running.get(siteId)?.home ?? null;
-    }
     isRunning(siteId) {
         const entry = this.running.get(siteId);
         return entry !== undefined && entry.child.exitCode === null && !entry.stopping;
@@ -122,44 +114,23 @@ export class SiteRuntimeSupervisor {
      *  Returns only once the endpoint accepts a connection, so "live" in the UI means the server is up
      *  rather than that a process was spawned. A start that never answers is stopped again and reported
      *  with its own log tail, because a half-started runtime holding a port is worse than none.
-     *
-     *  `authorized` marks the runtime conversion's own start. That operation owns the site's runtime at
-     *  the moment it runs, so it passes through the guard below rather than being stopped by it. */
-    start(site, options = {}) {
-        return this.serialize(site.id, () => this.startNow(site, options.authorized === true));
+     */
+    start(site) {
+        return this.serialize(site.id, () => this.startNow(site));
     }
-    async startNow(site, authorized = false) {
+    async startNow(site) {
         // The supervisor is going away. Nothing it starts from here would ever be supervised again.
         if (this.closing)
             return;
         if (site.runtime !== 'command')
             return;
-        // The CURRENT runtime, not the descriptor the caller was holding.
-        //
-        // A conversion hands this method a reconstructed descriptor that says `command` on purpose, because
-        // that is what the legacy runtime was. If the site has since become an environment, spawning that
-        // process would put a second listener behind the container's ingress and hand it back the broker
-        // directory the container is bound to. The authorized seam is permission to bypass the suspension
-        // marker, never permission to contradict the column the whole serving path dispatches on.
+        // Re-read the current row before spawning so a stale descriptor cannot restart a changed or deleted site.
         const current = this.deps.store.siteById(site.id);
         if (current !== null && current.runtime !== 'command')
             return;
         if (!site.currentReleaseId)
             throw new Error('the site has no published release to run');
         if (this.isRunning(site.id))
-            return;
-        // THE SECOND ASK, and the one that actually decides.
-        //
-        // `reconcileNow` already skipped the suspended sites, but it read that list before awaiting the site
-        // ahead of this one, so a start queued from the stale list arrives here AFTER the conversion claimed
-        // the site. This check runs inside the per-site queue, once every earlier operation on this site has
-        // settled and before anything shared is touched, which is the only point where the answer cannot go
-        // stale between asking it and acting on it.
-        //
-        // Returning rather than throwing is deliberate: a suspended site has not failed, and reconcile
-        // records a thrown error as `status = 'failed'` — precisely the stale verdict that leaves a
-        // rolled-back site out of `liveCommandSites()` and therefore dark.
-        if (!authorized && this.deps.store.conversionSuspends(site.id) === 'legacy')
             return;
         await this.stopNow(site.id);
         const cwd = this.deps.releaseDir(site.id, site.currentReleaseId);
@@ -252,7 +223,6 @@ export class SiteRuntimeSupervisor {
             heartbeat,
             release,
             stopping: false,
-            home: prepared.home,
         };
         this.running.set(site.id, entry);
         child.once('exit', (code, signal) => {
@@ -383,13 +353,7 @@ export class SiteRuntimeSupervisor {
         }
         this.running.delete(siteId);
     }
-    /** Whether the broker directory is still THIS runtime's to remove, asked of the site as it is NOW.
-     *
-     *  The `Running` entry records what was true when the process started, and a conversion moves the site
-     *  out from under it: the flip points the same site id at a container that is handed the very same
-     *  broker directory. A stop or a late exit that trusted the captured entry would then delete a
-     *  directory the container owns, and Podman fails to create or start it with a bare statfs error that
-     *  names a path nobody expected anything to have removed. */
+    /** Whether the current command runtime still owns the broker directory it prepared. */
     ownsBrokerDirectory(siteId) {
         const site = this.deps.store.siteById(siteId);
         return site !== null && site.runtime === 'command' && site.bind === 'socket';
@@ -455,16 +419,7 @@ export class SiteRuntimeSupervisor {
         // a supervisor that is being discarded. This is the tick that used to refill the map mid-stop.
         if (this.closing)
             return;
-        // FIRST ASK: skip the sites a conversion is holding down, so the sweep does not queue work for them
-        // at all. This is the cheap layer and it is not sufficient on its own — the authoritative check is
-        // inside `startNow`, because this list is read once and then awaited site by site.
-        const suspended = this.deps.store.conversionSuspensions();
         for (const site of this.deps.store.liveCommandSites()) {
-            // A half-converted site still says `command` and `live`, so it is in this list and simply looks
-            // like one that is not running. Starting it would put a second writer on the tree being captured
-            // and a second holder on the broker directory the container is being built around.
-            if (suspended.get(site.id) === 'legacy')
-                continue;
             const running = this.running.get(site.id);
             if (running
                 && running.releaseId === site.currentReleaseId

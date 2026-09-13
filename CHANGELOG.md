@@ -1,5 +1,11 @@
 # Changelog
 
+## sites 0.12.0 - 2026-09-13
+
+- Remove the retired per-Site environment runtime, its lifecycle tools and APIs, conversion path, settings, UI and reconciliation. Dormant historical rows and their source values stay as opaque audit data, are ignored by ordinary runtime work and cannot block plugin boot when their former Project path is unavailable.
+- Keep proxy publications bound only to an explicit managed Project through Sandbox's durable publication transport, with no host path fallback.
+- Publish managed Project output through bounded Sandbox Project file operations. Command and PHP snapshots preserve executable permission bits and safe relative symlinks from the Sandbox publication manifest. Regular file reads remain content-versioned, inconsistent metadata is rejected and every failed transfer removes its partial release atomically.
+
 ## editor 0.4.3 - 2026-09-12
 
 - The root path moved to the trailing edge of the editor toolbar, where it reads as a status rather than sitting between the title and the File menu and pushing the menus along as it grew with every file opened. File, View and Settings stay compact behind the title. The path is right-aligned, gives way before anything else in the row and is not drawn on a phone, so it can neither wrap the toolbar nor crowd out the actions.

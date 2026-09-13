@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { SANDBOX_REQUIRED, SandboxRequiredError, requireSandbox } from '../plugins/sites/dist/sandboxControl.js';
 import { SiteRuntimeSupervisor } from '../plugins/sites/dist/runtime.js';
-import { EnvironmentSupervisor } from '../plugins/sites/dist/environment.js';
 import { ProjectPreviewService } from '../plugins/sites/dist/preview.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
 import { executePhp } from '../plugins/sites/dist/php.js';
@@ -121,37 +120,6 @@ test('PHP execution refuses by name, and reserves no session directory first', a
     '/s/sandbox-demo',
   ));
   assert.deepEqual(readdirSync(root), ['release'], 'a refused request must not leave a runtime directory behind');
-});
-
-test('an environment operation refuses by name rather than reporting an absent container', async (t) => {
-  const root = temp(t, 'environment-nosandbox');
-  const db = new Database(':memory:');
-  t.after(() => db.close());
-  const handle = { exec: (sql) => db.exec(sql), prepare: (sql) => db.prepare(sql) };
-  const store = new SitesStore({ ...handle, migrate: (steps) => steps.forEach((step) => step.up(handle)), transaction: (fn) => db.transaction(fn)() });
-  store.insertSite(site({ runtime: 'environment' }));
-
-  const supervisor = new EnvironmentSupervisor({
-    control: () => undefined,
-    dataDir: root,
-    access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
-    store,
-    gateway: {
-      prepareRuntimeSocket: async () => ({ path: join(root, 'app.sock') }),
-      sealRuntimeSocket: async () => {},
-      removeRuntimeSocket: async () => {},
-    },
-    config: () => ({ startTimeoutSeconds: 5, environmentNetwork: 'isolated', environmentCpus: 1, environmentMemoryMb: 1024, environmentPidsLimit: 512, releasesKept: 3 }),
-    siteDir: () => root,
-    logger: { warn() {} },
-    buildSeedArchive: async () => join(root, 'seed.tar'),
-  });
-
-  // Registration is the ONE place absence is tolerated: a plugin that refused to load could not surface
-  // the refusal anywhere. Every operation after it must still answer for itself.
-  assert.doesNotThrow(() => supervisor.connect());
-  await refusesByName(() => supervisor.state(site({ runtime: 'environment' })));
-  await refusesByName(() => supervisor.logs(site({ runtime: 'environment' })));
 });
 
 test('a Project preview refuses by name once access has been proved', async (t) => {

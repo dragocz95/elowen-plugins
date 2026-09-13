@@ -208,4 +208,4 @@ export async function proxyToRuntime(endpoint, req, path, viewer, limits, siteRo
         outbound.end();
     });
 }
-export const proxyToEnvironment = (endpoint, req, path, viewer, limits, siteRoot, blockedCookieName) => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment', blockedCookieName);
+export const proxyToProject = (endpoint, req, path, viewer, limits, siteRoot, blockedCookieName) => proxyToRuntime(endpoint, req, path, viewer, limits, siteRoot, 'environment', blockedCookieName);

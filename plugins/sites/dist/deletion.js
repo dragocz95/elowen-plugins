@@ -1,8 +1,7 @@
 import { rmSync } from 'node:fs';
-export const environmentAlreadyDeleted = (error) => error instanceof Error && /\benvironment has been deleted\b/i.test(error.message);
 /** Finish the daemon-owned phase of a durable site deletion. */
 export async function deleteSiteResources(siteId, deps) {
-    const site = deps.store.siteById(siteId);
+    const site = deps.store.siteForCleanup(siteId);
     if (!site)
         return;
     // Without the broker this phase cannot finish: the gateway removal below is a silent no-op there, and
@@ -11,21 +10,10 @@ export async function deleteSiteResources(siteId, deps) {
     // leaving the phase untouched lets the daemon's cleanup sweep run it where the broker exists.
     if (!deps.hasGatewayBroker())
         return;
-    if (site.runtime !== 'environment')
+    if (site.runtime === 'command')
         await deps.stopLegacy(siteId);
     if (site.kind === 'proxy')
         await deps.releasePublication(site);
-    if (site.runtime === 'environment' || deps.store.runtimeRecord(siteId, 'binding')) {
-        // Sandbox leaves the broker for the privileged Sites phase. The Site row remains the retry owner until
-        // both that socket directory and the public vhost/certificate have been confirmed absent.
-        try {
-            await deps.deleteEnvironment(siteId, { removeBroker: false, handover: true });
-        }
-        catch (error) {
-            if (!environmentAlreadyDeleted(error))
-                throw error;
-        }
-    }
     rmSync(deps.siteDir(siteId), { recursive: true, force: true });
     await deps.removeRuntimeSocket(siteId);
     await deps.removeGateway(site.slug);

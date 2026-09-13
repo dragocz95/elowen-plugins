@@ -1,67 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { isAbsolute, relative, sep } from 'node:path';
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
-const asMigrationStage = (value) => value === 'prepared' || value === 'flipped' || value === 'completing' || value === 'completed' ? value : 'preparing';
-const asConvertibleRuntime = (value) => value === 'static' || value === 'command' || value === 'php' ? value : null;
-const asRollbackStage = (value) => value === 'requested' || value === 'quiescing' || value === 'exported' || value === 'restored'
-    || value === 'reverted' || value === 'serving' || value === 'discarded' ? value : 'none';
-/** Which runtime a conversion currently holds down, so that periodic reconciliation leaves it alone.
- *
- *  DERIVED, never a separate flag, so there is one source of truth and nothing to forget to clear. It is
- *  also deliberately NOT "a conversion row exists": a slot that failed mid-stage keeps its row so the
- *  site can be retried or rolled back, and treating that as ownership would quiesce the site forever.
- *  Ownership therefore lasts exactly as long as the durable evidence that this operation took a runtime
- *  down and still owes it something.
- *
- *  - `legacy`: the conversion stopped the command process and has not replaced it. The row still says
- *    `command` and `live`, so the site is in `liveCommandSites()` and looks like one that simply is not
- *    running. Restarting it puts a second writer on the tree being captured and a second holder on the
- *    broker directory the container is being built around.
- *  - `environment`: a rollback quiesced the container to export its volume, or a completion is moving the
- *    container off the staged copy onto the site's own source folder. The row still says `environment`
- *    and `live`, so reconcile reads a stopped container it believes should be up.
- *
- *  A `flipped` conversion whose rollback has not started owns nothing: the container is genuinely meant
- *  to be running and its own supervisor should keep it that way.
- *
- *  The two sides END their ownership differently, because the safe fallback differs.
- *
- *  Legacy ownership additionally requires `last_error IS NULL`, the convention this row already uses for
- *  "a driver owns this slot right now". Once a stage records its failure nobody is driving, and the safe
- *  fallback is precisely what the ordinary reconcile does: start a live command site that is not
- *  running. Holding the guard past the failure is what would leave a site dark until the next boot, so
- *  the failure itself is what hands the runtime back. The `legacy_stopped` marker still stands, because
- *  it records a debt boot recovery must settle and a retry must refuse to flip over.
- *
- *  Environment ownership does NOT clear on failure, and must not. By then the volume has been exported
- *  and a restore is pending; starting the container again would let it write over data that the rollback
- *  is about to carry back, and diverge from the archive that is now authoritative. There is no safe
- *  automatic fallback, so the container stays down until the rollback is resumed and finishes it. */
-const suspensionOf = (row) => {
-    const stage = asMigrationStage(row.stage);
-    // A completion stops the container, destroys it and builds a new one on the site's source folder. For
-    // that whole window the row still says `environment` and `live`, so the ownership has to be held even
-    // after a failure: the volume lives in an archive until the new container is seeded from it, and a
-    // reconcile that started something in between would serve from a volume nobody restored yet.
-    if (stage === 'completing')
-        return 'environment';
-    const rollback = asRollbackStage(row.rollback_stage);
-    if (stage === 'completed') {
-        return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
-    }
-    if (stage !== 'flipped')
-        return row.legacy_stopped === 1 && row.last_error === null ? 'legacy' : null;
-    return rollback === 'quiescing' || rollback === 'exported' || rollback === 'restored' ? 'environment' : null;
-};
 const asVisibility = (value) => VISIBILITIES.includes(value) ? value : 'private';
 const asStatus = (value) => value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 const asRuntime = (value) => {
-    if (value === 'static' || value === 'command' || value === 'php' || value === 'environment') {
+    if (value === 'static' || value === 'command' || value === 'php') {
         return { runtime: value, unsupportedRuntime: null };
     }
     return { runtime: 'unsupported', unsupportedRuntime: value ?? '(null)' };
 };
-const asEnvironmentDesiredState = (value) => value === 'stopped' || value === 'restarting' ? value : 'running';
 /** A row written before the publication model existed is a static publication, which is exactly what
  *  the migration's default says and what the serving path did for it. */
 const asPublicationKind = (value) => value === 'proxy' ? 'proxy' : 'static';
@@ -85,10 +31,6 @@ const toSite = (row) => {
         startCommand: row.start_command ?? '',
         bind: row.bind === 'port' ? 'port' : 'socket',
         port: row.port,
-        environmentCpus: row.environment_cpus,
-        environmentMemoryMb: row.environment_memory_mb,
-        environmentPidsLimit: row.environment_pids_limit,
-        environmentDesiredState: asEnvironmentDesiredState(row.environment_desired_state),
         status: runtime.runtime === 'unsupported' ? 'failed' : asStatus(row.status),
         currentReleaseId: row.current_release_id,
         createdAt: row.created_at,
@@ -103,31 +45,6 @@ const toSite = (row) => {
         certificateError: row.certificate_error,
     };
 };
-const toRuntimeMigration = (row) => ({
-    siteId: row.site_id,
-    attemptId: row.attempt_id,
-    stage: asMigrationStage(row.stage),
-    // The claim refuses anything else, so a row that fails this can only come from hand-editing; treating
-    // it as static would silently pick a rollback target nobody chose.
-    fromRuntime: asConvertibleRuntime(row.from_runtime) ?? 'static',
-    fromReleaseId: row.from_release_id,
-    fromStartCommand: row.from_start_command ?? '',
-    fromBind: row.from_bind === 'port' ? 'port' : 'socket',
-    fromPort: row.from_port,
-    recipe: row.recipe,
-    contentDigest: row.content_digest,
-    finalDigest: row.final_digest,
-    legacyHome: row.legacy_home,
-    brokerPrepared: row.broker_prepared === 1,
-    legacyStopped: row.legacy_stopped === 1,
-    rollbackStage: asRollbackStage(row.rollback_stage),
-    rollbackArchive: row.rollback_archive,
-    rollbackRestoreData: row.rollback_restore_data !== 0,
-    rollbackRequested: row.rollback_requested !== 0,
-    requestedAt: row.requested_at,
-    completedAt: row.completed_at,
-    lastError: row.last_error,
-});
 const toRelease = (row) => ({
     id: row.id,
     siteId: row.site_id,
@@ -426,15 +343,20 @@ export class SitesStore {
         const columns = this.db.prepare("PRAGMA table_info('p_sites_sites')").all();
         const hasLegacy = columns.some((column) => column.name === 'source_dir');
         if (!hasLegacy) {
-            const invalid = this.db.prepare('SELECT id FROM p_sites_sites WHERE source_rel IS NULL').get();
+            const invalid = this.db.prepare("SELECT id FROM p_sites_sites WHERE source_rel IS NULL AND COALESCE(runtime, '') <> 'environment'").get();
             if (invalid)
                 throw new Error(`Site ${invalid.id} has no Project-relative source reference`);
             return;
         }
         this.db.transaction(() => {
-            const rows = this.db.prepare('SELECT id, slug, project_id, kind, source_dir, source_rel FROM p_sites_sites').all();
+            const rows = this.db.prepare('SELECT id, slug, project_id, kind, runtime, source_dir, source_rel FROM p_sites_sites').all();
             const update = this.db.prepare('UPDATE p_sites_sites SET source_rel = ? WHERE id = ?');
             for (const row of rows) {
+                if (row.runtime === 'environment') {
+                    if (row.source_rel === null)
+                        update.run(row.source_dir, row.id);
+                    continue;
+                }
                 if (row.source_rel !== null)
                     continue;
                 if (row.kind === 'proxy' && row.source_dir === '') {
@@ -478,25 +400,6 @@ export class SitesStore {
             this.db.prepare('DELETE FROM p_sites_project_previews WHERE project_id = ?').run(projectId);
         });
     }
-    runtimeRecord(siteId, key) {
-        const row = this.db.prepare('SELECT value FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').get(siteId, key);
-        return row?.value ?? null;
-    }
-    runtimeRecords(siteId, prefix) {
-        return this.db.prepare('SELECT record_key AS key, value FROM p_sites_runtime_records WHERE site_id = ? AND substr(record_key, 1, ?) = ? ORDER BY record_key').all(siteId, prefix.length, prefix);
-    }
-    claimRuntimeRecord(siteId, key, value) {
-        return this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO NOTHING').run(siteId, key, value).changes === 1;
-    }
-    compareRuntimeRecord(siteId, key, expected, value) {
-        return this.db.prepare('UPDATE p_sites_runtime_records SET value = ? WHERE site_id = ? AND record_key = ? AND value = ?').run(value, siteId, key, expected).changes === 1;
-    }
-    putRuntimeRecord(siteId, key, value) {
-        this.db.prepare('INSERT INTO p_sites_runtime_records (site_id, record_key, value) VALUES (?, ?, ?) ON CONFLICT(site_id, record_key) DO UPDATE SET value = excluded.value').run(siteId, key, value);
-    }
-    deleteRuntimeRecord(siteId, key) {
-        this.db.prepare('DELETE FROM p_sites_runtime_records WHERE site_id = ? AND record_key = ?').run(siteId, key);
-    }
     transaction(fn) {
         return this.db.transaction(fn);
     }
@@ -511,47 +414,45 @@ export class SitesStore {
         environment_desired_state, status, current_release_id,
         created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port, site.environmentCpus ?? null, site.environmentMemoryMb ?? null, site.environmentPidsLimit ?? null, site.environmentDesiredState ?? 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port, null, null, null, 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
     }
     siteById(id) {
-        const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);
+        const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE id = ? AND runtime <> 'environment'").get(id);
         return row ? toSite(row) : null;
     }
     siteBySlug(slug) {
-        const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE slug = ?').get(slug);
+        const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE slug = ? AND runtime <> 'environment'").get(slug);
+        return row ? toSite(row) : null;
+    }
+    /** Internal cleanup lookup. Dormant legacy environment rows are deliberately absent from ordinary readers. */
+    siteForCleanup(id) {
+        const row = this.db.prepare('SELECT * FROM p_sites_sites WHERE id = ?').get(id);
         return row ? toSite(row) : null;
     }
     slugTaken(slug) {
         return this.db.prepare('SELECT 1 FROM p_sites_sites WHERE slug = ?').get(slug) !== undefined;
     }
     sitesOwnedBy(userId) {
-        return this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting' ORDER BY created_at DESC")
+        return this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC")
             .all(userId).map(toSite);
     }
     countOwnedBy(userId) {
-        const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND status <> 'deleting'")
+        const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND runtime <> 'environment' AND status <> 'deleting'")
             .get(userId);
-        return row?.n ?? 0;
-    }
-    countEnvironmentOwnedBy(userId) {
-        const row = this.db.prepare(`
-      SELECT COUNT(*) AS n FROM p_sites_sites
-      WHERE owner_user_id = ? AND runtime = 'environment' AND status <> 'deleting'
-    `).get(userId);
         return row?.n ?? 0;
     }
     sitesInProjects(projectIds) {
         if (projectIds.length === 0)
             return [];
         const marks = projectIds.map(() => '?').join(', ');
-        return this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND status <> 'deleting' ORDER BY created_at DESC`)
+        return this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC`)
             .all(...projectIds).map(toSite);
     }
     sitesSharedWith(userId) {
         return this.db.prepare(`
       SELECT s.* FROM p_sites_sites s
       JOIN p_sites_members m ON m.site_id = s.id
-      WHERE m.user_id = ? AND s.status <> 'deleting' ORDER BY s.created_at DESC
+      WHERE m.user_id = ? AND s.runtime <> 'environment' AND s.status <> 'deleting' ORDER BY s.created_at DESC
     `).all(userId).map(toSite);
     }
     /** Every command site that should be running. What boot reconciliation restarts, because nothing in
@@ -562,33 +463,21 @@ export class SitesStore {
       WHERE runtime = 'command' AND status = 'live' AND current_release_id IS NOT NULL
     `).all().map(toSite);
     }
-    liveEnvironmentSites() {
-        return this.db.prepare(`
-      SELECT * FROM p_sites_sites
-      WHERE runtime = 'environment' AND status = 'live'
-    `).all().map(toSite);
-    }
-    environmentSitesForReconcile() {
-        return this.db.prepare(`
-      SELECT * FROM p_sites_sites
-      WHERE runtime = 'environment' AND status <> 'deleting'
-    `).all().map(toSite);
-    }
     /** Every proxy publication that is expected to answer. A draft is not: its transport must not be kept
      *  alive before anybody published it. A `failed` one IS, because that is how the row recovers once the
      *  application inside the Project answers again. */
     proxySitesForReconcile() {
         return this.db.prepare(`
       SELECT * FROM p_sites_sites
-      WHERE kind = 'proxy' AND status IN ('live', 'failed')
+      WHERE kind = 'proxy' AND runtime <> 'environment' AND status IN ('live', 'failed')
     `).all().map(toSite);
     }
     portsInUse() {
-        return this.db.prepare('SELECT port FROM p_sites_sites WHERE port IS NOT NULL')
+        return this.db.prepare("SELECT port FROM p_sites_sites WHERE runtime <> 'environment' AND port IS NOT NULL")
             .all().map((row) => row.port);
     }
     allSites() {
-        return this.db.prepare("SELECT * FROM p_sites_sites WHERE status <> 'deleting' ORDER BY created_at DESC").all().map(toSite);
+        return this.db.prepare("SELECT * FROM p_sites_sites WHERE runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC").all().map(toSite);
     }
     deletingSites() {
         return this.db.prepare("SELECT * FROM p_sites_sites WHERE status = 'deleting' ORDER BY updated_at").all().map(toSite);
@@ -602,10 +491,6 @@ export class SitesStore {
             bind: 'bind',
             port: 'port',
             startCommand: 'start_command',
-            environmentCpus: 'environment_cpus',
-            environmentMemoryMb: 'environment_memory_mb',
-            environmentPidsLimit: 'environment_pids_limit',
-            environmentDesiredState: 'environment_desired_state',
             status: 'status',
             currentReleaseId: 'current_release_id',
             lastPublishAt: 'last_publish_at',
@@ -710,423 +595,6 @@ export class SitesStore {
     deleteRelease(siteId, releaseId) {
         this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ? AND id = ?').run(siteId, releaseId);
     }
-    environmentAction(siteId) {
-        const row = this.db.prepare('SELECT * FROM p_sites_environment_actions WHERE site_id = ?').get(siteId);
-        if (!row || (row.kind !== 'snapshot' && row.kind !== 'rollback'))
-            return null;
-        const common = {
-            siteId: row.site_id,
-            snapshotId: row.snapshot_id,
-            requestedAt: row.requested_at,
-            lastError: row.last_error,
-        };
-        return row.kind === 'snapshot'
-            ? { ...common, kind: 'snapshot', includeData: row.include_data === 1, note: row.note, model: row.model }
-            : { ...common, kind: 'rollback', restoreData: row.restore_data === 1 };
-    }
-    putEnvironmentAction(action) {
-        const snapshot = action.kind === 'snapshot';
-        this.db.prepare(`
-      INSERT INTO p_sites_environment_actions (
-        site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(site_id) DO UPDATE SET
-        kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
-        include_data = excluded.include_data, note = excluded.note, model = excluded.model,
-        requested_at = excluded.requested_at, last_error = excluded.last_error
-    `).run(action.siteId, action.kind, action.snapshotId, !snapshot && action.restoreData ? 1 : 0, snapshot && action.includeData ? 1 : 0, snapshot ? action.note : '', snapshot ? action.model : '', action.requestedAt, action.lastError);
-    }
-    /** Claim the visible pending-action slot for a NEWLY ACCEPTED snapshot or restore request.
-     *
-     *  Fails while an execution lease is live or an action is still active (`last_error IS NULL`), and
-     *  otherwise replaces a terminal error row — clearing it only through this new explicit request. The
-     *  provider owns the desired state, so unlike the legacy `tryPutEnvironmentAction` this deliberately
-     *  never touches `environment_desired_state`. */
-    beginEnvironmentAction(action) {
-        return this.db.transaction(() => {
-            const now = Date.now();
-            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
-            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(action.siteId))
-                return false;
-            const existing = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
-                .get(action.siteId);
-            if (existing?.last_error === null)
-                return false;
-            const snapshot = action.kind === 'snapshot';
-            const result = this.db.prepare(`
-        INSERT INTO p_sites_environment_actions (
-          site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(site_id) DO UPDATE SET
-          kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
-          include_data = excluded.include_data, note = excluded.note, model = excluded.model,
-          requested_at = excluded.requested_at, last_error = NULL
-      `).run(action.siteId, action.kind, action.snapshotId, !snapshot && action.restoreData ? 1 : 0, snapshot && action.includeData ? 1 : 0, snapshot ? action.note : '', snapshot ? action.model : '', action.requestedAt, action.lastError);
-            return result.changes === 1;
-        });
-    }
-    tryBeginEnvironmentExec(siteId, token, expiresAt) {
-        return this.db.transaction(() => {
-            const now = Date.now();
-            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
-            const result = this.db.prepare(`
-        INSERT INTO p_sites_environment_exec_leases (site_id, token, expires_at)
-        SELECT ?, ?, ?
-        WHERE EXISTS (
-          SELECT 1 FROM p_sites_sites
-          WHERE id = ? AND runtime = 'environment' AND environment_desired_state = 'running'
-        )
-          AND NOT EXISTS (SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?)
-          AND NOT EXISTS (SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?)
-      `).run(siteId, token, expiresAt, siteId, siteId, siteId);
-            return result.changes === 1;
-        });
-    }
-    endEnvironmentExec(siteId, token) {
-        this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ? AND token = ?').run(siteId, token);
-    }
-    tryPutEnvironmentAction(action) {
-        return this.db.transaction(() => {
-            const now = Date.now();
-            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
-            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(action.siteId))
-                return false;
-            const existing = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
-                .get(action.siteId);
-            if (existing?.last_error === null)
-                return false;
-            if (!existing) {
-                const site = this.db.prepare('SELECT environment_desired_state FROM p_sites_sites WHERE id = ? AND runtime = ?')
-                    .get(action.siteId, 'environment');
-                if (site?.environment_desired_state !== 'running')
-                    return false;
-            }
-            const snapshot = action.kind === 'snapshot';
-            const result = this.db.prepare(`
-        INSERT INTO p_sites_environment_actions (
-          site_id, kind, snapshot_id, restore_data, include_data, note, model, requested_at, last_error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(site_id) DO UPDATE SET
-          kind = excluded.kind, snapshot_id = excluded.snapshot_id, restore_data = excluded.restore_data,
-          include_data = excluded.include_data, note = excluded.note, model = excluded.model,
-          requested_at = excluded.requested_at, last_error = NULL
-        WHERE p_sites_environment_actions.last_error IS NOT NULL
-      `).run(action.siteId, action.kind, action.snapshotId, !snapshot && action.restoreData ? 1 : 0, snapshot && action.includeData ? 1 : 0, snapshot ? action.note.slice(0, 200) : '', snapshot ? action.model.slice(0, 200) : '', action.requestedAt, action.lastError);
-            if (result.changes !== 1)
-                return false;
-            this.db.prepare(`
-        UPDATE p_sites_sites SET environment_desired_state = 'restarting', updated_at = ? WHERE id = ?
-      `).run(new Date().toISOString(), action.siteId);
-            return true;
-        });
-    }
-    tryRequestEnvironmentControl(siteId, desiredState) {
-        return this.db.transaction(() => {
-            const now = Date.now();
-            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(now);
-            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(siteId))
-                return false;
-            const action = this.db.prepare('SELECT last_error FROM p_sites_environment_actions WHERE site_id = ?')
-                .get(siteId);
-            if (action?.last_error === null)
-                return false;
-            if (action)
-                this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
-            return this.db.prepare(`
-        UPDATE p_sites_sites
-        SET environment_desired_state = ?, last_error = NULL, updated_at = ?
-        WHERE id = ? AND runtime = 'environment'
-      `).run(desiredState, new Date().toISOString(), siteId).changes === 1;
-        });
-    }
-    completeEnvironmentRestart(siteId) {
-        const result = this.db.prepare(`
-      UPDATE p_sites_sites
-      SET environment_desired_state = 'running', status = 'live', last_error = NULL, updated_at = ?
-      WHERE id = ? AND environment_desired_state = 'restarting'
-    `).run(new Date().toISOString(), siteId);
-        return result.changes === 1;
-    }
-    completeEnvironmentAction(siteId, currentReleaseId) {
-        return this.db.transaction(() => {
-            const currentRelease = currentReleaseId === undefined ? '' : ', current_release_id = ?';
-            const values = currentReleaseId === undefined
-                ? [new Date().toISOString(), siteId, siteId]
-                : [currentReleaseId, new Date().toISOString(), siteId, siteId];
-            const result = this.db.prepare(`
-        UPDATE p_sites_sites
-        SET environment_desired_state = 'running', status = 'live', last_error = NULL${currentRelease}, updated_at = ?
-        WHERE id = ? AND environment_desired_state = 'restarting'
-          AND EXISTS (SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?)
-      `).run(...values);
-            if (result.changes !== 1)
-                return false;
-            this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
-            return true;
-        });
-    }
-    updateEnvironmentActionError(siteId, error) {
-        this.db.prepare('UPDATE p_sites_environment_actions SET last_error = ? WHERE site_id = ?').run(error, siteId);
-    }
-    deleteEnvironmentAction(siteId) {
-        this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(siteId);
-    }
-    // --- Runtime conversion. Every write below is a NAMED operation with fixed SQL and an explicit
-    // precondition. There is deliberately no generic "set the runtime" method: `runtime` is the column the
-    // whole serving path dispatches on, and a caller that can set it freely can point a live hostname at a
-    // container nobody verified, or strand a running legacy process nothing will ever stop. ---
-    runtimeMigration(siteId) {
-        const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
-            .get(siteId);
-        return row ? toRuntimeMigration(row) : null;
-    }
-    /** Which runtime a conversion is holding down for THIS site right now, or null when it holds none.
-     *
-     *  The one question both supervisors ask. It is answered from the durable row rather than from memory
-     *  because the two supervisors have separate per-site queues and cannot see each other's work: the
-     *  command supervisor stopping a legacy process and the environment supervisor building the container
-     *  that replaces it are, to each other, invisible.
-     *
-     *  Asked TWICE per operation on purpose. Filtering a reconcile sweep is not enough by itself: a sweep
-     *  reads its site list, then awaits, and a start queued from that stale list runs after the conversion
-     *  has claimed the site. The second ask happens inside the per-site queue, immediately before the
-     *  process is spawned or the container is touched, which is the only point where the answer cannot go
-     *  stale before it is used. */
-    conversionSuspends(siteId) {
-        const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
-            .get(siteId);
-        return row ? suspensionOf(row) : null;
-    }
-    /** The same answer for every site at once, so a reconcile sweep costs one query rather than one per
-     *  site. Only sites a conversion actually holds down appear. */
-    conversionSuspensions() {
-        const suspended = new Map();
-        for (const row of this.db.prepare('SELECT * FROM p_sites_runtime_migrations').all()) {
-            const suspension = suspensionOf(row);
-            if (suspension)
-                suspended.set(row.site_id, suspension);
-        }
-        return suspended;
-    }
-    /** Every conversion the daemon still owes work on, oldest first — what boot resume walks. */
-    runtimeMigrations() {
-        return this.db.prepare('SELECT * FROM p_sites_runtime_migrations ORDER BY requested_at')
-            .all().map(toRuntimeMigration);
-    }
-    /** Take exclusive ownership of a site's conversion, capturing the undo material in the same
-     *  transaction that publishes the claim.
-     *
-     *  Refuses, rather than overwrites, when anything else already owns the site: an in-flight exec lease,
-     *  a pending snapshot or rollback, or a conversion another driver is running. Refuses a runtime that is
-     *  not convertible and a site that is not live, because a draft has no serving to preserve and an
-     *  `unsupported` row has no runtime to return to. */
-    tryClaimRuntimeMigration(input) {
-        return this.db.transaction(() => {
-            this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE expires_at <= ?').run(Date.now());
-            if (this.db.prepare('SELECT 1 FROM p_sites_environment_exec_leases WHERE site_id = ?').get(input.siteId))
-                return false;
-            if (this.db.prepare('SELECT 1 FROM p_sites_environment_actions WHERE site_id = ?').get(input.siteId))
-                return false;
-            const existing = this.db.prepare('SELECT last_error FROM p_sites_runtime_migrations WHERE site_id = ?')
-                .get(input.siteId);
-            // An owned slot is someone else's work in flight. A failed one is re-claimable, which is how a
-            // retry and a rollback both get back in without a second table.
-            if (existing?.last_error === null)
-                return false;
-            const site = this.db.prepare("SELECT runtime, status, start_command, bind, port, current_release_id FROM p_sites_sites WHERE id = ? AND status = 'live'")
-                .get(input.siteId);
-            if (!site)
-                return false;
-            const from = asConvertibleRuntime(site.runtime ?? '');
-            if (!from)
-                return false;
-            // A legacy site with no release has nothing to stage from, and staging the editable source instead
-            // is exactly the substitution this operation exists to avoid.
-            if (site.current_release_id === null)
-                return false;
-            const attemptId = randomUUID();
-            if (existing) {
-                return this.db.prepare(`
-          UPDATE p_sites_runtime_migrations
-          SET attempt_id = ?, stage = 'preparing', recipe = ?, requested_at = ?, last_error = NULL
-          WHERE site_id = ? AND last_error IS NOT NULL
-        `).run(attemptId, input.recipe, input.requestedAt, input.siteId).changes === 1;
-            }
-            return this.db.prepare(`
-        INSERT INTO p_sites_runtime_migrations (
-          site_id, attempt_id, stage, from_runtime, from_release_id, from_start_command, from_bind, from_port,
-          recipe, content_digest, requested_at, last_error
-        ) VALUES (?, ?, 'preparing', ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
-      `).run(input.siteId, attemptId, from, site.current_release_id, site.start_command ?? '', site.bind === 'port' ? 'port' : 'socket', site.port, input.recipe, input.requestedAt).changes === 1;
-        });
-    }
-    /** Record what was staged. Separate from the stage advance so a digest can never be attributed to a
-     *  stage that did not actually complete. */
-    recordRuntimeMigrationDigest(siteId, digest) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET content_digest = ? WHERE site_id = ? AND last_error IS NULL')
-            .run(digest, siteId);
-    }
-    /** Record the digest of the workspace as it will actually be mounted. Separate from the release digest
-     *  because the two answer different questions and a flip checks this one. */
-    recordRuntimeMigrationFinalDigest(siteId, digest) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET final_digest = ? WHERE site_id = ? AND last_error IS NULL')
-            .run(digest, siteId);
-    }
-    /** Record the running process's home once, at first resolution. Never overwritten: the whole point is
-     *  that a retry cannot substitute a different directory. */
-    recordLegacyHome(siteId, home) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET legacy_home = ? WHERE site_id = ? AND legacy_home IS NULL')
-            .run(home, siteId);
-    }
-    /** Record that this conversion created the broker directory, written BEFORE the create is attempted so
-     *  a crash leaves a directory that cleanup knows it owns rather than an orphan nobody will remove. */
-    markBrokerPrepared(siteId, prepared) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET broker_prepared = ? WHERE site_id = ?')
-            .run(prepared ? 1 : 0, siteId);
-    }
-    /** Mark that this conversion stopped the legacy runtime, BEFORE the stop is attempted.
-     *
-     *  Written first on purpose: a crash between the write and the stop leaves a marker for a runtime that
-     *  is still up, which recovery resolves by starting something already running — harmless. The reverse
-     *  order would leave a stopped site with no marker, which is a dark site nobody owns. */
-    markLegacyStopped(siteId, stopped) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET legacy_stopped = ? WHERE site_id = ?')
-            .run(stopped ? 1 : 0, siteId);
-    }
-    requestRuntimeRollback(siteId, restoreData) {
-        return this.db.prepare(`
-      UPDATE p_sites_runtime_migrations
-      SET rollback_stage = CASE WHEN rollback_stage = 'none' THEN 'requested' ELSE rollback_stage END,
-          rollback_restore_data = CASE WHEN rollback_stage IN ('none', 'requested', 'quiescing') THEN ? ELSE rollback_restore_data END,
-          rollback_requested = 1
-      WHERE site_id = ? AND stage <> 'completing'
-    `).run(restoreData ? 1 : 0, siteId).changes === 1;
-    }
-    beginRuntimeRollback(siteId) {
-        return this.db.prepare(`
-      UPDATE p_sites_runtime_migrations
-      SET rollback_stage = CASE WHEN rollback_stage = 'requested' THEN 'quiescing' ELSE rollback_stage END,
-          rollback_requested = 0, last_error = NULL
-      WHERE site_id = ? AND stage <> 'completing'
-        AND (rollback_requested = 1 OR last_error IS NOT NULL)
-    `).run(siteId).changes === 1;
-    }
-    /** Advance a rollback's own durable progress, and record the archive that is authoritative for the
-     *  writes the container made. Once `exported`, a retry reads this archive instead of asking a volume
-     *  that the discard may already have removed. */
-    recordRollbackProgress(siteId, stage, archive) {
-        if (archive === undefined) {
-            this.db.prepare('UPDATE p_sites_runtime_migrations SET rollback_stage = ? WHERE site_id = ?').run(stage, siteId);
-            return;
-        }
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET rollback_stage = ?, rollback_archive = ? WHERE site_id = ?')
-            .run(stage, archive, siteId);
-    }
-    /** Compare-and-set on the stage. The expected value is required so a resumed driver cannot skip a
-     *  stage it only thinks it finished. */
-    advanceRuntimeMigration(siteId, from, to) {
-        return this.db.prepare(`
-      UPDATE p_sites_runtime_migrations SET stage = ?
-      WHERE site_id = ? AND stage = ? AND last_error IS NULL
-    `).run(to, siteId, from).changes === 1;
-    }
-    /** Claim a flipped conversion for its completion, in one compare-and-set.
-     *
-     *  `resumableError` is the marker boot recovery writes onto a conversion a restart interrupted while it
-     *  was already flipped. That is not a failed flip: the site is up and serving as an environment, and the
-     *  only thing missing is the completion nobody got to run. Accepting exactly that one message keeps such
-     *  a slot completable while every other recorded flip failure still refuses.
-     *
-     *  A `completing` slot is re-claimable only after its driver recorded an error. A null error means a live
-     *  driver owns it right now, so a second reconcile tick must not enter the same destructive steps. */
-    beginRuntimeCompletion(siteId, resumableError) {
-        return this.db.prepare(`
-      UPDATE p_sites_runtime_migrations SET stage = 'completing', last_error = NULL
-      WHERE site_id = ?
-        AND (
-          (stage = 'completing' AND last_error IS NOT NULL)
-          OR (stage = 'flipped' AND (last_error IS NULL OR last_error = ?))
-        )
-    `).run(siteId, resumableError).changes === 1;
-    }
-    /** Release the slot with a reason. The row SURVIVES: it still holds the only record of what the site
-     *  used to be, which a rollback needs and a retry re-claims. */
-    failRuntimeMigration(siteId, error) {
-        this.db.prepare('UPDATE p_sites_runtime_migrations SET last_error = ? WHERE site_id = ?')
-            .run(error.slice(0, 500), siteId);
-    }
-    /** The ONE place a site becomes an environment.
-     *
-     *  Guarded by the claim, by the recorded stage and by the runtime the claim captured, so it cannot fire
-     *  twice, cannot fire on a site whose runtime moved underneath it, and cannot fire before the container
-     *  was staged. Id, slug, visibility, access generation, members, releases and `current_release_id` are
-     *  untouched on purpose: the conversion changes how the site is SERVED, not who may open it or what it
-     *  can be rolled back to. Not bumping the access generation is deliberate — a conversion changes no
-     *  access rule, and invalidating every live session would log every visitor out for nothing. */
-    flipSiteRuntimeToEnvironment(siteId) {
-        return this.db.transaction(() => {
-            const migration = this.db.prepare("SELECT from_runtime FROM p_sites_runtime_migrations WHERE site_id = ? AND stage = 'prepared' AND last_error IS NULL")
-                .get(siteId);
-            if (!migration)
-                return false;
-            const flipped = this.db.prepare(`
-        UPDATE p_sites_sites
-        SET runtime = 'environment', environment_desired_state = 'running', last_error = NULL, updated_at = ?
-        WHERE id = ? AND runtime = ? AND status = 'live'
-      `).run(new Date().toISOString(), siteId, migration.from_runtime);
-            if (flipped.changes !== 1)
-                return false;
-            return this.db.prepare("UPDATE p_sites_runtime_migrations SET stage = 'flipped' WHERE site_id = ?")
-                .run(siteId).changes === 1;
-        });
-    }
-    /** The ONE place a converted site goes back, restoring the exact runtime fields the claim captured
-     *  rather than whatever the site happens to hold now. Idempotent for a site already reverted. */
-    revertSiteRuntimeFromMigration(siteId) {
-        return this.db.transaction(() => {
-            const row = this.db.prepare('SELECT * FROM p_sites_runtime_migrations WHERE site_id = ?')
-                .get(siteId);
-            if (!row)
-                return false;
-            const from = asConvertibleRuntime(row.from_runtime);
-            if (!from)
-                return false;
-            return this.db.prepare(`
-        UPDATE p_sites_sites
-        SET runtime = ?, start_command = ?, bind = ?, port = ?, current_release_id = ?,
-            environment_desired_state = 'running', last_error = NULL, updated_at = ?
-        WHERE id = ?
-      `).run(from, row.from_start_command, row.from_bind, row.from_port, row.from_release_id, new Date().toISOString(), siteId).changes === 1;
-        });
-    }
-    /** Publish a rolled-back site as serving again, and ONLY then.
-     *
-     *  Separate from {@link revertSiteRuntimeFromMigration} because the two answer different questions. The
-     *  revert moves the runtime column; this one asserts the site actually answers, so it may run only
-     *  after a legacy start has been awaited and proven. While a conversion held the site down the periodic
-     *  reconcile may have written `failed` and an error onto the row, and that stale verdict is what this
-     *  clears — a site left `failed` is absent from `liveCommandSites()` and therefore dark for good.
-     *
-     *  Refuses a site that is still an environment, so a rollback that never finished its revert cannot
-     *  report success. Never called on a failure path: an error that is real has to survive. */
-    completeRuntimeRollback(siteId) {
-        return this.db.prepare(`
-      UPDATE p_sites_sites SET status = 'live', last_error = NULL, updated_at = ?
-      WHERE id = ? AND runtime <> 'environment' AND status <> 'deleting'
-    `).run(new Date().toISOString(), siteId).changes === 1;
-    }
-    completeRuntimeMigration(siteId, completedAt) {
-        return this.db.prepare(`
-      UPDATE p_sites_runtime_migrations
-      SET stage = 'completed', completed_at = ?, last_error = NULL
-      WHERE site_id = ? AND stage = 'completing'
-    `).run(completedAt, siteId).changes === 1;
-    }
-    /** Drop the slot. Called only once the site is settled on one side or the other, because until then
-     *  this row is the sole record of how to get back. */
-    clearRuntimeMigration(siteId) {
-        this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(siteId);
-    }
     putTicket(tokenHash, ticket) {
         this.db.prepare(`
       INSERT OR REPLACE INTO p_sites_tickets (token_hash, site_id, user_id, return_path, expires_at)
@@ -1169,7 +637,7 @@ export class SitesStore {
      *  preflight allow a Project removal that the post-removal hook then refuses, after the Project row
      *  is already gone. */
     siteIdsInProject(projectId) {
-        return this.db.prepare("SELECT id FROM p_sites_sites WHERE project_id = ? AND status <> 'deleting'")
+        return this.db.prepare("SELECT id FROM p_sites_sites WHERE project_id = ? AND runtime <> 'environment' AND status <> 'deleting'")
             .all(projectId).map((row) => row.id);
     }
     /** Guest rows of an account that no longer exists. Removing the account must not leave it able to
