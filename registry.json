@@ -171,12 +171,12 @@
       "name": "sites",
       "version": "0.12.0",
       "requiresCore": "0.28.45",
-      "description": "Publish immutable static releases, confined command and PHP applications, or proxy an application from an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+      "description": "Publish immutable static releases or proxy an application already running in an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 11,
+        "tools": 10,
         "httpRoutes": 1,
         "apiRoutes": 6
       }

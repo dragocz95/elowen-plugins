@@ -34,7 +34,6 @@ const toView = (site, deps, auth) => {
         spa: site.spa,
         kind: site.kind,
         target: site.target,
-        runtime: site.runtime,
         canManage: canManage(site, auth),
     };
 };
@@ -107,18 +106,6 @@ export function createApiHandlers(deps) {
                 // The stored publication failure is detail for somebody who may repair it. It stays out of the
                 // list response and away from guests, while the derived degraded flag remains safe to list.
                 lastError: canManage(target, req.auth) ? target.lastError : null,
-                // The command and the log are operational detail about a process, so they go only to somebody
-                // who can act on them; a guest sees whether the site is up and nothing else.
-                runtime: target.runtime !== 'command' ? null : {
-                    running: deps.runtimeState(target.id).running,
-                    startCommand: canManage(target, req.auth) ? target.startCommand : null,
-                    bind: canManage(target, req.auth) ? target.bind : null,
-                    port: canManage(target, req.auth) ? target.port : null,
-                    network: canManage(target, req.auth) ? deps.config().runtimeNetwork : null,
-                    allowLoopbackPorts: canManage(target, req.auth) ? deps.config().allowLoopbackPorts : false,
-                    logTail: canManage(target, req.auth) ? deps.runtimeState(target.id).logTail : null,
-                    lastError: canManage(target, req.auth) ? target.lastError : null,
-                },
             });
         }
         if (!canManage(target, req.auth))
@@ -142,17 +129,6 @@ export function createApiHandlers(deps) {
             deps.store.bumpAccessGeneration(target.id);
             return json(200, { ok: true });
         }
-        if (req.method === 'POST' && action === 'restart') {
-            if (target.runtime !== 'command')
-                return json(400, { error: 'this site has no command runtime' });
-            try {
-                await deps.restartRuntime(target);
-            }
-            catch (error) {
-                return json(502, { error: error instanceof Error ? error.message : 'the runtime did not start' });
-            }
-            return json(200, { ok: true });
-        }
         if (req.method === 'POST' && action === 'rollback') {
             const body = await req.json().catch(() => ({}));
             const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
@@ -168,38 +144,12 @@ export function createApiHandlers(deps) {
         const body = await req.json().catch(() => ({}));
         const patch = {};
         let accessChanged = false;
-        let runtimeChanged = false;
         if (typeof body.title === 'string' && body.title.trim() !== '')
             patch.title = body.title.trim().slice(0, 120);
         if (typeof body.summary === 'string')
             patch.summary = body.summary.trim().slice(0, 400);
         if (typeof body.spa === 'boolean')
             patch.spa = body.spa;
-        if (body.startCommand !== undefined || body.bind !== undefined) {
-            if (target.runtime !== 'command')
-                return json(400, { error: 'only a command site has runtime settings' });
-            if (body.startCommand !== undefined) {
-                if (typeof body.startCommand !== 'string' || body.startCommand.trim() === '') {
-                    return json(400, { error: 'a command site needs a non-empty startCommand' });
-                }
-                patch.startCommand = body.startCommand.trim().slice(0, 500);
-                runtimeChanged = patch.startCommand !== target.startCommand;
-            }
-            if (body.bind !== undefined) {
-                if (body.bind !== 'socket' && body.bind !== 'port')
-                    return json(400, { error: 'unknown runtime bind mode' });
-                const runtimeConfig = deps.config();
-                if (body.bind === 'port' && !runtimeConfig.allowLoopbackPorts) {
-                    return json(403, { error: 'loopback ports are turned off for this instance' });
-                }
-                const currentPortValid = target.port !== null
-                    && target.port >= runtimeConfig.loopbackPortMin
-                    && target.port <= runtimeConfig.loopbackPortMax;
-                patch.bind = body.bind;
-                patch.port = body.bind === 'port' ? (currentPortValid ? target.port : await deps.allocatePort()) : null;
-                runtimeChanged = runtimeChanged || body.bind !== target.bind || patch.port !== target.port;
-            }
-        }
         if (typeof body.visibility === 'string') {
             if (!VISIBILITIES.includes(body.visibility)) {
                 return json(400, { error: 'unknown visibility' });
@@ -216,16 +166,6 @@ export function createApiHandlers(deps) {
         deps.store.updateSite(target.id, patch);
         if (accessChanged)
             deps.store.bumpAccessGeneration(target.id);
-        const updated = deps.store.siteById(target.id);
-        if (runtimeChanged && updated?.currentReleaseId) {
-            try {
-                await deps.restartRuntime(updated);
-            }
-            catch (error) {
-                deps.store.updateSite(target.id, { status: 'failed', lastError: error instanceof Error ? error.message : String(error) });
-                return json(502, { error: error instanceof Error ? error.message : 'the runtime did not start' });
-            }
-        }
         const current = deps.store.siteById(target.id);
         return json(200, { site: current ? toView(current, deps, req.auth) : null });
     };

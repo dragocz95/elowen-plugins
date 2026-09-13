@@ -43,7 +43,6 @@ const site = {
   lastPublishAt: '2026-08-20T10:00:00.000Z',
   lastPublishModel: 'anthropic/claude',
   spa: false,
-  runtime: 'command',
   kind: 'static',
   target: '',
   degraded: false,
@@ -56,16 +55,7 @@ const detail = {
   releases: [{ id: 'rel-2', siteId: site.id, createdAt: '2026-08-20T10:00:00.000Z', model: 'anthropic/claude', fileCount: 12, sizeBytes: 220_000, note: 'August numbers', kind: 'files' }],
   hits: [{ day: '2026-08-20', count: 41 }],
   sourceDir: '/var/www/kolin/reports',
-  runtime: {
-    running: true,
-    startCommand: 'node server.js',
-    bind: 'socket',
-    port: null,
-    network: 'shared',
-    allowLoopbackPorts: true,
-    logTail: 'listening on socket',
-    lastError: null,
-  },
+  lastError: null,
 };
 
 setDefaults(
@@ -145,32 +135,16 @@ describe('the Sites workspace', () => {
   it('opens one detail drawer holding every part of the site at once', async () => {
     mount();
     const drawer = within(await openSite());
-    // No tab strip: address, access, guests, releases, runtime and deletion are all present together,
+    // No tab strip: address, access, guests, releases and deletion are all present together,
     // which is what keeps the drawer one size on every surface.
     expect(drawer.getByText(strings.address)).toBeInTheDocument();
     expect(drawer.getAllByText(strings.whoCanOpen).length).toBeGreaterThan(0);
     expect(drawer.getByText(strings.guests)).toBeInTheDocument();
     expect(drawer.getAllByText(strings.releases).length).toBeGreaterThan(0);
-    expect(drawer.getByText(strings.runtime)).toBeInTheDocument();
     expect(drawer.getByText(strings.deleteTitle)).toBeInTheDocument();
     // A named guest is a face and a name here too.
     expect(drawer.getByText(GUEST.name)).toBeInTheDocument();
     expect(drawer.getAllByLabelText(GUEST.name).length).toBeGreaterThan(0);
-  });
-
-  it('edits the command runtime without opening another surface', async () => {
-    const patched: unknown[] = [];
-    use(http.patch('/api/plugins/sites/api/site/:id', async ({ request }) => {
-      patched.push(await request.json());
-      return HttpResponse.json({ site });
-    }));
-    mount();
-    const drawer = within(await openSite());
-    expect(drawer.getByText(strings.runtimeNetworkShared)).toBeVisible();
-    fireEvent.change(drawer.getByRole('textbox', { name: strings.runtimeCommand }), { target: { value: 'node new-server.js' } });
-    fireEvent.change(drawer.getByRole('combobox', { name: strings.runtimeBind }), { target: { value: 'port' } });
-    fireEvent.click(drawer.getByRole('button', { name: strings.saveRuntime }));
-    await waitFor(() => expect(patched).toEqual([{ startCommand: 'node new-server.js', bind: 'port' }]));
   });
 
   it('changes visibility through a dropdown', async () => {

@@ -11,8 +11,7 @@ import {
 } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
 import { requestOnSiteHost } from './config.js';
-import { ProxyError, proxyToProject, proxyToRuntime, type ProxyLimits, type ProxyViewer } from './proxy.js';
-import type { Endpoint } from './runtime.js';
+import { ProxyError, proxyToProject, type Endpoint, type ProxyLimits, type ProxyViewer } from './proxy.js';
 import type { ProjectPreviewService } from './preview.js';
 
 interface ServeConfig {
@@ -37,7 +36,7 @@ export interface ServeDeps {
   config(): ServeConfig;
   releaseDir(siteId: string, releaseId: string): string;
   countHit(siteId: string): void;
-  /** Where a command site's process is listening, or null when it is not running. */
+  /** Where a proxy publication's managed Project forwarder is listening. */
   endpointFor(siteId: string): Endpoint | null;
   previews?: Pick<ProjectPreviewService, 'siteBySlug' | 'isPreview' | 'serve'>;
   proxyLimits(): ProxyLimits;
@@ -51,14 +50,6 @@ export interface ServeDeps {
     blockedCookieName?: string,
   ): Promise<SitesHttpResponse>;
   usernameOf(userId: number): string | null;
-  executePhp(
-    site: Site,
-    releaseDir: string,
-    req: PluginHttpRequest,
-    rest: string,
-    viewer: Viewer,
-    siteRoot: string,
-  ): Promise<SitesHttpResponse>;
 }
 
 /** Security headers applied to EVERY published response.
@@ -371,10 +362,8 @@ export function createSiteHandler(deps: ServeDeps) {
     }
     if (rest.split('/')[0] === RESERVED_PREFIX) return notFound();
 
-    // A static site answers reads only. A command site is an application, so it takes the verbs an
-    // application takes — its own request body is still capped at 1 MiB by the hook transport. A proxy
-    // publication is an application too, whatever the legacy runtime column on its row happens to say.
-    if (site.kind !== 'proxy' && site.runtime === 'static' && req.method !== 'GET' && req.method !== 'HEAD') {
+    // Static releases answer reads only. Proxy publications forward the application's own methods.
+    if (site.kind !== 'proxy' && req.method !== 'GET' && req.method !== 'HEAD') {
       return { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' }, body: '' };
     }
 
@@ -396,68 +385,7 @@ export function createSiteHandler(deps: ServeDeps) {
       });
     }
 
-    if (site.runtime === 'php') {
-      const release = deps.releaseDir(site.id, site.currentReleaseId!);
-      const staticResponse = serveFile(site, release, rest, req);
-      // Anything but "no such file" is the file's own answer — 200, a range answer, or a refusal — and
-      // handing it to PHP instead would run a script for a request the release already answered.
-      if (staticResponse.status !== 404) return withoutHeadBody(staticResponse, req.method);
-      try {
-        const response = await deps.executePhp(site, release, req, rest, viewer, siteRoot);
-        return {
-          ...response,
-          headers: {
-            ...response.headers,
-            ...securityHeaders(site.visibility === 'public'),
-            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
-          },
-        };
-      } catch {
-        return {
-          status: 502,
-          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false) },
-          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This PHP site did not answer.</p>',
-        };
-      }
-    }
-
-    if (site.runtime === 'command') {
-      const endpoint = deps.endpointFor(site.id);
-      if (!endpoint) {
-        return {
-          status: 503,
-          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false) },
-          body: '<!doctype html><meta charset="utf-8"><title>Not running</title><p>This site is not running right now.</p>',
-        };
-      }
-      try {
-        const proxied = await proxyToRuntime(
-          endpoint,
-          req,
-          rest,
-          { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
-          deps.proxyLimits(),
-          siteRoot,
-        );
-        return {
-          ...proxied,
-          headers: {
-            ...proxied.headers,
-            ...securityHeaders(site.visibility === 'public'),
-            'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
-          },
-        };
-      } catch (error) {
-        if (!(error instanceof ProxyError)) throw error;
-        return {
-          status: 502,
-          headers: { 'content-type': HTML_TYPE, 'cache-control': 'no-store', ...securityHeaders(false) },
-          body: '<!doctype html><meta charset="utf-8"><title>Unavailable</title><p>This site did not answer.</p>',
-        };
-      }
-    }
-
-    if (site.runtime !== 'static' || !site.currentReleaseId) return notFound();
+    if (!site.currentReleaseId) return notFound();
     // A served file answers HEAD from its directory entry, so no stream is opened for one; the wrapper
     // covers the small documents serveFile returns when there is no file to serve.
     return withoutHeadBody(serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, req), req.method);

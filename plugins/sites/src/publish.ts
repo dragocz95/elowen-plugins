@@ -1,14 +1,10 @@
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, realpathSync, rmSync, symlinkSync, writeSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, rmSync, writeSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import type { SitesStore } from './store.js';
 
 export interface SnapshotLimits {
   maxAssetBytes: number;
   maxTotalBytes: number;
-  /** A static release may only contain files a browser is served directly, so anything else is a
-   *  mistake worth reporting. A command release is an application tree — its dependencies and server
-   *  code are not web content and must be copied verbatim. */
-  mode?: 'static' | 'command' | 'php';
 }
 
 export interface SnapshotResult {
@@ -70,8 +66,6 @@ const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', '.next', '.cache', 
 const COPY_CHUNK_BYTES = 4 * 1048576;
 
 const MAX_FILES = 5000;
-/** An application tree carries its dependencies, and a modest one runs to tens of thousands of files. */
-const MAX_FILES_COMMAND = 60_000;
 
 export class PublishError extends Error {}
 
@@ -97,7 +91,6 @@ function statOf(path: string): { size: number } | null {
  *  a file the publisher was never allowed to read. */
 export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: SnapshotLimits): SnapshotResult {
   const realSource = realpathSync(sourceRoot);
-  const command = limits.mode === 'command' || limits.mode === 'php';
   const warnings: string[] = [];
   let fileCount = 0;
   let sizeBytes = 0;
@@ -109,41 +102,11 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
       const from = join(dir, entry.name);
       const to = join(target, entry.name);
       if (entry.isSymbolicLink()) {
-        const rel = relative(realSource, from) || entry.name;
-        let link: string;
-        try { link = readlinkSync(from); }
-        catch { warnings.push(`skipped symlink ${rel} (it changed while publishing)`); continue; }
-        if (isAbsolute(link)) { warnings.push(`skipped symlink ${rel} (absolute target)`); continue; }
-        const lexicalTarget = resolve(dirname(from), link);
-        if (lexicalTarget !== realSource && !lexicalTarget.startsWith(realSource + sep)) {
-          warnings.push(`skipped symlink ${rel} (target leaves the publish root)`);
-          continue;
-        }
-        try {
-          const realTarget = realpathSync(lexicalTarget);
-          if (realTarget !== realSource && !realTarget.startsWith(realSource + sep)) {
-            warnings.push(`skipped symlink ${rel} (target leaves the publish root)`);
-            continue;
-          }
-        } catch {
-          warnings.push(`skipped symlink ${rel} (dangling target)`);
-          continue;
-        }
-        const linkBytes = Buffer.byteLength(link);
-        if (sizeBytes + linkBytes > limits.maxTotalBytes) {
-          throw new PublishError('the build output is larger than the per-site limit. Reduce it or raise "Largest site" in the plugin settings.');
-        }
-        const fileCeiling = command ? MAX_FILES_COMMAND : MAX_FILES;
-        if (fileCount >= fileCeiling) throw new PublishError(`the output has more than ${fileCeiling} files.`);
-        symlinkSync(link, to);
-        fileCount += 1;
-        sizeBytes += linkBytes;
+        warnings.push(`skipped symlink ${relative(realSource, from) || entry.name}`);
         continue;
       }
       if (entry.isDirectory()) {
-        // A command release keeps its dependencies: without node_modules the server it publishes
-        // cannot start, and the release exists precisely so the site survives losing its workspace.
-        if (command ? entry.name === '.git' : SKIPPED_DIRECTORIES.has(entry.name)) continue;
+        if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
         mkdirSync(to, { recursive: true });
         walk(from, to);
         continue;
@@ -154,7 +117,7 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
       }
       const rel = relative(realSource, from);
       const ext = extensionOf(entry.name);
-      if (!command && !(ext in CONTENT_TYPES)) {
+      if (!(ext in CONTENT_TYPES)) {
         warnings.push(`skipped ${rel} (.${ext || 'no extension'} is not a publishable file type)`);
         continue;
       }
@@ -166,9 +129,8 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
       if (sizeBytes + stat.size > limits.maxTotalBytes) {
         throw new PublishError(`the build output is larger than the per-site limit. Reduce it or raise "Largest site" in the plugin settings.`);
       }
-      const fileCeiling = command ? MAX_FILES_COMMAND : MAX_FILES;
-      if (fileCount >= fileCeiling) {
-        throw new PublishError(`the output has more than ${fileCeiling} files.`);
+      if (fileCount >= MAX_FILES) {
+        throw new PublishError(`the output has more than ${MAX_FILES} files.`);
       }
       // Opened with O_NOFOLLOW and copied from the descriptor: checking the directory entry and then
       // copying by path leaves a window in which the entry can be swapped for a symlink, and this
@@ -218,7 +180,7 @@ export function snapshotRelease(sourceRoot: string, releaseDir: string, limits: 
 
   walk(realSource, releaseDir);
   if (fileCount === 0) throw new PublishError('the build output contains no publishable files.');
-  if (!command && !existsSync(join(releaseDir, 'index.html'))) {
+  if (!existsSync(join(releaseDir, 'index.html'))) {
     warnings.push('there is no index.html at the top of the output, so the site root will not render.');
   }
   return { fileCount, sizeBytes, warnings };

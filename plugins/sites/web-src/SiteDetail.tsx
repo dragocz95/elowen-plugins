@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Boxes, Clock, Copy, ExternalLink, History, Link2, RefreshCw, RotateCcw,
-  Server, ShieldCheck, Terminal, Trash2, UserMinus, Users,
+  Activity, Boxes, Clock, Copy, ExternalLink, History, Link2, RotateCcw,
+  Server, ShieldCheck, Trash2, UserMinus, Users,
 } from 'lucide-react';
 import {
   runtime, avatarUser, formatBytes, jsonBody, relativeTime, siteDetailKey, SITES_LIST_KEY,
@@ -24,7 +24,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
 }) {
   const { components, hooks, utils } = runtime();
   const {
-    Avatar, Badge, Button, IconButton, Input, SelectMenu, ConfirmDialog, ManageSelectionModal,
+    Avatar, Badge, Button, IconButton, SelectMenu, ConfirmDialog, ManageSelectionModal,
     DetailBlock, EmptyState, ErrorState, LoadingLine,
   } = components;
   // Bound here rather than handed down as a prop: the static contract test can only verify a key a
@@ -37,8 +37,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const [pendingPublic, setPendingPublic] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guestPicker, setGuestPicker] = useState(false);
-  const [runtimeCommand, setRuntimeCommand] = useState('');
-  const [runtimeBind, setRuntimeBind] = useState<'socket' | 'port'>('socket');
   const [failedAction, setFailedAction] = useState<{ path: string; init: RequestInit; done?: string; message: string } | null>(null);
   const [failedGuests, setFailedGuests] = useState<{ next: Set<string>; message: string } | null>(null);
   const callRef = useRef(false);
@@ -122,12 +120,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   useEffect(() => {
     onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
   }, [call.isPending, onBusyChange, saveGuests.isPending]);
-  useEffect(() => {
-    const next = detail.data?.runtime;
-    if (!next) return;
-    setRuntimeCommand(next.startCommand ?? '');
-    setRuntimeBind(next.bind === 'port' ? 'port' : 'socket');
-  }, [detail.data?.runtime]);
 
   if (detail.isError) return <EmptyState title={strings.loadFailed} icon={Server} />;
   if (!site) return <LoadingLine />;
@@ -137,20 +129,10 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
     if (next === 'public') { setPendingPublic(true); return; }
     runCall({ path: basePath(siteId), init: jsonBody('PATCH', { visibility: next }) });
   };
-  const saveRuntime = () => {
-    const command = runtimeCommand.trim();
-    if (!command || !detail.data?.runtime || callRef.current) return;
-    runCall({
-      path: basePath(siteId),
-      init: jsonBody('PATCH', { startCommand: command, bind: runtimeBind }),
-      done: strings.saved,
-    });
-  };
 
   const releases = detail.data?.releases ?? [];
   const fileReleases = releases;
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
-  const runtimeState = detail.data?.runtime ?? null;
   const displayedStatus = displayStatus(site);
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== 'public' || allowPublicSites);
@@ -289,7 +271,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       {site.kind === 'proxy' ? (
         <DetailBlock icon={Boxes} title={strings.kindProxy}>
           <p className="text-sm text-foreground">
-            {strings.projectRuntimeLink.replace('{project}', site.projectSlug ?? '—')}
+            {strings.projectPublicationLink.replace('{project}', site.projectSlug ?? '—')}
           </p>
           <div>
             <Button variant="ghost" icon={ExternalLink} onClick={() => runtime().navigate(`/projects?project=${site.projectId}`)}>{strings.openProject}</Button>
@@ -333,75 +315,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
           )}
         </DetailBlock>
       )}
-
-      {runtimeState ? (
-        <DetailBlock icon={Terminal} title={strings.runtime}>
-          <div className="flex items-center justify-between gap-3">
-            <Badge tone={runtimeState.running ? 'success' : 'danger'}>
-              {runtimeState.running ? strings.runtimeRunning : strings.runtimeStopped}
-            </Badge>
-            {canManage ? (
-              <IconButton
-                icon={RefreshCw}
-                label={strings.restart}
-                disabled={call.isPending}
-                onClick={() => runCall({ path: `${basePath(siteId)}/restart`, init: { method: 'POST' }, done: strings.restarted })}
-              />
-            ) : null}
-          </div>
-          {canManage ? (
-            <div className="flex flex-col gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.runtimeCommand}</span>
-                <Input
-                  value={runtimeCommand}
-                  onChange={(event) => setRuntimeCommand(event.target.value)}
-                  aria-label={strings.runtimeCommand}
-                  className="font-mono"
-                  disabled={call.isPending}
-                />
-              </label>
-              <SelectMenu
-                value={runtimeBind}
-                onChange={(value) => setRuntimeBind(value === 'port' ? 'port' : 'socket')}
-                label={strings.runtimeBind}
-                options={[
-                  { value: 'socket', label: strings.runtimeSocket },
-                  ...(runtimeState.allowLoopbackPorts || runtimeBind === 'port' ? [{ value: 'port', label: strings.runtimePort }] : []),
-                ]}
-              />
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <span className="text-muted-foreground">{strings.runtimeNetwork}</span>
-                <Badge tone={runtimeState.network === 'shared' ? 'warning' : 'muted'}>
-                  {runtimeState.network === 'shared' ? strings.runtimeNetworkShared : strings.runtimeNetworkIsolated}
-                </Badge>
-              </div>
-              {runtimeBind === 'port' && runtimeState.port !== null ? (
-                <code className="font-mono text-[11px] text-muted-foreground">127.0.0.1:{runtimeState.port}</code>
-              ) : null}
-              <div>
-                <Button variant="ghost" disabled={call.isPending || runtimeCommand.trim() === ''} onClick={saveRuntime}>
-                  {strings.saveRuntime}
-                </Button>
-              </div>
-            </div>
-          ) : runtimeState.startCommand ? (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.runtimeCommand}</span>
-              <code className="break-all font-mono text-[11px] text-foreground">{runtimeState.startCommand}</code>
-            </div>
-          ) : null}
-          {runtimeState.lastError ? <p className="text-[11px] text-destructive">{runtimeState.lastError}</p> : null}
-          {runtimeState.logTail !== null ? (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.runtimeLog}</span>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 font-mono text-[11px] text-muted-foreground">
-                {runtimeState.logTail || strings.runtimeEmptyLog}
-              </pre>
-            </div>
-          ) : null}
-        </DetailBlock>
-      ) : null}
 
       {canManage ? (
         <DetailBlock icon={Trash2} title={strings.deleteTitle}>

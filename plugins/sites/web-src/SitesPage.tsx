@@ -97,15 +97,9 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }: {
   const statusTone = STATUS_TONE[displayedStatus];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
-  // The publication column says where a row is served from, and only one of those shapes can be read off
-  // `runtime`: a proxy publication is answered by the Project's environment, and the runtime values name
-  // the legacy shapes a static row can still have. A proxy row wins over its runtime, because that is the
-  // fact deciding who serves it.
   const publication = site.kind === 'proxy'
     ? { label: strings.kindProxy, target: site.target }
-    : site.runtime === 'command' ? { label: strings.kindCommand, target: '' }
-        : site.runtime === 'php' ? { label: strings.kindPhp, target: '' }
-          : { label: strings.kindStatic, target: '' };
+    : { label: strings.kindStatic, target: '' };
 
   return (
     <DataTableRow selected={active} interactive aria-selected={active} className="group">

@@ -5,7 +5,7 @@ import type { ManagedProjectFiles } from './managedPublish.js';
  * runtime shape here until that package release contains the same project transports. */
 type SitesSandboxControl = Pick<
   SandboxControl,
-  'prepareExecution' | 'projectPreviewBinding' | 'projectPublicationBinding' | 'projectPublicationRelease'
+  'projectPreviewBinding' | 'projectPublicationBinding' | 'projectPublicationRelease'
 > & ManagedProjectFiles;
 
 export interface SitesGatewayStatus {
@@ -23,9 +23,6 @@ interface SitesGatewayControl {
   removeSite(input: { slug: string; gatewayToken: string }): Promise<SitesGatewayStatus>;
   deny(): Promise<SitesGatewayStatus>;
   status(): Promise<SitesGatewayStatus>;
-  prepareRuntimeSocket(siteId: string): Promise<{ path: string }>;
-  sealRuntimeSocket(siteId: string): Promise<void>;
-  removeRuntimeSocket(siteId: string): Promise<void>;
 }
 
 export interface SitesUserView {

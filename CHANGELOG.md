@@ -6,9 +6,9 @@
 
 ## sites 0.12.0 - 2026-09-13
 
-- Remove the retired per-Site environment runtime, its lifecycle tools and APIs, conversion path, settings, UI and reconciliation. Dormant historical rows and their source values stay as opaque audit data, are ignored by ordinary runtime work and cannot block plugin boot when their former Project path is unavailable.
-- Keep proxy publications bound only to an explicit managed Project through Sandbox's durable publication transport, with no host path fallback.
-- Publish managed Project output through bounded Sandbox Project file operations. Command and PHP snapshots preserve executable permission bits and safe relative symlinks from the Sandbox publication manifest. Regular file reads remain content-versioned, inconsistent metadata is rejected and every failed transfer removes its partial release atomically.
+- Remove the complete Site-owned application runtime: command and PHP publication, process supervision, runtime sockets, logs, settings, API and UI controls, plus the retired per-Site environment lifecycle and conversion paths.
+- Keep only immutable static releases and proxy publications bound to an explicit managed Project through Sandbox's durable publication transport, with no host path fallback and no Site-owned application lifecycle.
+- Publish managed Project static output through bounded Sandbox Project file operations. Regular file reads remain content-versioned, unsupported files and symlinks are skipped, inconsistent metadata is rejected and every failed transfer removes its partial release atomically. Dormant command, PHP and environment rows remain hidden as opaque audit data.
 
 ## editor 0.4.3 - 2026-09-12
 

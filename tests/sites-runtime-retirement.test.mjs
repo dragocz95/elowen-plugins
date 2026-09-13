@@ -1,24 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { snapshotManagedRelease } from '../plugins/sites/dist/managedPublish.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
 
-test('the shipped Sites surface contains no per-Site environment runtime', () => {
+test('the shipped Sites surface contains only static and managed Project proxy publication', () => {
   const root = new URL('../', import.meta.url);
   const manifest = JSON.parse(readFileSync(new URL('plugins/sites/elowen-plugin.json', root), 'utf8'));
   assert.deepEqual(manifest.provides.tools, [
     'SiteCreate', 'SitePreview', 'SitePublish', 'SiteGet', 'SiteList', 'SiteUpdate',
-    'SiteRollback', 'SiteLogs', 'SiteShare', 'SiteUnshare', 'SiteDelete',
+    'SiteRollback', 'SiteShare', 'SiteUnshare', 'SiteDelete',
   ]);
   assert.equal(manifest.provides.apiRoutes.includes('conversion'), false);
-  assert.equal(manifest.configSchema.some((field) => /^environment|allowEnvironments|maxEnvironments/.test(field.key)), false);
+  assert.equal(manifest.configSchema.some((field) => /environment|runtime|loopback|startTimeout|maxResponse/i.test(field.key)), false);
+  assert.equal(Object.keys(manifest.web.strings).some((key) => /runtime|command|php/i.test(key)), false);
   assert.equal('settings' in manifest.web, false);
   for (const file of [
     'environment', 'migration', 'dataSync', 'recipe', 'baseImage', 'conversionImage', 'podman', 'siteRuntimeAuthority',
+    'runtime', 'php', 'releaseEnvironment',
   ]) {
     assert.equal(existsSync(new URL(`plugins/sites/src/${file}.ts`, root)), false, `${file}.ts is retired`);
     assert.equal(existsSync(new URL(`plugins/sites/dist/${file}.js`, root)), false, `${file}.js is retired`);
@@ -43,15 +45,19 @@ const makeDb = (beforeStep = () => {}) => {
   };
 };
 
-test('boot preserves legacy environment source_dir as opaque audit data without resolving a Project root', () => {
-  const sources = ['/srv/retired/sites/app', '/outside/every/project'];
+test('boot preserves retired runtime source_dir as opaque audit data without resolving a Project root', () => {
+  const rows = [
+    { id: 'legacy-env', runtime: 'environment', source: '/srv/retired/sites/app' },
+    { id: 'legacy-command', runtime: 'command', source: '/outside/every/project' },
+    { id: 'legacy-php', runtime: 'php', source: '/srv/retired/php' },
+  ];
   const db = makeDb((version, handle) => {
     if (version !== 17) return;
     const insert = handle.prepare(`INSERT INTO p_sites_sites (
       id, slug, title, project_id, owner_user_id, source_dir, runtime, status, created_at, updated_at
-    ) VALUES (?, ?, ?, 7, 1, ?, 'environment', 'live', ?, ?)`);
-    for (const [index, source] of sources.entries()) {
-      insert.run(`legacy-env-${index}`, `legacy-env-${index}`, 'Retired', source, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    ) VALUES (?, ?, 'Retired', 7, 1, ?, ?, 'live', ?, ?)`);
+    for (const row of rows) {
+      insert.run(row.id, row.id, row.source, row.runtime, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     }
   });
   const store = new SitesStore(db);
@@ -61,11 +67,16 @@ test('boot preserves legacy environment source_dir as opaque audit data without 
 
   assert.equal(rootLookups, 0);
   assert.deepEqual(
-    db.prepare("SELECT id, source_rel AS sourceRel FROM p_sites_sites WHERE runtime = 'environment' ORDER BY id").all(),
-    sources.map((sourceRel, index) => ({ id: `legacy-env-${index}`, sourceRel })),
+    db.prepare("SELECT id, runtime, source_rel AS sourceRel FROM p_sites_sites WHERE runtime <> 'static' ORDER BY id").all(),
+    rows.map((row) => ({ id: row.id, runtime: row.runtime, sourceRel: row.source })).sort((a, b) => a.id.localeCompare(b.id)),
   );
   assert.equal(db.prepare("SELECT 1 FROM pragma_table_info('p_sites_sites') WHERE name = 'source_dir'").get(), undefined);
   assert.deepEqual(store.allSites(), []);
+  assert.deepEqual(store.sitesOwnedBy(1), []);
+  assert.deepEqual(store.siteIdsOwnedBy(1), [], 'account cleanup must not delete retained audit rows');
+  db.prepare("UPDATE p_sites_sites SET status = 'deleting' WHERE id = 'legacy-env'").run();
+  assert.deepEqual(store.deletingSites(), [], 'daemon cleanup must not consume a retained audit row');
+  for (const row of rows) assert.equal(store.siteById(row.id), null);
 });
 
 test('boot ignores a dormant environment row with null source_rel after source_dir was already removed', () => {
@@ -104,90 +115,12 @@ test('managed static publication copies bounded version-stable Project files', a
 
   const result = await snapshotManagedRelease(control, {
     projectId: 7, accountUserId: 1, sourceRoot: '/demo/sites/app', releaseDir: target,
-    limits: { maxAssetBytes: 1024, maxTotalBytes: 4096, mode: 'static' },
+    limits: { maxAssetBytes: 1024, maxTotalBytes: 4096 },
   });
   assert.deepEqual(result, { fileCount: 1, sizeBytes: bytes.length, warnings: [] });
   assert.equal(readFileSync(join(target, 'index.html'), 'utf8'), bytes.toString());
   assert.equal(calls.every((call) => call.project.projectId === 7 && call.accountUserId === 1), true);
   rmSync(target, { recursive: true, force: true });
-});
-
-test('managed command publication preserves executable bits and safe relative symlink dependencies', async () => {
-  const target = join(mkdtempSync(join(tmpdir(), 'sites-managed-command-')), 'release');
-  const files = new Map([
-    ['/demo/app/bin/start', Buffer.from('#!/bin/sh\nexec node ../lib/server.js\n')],
-    ['/demo/app/lib/server.js', Buffer.from('console.log("ready")\n')],
-  ]);
-  const calls = [];
-  const control = {
-    projectFiles: async (input) => {
-      calls.push(input.operation.kind);
-      if (input.operation.kind === 'export-manifest') {
-        return {
-          kind: 'export-manifest', root: '/demo/app', mode: 0o755,
-          entries: [
-            { path: 'bin', kind: 'directory', mode: 0o755 },
-            { path: 'bin/start', kind: 'file', mode: 0o755, size: files.get('/demo/app/bin/start').length, version: 'start-v1' },
-            { path: 'bin/server.js', kind: 'symlink', mode: 0o777, target: '../lib/server.js' },
-            { path: 'lib', kind: 'directory', mode: 0o755 },
-            { path: 'lib/server.js', kind: 'file', mode: 0o644, size: files.get('/demo/app/lib/server.js').length, version: 'server-v1' },
-          ],
-        };
-      }
-      const bytes = files.get(input.operation.path);
-      const version = input.operation.path.endsWith('/start') ? 'start-v1' : 'server-v1';
-      const chunk = bytes.subarray(input.operation.offset, input.operation.offset + input.operation.length);
-      return { kind: 'read', base64: chunk.toString('base64'), version, totalBytes: bytes.length };
-    },
-  };
-
-  const result = await snapshotManagedRelease(control, {
-    projectId: 7, accountUserId: 1, sourceRoot: '/demo/app', releaseDir: target,
-    limits: { maxAssetBytes: 1024, maxTotalBytes: 4096, mode: 'command' },
-  });
-
-  assert.equal(lstatSync(join(target, 'bin/start')).mode & 0o777, 0o755);
-  assert.equal(lstatSync(join(target, 'bin/server.js')).isSymbolicLink(), true);
-  assert.equal(readlinkSync(join(target, 'bin/server.js')), '../lib/server.js');
-  assert.equal(readFileSync(join(target, 'lib/server.js'), 'utf8'), 'console.log("ready")\n');
-  assert.deepEqual(result, {
-    fileCount: 3,
-    sizeBytes: files.get('/demo/app/bin/start').length + files.get('/demo/app/lib/server.js').length + Buffer.byteLength('../lib/server.js'),
-    warnings: [],
-  });
-  assert.equal(calls[0], 'export-manifest');
-  rmSync(join(target, '..'), { recursive: true, force: true });
-});
-
-test('managed application publication rejects unsafe symlinks and inconsistent metadata atomically', async () => {
-  for (const linkTarget of ['/etc/passwd', '../../outside']) {
-    const target = join(mkdtempSync(join(tmpdir(), 'sites-managed-link-')), 'release');
-    const control = {
-      projectFiles: async () => ({
-        kind: 'export-manifest', root: '/demo/app', mode: 0o755,
-        entries: [{ path: 'dependency', kind: 'symlink', mode: 0o777, target: linkTarget }],
-      }),
-    };
-    await assert.rejects(() => snapshotManagedRelease(control, {
-      projectId: 7, accountUserId: 1, sourceRoot: '/demo/app', releaseDir: target,
-      limits: { maxAssetBytes: 1024, maxTotalBytes: 4096, mode: 'php' },
-    }), /unsafe target|leaves the publication root/);
-    assert.equal(existsSync(target), false);
-    rmSync(join(target, '..'), { recursive: true, force: true });
-  }
-
-  const target = join(mkdtempSync(join(tmpdir(), 'sites-managed-metadata-')), 'release');
-  const control = {
-    projectFiles: async (input) => input.operation.kind === 'export-manifest'
-      ? { kind: 'export-manifest', root: '/demo/app', mode: 0o755, entries: [{ path: 'start', kind: 'file', mode: 0o755, size: 3, version: 'v1' }] }
-      : { kind: 'read', base64: Buffer.from('four').toString('base64'), version: 'v1', totalBytes: 4 },
-  };
-  await assert.rejects(() => snapshotManagedRelease(control, {
-    projectId: 7, accountUserId: 1, sourceRoot: '/demo/app', releaseDir: target,
-    limits: { maxAssetBytes: 1024, maxTotalBytes: 4096, mode: 'command' },
-  }), /inconsistent metadata/);
-  assert.equal(existsSync(target), false);
-  rmSync(join(target, '..'), { recursive: true, force: true });
 });
 
 test('managed publication removes a partial release when a file version changes', async () => {
@@ -211,7 +144,7 @@ test('managed publication removes a partial release when a file version changes'
 
   await assert.rejects(() => snapshotManagedRelease(control, {
     projectId: 7, accountUserId: 1, sourceRoot: '/demo/sites/app', releaseDir: target,
-    limits: { maxAssetBytes: 400_000, maxTotalBytes: 500_000, mode: 'static' },
+    limits: { maxAssetBytes: 400_000, maxTotalBytes: 500_000 },
   }), /changed during publication/);
   assert.equal(existsSync(target), false);
   rmSync(join(target, '..'), { recursive: true, force: true });

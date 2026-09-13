@@ -305,14 +305,6 @@ var Lock = createLucideIcon("Lock", [
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
-var RefreshCw = createLucideIcon("RefreshCw", [
-  ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
-  ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
-  ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
-  ["path", { d: "M8 16H3v5", key: "1cv678" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
 var RotateCcw = createLucideIcon("RotateCcw", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
@@ -343,12 +335,6 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
     }
   ],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/terminal.js
-var Terminal = createLucideIcon("Terminal", [
-  ["polyline", { points: "4 17 10 11 4 5", key: "akl6gq" }],
-  ["line", { x1: "12", x2: "20", y1: "19", y2: "19", key: "q2wloq" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
@@ -440,7 +426,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     Badge,
     Button,
     IconButton,
-    Input,
     SelectMenu,
     ConfirmDialog,
     ManageSelectionModal,
@@ -455,8 +440,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
   const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
   const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
-  const [runtimeCommand, setRuntimeCommand] = (0, import_react3.useState)("");
-  const [runtimeBind, setRuntimeBind] = (0, import_react3.useState)("socket");
   const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
   const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
   const callRef = (0, import_react3.useRef)(false);
@@ -536,12 +519,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   (0, import_react3.useEffect)(() => {
     onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
   }, [call.isPending, onBusyChange, saveGuests.isPending]);
-  (0, import_react3.useEffect)(() => {
-    const next = detail.data?.runtime;
-    if (!next) return;
-    setRuntimeCommand(next.startCommand ?? "");
-    setRuntimeBind(next.bind === "port" ? "port" : "socket");
-  }, [detail.data?.runtime]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
   if (!site) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
@@ -552,19 +529,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     }
     runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
   };
-  const saveRuntime = () => {
-    const command = runtimeCommand.trim();
-    if (!command || !detail.data?.runtime || callRef.current) return;
-    runCall({
-      path: basePath(siteId),
-      init: jsonBody("PATCH", { startCommand: command, bind: runtimeBind }),
-      done: strings.saved
-    });
-  };
   const releases = detail.data?.releases ?? [];
   const fileReleases = releases;
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
-  const runtimeState = detail.data?.runtime ?? null;
   const displayedStatus = displayStatus(site);
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const visibleOptions = VISIBILITY_ORDER.filter((value) => value !== "public" || allowPublicSites);
@@ -692,7 +659,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
     site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-foreground", children: strings.projectRuntimeLink.replace("{project}", site.projectSlug ?? "\u2014") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-foreground", children: strings.projectPublicationLink.replace("{project}", site.projectSlug ?? "\u2014") }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate(`/projects?project=${site.projectId}`), children: strings.openProject }) })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
       const live = release.id === site.currentReleaseId;
@@ -721,64 +688,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         ) : null
       ] }, release.id);
     }) }) }),
-    runtimeState ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Terminal, title: strings.runtime, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: runtimeState.running ? "success" : "danger", children: runtimeState.running ? strings.runtimeRunning : strings.runtimeStopped }),
-        canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          IconButton,
-          {
-            icon: RefreshCw,
-            label: strings.restart,
-            disabled: call.isPending,
-            onClick: () => runCall({ path: `${basePath(siteId)}/restart`, init: { method: "POST" }, done: strings.restarted })
-          }
-        ) : null
-      ] }),
-      canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex flex-col gap-1", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeCommand }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            Input,
-            {
-              value: runtimeCommand,
-              onChange: (event) => setRuntimeCommand(event.target.value),
-              "aria-label": strings.runtimeCommand,
-              className: "font-mono",
-              disabled: call.isPending
-            }
-          )
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          SelectMenu,
-          {
-            value: runtimeBind,
-            onChange: (value) => setRuntimeBind(value === "port" ? "port" : "socket"),
-            label: strings.runtimeBind,
-            options: [
-              { value: "socket", label: strings.runtimeSocket },
-              ...runtimeState.allowLoopbackPorts || runtimeBind === "port" ? [{ value: "port", label: strings.runtimePort }] : []
-            ]
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center justify-between gap-3 text-xs", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-muted-foreground", children: strings.runtimeNetwork }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: runtimeState.network === "shared" ? "warning" : "muted", children: runtimeState.network === "shared" ? strings.runtimeNetworkShared : strings.runtimeNetworkIsolated })
-        ] }),
-        runtimeBind === "port" && runtimeState.port !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("code", { className: "font-mono text-[11px] text-muted-foreground", children: [
-          "127.0.0.1:",
-          runtimeState.port
-        ] }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost", disabled: call.isPending || runtimeCommand.trim() === "", onClick: saveRuntime, children: strings.saveRuntime }) })
-      ] }) : runtimeState.startCommand ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeCommand }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "break-all font-mono text-[11px] text-foreground", children: runtimeState.startCommand })
-      ] }) : null,
-      runtimeState.lastError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-destructive", children: runtimeState.lastError }) : null,
-      runtimeState.logTail !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-col gap-1", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.runtimeLog }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-3 font-mono text-[11px] text-muted-foreground", children: runtimeState.logTail || strings.runtimeEmptyLog })
-      ] }) : null
-    ] }) : null,
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DetailBlock, { icon: Trash2, title: strings.deleteTitle, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.deleteHint }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmDelete(true), children: strings.delete }) })
@@ -910,7 +819,7 @@ function SiteRow({ site, strings, active, onSelect, onNavigate }) {
   const statusTone = STATUS_TONE[displayedStatus];
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
   const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : "\u2014";
-  const publication = site.kind === "proxy" ? { label: strings.kindProxy, target: site.target } : site.runtime === "command" ? { label: strings.kindCommand, target: "" } : site.runtime === "php" ? { label: strings.kindPhp, target: "" } : { label: strings.kindStatic, target: "" };
+  const publication = site.kind === "proxy" ? { label: strings.kindProxy, target: site.target } : { label: strings.kindStatic, target: "" };
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DataTableRow, { selected: active, interactive: true, "aria-selected": active, className: "group", children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DataTableCell, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
       "button",

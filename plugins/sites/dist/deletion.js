@@ -10,12 +10,9 @@ export async function deleteSiteResources(siteId, deps) {
     // leaving the phase untouched lets the daemon's cleanup sweep run it where the broker exists.
     if (!deps.hasGatewayBroker())
         return;
-    if (site.runtime === 'command')
-        await deps.stopLegacy(siteId);
     if (site.kind === 'proxy')
         await deps.releasePublication(site);
     rmSync(deps.siteDir(siteId), { recursive: true, force: true });
-    await deps.removeRuntimeSocket(siteId);
     await deps.removeGateway(site.slug);
     deps.store.deleteSite(siteId);
 }

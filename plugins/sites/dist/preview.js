@@ -54,8 +54,7 @@ export class ProjectPreviewService {
         // so this value never decides how a preview is answered.
         return { id: preview.id, slug: preview.slug, projectId: preview.projectId, ownerUserId: 0,
             title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
-            sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port), runtime: 'static',
-            startCommand: '', bind: 'socket', port: null,
+            sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port),
             status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
             createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
     }

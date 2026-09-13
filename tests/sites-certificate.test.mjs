@@ -59,10 +59,6 @@ const site = (overrides = {}) => ({
   spa: false,
   kind: 'static',
   target: '',
-  runtime: 'static',
-  startCommand: '',
-  bind: 'socket',
-  port: null,
   status: 'live',
   currentReleaseId: 'rel-1',
   createdAt: new Date().toISOString(),
@@ -440,7 +436,8 @@ test('migration v18 adds two nullable certificate columns and leaves a row writt
   const row = store.siteById('legacy');
   assert.equal(row.slug, 'legacy-abc123');
   assert.equal(row.status, 'live');
-  assert.equal(row.runtime, 'static');
+  assert.equal(db.prepare("SELECT runtime FROM p_sites_sites WHERE id = 'legacy'").get().runtime, 'static',
+    'the legacy compatibility column remains intact without becoming part of the active Site contract');
   assert.equal(row.certificateRequestedAt, null, 'a row that predates the columns has requested nothing');
   assert.equal(row.certificateError, null, 'and has recorded no failure');
   // It also behaves as one: a live site nobody has issued for is exactly what the sweep must pick up.
