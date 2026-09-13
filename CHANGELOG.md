@@ -1,5 +1,9 @@
 # Changelog
 
+## discord 0.3.20 - 2026-09-13
+
+- Strip Elowen conversation generations from Discord delivery targets.
+
 ## editor 0.4.4 - 2026-09-13
 
 - Keep the editor toolbar focused on controls by moving the full active file path to the bottom status bar, with a storage icon and the complete host or managed-environment path.
