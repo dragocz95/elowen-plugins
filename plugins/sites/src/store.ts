@@ -493,16 +493,20 @@ export class SitesStore {
     const columns = this.db.prepare("PRAGMA table_info('p_sites_sites')").all() as { name: string }[];
     const hasLegacy = columns.some((column) => column.name === 'source_dir');
     if (!hasLegacy) {
-      const invalid = this.db.prepare('SELECT id FROM p_sites_sites WHERE source_rel IS NULL').get() as { id: string } | undefined;
+      const invalid = this.db.prepare("SELECT id FROM p_sites_sites WHERE source_rel IS NULL AND COALESCE(runtime, '') <> 'environment'").get() as { id: string } | undefined;
       if (invalid) throw new Error(`Site ${invalid.id} has no Project-relative source reference`);
       return;
     }
     this.db.transaction(() => {
-      const rows = this.db.prepare('SELECT id, slug, project_id, kind, source_dir, source_rel FROM p_sites_sites').all() as {
-        id: string; slug: string; project_id: number; kind: string | null; source_dir: string; source_rel: string | null;
+      const rows = this.db.prepare('SELECT id, slug, project_id, kind, runtime, source_dir, source_rel FROM p_sites_sites').all() as {
+        id: string; slug: string; project_id: number; kind: string | null; runtime: string; source_dir: string; source_rel: string | null;
       }[];
       const update = this.db.prepare('UPDATE p_sites_sites SET source_rel = ? WHERE id = ?');
       for (const row of rows) {
+        if (row.runtime === 'environment') {
+          if (row.source_rel === null) update.run(row.source_dir, row.id);
+          continue;
+        }
         if (row.source_rel !== null) continue;
         if (row.kind === 'proxy' && row.source_dir === '') { update.run('', row.id); continue; }
         const root = projectRoot(row.project_id);

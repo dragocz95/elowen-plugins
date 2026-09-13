@@ -359,7 +359,7 @@ export function registerTools(deps: ToolDeps): void {
           }
           const selected = ctx.currentAccess().projectRef;
           if (selected?.kind !== 'managed') {
-            throw new ToolError('A proxy publication is served by a managed managed Project, so select that Project before creating it.');
+            throw new ToolError('A proxy publication is served by a managed Project, so select that Project before creating it.');
           }
           requireSandbox(ctx.control('sandbox'));
           if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
