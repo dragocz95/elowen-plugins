@@ -169,16 +169,16 @@
     },
     {
       "name": "sites",
-      "version": "0.11.3-chetty.1",
+      "version": "0.12.0",
       "requiresCore": "0.28.44",
-      "description": "Publish static, command and PHP sites, or run additive persistent systemd-nspawn environments with bounded resources and a host-owned ingress socket. Every site keeps its own address and visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+      "description": "Publish immutable static releases, confined command and PHP applications, or proxy an application from an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
-        "tools": 14,
+        "tools": 11,
         "httpRoutes": 1,
-        "apiRoutes": 7
+        "apiRoutes": 6
       }
     },
     {
