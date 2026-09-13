@@ -438,7 +438,7 @@ var require_papaparse_min = __commonJS({
   }
 });
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/runtime.tsx
+// plugins/editor/web-src/runtime.tsx
 function runtime() {
   const value = window.ElowenUiRuntime;
   if (!value) throw new Error("ElowenUiRuntime is not installed");
@@ -448,7 +448,7 @@ function registerEditorUi(registration) {
   window.__elowenRegisterPluginUi?.("editor", registration);
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/EditorPage.tsx
+// plugins/editor/web-src/EditorPage.tsx
 var import_react23 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
@@ -784,10 +784,10 @@ var X = createLucideIcon("X", [
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/ProjectEditor.tsx
+// plugins/editor/web-src/editor/ProjectEditor.tsx
 var import_react22 = __toESM(require_react(), 1);
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/src/fileTypes.ts
+// plugins/editor/src/fileTypes.ts
 var MAX_BUFFERED_BYTES = 50 * 1024 * 1024;
 var MAX_OFFICE_BYTES = 20 * 1024 * 1024;
 var MAX_MEDIA_PREVIEW_BYTES = 50 * 1024 * 1024;
@@ -954,7 +954,7 @@ function fileKindOf(path) {
   return "binary";
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/helpers.ts
+// plugins/editor/web-src/editor/helpers.ts
 function buildTree(nodes) {
   const root = { name: "", path: "", type: "dir", children: [] };
   const dirs = /* @__PURE__ */ new Map([["", root]]);
@@ -984,11 +984,11 @@ function copyName(path) {
   return joinPath(parentDir(path), `${dot > 0 ? base.slice(0, dot) : base} copy${dot > 0 ? base.slice(dot) : ""}`);
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/src/systemRoot.ts
+// plugins/editor/src/systemRoot.ts
 var SYSTEM_PROJECT_ID = -1;
 var SYSTEM_ROOT = "/";
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/src/editorRoots.ts
+// plugins/editor/src/editorRoots.ts
 var EDITOR_ROOTS = ["project", "system"];
 var DEFAULT_EDITOR_ROOT = "project";
 var GUEST_SYSTEM_ROOT = "/";
@@ -997,7 +997,7 @@ function parseEditorRoot(value) {
   return typeof value === "string" && EDITOR_ROOTS.includes(value) ? value : null;
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/fileUrls.ts
+// plugins/editor/web-src/editor/fileUrls.ts
 function editorFileUrl(projectId, route, root, params) {
   const query = new URLSearchParams({ root });
   for (const [name, value] of Object.entries(params ?? {})) if (value !== void 0) query.set(name, value);
@@ -1007,7 +1007,7 @@ function editorApiPath(projectId, route, root, params) {
   return editorFileUrl(projectId, route, root, params).replace(/^\/api/, "");
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/fileData.ts
+// plugins/editor/web-src/editor/fileData.ts
 var editorTreeKey = (projectId, root) => ["editor-tree", projectId, root];
 var editorFileKey = (projectId, root, path) => ["editor-file", projectId, root, path];
 function useEditorTree(projectId, root, enabled) {
@@ -1056,7 +1056,7 @@ function useEditorTreeMutations(projectId, root) {
   };
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/lazyTree.ts
+// plugins/editor/web-src/editor/lazyTree.ts
 var import_react3 = __toESM(require_react(), 1);
 function useLazyDirs(projectId, root, enabled, expanded, epoch, onFailed) {
   const [levels, setLevels] = (0, import_react3.useState)({});
@@ -1091,7 +1091,7 @@ function useLazyDirs(projectId, root, enabled, expanded, epoch, onFailed) {
   return (0, import_react3.useMemo)(() => Object.values(levels).flat(), [levels]);
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/FileTree.tsx
+// plugins/editor/web-src/editor/FileTree.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 function TreeRow({ node, depth, expanded, onToggle, selected, onSelect, changed, onContextMenu }) {
   const isOpen = expanded.has(node.path);
@@ -1127,7 +1127,7 @@ function FileTree({ tree, expanded, onToggle, selected, onSelect, changed, onCon
   }, children: tree.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "p-3 text-center text-xs text-muted-foreground", children: emptyLabel }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { role: "tree", "aria-label": treeLabel, className: "m-0 list-none p-0", children: tree.map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeRow, { node: n, depth: 0, expanded, onToggle, selected, onSelect, changed, onContextMenu }, n.path)) }) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/dialogs.tsx
+// plugins/editor/web-src/editor/dialogs.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var { Modal, ModalBody, ModalFooter, Button, Input, Field } = runtime().components;
@@ -1170,7 +1170,7 @@ function ConfirmDialog({ title, message, confirmLabel, danger, icon, onConfirm, 
   ] });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/EditorPane.tsx
+// plugins/editor/web-src/editor/EditorPane.tsx
 var import_react17 = __toESM(require_react(), 1);
 
 // node_modules/@monaco-editor/loader/lib/es/_virtual/_rollupPluginBabelHelpers.js
@@ -1820,10 +1820,10 @@ var fe = Ve;
 var de = (0, import_react13.memo)(fe);
 var Ft = de;
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/monacoLoader.ts
+// plugins/editor/web-src/editor/monacoLoader.ts
 loader.config({ paths: { vs: "/monaco/vs" } });
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/editorOptions.ts
+// plugins/editor/web-src/editor/editorOptions.ts
 var DEFAULT_PREFS = { fontSize: 13, tabSize: 2, wordWrap: false, minimap: true };
 var MIN_FONT_SIZE = 10;
 var MAX_FONT_SIZE = 24;
@@ -1893,7 +1893,7 @@ function diffOptions(prefs) {
   };
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/EditorPane.tsx
+// plugins/editor/web-src/editor/EditorPane.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function EditorPane({ path, value, onChange, onSave, prefs, onCursor }) {
   const saveRef = (0, import_react17.useRef)(onSave);
@@ -1927,7 +1927,7 @@ function EditorPane({ path, value, onChange, onSave, prefs, onCursor }) {
   );
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/DiffEditorPane.tsx
+// plugins/editor/web-src/editor/DiffEditorPane.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 function DiffEditorPane({ path, original, modified, prefs }) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
@@ -1945,7 +1945,7 @@ function DiffEditorPane({ path, original, modified, prefs }) {
   );
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/MenuBar.tsx
+// plugins/editor/web-src/editor/MenuBar.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function MenuBar({ menus, openId, onOpen }) {
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex items-center", role: "menubar", children: menus.map((menu) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
@@ -1970,7 +1970,7 @@ function MenuBar({ menus, openId, onOpen }) {
   )) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/ViewSwitch.tsx
+// plugins/editor/web-src/editor/ViewSwitch.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function ViewSwitch({ options, value, onChange, label }) {
   if (options.length < 2) return null;
@@ -1995,7 +1995,7 @@ function ViewSwitch({ options, value, onChange, label }) {
   }) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/StatusBar.tsx
+// plugins/editor/web-src/editor/StatusBar.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -2043,7 +2043,7 @@ function StatusBar({ path, cursor, language, tabSize, size, dirty, labels }) {
   ] });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/upload.ts
+// plugins/editor/web-src/editor/upload.ts
 var UploadError = class extends Error {
 };
 async function refusal(response) {
@@ -2076,10 +2076,10 @@ async function uploadFile(projectId, root, path, file, options) {
   } while (offset < file.size);
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/menu.ts
+// plugins/editor/web-src/editor/menu.ts
 var DIVIDER = "divider";
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/MarkdownPreview.tsx
+// plugins/editor/web-src/editor/MarkdownPreview.tsx
 var import_react18 = __toESM(require_react(), 1);
 
 // node_modules/marked/lib/marked.esm.js
@@ -4918,14 +4918,14 @@ function createDOMPurify() {
 }
 var purify = createDOMPurify();
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/MarkdownPreview.tsx
+// plugins/editor/web-src/editor/MarkdownPreview.tsx
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 function MarkdownPreview({ source }) {
   const html2 = (0, import_react18.useMemo)(() => purify.sanitize(f.parse(source, { async: false })), [source]);
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "markdown-preview h-full overflow-auto p-5 text-sm leading-relaxed text-foreground", dangerouslySetInnerHTML: { __html: html2 } });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/ImagePreview.tsx
+// plugins/editor/web-src/editor/ImagePreview.tsx
 var import_react19 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function ImagePreview({ projectId, root, path }) {
@@ -4954,7 +4954,7 @@ function ImagePreview({ projectId, root, path }) {
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-background p-6", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "text-sm text-muted-foreground", children: path }) : url ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("img", { src: url, alt: path, className: "max-h-full max-w-full object-contain" }) : null });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/PdfPreview.tsx
+// plugins/editor/web-src/editor/PdfPreview.tsx
 var import_react20 = __toESM(require_react(), 1);
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function PdfPreview({ projectId, root, path, failedLabel, office = false }) {
@@ -4984,14 +4984,14 @@ function PdfPreview({ projectId, root, path, failedLabel, office = false }) {
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "h-full overflow-hidden bg-background p-3", children: failed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "p-4 text-center text-sm text-destructive", children: failedLabel.replace("{path}", path) }) : url ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("iframe", { src: url, title: path, className: "h-full w-full rounded-md border border-border bg-background" }) : null });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/MediaPreview.tsx
+// plugins/editor/web-src/editor/MediaPreview.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 function MediaPreview({ projectId, root, path, kind }) {
   const src = editorFileUrl(projectId, "raw", root, { path });
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "flex h-full items-center justify-center overflow-auto bg-background p-6", children: kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("video", { controls: true, preload: "metadata", src, className: "max-h-full max-w-full rounded-md bg-background" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("audio", { controls: true, preload: "metadata", src, className: "w-full max-w-2xl" }) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/BinaryPreview.tsx
+// plugins/editor/web-src/editor/BinaryPreview.tsx
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var { components } = runtime();
 var { Button: Button2 } = components;
@@ -5030,7 +5030,7 @@ function BinaryPreview({ projectId, root, path, size, message, downloadLabel, si
   ] }) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/CsvPreview.tsx
+// plugins/editor/web-src/editor/CsvPreview.tsx
 var import_react21 = __toESM(require_react(), 1);
 var import_papaparse = __toESM(require_papaparse_min(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
@@ -5054,7 +5054,7 @@ function CsvPreview({ source, invalidLabel, limitedLabel }) {
   ] });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/Tabs.tsx
+// plugins/editor/web-src/editor/Tabs.tsx
 var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
   if (tabs.length === 0) return null;
@@ -5071,7 +5071,7 @@ function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
   }) });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/editor/ProjectEditor.tsx
+// plugins/editor/web-src/editor/ProjectEditor.tsx
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var { hooks, components: components2, utils } = runtime();
 var { useProjects, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings, usePersistentState } = hooks;
@@ -5736,7 +5736,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
   return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("section", { "aria-label": s.editorTitle, className: "flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card", style: { height: fill ? "100%" : editorH }, children: surface });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/EditorPage.tsx
+// plugins/editor/web-src/EditorPage.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var { useProjects: useProjects2, usePluginStrings: usePluginStrings2, useProjectFilter, useFillHeight, useMobile: useMobile2, useMe, usePersistentState: usePersistentState2 } = runtime().hooks;
 var {
@@ -5825,7 +5825,7 @@ function EditorPage() {
   ] });
 }
 
-// ../.config/elowen/plugins-data/sandbox/users/1/workspaces/editor-path-cleanup/plugins/editor/web-src/index.tsx
+// plugins/editor/web-src/index.tsx
 registerEditorUi({
   requiresApiVersion: 16,
   pages: { "": EditorPage }
