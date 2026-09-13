@@ -1,4 +1,5 @@
 import { request as httpRequest } from 'node:http';
+import { requireSandbox } from './sandboxControl.js';
 /** How long an unhealthy publication waits before the Project's environment is asked for its transport
  *  again. The probe in between is cheap — a connect to a unix socket — while establishing a transport
  *  costs guest round trips, so a broken publication must not pay for one on every reconcile tick. */
@@ -55,8 +56,10 @@ export class ProjectPublicationService {
      *  the first time, and needs none afterwards — so the sweep re-establishes a transport nobody's account
      *  owns any more, and only a publish can create or repoint one. */
     async establish(site, accountUserId) {
-        const control = this.deps.control();
-        if (!control?.projectPublicationBinding) {
+        // Two different absences, and the caller needs them apart: no Sandbox at all is an operator's switch,
+        // while a Sandbox without this seam is a daemon too old to carry publications.
+        const control = requireSandbox(this.deps.control());
+        if (!control.projectPublicationBinding) {
             throw new Error('the Sandbox publication transport is unavailable on this instance');
         }
         const port = publicationPort(site);
@@ -84,9 +87,12 @@ export class ProjectPublicationService {
         this.nextAttempt.delete(site.id);
         if (!this.managed(site))
             return;
+        // Deliberately NOT `requireSandbox`: cleanup owns a durable retry marker and must report the missing
+        // publication seam as its own failure instead of translating it into a start-time plugin hint.
         const control = this.deps.control();
-        if (!control?.projectPublicationRelease)
-            return;
+        if (!control?.projectPublicationRelease) {
+            throw new Error('the Sandbox publication transport is unavailable on this instance');
+        }
         await control.projectPublicationRelease({
             project: { kind: 'managed', projectId: site.projectId },
             publicationId: site.id,

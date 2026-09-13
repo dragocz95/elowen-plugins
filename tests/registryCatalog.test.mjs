@@ -201,14 +201,36 @@ for (const name of folders) {
   });
 }
 
+/** The controls the CORE bundled plugins publish, read from the published `elowen` this registry builds
+ *  against. A required key does not have to come from a registry plugin — `sandbox` is bundled with the
+ *  daemon — and treating this registry as the only possible provider declared a satisfiable dependency
+ *  orphaned. */
+const coreControls = () => {
+  const configuredCoreRoot = process.env.ELOWEN_CORE_ROOT?.trim();
+  const dir = configuredCoreRoot
+    ? join(configuredCoreRoot, 'plugins')
+    : join(root, 'node_modules', 'elowen', 'plugins');
+  if (!existsSync(dir)) return null;
+  const keys = new Set();
+  for (const name of readdirSync(dir)) {
+    const manifest = join(dir, name, 'elowen-plugin.json');
+    if (!existsSync(manifest)) continue;
+    for (const key of JSON.parse(readFileSync(manifest, 'utf8')).provides?.controls ?? []) keys.add(key);
+  }
+  return keys;
+};
+
 for (const name of folders) {
   const required = manifestOf(name).requiresControls ?? [];
   if (required.length === 0) continue;
-  test(`${name}: something in this registry provides the controls it requires`, () => {
-    // The daemon refuses to enable a plugin whose required control nothing publishes. A dependency on a
-    // key no plugin here provides is therefore a plugin that can never be switched on.
-    const provided = new Set(folders.flatMap((other) => manifestOf(other).provides?.controls ?? []));
+  test(`${name}: something provides the controls it requires`, () => {
+    // The daemon refuses to enable a plugin whose required control nothing publishes, so a dependency on
+    // a key with no provider anywhere is a plugin that can never be switched on. "Anywhere" is this
+    // registry OR the core bundled set, because a control is matched by key and not by who ships it.
+    const core = coreControls();
+    assert.ok(core !== null, 'the published elowen is needed to know which controls core itself publishes');
+    const provided = new Set([...core, ...folders.flatMap((other) => manifestOf(other).provides?.controls ?? [])]);
     const orphaned = required.filter((key) => !provided.has(key));
-    assert.deepEqual(orphaned, [], `${name} requires controls nothing in this registry provides: ${orphaned.join(', ')}`);
+    assert.deepEqual(orphaned, [], `${name} requires controls nothing provides: ${orphaned.join(', ')}`);
   });
 }

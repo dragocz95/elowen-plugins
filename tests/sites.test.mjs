@@ -86,13 +86,9 @@ test('sites manifest and marketplace registry expose the same release', () => {
 
   assert.equal(catalog?.version, manifest.version);
   assert.equal(catalog?.requiresCore, manifest.requiresCore);
-  // The "environment support is unavailable" copy names that same floor to the administrator reading it.
-  // It drifted once already, telling operators to reach a core release the plugin no longer accepts.
-  const provisioning = readFileSync(new URL('../plugins/sites/src/provisioning.ts', import.meta.url), 'utf8');
-  assert.ok(
-    provisioning.includes(`Sites requires core ${manifest.requiresCore} and`),
-    `the unavailable copy must name core ${manifest.requiresCore}, the manifest's own floor`,
-  );
+  assert.deepEqual(manifest.requiresControls, ['sandbox']);
+  assert.equal(manifest.provides.apiRoutes.includes('environments/readiness'), false);
+  assert.equal(manifest.provides.apiRoutes.includes('environments/provision'), false);
   assert.equal(catalog?.provides.tools, manifest.provides.tools.length);
   assert.equal(catalog?.provides.apiRoutes, manifest.provides.apiRoutes.length);
   // The mount is namespaced by plugin name, so the declared route is 's' and the public address is
@@ -102,8 +98,7 @@ test('sites manifest and marketplace registry expose the same release', () => {
   assert.equal(manifest.web.requiresApiVersion, 12);
   assert.ok(!('userGrantable' in manifest), 'a grant would lock invited guests out of the ticket route');
   const indexSource = readFileSync(new URL('../plugins/sites/src/index.ts', import.meta.url), 'utf8');
-  assert.match(indexSource, /siteImageStatus\(\{ imageKind: 'base' \}\)/,
-    'base-image readiness must use the Sandbox control exposed by the required core');
+  assert.doesNotMatch(indexSource, /EnvironmentProvisioningService|environments\/readiness|environments\/provision/);
 });
 
 // ── access matrix ────────────────────────────────────────────────────────────────────────────────
@@ -1503,7 +1498,7 @@ test('deletion completes when the environment was already deleted', async () => 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('deletion succeeds when broker teardown is unavailable after environment resources are gone', async () => {
+test('deletion keeps its durable row until socket and gateway teardown both succeed', async () => {
   const store = new SitesStore(makeDb());
   const root = tempDir('delete-without-broker');
   const target = site({ id: 'id-1', slug: 'report-a1b2c3', runtime: 'environment' });
@@ -1511,33 +1506,32 @@ test('deletion succeeds when broker teardown is unavailable after environment re
   mkdirSync(join(root, target.id), { recursive: true });
   store.beginDelete(target.id);
   let removeBroker;
-  const socketRemovals = [];
-  const warnings = [];
+  let socketAttempts = 0;
+  let gatewayAttempts = 0;
+  const deps = {
+    store,
+    siteDir: (id) => join(root, id),
+    hasGatewayBroker: () => true,
+    stopLegacy: async () => {},
+    releasePublication: async () => {},
+    deleteEnvironment: async (_id, options) => { removeBroker = options?.removeBroker; },
+    removeRuntimeSocket: async () => { socketAttempts += 1; if (socketAttempts === 1) throw new Error('the privileged gateway refused socket removal'); },
+    removeGateway: async () => { gatewayAttempts += 1; if (gatewayAttempts === 1) throw new Error('nginx reload failed'); },
+  };
 
   try {
-    await deleteSiteResources(target.id, {
-      store,
-      siteDir: (id) => join(root, id),
-      hasGatewayBroker: () => true,
-      stopLegacy: async () => {},
-      releasePublication: async () => {},
-      deleteEnvironment: async (_id, options) => {
-        removeBroker = options?.removeBroker;
-        if (removeBroker !== false) throw new Error('the published-sites socket broker is unavailable');
-      },
-      removeRuntimeSocket: async (id) => {
-        socketRemovals.push(id);
-        throw new Error('the privileged gateway refused socket removal');
-      },
-      removeGateway: async () => { throw new Error('the published-sites socket broker is unavailable'); },
-      reportRuntimeSocketError: (site, error) => warnings.push(`${site.slug}: ${error.message}`),
-    });
+    await assert.rejects(deleteSiteResources(target.id, deps), /socket removal/);
+    assert.equal(removeBroker, false, 'broker teardown runs only after the environment resources are gone');
+    assert.equal(store.siteById(target.id)?.status, 'deleting', 'the row remains as the retry owner');
+    assert.equal(existsSync(join(root, target.id)), false, 'plugin files may be removed idempotently before privileged cleanup');
 
-    assert.equal(removeBroker, false, 'broker teardown runs only after the environment and Site resources are gone');
-    assert.deepEqual(socketRemovals, [target.id], 'the privileged gateway receives one final socket-directory removal');
-    assert.deepEqual(warnings, [`${target.slug}: the privileged gateway refused socket removal`]);
+    await assert.rejects(deleteSiteResources(target.id, deps), /nginx reload failed/);
+    assert.equal(store.siteById(target.id)?.status, 'deleting', 'a failed vhost or certificate removal remains queued');
+
+    await deleteSiteResources(target.id, deps);
+    assert.equal(socketAttempts, 3);
+    assert.equal(gatewayAttempts, 2);
     assert.equal(store.siteById(target.id), null);
-    assert.equal(existsSync(join(root, target.id)), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -1749,6 +1743,44 @@ test('a proxy publication is refused without a usable port, a managed Project, o
   });
   await assert.rejects(() => hostProject.call('SiteCreate', { title: 'Host', kind: 'proxy', target: '3000' }), /managed Project/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create persists nothing');
+});
+
+test('SiteCreate names the Sandbox plugin when it is off, on both paths that cannot do without it', async (t) => {
+  // Sites declares `requiresControls: ['sandbox']`, so this is the reload window between the daemon
+  // refusing to enable Sites without a provider and refusing to switch that provider off underneath it.
+  // Both paths used to say "The Sandbox environment runtime is unavailable", which reads as a broken
+  // container rather than as a switch somebody turned off.
+  const proxy = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    projectRef: { kind: 'managed', projectId: 7 },
+    runtimeAvailable: false,
+  });
+  await assert.rejects(
+    () => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }),
+    /Sandbox plugin, which is not enabled[\s\S]*Settings › Plugins/,
+  );
+
+  // A managed source folder is created THROUGH the Sandbox, so a file publication out of one is the
+  // second path with no fallback of its own.
+  const managedSource = toolHarness(t, {
+    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
+    projectRef: { kind: 'managed', projectId: 7 },
+    workDir: '/kolin',
+    runtimeAvailable: false,
+  });
+  await assert.rejects(
+    () => managedSource.call('SiteCreate', { title: 'Static' }),
+    /Sandbox plugin, which is not enabled/,
+  );
+
+  // The refusal must arrive as itself. The tool wraps an unexpected failure in "Could not create the
+  // site:", which would bury the one sentence naming what to switch on.
+  await assert.rejects(() => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }), (error) => {
+    assert.doesNotMatch(error.message, /Could not create the site/);
+    return true;
+  });
+  assert.deepEqual(proxy.store.allSites(), [], 'a refused create persists nothing');
+  assert.deepEqual(managedSource.store.allSites(), []);
 });
 
 test('SitePublish verifies a proxy publication through the transport and flips it live', async (t) => {
@@ -2010,6 +2042,20 @@ test('the publication service establishes, probes and releases one transport per
   await service.release(store.siteById('pub-1'));
   assert.deepEqual(calls.at(-1), ['release', { project: { kind: 'managed', projectId: 7 }, publicationId: 'pub-1' }]);
   assert.equal(service.endpointFor('pub-1'), null, 'a released publication answers through nothing');
+});
+
+test('a managed publication cannot report release while the Sandbox transport is unavailable', async () => {
+  const store = new SitesStore(makeDb());
+  store.insertSite(site({
+    id: 'pub-unavailable', slug: 'pub-d1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
+    runtime: 'static', status: 'deleting', currentReleaseId: null,
+  }));
+  const service = new ProjectPublicationService({
+    store,
+    control: () => undefined,
+    project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
+  });
+  await assert.rejects(service.release(store.siteById('pub-unavailable')), /transport is unavailable/i);
 });
 
 test('reconciliation keeps a 5xx publication live but records it as unhealthy', async (t) => {

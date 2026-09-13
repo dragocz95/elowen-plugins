@@ -1,5 +1,5 @@
 {
-  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé rootless prostredia so systemd, obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
+  "description": "Zverejňujte statické stránky, command a PHP aplikácie alebo prevádzkujte doplnkové trvalé prostredia systemd-nspawn s obmedzenými prostriedkami a vstupným socketom spravovaným hostiteľom. Každá stránka si zachováva vlastnú adresu a pravidlá viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
@@ -68,11 +68,11 @@
     },
     "allowEnvironments": {
       "label": "Povoliť trvalé prostredia",
-      "hint": "Umožní Sites prevádzkovať trvalé rootless Podman prostredia so systemd, súkromným koreňovým súborovým systémom a jediným vstupným socketom spravovaným hostiteľom."
+      "hint": "Umožní Sites prevádzkovať trvalé systemd-nspawn prostredia cez Sandbox so súkromným koreňovým súborovým systémom a jediným vstupným socketom spravovaným hostiteľom."
     },
     "environmentNetwork": {
       "label": "Sieť prostredia",
-      "hint": "Odchádzajúci internet používa rootless slirp4netns so zakázaným loopbackom hostiteľa. Režim bez siete neposkytne prostrediu žiadne sieťové rozhranie okrem vlastného loopbacku.",
+      "hint": "Odchádzajúci internet sa riadi zásadami strojového runtime Sandboxu. Režim bez siete blokuje odchádzajúcu prevádzku a zachová súkromný vstupný socket Sites.",
       "options": {
         "shared": "Odchádzajúci internet",
         "isolated": "Bez siete"
@@ -215,6 +215,12 @@
       "environmentStatusMisdirected": "Nesprávny cieľ",
       "environmentStatusUnavailable": "Kontrola nie je dostupná",
       "environmentStatusUnknown": "Neoverené",
+      "sandboxRequiredTitle": "Požadovaný Sandbox",
+      "sandboxRequiredDescription": "Trvalé prostredia Sites používajú zdieľaný strojový runtime Sandboxu. Pred vytvorením alebo spustením prostredia Sandbox nainštalujte a aktivujte.",
+      "sandboxRequiredCheck": "Strojový runtime Sandboxu",
+      "sandboxRequiredReady": "Sandbox je nainštalovaný a strojový runtime je pripravený.",
+      "sandboxRequiredUnavailable": "Sandbox chýba, je vypnutý alebo nie je pripravený. Najprv dokončite jeho inštaláciu.",
+      "openSandboxSettings": "Otvoriť nastavenia Sandboxu",
       "state_unprovisioned": "Nevytvorené",
       "state_starting": "Spúšťa sa",
       "state_running": "Beží",
@@ -225,34 +231,11 @@
       "state_paused": "Pozastavené",
       "state_restarting": "Reštartuje sa",
       "state_unknown": "Neznámy stav",
-      "readiness_os_supported": "Podporovaný operačný systém",
-      "readiness_package_podman": "Podman",
-      "readiness_package_crun": "crun",
-      "readiness_package_uidmap": "uidmap",
-      "readiness_package_dbus_user_session": "Balík používateľského D-Bus",
-      "readiness_package_passt": "passt",
-      "readiness_package_slirp4netns": "slirp4netns",
-      "readiness_package_fuse_overlayfs": "fuse-overlayfs",
-      "readiness_subuid": "Podradené používateľské ID",
-      "readiness_subgid": "Podradené skupinové ID",
-      "readiness_linger": "Trvalý správca používateľa",
-      "readiness_user_bus": "Používateľský D-Bus",
-      "readiness_cgroup_cpu": "Delegovanie CPU cgroup",
-      "readiness_cgroup_memory": "Delegovanie pamäťovej cgroup",
-      "readiness_cgroup_pids": "Delegovanie procesovej cgroup",
-      "readiness_podman_rootless": "Rootless Podman",
-      "readiness_base_image": "Deterministický základný image Sites",
       "environmentObservedTarget": "Zistený cieľ",
       "environmentRecordType": "Typ",
       "environmentRecordName": "Názov",
       "environmentRecordValue": "Hodnota",
-      "environmentDependenciesTitle": "Závislosti prostredia",
-      "environmentDependenciesDescription": "Systémové balíčky, podpora rootless Podmanu a deterministický základný image Sites.",
-      "environmentProvisionHelp": "Inštalácia podľa potreby nainštaluje Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastaví podradené ID, linger používateľa a delegovanie cgroup; a zostaví deterministický základný image. Nereštartuje Elowen, web ani nginx.",
-      "environmentSetupReady": "Závislosti prostredia sú pripravené",
-      "environmentSetupAttention": "Závislosti prostredia vyžadujú pozornosť",
-      "environmentProvisionConfirmTitle": "Nainštalovať závislosti prostredia",
-      "environmentProvisionConfirmDescription": "Podľa potreby sa nainštalujú Podman, crun, uidmap, dbus-user-session, passt, slirp4netns a fuse-overlayfs; nastavia sa podradené ID, linger používateľa a delegovanie cgroup; a zostaví sa deterministický základný image. Elowen, web ani nginx sa nereštartujú.",
+      "environmentSetupAttention": "Nastavenie vyžaduje pozornosť",
       "environmentObservedState": "Zistený stav",
       "projectEnvironmentLink": "Túto publikáciu obsluhuje prostredie projektu {project}.",
       "projectEnvironmentMissing": "Prostredie projektu teraz nie je dostupné.",

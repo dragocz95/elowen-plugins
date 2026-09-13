@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
@@ -13,14 +12,13 @@ import { executePhp } from './php.js';
 import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import { SpawnExecutor } from './podman.js';
 import { EnvironmentSupervisor } from './environment.js';
-import { EnvironmentProvisioningService } from './provisioning.js';
-import { SITES_TOOLCHAIN, environmentReadinessChecks, toolchainRow } from './readiness.js';
 import { DataSyncService, migrationArtifactDir, validateLegacyHome } from './dataSync.js';
 import { installAppRecipe, loadAppRecipe, recipeBinding, relaxStaticServingPermissions } from './recipe.js';
 import { conversionImageTag } from './conversionImage.js';
 import { RuntimeMigrationService } from './migration.js';
 import { deleteSiteResources } from './deletion.js';
 import { ProjectPreviewService } from './preview.js';
+import { requireSandbox } from './sandboxControl.js';
 import { ProjectPublicationService } from './publication.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
@@ -29,15 +27,6 @@ const GATEWAY_RECONCILE_MS = 12 * 3600_000;
  *  `recover-site-gateway` interval for why an inactive gateway is the one state worth polling. */
 const GATEWAY_RECOVERY_MS = 60_000;
 const ISSUE_SWEEP_MS = 30_000;
-const sandboxVisible = (path) => {
-    try {
-        const real = realpathSync(path);
-        return real === '/usr' || real.startsWith('/usr/');
-    }
-    catch {
-        return false;
-    }
-};
 export function register(published) {
     const ctx = asSitesContext(published);
     const store = new SitesStore(ctx.db());
@@ -116,9 +105,7 @@ export function register(published) {
     const sourceHostPath = async (site) => {
         if (!site.sourceRel)
             throw new Error('this Site has no Project source');
-        const sandbox = ctx.control('sandbox');
-        if (!sandbox)
-            throw new Error('the Sandbox environment runtime is unavailable');
+        const sandbox = requireSandbox(ctx.control('sandbox'));
         const root = await sandbox.projectWorkspaceHostPath({ projectId: site.projectId });
         return join(root, ...site.sourceRel.split('/'));
     };
@@ -225,6 +212,9 @@ export function register(published) {
     /** The state of the environment a proxy publication is served by. Read through the current manager,
      *  because the environment state seam is account-scoped even though the publication transport is not. */
     const projectEnvironment = async (projectId, actor) => {
+        // Deliberately NOT `requireSandbox`: this reports a state for a listing, and null already means
+        // "unknown" to every reader of it — the same answer an unreachable environment gives one line below.
+        // Throwing would take out the whole listing over a row that has nothing to say.
         const control = ctx.control('sandbox');
         if (!control?.environmentFor)
             return null;
@@ -236,36 +226,6 @@ export function register(published) {
             return null;
         }
     };
-    const provisioning = new EnvironmentProvisioningService({
-        control: () => ctx.control('publishedSitesGateway'),
-        imageExists: async () => {
-            const sandbox = ctx.control('sandbox');
-            if (!sandbox?.siteImageStatus)
-                return null;
-            return (await sandbox.siteImageStatus({ imageKind: 'base' })).present;
-        },
-        buildImage: async () => {
-            const site = store.allSites().find(entry => entry.runtime === 'environment');
-            if (!site)
-                throw new Error('image provisioning requires a registered Site environment');
-            await environment.provision(site, 'base');
-        },
-        audit: (status, actorUserId) => ctx.publishEvent({
-            type: 'plugin',
-            plugin: 'sites',
-            kind: 'environments.provisioned',
-            projectId: null,
-            data: { at: new Date().toISOString(), actorUserId, ready: status.ready, items: status.items },
-        }),
-    });
-    ctx.registerEventRowResolver((event) => event.type === 'plugin' && event.kind === 'environments.provisioned'
-        ? {
-            type: 'sites.environments.provisioned',
-            target: 'sites-environments',
-            label: 'Sites environments',
-            detail: 'An administrator ran environment dependency provisioning.',
-        }
-        : null);
     const dataSync = new DataSyncService({
         executor: new SpawnExecutor(),
         artifactDir: (siteId) => migrationArtifactDir(siteDir(siteId)),
@@ -347,9 +307,7 @@ export function register(published) {
             const recipe = loadAppRecipe(migrationArtifactDir(siteDir(site.id)));
             if (recipe.dataIncludes.length === 0)
                 return null;
-            const sandbox = ctx.control('sandbox');
-            if (!sandbox)
-                throw new Error('the Sandbox plugin is disabled, so this site\'s data directory cannot be resolved');
+            const sandbox = requireSandbox(ctx.control('sandbox'));
             const cwd = releaseDir(site.id, site.currentReleaseId);
             const prepared = await sandbox.prepareExecution({ command: { type: 'shell', command: site.startCommand }, cwd, leaseKind: 'sites', network: config().runtimeNetwork }, { accountUserId: site.ownerUserId, roots: [cwd] });
             try {
@@ -446,8 +404,6 @@ export function register(published) {
                     await control.removeRuntimeSocket(id);
                 },
                 removeGateway: (slug) => gateway.removeSite(slug),
-                reportRuntimeSocketError: (target, error) => ctx.logger.warn(`site ${target.slug} runtime socket cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`),
-                reportGatewayError: (target, error) => ctx.logger.warn(`site ${target.slug} gateway cleanup failed after deletion: ${error instanceof Error ? error.message : String(error)}`),
             });
             deletingSiteIds.delete(siteId);
         }
@@ -569,8 +525,6 @@ export function register(published) {
         environmentAction: (site, actor) => environment.pendingAction(site, actor),
         gatewayReadiness: () => gateway.readiness(),
         gatewayRecord: () => gateway.requiredRecord(),
-        // Core 0.28.42 executes migrate-runtime but its published SiteEnvironmentAction type omitted that
-        // discriminator. Keep the compatibility cast at this one boundary until the published type catches up.
         requestEnvironmentControl: (site, action, actor, requestId) => environment.request(site, { kind: action }, actor, requestId),
         environmentOperation: (site, operationId, actor) => environment.operation(site, operationId, actor),
         snapshotEnvironment: async (site, input, actor) => {
@@ -582,7 +536,6 @@ export function register(published) {
         },
         applyEnvironmentLimits: (site, limits, actor) => environment.applyLimits(site, limits, actor),
         projectEnvironment,
-        provisioning,
         migration,
     });
     ctx.registerApiRoute({ path: 'preview', method: 'POST', access: 'user', handler: async (req) => {
@@ -601,9 +554,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'ticket', method: 'POST', access: 'user', handler: handlers.ticket });
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
-    ctx.registerApiRoute({ path: 'environments/readiness', method: 'GET', access: 'user', handler: handlers.environmentsReadiness });
-    ctx.registerApiRoute({ path: 'environments/provision', method: 'POST', access: 'user', handler: handlers.environmentsProvision });
-    // Admin-gated inside the handler, like the provisioning routes: core's `access` levels have no
+    // Admin-gated inside the handler: core's `access` levels have no
     // admin tier, so the check has to live where the auth is actually read.
     ctx.registerApiRoute({ path: 'conversion', access: 'user', handler: handlers.conversion });
     registerTools({
@@ -615,16 +566,6 @@ export function register(published) {
         },
     });
     ctx.registerReadinessCheck(() => gateway.readiness());
-    // One row per dependency and per interpreter, rather than one row carrying a paragraph: the status
-    // card lists what is checked, and a failing item shows its own cause where a reader is looking.
-    for (const check of environmentReadinessChecks({
-        enabled: () => config().allowEnvironments,
-        status: () => provisioning.status(),
-    }))
-        ctx.registerReadinessCheck(check);
-    for (const probe of SITES_TOOLCHAIN) {
-        ctx.registerReadinessCheck(() => toolchainRow(probe, (path) => existsSync(path) && sandboxVisible(path)));
-    }
     // Nothing in the daemon keeps a process alive across a restart, and a confined child dies with its
     // parent by construction. Supervision of published runtimes is therefore this plugin's own job:
     // reconcile brings back everything that should be running, and the service stops them around a

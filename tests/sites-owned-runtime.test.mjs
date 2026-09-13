@@ -65,7 +65,9 @@ test('a new environment starts from its registered image without a separate prov
 test('missing runtime refuses managed operations and never uses a local driver', async () => {
   const f = fixture();
   f.disable();
-  await assert.rejects(f.environment.state(f.site), /unavailable/);
+  // One shared refusal across every path that needs the Sandbox, naming the plugin to switch on rather
+  // than an "unavailable runtime" that reads as a broken container.
+  await assert.rejects(f.environment.state(f.site), /Sandbox plugin, which is not enabled/);
   assert.deepEqual(f.calls, []);
 });
 

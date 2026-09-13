@@ -4,6 +4,7 @@ import { request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
 import { dirname, join, resolve, sep } from 'node:path';
 import { createSiteRuntimeAuthority } from './siteRuntimeAuthority.js';
+import { requireSandbox } from './sandboxControl.js';
 import { BASE_IMAGE_TAG, baseImageRecipe } from './baseImage.js';
 import { conversionImageRecipe, conversionImageTag } from './conversionImage.js';
 import { appUnit, loadAppRecipe, provisionScript } from './recipe.js';
@@ -59,12 +60,13 @@ export class EnvironmentSupervisor {
             },
         });
     }
+    // Deliberately NOT `requireSandbox`: this runs while the plugin registers, and throwing there would
+    // stop Sites loading at all — including the surfaces that exist to say the Sandbox is missing. Every
+    // operation that follows resolves the control again and does refuse by name.
     connect() { if (this.deps.control())
         this.control(); }
     control() {
-        const control = this.deps.control();
-        if (!control)
-            throw new Error('the Sandbox environment runtime is unavailable');
+        const control = requireSandbox(this.deps.control());
         if (this.connected !== control) {
             control.connectSitesRuntime(this.authority);
             this.connected = control;

@@ -332,21 +332,6 @@ var Network = createLucideIcon("Network", [
   ["path", { d: "M12 12V8", key: "2874zd" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/package-check.js
-var PackageCheck = createLucideIcon("PackageCheck", [
-  ["path", { d: "m16 16 2 2 4-4", key: "gfu2re" }],
-  [
-    "path",
-    {
-      d: "M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14",
-      key: "e7tb2h"
-    }
-  ],
-  ["path", { d: "m7.5 4.27 9 5.15", key: "1c824w" }],
-  ["polyline", { points: "3.29 7 12 12 20.71 7", key: "ousv84" }],
-  ["line", { x1: "12", x2: "12", y1: "22", y2: "12", key: "a4e8g8" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/play.js
 var Play = createLucideIcon("Play", [
   ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
@@ -1511,82 +1496,55 @@ function SitesProjectPanel({ project }) {
 }
 
 // plugins/sites/web-src/EnvironmentsSetup.tsx
-var import_react8 = __toESM(require_react(), 1);
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 var gatewayTone = (status) => status === "ready" ? "success" : status === "missing" ? "warning" : "danger";
 function EnvironmentsSetup({ surface }) {
   const host = runtime();
-  const {
-    Badge,
-    Button,
-    ConfirmDialog,
-    ErrorState,
-    HelpTip,
-    LoadingState,
-    PluginPageHeader,
-    SettingsDocument,
-    SettingsGroup,
-    SettingsRow
-  } = host.components;
+  const { Badge, Button, ErrorState, LoadingState, PluginPageHeader, SettingsDocument, SettingsGroup, SettingsRow } = host.components;
   const strings = host.hooks.usePluginStrings("sites");
   const { toast } = host.hooks.useToast();
-  const [confirmInstall, setConfirmInstall] = (0, import_react8.useState)(false);
-  const [provisionError, setProvisionError] = (0, import_react8.useState)(null);
-  const installing = (0, import_react8.useRef)(false);
   const gateway = host.hooks.useQuery({
     queryKey: ["sites", "gateway-readiness"],
     queryFn: () => runtime().api("/plugins/sites/api/gateway/readiness"),
     refetchInterval: 3e4
   });
-  const environment = host.hooks.useQuery({
-    queryKey: ["sites", "environment-readiness"],
-    queryFn: () => runtime().api("/plugins/sites/api/environments/readiness")
+  const sandbox = host.hooks.useQuery({
+    queryKey: ["sandbox", "runtime-host"],
+    queryFn: () => runtime().api("/plugins/sandbox/api/runtime/host")
   });
-  const provision = host.hooks.useMutation({
-    mutationFn: () => runtime().api("/plugins/sites/api/environments/provision", { method: "POST" }),
-    onSuccess: (status) => {
-      setProvisionError(null);
-      toast(status.ready ? strings.environmentSetupReady : strings.environmentSetupAttention, status.ready ? "ok" : "error");
-    },
-    onError: (error) => {
-      const message = host.utils.apiErrorMessage(error);
-      setProvisionError(message);
-      toast(message, "error");
-    }
-  });
-  const install = async () => {
-    if (installing.current || provision.isPending) return;
-    installing.current = true;
-    try {
-      await provision.mutateAsync();
-    } catch {
-    } finally {
-      installing.current = false;
-      setConfirmInstall(false);
-      environment.refetch();
-    }
-  };
   const copy = (value) => {
     host.utils.copyText(value);
     toast(strings.copied);
   };
-  if (gateway.isLoading || environment.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LoadingState, { variant: "block", height: "14rem" });
+  if (gateway.isLoading || sandbox.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LoadingState, { variant: "block", height: "14rem" });
   if (gateway.isError) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(ErrorState, { message: host.utils.apiErrorMessage(gateway.error), onRetry: () => gateway.refetch() });
-  if (environment.isError) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(ErrorState, { message: host.utils.apiErrorMessage(environment.error), onRetry: () => environment.refetch() });
-  if (!gateway.data || !environment.data) return null;
-  const canInstall = environment.data.canProvision && environment.data.items.some((item) => !item.ok && !item.unknown);
-  const readinessLabel = (id, fallback) => strings[`readiness_${id.replace(/[:\-]/g, "_")}`] || fallback;
+  if (!gateway.data) return null;
   const gatewayStatus = gateway.data.status === "ready" ? strings.environmentStatusReady : gateway.data.status === "missing" ? strings.environmentStatusMissing : gateway.data.status === "misdirected" ? strings.environmentStatusMisdirected : strings.environmentStatusUnavailable;
+  const sandboxReady = !sandbox.isError && sandbox.data?.ready === true;
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "space-y-4", children: [
-    surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-      PluginPageHeader,
-      {
-        title: strings.environmentSetupTitle,
-        description: strings.environmentSetupDescription,
-        icon: Network
-      }
-    ) : null,
+    surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PluginPageHeader, { title: strings.environmentSetupTitle, description: strings.environmentSetupDescription, icon: Network }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(SettingsDocument, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        SettingsGroup,
+        {
+          icon: Server,
+          title: strings.sandboxRequiredTitle,
+          description: strings.sandboxRequiredDescription,
+          density: "compact",
+          actions: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { tone: sandboxReady ? "success" : "warning", children: sandboxReady ? strings.environmentStatusReady : strings.environmentSetupAttention }),
+          children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+            SettingsRow,
+            {
+              label: strings.sandboxRequiredCheck,
+              status: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { tone: sandboxReady ? "success" : "danger", children: sandboxReady ? strings.pass : strings.fail }),
+              control: sandboxReady ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "text-xs text-muted-foreground", children: strings.sandboxRequiredReady }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex flex-col items-start gap-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "text-xs text-muted-foreground", children: strings.sandboxRequiredUnavailable }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => host.navigate("/p/sandbox"), children: strings.openSandboxSettings })
+              ] })
+            }
+          )
+        }
+      ),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
         SettingsGroup,
         {
@@ -1625,60 +1583,8 @@ function EnvironmentsSetup({ surface }) {
             ] }, label)) }) : null
           ]
         }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-        SettingsGroup,
-        {
-          icon: PackageCheck,
-          title: strings.environmentDependenciesTitle,
-          description: strings.environmentDependenciesDescription,
-          density: "compact",
-          actions: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { tone: environment.data.ready ? "success" : "warning", children: environment.data.ready ? strings.environmentStatusReady : strings.environmentSetupAttention }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(HelpTip, { children: strings.environmentProvisionHelp })
-          ] }),
-          children: [
-            environment.data.items.map((item) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-              SettingsRow,
-              {
-                label: readinessLabel(item.id, item.label),
-                icon: item.unknown ? CircleDashed : item.ok ? CircleCheck : TriangleAlert,
-                trailingLayout: item.detail ? "stack" : "inline",
-                status: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { tone: item.unknown ? "muted" : item.ok ? "success" : "danger", children: item.unknown ? strings.environmentStatusUnknown : item.ok ? strings.pass : strings.fail }),
-                control: item.detail ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "text-xs text-muted-foreground", children: item.detail }) : void 0
-              },
-              item.id
-            )),
-            environment.data.detail ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "px-1 text-xs text-muted-foreground", children: environment.data.detail }) : null,
-            provisionError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "px-1 text-xs text-destructive", role: "alert", children: provisionError }) : null,
-            canInstall ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "flex justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-              Button,
-              {
-                variant: "accent",
-                icon: PackageCheck,
-                disabled: environment.data.ready || provision.isPending || installing.current,
-                onClick: () => setConfirmInstall(true),
-                children: strings.environmentProvision
-              }
-            ) }) : null
-          ]
-        }
       )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-      ConfirmDialog,
-      {
-        open: confirmInstall,
-        title: strings.environmentProvisionConfirmTitle,
-        description: strings.environmentProvisionConfirmDescription,
-        confirmLabel: strings.environmentProvision,
-        pending: provision.isPending,
-        onClose: () => {
-          if (!provision.isPending) setConfirmInstall(false);
-        },
-        onConfirm: install
-      }
-    )
+    ] })
   ] });
 }
 

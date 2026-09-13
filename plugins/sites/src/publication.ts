@@ -1,6 +1,7 @@
 import { request as httpRequest } from 'node:http';
 import type { Site, SitesStore } from './store.js';
 import type { Endpoint } from './runtime.js';
+import { requireSandbox } from './sandboxControl.js';
 
 export interface PublicationControl {
   projectPublicationBinding(input: {
@@ -99,8 +100,10 @@ export class ProjectPublicationService {
    *  the first time, and needs none afterwards — so the sweep re-establishes a transport nobody's account
    *  owns any more, and only a publish can create or repoint one. */
   async establish(site: Site, accountUserId?: number): Promise<{ socketPath: string; generation: number }> {
-    const control = this.deps.control();
-    if (!control?.projectPublicationBinding) {
+    // Two different absences, and the caller needs them apart: no Sandbox at all is an operator's switch,
+    // while a Sandbox without this seam is a daemon too old to carry publications.
+    const control = requireSandbox(this.deps.control());
+    if (!control.projectPublicationBinding) {
       throw new Error('the Sandbox publication transport is unavailable on this instance');
     }
     const port = publicationPort(site);
@@ -127,8 +130,12 @@ export class ProjectPublicationService {
     this.endpoints.delete(site.id);
     this.nextAttempt.delete(site.id);
     if (!this.managed(site)) return;
+    // Deliberately NOT `requireSandbox`: cleanup owns a durable retry marker and must report the missing
+    // publication seam as its own failure instead of translating it into a start-time plugin hint.
     const control = this.deps.control();
-    if (!control?.projectPublicationRelease) return;
+    if (!control?.projectPublicationRelease) {
+      throw new Error('the Sandbox publication transport is unavailable on this instance');
+    }
     await control.projectPublicationRelease({
       project: { kind: 'managed', projectId: site.projectId },
       publicationId: site.id,

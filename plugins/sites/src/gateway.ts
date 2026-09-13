@@ -337,21 +337,18 @@ export class SiteGatewayManager {
     }
   }
 
-  /** Take one site's hostname and certificate away. Never throws: the site is already gone from the
-   *  store by the time this runs, and a stuck certificate must not block the deletion that removed it. */
+  /** Take one site's hostname and certificate away. Failure propagates to the durable Site deletion marker,
+   *  which keeps the slug reserved and retries until the privileged gateway confirms cleanup. */
   async removeSite(slug: string): Promise<void> {
     const gateway = this.ctx.control('publishedSitesGateway');
-    // Whatever becomes of the certificate, this slug is gone. Keeping its backoff would hand the delay
-    // to whoever is issued that slug next, and would grow both maps for the life of the process.
+    // Whatever becomes of the certificate, its issuance backoff must not delay cleanup or transfer to the
+    // next owner after deletion eventually completes.
     this.nextAttempt.delete(slug);
     this.backoffMs.delete(slug);
-    if (!gateway) return;
-    try {
-      const result = await gateway.removeSite({ slug, gatewayToken: this.gatewayToken() });
-      if (result.slugs) this.current = { ...this.current, slugs: result.slugs };
-    } catch (error) {
-      this.ctx.logger.warn(`site gateway kept ${slug}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    if (!gateway) throw new Error('this daemon has no published-sites gateway broker');
+    const result = await gateway.removeSite({ slug, gatewayToken: this.gatewayToken() });
+    if (!result.available || !result.active) throw new Error(result.detail ?? `the site gateway could not remove ${slug}`);
+    if (result.slugs) this.current = { ...this.current, slugs: result.slugs };
   }
 
   private contactEmail(): string {

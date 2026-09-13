@@ -1,7 +1,6 @@
 import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath } from './access.js';
 import { environmentLimitOverrides, SITE_BASE_PATH, siteUrl } from './config.js';
-import { ProvisionInProgressError } from './provisioning.js';
 import { MigrationRefused } from './migration.js';
 import { isRecipeKind } from './recipe.js';
 const json = (status, body) => ({
@@ -229,19 +228,12 @@ export function createApiHandlers(deps) {
             if (!canAccessProject(target.projectId, req.auth))
                 return json(403, { error: 'project access is required' });
             const body = await req.json().catch(() => ({}));
-            if (!['start', 'stop', 'restart', 'migrate-disk', 'migrate-runtime'].includes(String(body.action))) {
+            if (!['start', 'stop', 'restart'].includes(String(body.action)))
                 return json(400, { error: 'unknown environment action' });
-            }
             const action = body.action;
-            if ((action === 'migrate-disk' || action === 'migrate-runtime') && !req.auth.admin) {
-                return json(403, { error: 'environment migration requires an administrator' });
-            }
             const requestId = body.requestId === undefined ? undefined : String(body.requestId);
             if (requestId !== undefined && !/^[A-Za-z0-9_.:-]{1,160}$/.test(requestId))
                 return json(400, { error: 'invalid request id' });
-            if ((action === 'migrate-disk' || action === 'migrate-runtime') && requestId === undefined) {
-                return json(400, { error: 'environment migration requires a request id' });
-            }
             try {
                 const operation = await deps.requestEnvironmentControl(target, action, runtimeActor(req), requestId);
                 return json(200, { ok: true, scheduled: true, action, operation: operationView(operation) });
@@ -386,7 +378,7 @@ export function createApiHandlers(deps) {
                 await deps.applyEnvironmentLimits(target, limits, runtimeActor(req));
             }
             catch (error) {
-                return json(502, { error: error instanceof Error ? error.message : 'Podman could not apply the limits' });
+                return json(502, { error: error instanceof Error ? error.message : 'the environment runtime could not apply the limits' });
             }
         }
         deps.store.updateSite(target.id, patch);
@@ -488,38 +480,6 @@ export function createApiHandlers(deps) {
             observedTargets: readiness.observedTargets ?? [],
         });
     };
-    const environmentsReadiness = async (req) => {
-        if (req.auth.userId === null)
-            return json(403, { error: 'forbidden' });
-        const status = await deps.provisioning.status();
-        if (req.auth.admin)
-            return json(200, { ...status, canProvision: true });
-        return json(200, {
-            ready: status.ready,
-            canProvision: false,
-            items: status.items.map((item) => ({
-                id: item.id,
-                label: item.label,
-                ok: item.ok,
-                ...(item.ok ? {} : { detail: 'An administrator must complete this dependency.' }),
-            })),
-        });
-    };
-    const environmentsProvision = async (req) => {
-        if (!req.auth.admin)
-            return json(403, { error: 'forbidden' });
-        if (req.method !== 'POST')
-            return json(405, { error: 'method not allowed' });
-        try {
-            const status = await deps.provisioning.provision(req.auth.userId);
-            return json(status.ready ? 200 : 503, { ...status, canProvision: true });
-        }
-        catch (error) {
-            if (error instanceof ProvisionInProgressError)
-                return json(409, { error: error.message });
-            return json(502, { error: error instanceof Error ? error.message : 'environment provisioning failed' });
-        }
-    };
     /** GET|POST /plugins/sites/api/site/<id>/conversion — the runtime conversion operation.
      *
      *  ADMINISTRATOR ONLY, and narrow on purpose. The body carries a step name and, for `prepare`, a recipe
@@ -601,5 +561,5 @@ export function createApiHandlers(deps) {
             });
         }
     };
-    return { list, site, ticket, directory, gatewayReadiness, environmentsReadiness, environmentsProvision, conversion };
+    return { list, site, ticket, directory, gatewayReadiness, conversion };
 }

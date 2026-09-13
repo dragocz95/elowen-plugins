@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync,
 import { connect, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { readReleaseEnv } from './releaseEnvironment.js';
+import { requireSandbox } from './sandboxControl.js';
 const LOG_CAP_BYTES = 256 * 1024;
 const STOP_GRACE_MS = 5_000;
 const HEARTBEAT_MS = 5_000;
@@ -165,9 +166,7 @@ export class SiteRuntimeSupervisor {
         if (!existsSync(cwd))
             throw new Error('the published release is missing from disk');
         const releaseEnv = readReleaseEnv(cwd);
-        const sandbox = this.deps.ctx.control('sandbox');
-        if (!sandbox)
-            throw new Error('the Sandbox plugin is disabled, so a site runtime cannot be confined');
+        const sandbox = requireSandbox(this.deps.ctx.control('sandbox'));
         const gateway = this.deps.ctx.control('publishedSitesGateway');
         const config = this.deps.config();
         if (site.bind === 'port' && !config.allowLoopbackPorts) {

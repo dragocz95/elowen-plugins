@@ -23,9 +23,6 @@
   .hidden {
     display: none;
   }
-  .inline {
-    display: inline;
-  }
   .inline-flex {
     display: inline-flex;
   }
@@ -189,9 +186,6 @@
   }
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
-  }
-  .px-1 {
-    padding-inline: var(--spacing, 0.25rem);
   }
   .px-2 {
     padding-inline: calc(var(--spacing, 0.25rem) * 2);
