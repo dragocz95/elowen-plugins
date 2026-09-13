@@ -8,17 +8,9 @@ import { mayPublish } from './access.js';
 import { SITE_BASE_PATH, siteUrl } from './config.js';
 import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
 import { snapshotManagedRelease } from './managedPublish.js';
-import { isDaemonProcess } from './runtime.js';
 import { publicationPort } from './publication.js';
 import { recordedCertificate } from './certificate.js';
 import { requireSandbox, SandboxRequiredError } from './sandboxControl.js';
-/** A command runtime is only offered where the operator has turned it on. */
-function commandRuntimeRefusal(config) {
-    if (!config.allowCommandRuntime) {
-        return 'Site runtimes are turned off for this instance. An administrator can enable them in the plugin settings.';
-    }
-    return null;
-}
 const text = (body, details = {}) => ({ content: [{ type: 'text', text: body }], details });
 /** Thrown, never returned. A tool that hands a refusal back as ordinary text is recorded as a
  *  SUCCESSFUL call, so the model reads "No site of yours has the id X" as an answer rather than a
@@ -137,7 +129,6 @@ const requireManaged = (deps, ref, userId) => {
     }
     return site;
 };
-const proxyRefusal = (what) => `This publication uses its managed Project transport and has no Site lifecycle or logs. ${what}`;
 /** Resolve a person by account name or numeric id, for the sharing tools. */
 const requirePerson = (deps, ref) => {
     const wanted = ref.trim();
@@ -221,7 +212,6 @@ const describe = (site, config, project) => {
         `  visibility ${site.visibility}`,
         `  status     ${site.status === 'live' && site.lastError !== null ? 'degraded' : site.status}`,
         ...projectLines(site, project),
-        ...(site.runtime === 'command' ? [`  runtime    ${site.bind}${site.port === null ? '' : ` 127.0.0.1:${site.port}`} · ${config.runtimeNetwork} network`] : []),
         site.kind === 'proxy'
             ? `  published  ${site.lastPublishAt ?? 'never'}${site.lastPublishAt && site.lastPublishModel ? ` by ${site.lastPublishModel}` : ''}`
             : site.lastPublishAt
@@ -262,7 +252,7 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteCreate',
         label: 'Create a site',
-        description: 'Create a site and its Project source folder. Static, command and PHP sites remain drafts until SitePublish. A proxy publication forwards to an application that already runs inside the selected managed Project on the port given in target. Applications with persistent lifecycle run in the selected managed Project and are published as proxy sites.',
+        description: 'Create a static release site or a proxy publication. Static sites remain drafts until SitePublish copies a finished build. Proxy publications forward to an application already running inside the selected managed Project on the port given in target.',
         parameters: Type.Object({
             title: Type.String({ minLength: 1, maxLength: 120, description: 'Human title shown in the Sites screen.' }),
             summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
@@ -273,19 +263,12 @@ export function registerTools(deps) {
                 maxLength: 64,
                 description: 'For kind "proxy": the TCP port the application listens on at 127.0.0.1 INSIDE the Project container, e.g. "3000". Nothing else is copied or started.',
             })),
-            runtime: Type.Optional(Type.Union([Type.Literal('static'), Type.Literal('command'), Type.Literal('php')], { description: 'How a file publication answers. Long-running managed applications are published from the selected Project with kind proxy.' })),
-            startCommand: Type.Optional(Type.String({
-                maxLength: 500,
-                description: 'For runtime "command": the shell command that starts the server inside the published release. Socket mode reads SOCKET_PATH; explicitly enabled port mode reads HOST and PORT. PHP sites do not take a start command.',
-            })),
-            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'For runtime "command": listen on the secure pathname socket (default), or on an administrator-enabled loopback HOST/PORT for frameworks that do not support sockets.' })),
         }),
         execute: async (_id, input) => {
             try {
                 const userId = ownerOf(ctx);
                 guardPublisher(userId);
                 const config = deps.config();
-                const runtime = input.runtime ?? 'static';
                 const kind = input.kind === 'proxy' ? 'proxy' : 'static';
                 // The same rule as everywhere else in this tool: a value decides, never the presence of a key. A
                 // model that echoes every optional property sends `target: ""` with a plain static site, and that
@@ -297,9 +280,6 @@ export function registerTools(deps) {
                 if (kind === 'proxy') {
                     // A proxy publication is not a folder: the application already runs inside the Project, and the
                     // only thing this row adds is an address and the transport that carries requests to its port.
-                    if (runtime !== 'static') {
-                        throw new ToolError('A proxy publication has no runtime of its own; the application runs in the managed Project. Send kind "proxy" with the port in target, and leave runtime out.');
-                    }
                     if (!/^\d+$/.test(target) || Number(target) < 1 || Number(target) > 65535) {
                         throw new ToolError('A proxy publication needs target: the TCP port the application listens on at 127.0.0.1 inside the Project, for example "3000".');
                     }
@@ -336,10 +316,6 @@ export function registerTools(deps) {
                         spa: false,
                         kind: 'proxy',
                         target: String(Number(target)),
-                        runtime: 'static',
-                        startCommand: '',
-                        bind: 'socket',
-                        port: null,
                         status: 'draft',
                         currentReleaseId: null,
                         createdAt: now,
@@ -375,29 +351,6 @@ export function registerTools(deps) {
                 if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
                     throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
                 }
-                if (runtime !== 'static') {
-                    const refusal = commandRuntimeRefusal(config);
-                    if (refusal)
-                        throw new ToolError(refusal);
-                }
-                // Some models (GPT-5.6 on Azure among them) fill every optional property with its default or an
-                // empty string — `startCommand: ""`, `bind: "socket"` — even when told to send only a title. A
-                // refusal therefore keys on the VALUE, not on the key being present: only a real instruction
-                // that contradicts the runtime is a mistake.
-                const startCommand = input.startCommand?.trim() ?? '';
-                if (runtime === 'command' && !startCommand) {
-                    throw new ToolError('A command site runtime needs startCommand.');
-                }
-                if (runtime === 'php' && startCommand) {
-                    throw new ToolError('A PHP site runs through PHP-CGI and does not take startCommand.');
-                }
-                const bind = input.bind === 'port' ? 'port' : 'socket';
-                if (runtime !== 'command' && bind === 'port') {
-                    throw new ToolError('Only a command site has a runtime bind mode.');
-                }
-                if (bind === 'port' && !config.allowLoopbackPorts) {
-                    throw new ToolError('Loopback ports are turned off for this instance. Use socket mode or ask an administrator to enable them.');
-                }
                 let slug = slugify(input.title);
                 while (store.slugTaken(slug))
                     slug = slugify(input.title);
@@ -426,7 +379,6 @@ export function registerTools(deps) {
                         throw new ToolError(`${allowed} already exists.`);
                     mkdirSync(allowed, { recursive: true });
                 }
-                const port = runtime === 'command' && bind === 'port' ? await deps.runtime.allocatePort() : null;
                 const now = new Date().toISOString();
                 const site = {
                     id: siteId,
@@ -441,10 +393,6 @@ export function registerTools(deps) {
                     spa: input.spa === true,
                     kind: 'static',
                     target: '',
-                    runtime,
-                    startCommand,
-                    bind,
-                    port,
                     status: 'draft',
                     currentReleaseId: null,
                     createdAt: now,
@@ -467,29 +415,10 @@ export function registerTools(deps) {
                     `It will be published at: ${address}`,
                     '',
                     'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
-                    ...(runtime === 'command'
-                        ? [
-                            '',
-                            ...(bind === 'socket'
-                                ? ['Bind the HTTP server directly to the pathname in SOCKET_PATH; this is the secure multi-user default.']
-                                : [`Bind the HTTP server to HOST and PORT. This site currently owns 127.0.0.1:${port}.`]),
-                            'Use the normal Files, Terminal and Sandbox tools here: install dependencies, test and build before publishing. Sites does not run a second build pipeline.',
-                            'A root .env file in the published command output is loaded into the runtime environment and must not be committed to Git.',
-                            config.runtimeNetwork === 'shared'
-                                ? 'The runtime has ordinary outbound network access. Requests are still buffered and a request body is capped at 1 MB.'
-                                : 'The runtime network is isolated by instance policy. Requests are buffered and a request body is capped at 1 MB.',
-                        ]
-                        : runtime === 'php'
-                            ? [
-                                '',
-                                'Put index.php (and any routed PHP scripts) in the published output. PHP-CGI runs one confined process per request; there is no long-running PHP server or loopback port.',
-                            ]
-                            : []),
                     'When the output is ready, call SitePublish with the output directory.',
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, sourceDir: allowed,
                     basePath: SITE_BASE_PATH, url: address, visibility: site.visibility,
-                    runtime: site.runtime, bind: site.bind, port: site.port,
                 });
             }
             catch (error) {
@@ -513,8 +442,6 @@ export function registerTools(deps) {
                 const site = requireOwned(deps, input.site, userId);
                 const config = deps.config();
                 const address = siteUrl(config, site.slug);
-                if (site.runtime === 'unsupported')
-                    throw new ToolError(`This site has an unsupported runtime: ${site.unsupportedRuntime ?? 'unknown'}.`);
                 // A proxy publication has nothing to copy: publishing it means proving the application inside the
                 // Project answers through the same transport a visitor's request takes, and only then making the
                 // address live. A failure is recorded on the row and reported, never a site that is live behind a
@@ -604,12 +531,11 @@ export function registerTools(deps) {
                             accountUserId: userId,
                             sourceRoot: source,
                             releaseDir: target,
-                            limits: { maxAssetBytes: config.maxAssetBytes, maxTotalBytes: config.maxSiteBytes, mode: site.runtime },
+                            limits: { maxAssetBytes: config.maxAssetBytes, maxTotalBytes: config.maxSiteBytes },
                         })
                         : snapshotRelease(source, target, {
                             maxAssetBytes: config.maxAssetBytes,
                             maxTotalBytes: config.maxSiteBytes,
-                            mode: site.runtime,
                         });
                 }
                 catch (error) {
@@ -638,44 +564,17 @@ export function registerTools(deps) {
                     });
                 });
                 const warnings = [...snapshot.warnings];
-                if (site.runtime === 'command') {
-                    const refusal = commandRuntimeRefusal(config);
-                    if (refusal) {
-                        store.updateSite(site.id, { status: 'failed', lastError: refusal });
-                        throw new ToolError(refusal);
-                    }
-                    // The new release is already the current one, so restarting picks it up. A failure leaves the
-                    // site marked failed with the runtime's own output rather than a live address serving nothing.
-                    try {
-                        if (isDaemonProcess()) {
-                            await deps.runtime.stop(site.id);
-                            const started = store.siteById(site.id);
-                            if (started)
-                                await deps.runtime.start(started);
-                        }
-                    }
-                    catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        store.updateSite(site.id, { status: 'failed', lastError: message });
-                        throw new ToolError(`Published, but the runtime did not start: ${message}`);
-                    }
-                }
                 pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
-                if (site.runtime === 'static') {
-                    const relativeWarning = relativeAssetWarning(target, SITE_BASE_PATH);
-                    if (relativeWarning)
-                        warnings.push(relativeWarning);
-                }
-                // After the release is the live one and any runtime restart has succeeded: a certificate for a
+                const relativeWarning = relativeAssetWarning(target, SITE_BASE_PATH);
+                if (relativeWarning)
+                    warnings.push(relativeWarning);
+                // After the release is live: a certificate for a
                 // hostname whose publish then failed would be issued for a page nobody published.
                 const certificate = await deps.certificates.publish(site);
                 return text([
                     `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
                     ...publishedAddressLines(address, certificate),
                     `Visible to: ${site.visibility}`,
-                    ...(site.runtime === 'command' && !isDaemonProcess()
-                        ? ['The daemon starts the runtime shortly; check SiteLogs if the address does not answer.']
-                        : []),
                     ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
                 ].join('\n'), {
                     siteId: site.id, slug: site.slug, releaseId, url: address,
@@ -691,7 +590,7 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteList',
         label: 'List sites',
-        description: 'List owned sites with address, visibility and command runtime state, plus what each site row records about its certificate.',
+        description: 'List owned sites with address, visibility and publication kind, plus what each site row records about its certificate.',
         parameters: Type.Object({}),
         execute: async () => {
             try {
@@ -710,7 +609,6 @@ export function registerTools(deps) {
                         slug: row.site.slug,
                         kind: row.site.kind,
                         target: row.site.target,
-                        runtime: row.site.runtime,
                         ...(row.certificate ? { certificate: row.certificate } : {}),
                     })),
                 });
@@ -769,8 +667,6 @@ export function registerTools(deps) {
                     status: site.status, degraded: site.status === 'live' && site.lastError !== null,
                     sourceDir: project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel,
                     basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
-                    runtime: site.runtime, startCommand: site.startCommand, bind: site.bind, port: site.port,
-                    network: config.runtimeNetwork,
                     guests, currentReleaseId: site.currentReleaseId,
                     ...(certificate ? { certificate } : {}),
                     // `projectInfo.path` exists for `describe`, which needs the HOST root to print a host Project's
@@ -794,14 +690,12 @@ export function registerTools(deps) {
     ctx.registerTool(defineTool({
         name: 'SiteUpdate',
         label: 'Update a site',
-        description: 'Change a site\'s title, summary, router behaviour, command runtime or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+        description: 'Change a site\'s title, summary, router behaviour or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
         parameters: Type.Object({
             site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
             title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
             summary: Type.Optional(Type.String({ maxLength: 400 })),
             spa: Type.Optional(Type.Boolean()),
-            startCommand: Type.Optional(Type.String({ maxLength: 500, description: 'Replacement start command for a command runtime.' })),
-            bind: Type.Optional(Type.Union([Type.Literal('socket'), Type.Literal('port')], { description: 'Replacement bind mode for a command runtime.' })),
             visibility: Type.Optional(Type.Union([Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')])),
         }),
         execute: async (_id, input) => {
@@ -815,33 +709,6 @@ export function registerTools(deps) {
                     patch.summary = input.summary.trim();
                 if (input.spa !== undefined)
                     patch.spa = input.spa;
-                let runtimeChanged = false;
-                // As in SiteCreate: a model that echoes every optional property sends `startCommand: ""` and the
-                // site's current bind mode along with a title change, so only a VALUE that would actually alter
-                // the runtime counts as a runtime instruction.
-                const commandInput = input.startCommand?.trim() ?? '';
-                const bindInput = input.bind !== undefined && input.bind !== site.bind ? input.bind : undefined;
-                if (commandInput || bindInput !== undefined) {
-                    if (site.runtime !== 'command')
-                        throw new ToolError('Only a command site has runtime settings.');
-                    if (commandInput) {
-                        patch.startCommand = commandInput;
-                        runtimeChanged = commandInput !== site.startCommand;
-                    }
-                    if (bindInput !== undefined) {
-                        const bind = input.bind === 'port' ? 'port' : 'socket';
-                        const runtimeConfig = deps.config();
-                        if (bind === 'port' && !runtimeConfig.allowLoopbackPorts) {
-                            throw new ToolError('Loopback ports are turned off for this instance.');
-                        }
-                        const currentPortValid = site.port !== null
-                            && site.port >= runtimeConfig.loopbackPortMin
-                            && site.port <= runtimeConfig.loopbackPortMax;
-                        patch.bind = bind;
-                        patch.port = bind === 'port' ? (currentPortValid ? site.port : await deps.runtime.allocatePort()) : null;
-                        runtimeChanged = runtimeChanged || bind !== site.bind || patch.port !== site.port;
-                    }
-                }
                 const nextVisibility = input.visibility;
                 if (nextVisibility !== undefined && !VISIBILITIES.includes(nextVisibility)) {
                     throw new ToolError('Unknown visibility.');
@@ -853,18 +720,6 @@ export function registerTools(deps) {
                 if (accessChanged)
                     store.bumpAccessGeneration(site.id);
                 const updated = store.siteById(site.id);
-                if (runtimeChanged && updated?.currentReleaseId && isDaemonProcess()) {
-                    try {
-                        await deps.runtime.stop(site.id);
-                        await deps.runtime.start(updated);
-                        store.updateSite(site.id, { status: 'live', lastError: null });
-                    }
-                    catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        store.updateSite(site.id, { status: 'failed', lastError: message });
-                        throw new ToolError(`Runtime settings were saved, but the site did not restart: ${message}`);
-                    }
-                }
                 if (!updated)
                     return text('Updated.');
                 return text(`Updated.\n\n${describe(updated, deps.config(), projectOf(updated))}`);
@@ -895,37 +750,6 @@ export function registerTools(deps) {
                     throw new ToolError('Only the site owner may roll back a file release.');
                 store.updateSite(site.id, { currentReleaseId: release.id, status: 'live', lastError: null });
                 return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
-            }
-            catch (error) {
-                throw isRefusal(error) ? error : new Error(String(error));
-            }
-        },
-    }));
-    ctx.registerTool(defineTool({
-        name: 'SiteLogs',
-        label: 'Read a site runtime log',
-        description: 'Read bounded command runtime output. Static, PHP and proxy publications have no Site runtime log.',
-        parameters: Type.Object({
-            site: Type.String({ description: 'Which site: its slug or id.' }),
-        }),
-        execute: async (_id, input) => {
-            try {
-                const userId = ownerOf(ctx);
-                const site = requireManaged(deps, input.site, userId);
-                if (site.kind === 'proxy')
-                    throw new ToolError(proxyRefusal('Read the managed Project logs through Sandbox.'));
-                if (site.ownerUserId !== userId)
-                    throw new ToolError('Only the site owner may read this runtime log.');
-                if (site.runtime !== 'command')
-                    return text('This is a static site, so it has no runtime log.');
-                const tail = deps.runtime.logTail(site.id);
-                const state = deps.runtime.isRunning(site.id) ? 'running' : 'not running';
-                return text([
-                    `"${site.title}" is ${state}.`,
-                    site.lastError ? `Last error: ${site.lastError}` : '',
-                    '',
-                    tail || '(no output recorded)',
-                ].join('\n'));
             }
             catch (error) {
                 throw isRefusal(error) ? error : new Error(String(error));

@@ -1,5 +1,5 @@
 {
-  "description": "Zveřejňujte neměnné statické verze, izolované command a PHP aplikace nebo aplikaci z výslovně vybraného spravovaného projektu. Každá adresa má vlastní pravidla viditelnosti.",
+  "description": "Zveřejňujte neměnné statické verze nebo aplikaci, která už běží ve výslovně vybraném spravovaném projektu. Každá adresa má vlastní pravidla viditelnosti.",
   "fields": {
     "publishing": {
       "label": "Zveřejňování"
@@ -58,43 +58,6 @@
     "contactEmail": {
       "label": "Kontaktní e-mail pro certifikáty",
       "hint": "Certifikační autorita vyžaduje kontaktní adresu pro vydání certifikátů a upozornění na jejich vypršení. Odesílá se autoritě a nikde jinde se neukládá."
-    },
-    "runtimes": {
-      "label": "Běhová prostředí stránek"
-    },
-    "allowCommandRuntime": {
-      "label": "Povolit command a PHP runtime",
-      "hint": "Umožní zveřejněné verzi spouštět Node, Bun, Python nebo TypeScript za privátním unixovým socketem či výslovně povoleným loopback portem, případně PHP přes PHP-CGI."
-    },
-    "runtimeNetwork": {
-      "label": "Síť command a PHP runtime",
-      "hint": "Sdílená síť umožní serverům běžný odchozí internet a přístup k síťovým službám viditelným z hostitele. Proces nedostane Elowen token ani tajné prostředí daemona.",
-      "options": {
-        "isolated": "Bez sítě",
-        "shared": "Síť hostitele"
-      }
-    },
-    "allowLoopbackPorts": {
-      "label": "Povolit loopback porty",
-      "hint": "Kompatibilní režim pro frameworky bez podpory SOCKET_PATH. Port uvidí každý lokální proces na serveru, proto ho na vzájemně nedůvěryhodné víceuživatelské instanci nechte vypnutý."
-    },
-    "loopbackPortMin": {
-      "label": "První port běhového prostředí"
-    },
-    "loopbackPortMax": {
-      "label": "Poslední port běhového prostředí"
-    },
-    "startTimeoutSeconds": {
-      "label": "Časový limit startu",
-      "hint": "Jak dlouho má běhové prostředí po spuštění na to, aby odpovědělo, než se zveřejnění považuje za neúspěšné."
-    },
-    "requestTimeoutSeconds": {
-      "label": "Časový limit požadavku",
-      "hint": "Jak dlouho smí celkem trvat jedna výměna s běhovým prostředím, než návštěvník dostane chybu."
-    },
-    "maxResponseMb": {
-      "label": "Největší odpověď běhového prostředí",
-      "hint": "Odpověď se před odesláním načte celá do paměti, takže jde o skutečný strop."
     }
   },
   "web": {
@@ -127,8 +90,6 @@
       "columnKind": "Publikace",
       "kindStatic": "Statické soubory",
       "kindProxy": "Proxy spravovaného projektu",
-      "kindCommand": "Spouštěný příkaz",
-      "kindPhp": "PHP",
       "metricTotal": "Stránek",
       "metricLive": "Živých",
       "metricShared": "Nasdílených mně",
@@ -147,26 +108,11 @@
       "visibilityProject": "Projekt",
       "visibilityAuthenticated": "Přihlášení",
       "visibilityPublic": "Veřejná",
-      "runtime": "Běhové prostředí",
-      "runtimeRunning": "Běží",
-      "runtimeStopped": "Neběží",
-      "runtimeCommand": "Spouštěcí příkaz",
-      "runtimeBind": "Připojení",
-      "runtimeSocket": "Bezpečný socket",
-      "runtimePort": "Loopback port",
-      "runtimeNetwork": "Síť",
-      "runtimeNetworkIsolated": "Bez sítě",
-      "runtimeNetworkShared": "Síť hostitele",
       "openProject": "Otevřít projekt",
       "copy": "Kopírovat",
       "refresh": "Obnovit",
       "pass": "OK",
       "fail": "CHYBA",
-      "saveRuntime": "Uložit běhové prostředí",
-      "runtimeLog": "Poslední výstup",
-      "runtimeEmptyLog": "Zatím nic zaznamenáno.",
-      "restart": "Restartovat",
-      "restarted": "Restartuje se",
       "address": "Adresa",
       "lastPublish": "Poslední zveřejnění",
       "releases": "Verze",
@@ -196,7 +142,7 @@
       "saved": "Uloženo",
       "close": "Zavřít",
       "releaseLive": "Živá",
-      "projectRuntimeLink": "Tato publikace používá transport spravovaného projektu {project}."
+      "projectPublicationLink": "Tato publikace používá transport spravovaného projektu {project}."
     }
   }
 }

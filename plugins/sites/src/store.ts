@@ -10,20 +10,9 @@ type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
  *
  *  `static` is a release copied onto the host and served from those files. `proxy` is an application
  *  running on a loopback port inside the managed Project's own environment, reached through the durable
- *  transport Sandbox establishes for the publication. The kind, not the legacy runtime column, decides
- *  which of the two a row is; the runtime column survives only for rows created before this model and
- *  goes away with the per-site container path. */
+ *  transport Sandbox establishes for the publication. The legacy runtime columns remain only for schema
+ *  compatibility and audit; active rows always carry the historical `static` value. */
 export type PublicationKind = 'static' | 'proxy';
-
-/** How a published site answers a request. Unsupported is a quarantined database value, never a
- * fallback to static content. */
-type SiteRuntime = 'static' | 'command' | 'php' | 'environment' | 'unsupported';
-
-/** Where a command runtime listens. A unix socket lives inside the plugin's own data directory, which
- *  no confined shell can reach, so only the daemon can talk to it. A loopback port is reachable by any
- *  process on the machine — including a confined one, because the sandbox does not unshare the network
- *  — so it bypasses the site's access rules entirely and is only for runtimes that cannot do better. */
-type SiteBind = 'socket' | 'port';
 
 export const VISIBILITIES: readonly Visibility[] = ['private', 'project', 'authenticated', 'public'];
 
@@ -48,14 +37,6 @@ export interface Site {
    *  static one the guest path of its folder, which is not read yet and is therefore empty on every row
    *  this plugin creates. The column is text because the two kinds carry different things. */
   target: string;
-  runtime: SiteRuntime;
-  /** Original database value when runtime is unsupported. */
-  unsupportedRuntime?: string | null;
-  /** Shell command that starts the server, run inside the release directory. Empty for a static site. */
-  startCommand: string;
-  bind: SiteBind;
-  /** Loopback port for a port-bound runtime; null for a socket-bound one. */
-  port: number | null;
   status: SiteStatus;
   currentReleaseId: string | null;
   createdAt: string;
@@ -147,21 +128,11 @@ const asVisibility = (value: string): Visibility =>
 const asStatus = (value: string): SiteStatus =>
   value === 'live' || value === 'failed' || value === 'deleting' ? value : 'draft';
 
-const asRuntime = (value: string | null): { runtime: SiteRuntime; unsupportedRuntime: string | null } => {
-  if (value === 'static' || value === 'command' || value === 'php') {
-    return { runtime: value, unsupportedRuntime: null };
-  }
-  return { runtime: 'unsupported', unsupportedRuntime: value ?? '(null)' };
-};
-
-
 /** A row written before the publication model existed is a static publication, which is exactly what
  *  the migration's default says and what the serving path did for it. */
 const asPublicationKind = (value: string | null): PublicationKind => value === 'proxy' ? 'proxy' : 'static';
 
-const toSite = (row: SiteDbRow): Site => {
-  const runtime = asRuntime(row.runtime);
-  return {
+const toSite = (row: SiteDbRow): Site => ({
     id: row.id,
     slug: row.slug,
     title: row.title,
@@ -174,25 +145,17 @@ const toSite = (row: SiteDbRow): Site => {
     spa: row.spa === 1,
     kind: asPublicationKind(row.kind),
     target: row.target ?? '',
-    runtime: runtime.runtime,
-    unsupportedRuntime: runtime.unsupportedRuntime,
-    startCommand: row.start_command ?? '',
-    bind: row.bind === 'port' ? 'port' : 'socket',
-    port: row.port,
-    status: runtime.runtime === 'unsupported' ? 'failed' : asStatus(row.status),
+    status: asStatus(row.status),
     currentReleaseId: row.current_release_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdModel: row.created_model ?? '',
     lastPublishAt: row.last_publish_at,
     lastPublishModel: row.last_publish_model,
-    lastError: runtime.runtime === 'unsupported'
-      ? `Unsupported site runtime: ${runtime.unsupportedRuntime}`
-      : row.last_error,
+    lastError: row.last_error,
     certificateRequestedAt: row.certificate_requested_at,
     certificateError: row.certificate_error,
-  };
-};
+});
 
 
 const toRelease = (row: ReleaseDbRow): Release => ({
@@ -313,8 +276,8 @@ export class SitesStore {
       },
       {
         version: 5,
-        // Additive environment metadata. Existing static, command and PHP rows retain every value and
-        // behavior; nullable overrides continue to mean the administrator defaults.
+        // Historical environment metadata remains in the schema for audit compatibility. Retired rows
+        // keep their stored values, but current Sites code never exposes or executes them.
         up: (handle) => {
           handle.exec(`
             ALTER TABLE p_sites_sites ADD COLUMN environment_cpus REAL;
@@ -442,9 +405,8 @@ export class SitesStore {
         version: 14,
         // A publication now says what it IS, not which container serves it: `static` answers from a copied
         // release, `proxy` from an application inside the managed Project's own environment. Purely
-        // additive — every existing row is a static publication by the default, keeps its values and is
-        // served exactly as before, and the legacy runtime columns stay until the per-site container path
-        // and the last converted row are gone.
+        // additive — every existing row is a static publication by the default and keeps its values. The
+        // legacy runtime columns remain for audit compatibility after their executable paths are retired.
         up: handle => handle.exec(`
           ALTER TABLE p_sites_sites ADD COLUMN kind TEXT NOT NULL DEFAULT 'static';
           ALTER TABLE p_sites_sites ADD COLUMN target TEXT NOT NULL DEFAULT '';
@@ -493,7 +455,7 @@ export class SitesStore {
     const columns = this.db.prepare("PRAGMA table_info('p_sites_sites')").all() as { name: string }[];
     const hasLegacy = columns.some((column) => column.name === 'source_dir');
     if (!hasLegacy) {
-      const invalid = this.db.prepare("SELECT id FROM p_sites_sites WHERE source_rel IS NULL AND COALESCE(runtime, '') <> 'environment'").get() as { id: string } | undefined;
+      const invalid = this.db.prepare("SELECT id FROM p_sites_sites WHERE source_rel IS NULL AND runtime = 'static'").get() as { id: string } | undefined;
       if (invalid) throw new Error(`Site ${invalid.id} has no Project-relative source reference`);
       return;
     }
@@ -503,7 +465,7 @@ export class SitesStore {
       }[];
       const update = this.db.prepare('UPDATE p_sites_sites SET source_rel = ? WHERE id = ?');
       for (const row of rows) {
-        if (row.runtime === 'environment') {
+        if (row.runtime !== 'static') {
           if (row.source_rel === null) update.run(row.source_dir, row.id);
           continue;
         }
@@ -566,7 +528,7 @@ export class SitesStore {
     `).run(
       site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
       site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0,
-      site.kind, site.target, site.runtime, site.startCommand, site.bind, site.port,
+      site.kind, site.target, 'static', '', 'socket', null,
       null, null, null, 'running', site.status,
       site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel,
       site.lastPublishAt, site.lastPublishModel, site.lastError,
@@ -574,12 +536,12 @@ export class SitesStore {
   }
 
   siteById(id: string): Site | null {
-    const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE id = ? AND runtime <> 'environment'").get(id) as SiteDbRow | undefined;
+    const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE id = ? AND runtime = 'static'").get(id) as SiteDbRow | undefined;
     return row ? toSite(row) : null;
   }
 
   siteBySlug(slug: string): Site | null {
-    const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE slug = ? AND runtime <> 'environment'").get(slug) as SiteDbRow | undefined;
+    const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE slug = ? AND runtime = 'static'").get(slug) as SiteDbRow | undefined;
     return row ? toSite(row) : null;
   }
 
@@ -594,12 +556,12 @@ export class SitesStore {
   }
 
   sitesOwnedBy(userId: number): Site[] {
-    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC")
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE owner_user_id = ? AND runtime = 'static' AND status <> 'deleting' ORDER BY created_at DESC")
       .all(userId) as SiteDbRow[]).map(toSite);
   }
 
   countOwnedBy(userId: number): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND runtime <> 'environment' AND status <> 'deleting'")
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM p_sites_sites WHERE owner_user_id = ? AND runtime = 'static' AND status <> 'deleting'")
       .get(userId) as { n: number } | undefined;
     return row?.n ?? 0;
   }
@@ -608,7 +570,7 @@ export class SitesStore {
   sitesInProjects(projectIds: readonly number[]): Site[] {
     if (projectIds.length === 0) return [];
     const marks = projectIds.map(() => '?').join(', ');
-    return (this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC`)
+    return (this.db.prepare(`SELECT * FROM p_sites_sites WHERE project_id IN (${marks}) AND runtime = 'static' AND status <> 'deleting' ORDER BY created_at DESC`)
       .all(...projectIds) as SiteDbRow[]).map(toSite);
   }
 
@@ -616,19 +578,9 @@ export class SitesStore {
     return (this.db.prepare(`
       SELECT s.* FROM p_sites_sites s
       JOIN p_sites_members m ON m.site_id = s.id
-      WHERE m.user_id = ? AND s.runtime <> 'environment' AND s.status <> 'deleting' ORDER BY s.created_at DESC
+      WHERE m.user_id = ? AND s.runtime = 'static' AND s.status <> 'deleting' ORDER BY s.created_at DESC
     `).all(userId) as SiteDbRow[]).map(toSite);
   }
-
-  /** Every command site that should be running. What boot reconciliation restarts, because nothing in
-   *  the daemon supervises a process across a restart. */
-  liveCommandSites(): Site[] {
-    return (this.db.prepare(`
-      SELECT * FROM p_sites_sites
-      WHERE runtime = 'command' AND status = 'live' AND current_release_id IS NOT NULL
-    `).all() as SiteDbRow[]).map(toSite);
-  }
-
 
   /** Every proxy publication that is expected to answer. A draft is not: its transport must not be kept
    *  alive before anybody published it. A `failed` one IS, because that is how the row recovers once the
@@ -636,35 +588,27 @@ export class SitesStore {
   proxySitesForReconcile(): Site[] {
     return (this.db.prepare(`
       SELECT * FROM p_sites_sites
-      WHERE kind = 'proxy' AND runtime <> 'environment' AND status IN ('live', 'failed')
+      WHERE kind = 'proxy' AND runtime = 'static' AND status IN ('live', 'failed')
     `).all() as SiteDbRow[]).map(toSite);
   }
 
-  portsInUse(): number[] {
-    return (this.db.prepare("SELECT port FROM p_sites_sites WHERE runtime <> 'environment' AND port IS NOT NULL")
-      .all() as { port: number }[]).map((row) => row.port);
-  }
-
   allSites(): Site[] {
-    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE runtime <> 'environment' AND status <> 'deleting' ORDER BY created_at DESC").all() as SiteDbRow[]).map(toSite);
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE runtime = 'static' AND status <> 'deleting' ORDER BY created_at DESC").all() as SiteDbRow[]).map(toSite);
   }
 
   deletingSites(): Site[] {
-    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE status = 'deleting' ORDER BY updated_at").all() as SiteDbRow[]).map(toSite);
+    return (this.db.prepare("SELECT * FROM p_sites_sites WHERE runtime = 'static' AND status = 'deleting' ORDER BY updated_at").all() as SiteDbRow[]).map(toSite);
   }
 
   updateSite(id: string, patch: Partial<Pick<Site,
-    'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' | 'bind' | 'port' |
-    'startCommand' | 'lastPublishAt' | 'lastPublishModel' | 'lastError' |
+    'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' |
+    'lastPublishAt' | 'lastPublishModel' | 'lastError' |
     'certificateRequestedAt' | 'certificateError'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
       visibility: 'visibility',
       spa: 'spa',
-      bind: 'bind',
-      port: 'port',
-      startCommand: 'start_command',
       status: 'status',
       currentReleaseId: 'current_release_id',
       lastPublishAt: 'last_publish_at',
@@ -819,18 +763,17 @@ export class SitesStore {
       .all(siteId, sinceDay) as { day: string; count: number }[];
   }
 
-  /** Every site an account owns, for account deletion. */
+  /** Active publications an account owns, for account deletion. Retired runtime rows remain audit data. */
   siteIdsOwnedBy(userId: number): string[] {
-    return (this.db.prepare('SELECT id FROM p_sites_sites WHERE owner_user_id = ?')
+    return (this.db.prepare("SELECT id FROM p_sites_sites WHERE owner_user_id = ? AND runtime = 'static'")
       .all(userId) as { id: string }[]).map((row) => row.id);
   }
 
-  /** The sites that keep a Project alive, by the SAME selector the runtime's `projectDependents`
-   *  preflight uses. A site queued for deletion is not one of them: counting it here would let the
-   *  preflight allow a Project removal that the post-removal hook then refuses, after the Project row
-   *  is already gone. */
+  /** The active publications that keep a Project alive. A site queued for deletion is not one of them:
+   *  counting it here would let the preflight allow a Project removal that the post-removal hook then
+   *  refuses, after the Project row is already gone. */
   siteIdsInProject(projectId: number): string[] {
-    return (this.db.prepare("SELECT id FROM p_sites_sites WHERE project_id = ? AND runtime <> 'environment' AND status <> 'deleting'")
+    return (this.db.prepare("SELECT id FROM p_sites_sites WHERE project_id = ? AND runtime = 'static' AND status <> 'deleting'")
       .all(projectId) as { id: string }[]).map((row) => row.id);
   }
 

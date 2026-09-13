@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -13,7 +13,7 @@ import { SitesStore } from '../plugins/sites/dist/store.js';
 import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
 import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
-import { proxyToProject, proxyToRuntime, ProxyError } from '../plugins/sites/dist/proxy.js';
+import { proxyToProject, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
@@ -51,10 +51,6 @@ const site = (overrides = {}) => ({
   spa: false,
   kind: 'static',
   target: '',
-  runtime: 'static',
-  startCommand: '',
-  bind: 'socket',
-  port: null,
   status: 'live',
   currentReleaseId: 'rel-1',
   createdAt: new Date().toISOString(),
@@ -316,32 +312,6 @@ test('a release file larger than the copy buffer is copied whole', (t) => {
   assert.equal(result.sizeBytes, bytes.length + aligned.length + 32);
 });
 
-test('a command snapshot preserves executable files and contained relative symlinks', (t) => {
-  const source = tempDir('command-src');
-  const release = tempDir('command-rel');
-  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
-
-  mkdirSync(join(source, 'bin'), { recursive: true });
-  writeFileSync(join(source, 'bin', 'server.js'), 'console.log("ok")');
-  chmodSync(join(source, 'bin', 'server.js'), 0o755);
-  symlinkSync('server.js', join(source, 'bin', 'start.js'));
-  symlinkSync('../../outside', join(source, 'bin', 'escape.js'));
-
-  const target = join(release, 'r1');
-  const result = snapshotRelease(source, target, {
-    maxAssetBytes: 1048576,
-    maxTotalBytes: 10485760,
-    mode: 'command',
-  });
-
-  assert.equal(result.fileCount, 2, 'the file and safe symlink count as release entries');
-  assert.equal(lstatSync(join(target, 'bin', 'server.js')).mode & 0o111, 0o111, 'executable bits survive publish');
-  assert.equal(lstatSync(join(target, 'bin', 'start.js')).isSymbolicLink(), true);
-  assert.equal(readlinkSync(join(target, 'bin', 'start.js')), 'server.js');
-  assert.ok(result.warnings.some((line) => line.includes('escape.js')));
-  assert.equal(lstatSync(join(target, 'bin', 'escape.js'), { throwIfNoEntry: false }), undefined);
-});
-
 test('a snapshot refuses a file above the configured ceiling', (t) => {
   const source = tempDir('big');
   const release = tempDir('bigrel');
@@ -495,14 +465,6 @@ test('the app hostname does not serve published pages at all', async (t) => {
 
   const wrongMarker = await handler(request('demo-abc123/', { headers: { 'x-elowen-site-gateway': 'x'.repeat(43) } }));
   assert.equal(wrongMarker.status, 404);
-});
-
-test('an application refuses to answer on the app hostname rather than render broken', async (t) => {
-  const { handler } = serveHarness(t, {
-    visibility: 'public', runtime: 'command', startCommand: 'node server.js', siteHostBase: 'sites.example.com',
-  });
-  const response = await handler(request('demo-abc123/', { headers: { accept: 'text/html', host: 'elowen.example' } }));
-  assert.equal(response.status, 421);
 });
 
 test('a browser without a session is sent to the app to sign in', async (t) => {
@@ -724,7 +686,7 @@ test('a ticket for another site cannot be redeemed here', async (t) => {
 // ── runtime proxy ────────────────────────────────────────────────────────────────────────────────
 
 /** A real HTTP server on a unix socket, so the proxy is exercised over the transport it actually uses. */
-const runtimeServer = async (t, handler) => {
+const projectServer = async (t, handler) => {
   const dir = tempDir('sock');
   const path = join(dir, 'app.sock');
   const server = createServer(handler);
@@ -733,42 +695,12 @@ const runtimeServer = async (t, handler) => {
   return { kind: 'socket', path };
 };
 
-const portRuntimeServer = async (t, handler) => {
-  const server = createServer(handler);
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  t.after(() => server.close());
-  return { kind: 'port', port: address.port };
-};
-
 const proxyLimits = { maxResponseBytes: 1048576, requestTimeoutSeconds: 5 };
 const SITE_ROOT = 'https://demo.sites.example.com/';
 
-test('a dedicated runtime receives its own application auth but not forged gateway identity', async (t) => {
-  let seen = null;
-  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
-
-  await proxyToRuntime(endpoint, request('', {
-    headers: {
-      accept: 'text/html',
-      cookie: 'site_session=abc',
-      authorization: 'Bearer site-api-token',
-      'x-elowen-user-id': '999',
-      'x-forwarded-for': '10.0.0.1',
-    },
-  }), 'page', { userId: 4, name: 'amy' }, proxyLimits, SITE_ROOT);
-
-  assert.equal(seen.cookie, 'site_session=abc');
-  assert.equal(seen.authorization, 'Bearer site-api-token');
-  assert.equal(seen['x-forwarded-for'], undefined);
-  assert.equal(seen['x-elowen-user-id'], '4', 'the spoofed value was replaced by the verified one');
-  assert.equal(seen['x-elowen-user-name'], 'amy');
-});
-
 test('a Project application receives its own cookies but not the Sites access cookie', async (t) => {
   let seen = null;
-  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
+  const endpoint = await projectServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
   const accessCookie = cookieName('site-1');
 
   await proxyToProject(endpoint, request('', {
@@ -778,14 +710,8 @@ test('a Project application receives its own cookies but not the Sites access co
   assert.equal(seen.cookie, 'app_session=abc; preference=compact');
 });
 
-test('the runtime proxy reaches an explicitly allocated loopback port', async (t) => {
-  const endpoint = await portRuntimeServer(t, (_req, res) => res.end('port-ok'));
-  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
-  assert.equal(Buffer.from(response.body).toString(), 'port-ok');
-});
-
-test('a runtime owns cookies and CORS on its isolated origin', async (t) => {
-  const endpoint = await runtimeServer(t, (_req, res) => {
+test('a Project application owns cookies and CORS on its isolated origin', async (t) => {
+  const endpoint = await projectServer(t, (_req, res) => {
     res.setHeader('set-cookie', [
       'site_session=xyz; Domain=.sites.example.com; Path=/; HttpOnly',
       'second_cookie=ignored; Path=/',
@@ -795,7 +721,7 @@ test('a runtime owns cookies and CORS on its isolated origin', async (t) => {
     res.end('body');
   });
 
-  const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
+  const response = await proxyToProject(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
   assert.deepEqual(response.headers['set-cookie'], [
     'site_session=xyz; Path=/; HttpOnly',
     'second_cookie=ignored; Path=/',
@@ -808,31 +734,18 @@ test('a runtime owns cookies and CORS on its isolated origin', async (t) => {
 
 test('an anonymous visitor is forwarded as anonymous', async (t) => {
   let seen = null;
-  const endpoint = await runtimeServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
-  await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
+  const endpoint = await projectServer(t, (req, res) => { seen = req.headers; res.end('ok'); });
+  await proxyToProject(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
   assert.equal(seen['x-elowen-user-id'], undefined);
-});
-
-test('a runtime cannot bounce a visitor off its origin', async (t) => {
-  const redirectTo = async (location) => {
-    const endpoint = await runtimeServer(t, (_req, res) => { res.statusCode = 302; res.setHeader('location', location); res.end(); });
-    const response = await proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, proxyLimits, SITE_ROOT);
-    return response.headers.location;
-  };
-  assert.equal(await redirectTo('page.html'), 'page.html', 'a relative target stays as written');
-  assert.equal(await redirectTo(`${SITE_ROOT}deep/page.html`), `${SITE_ROOT}deep/page.html`);
-  assert.equal(await redirectTo('https://evil.example/'), SITE_ROOT);
-  assert.equal(await redirectTo('//evil.example/'), SITE_ROOT);
-  assert.equal(await redirectTo('/etc/passwd'), `${SITE_ROOT}etc/passwd`, 'an absolute path stays on this site origin');
 });
 
 test('the body length sent on is the body actually sent', async (t) => {
   let seen = null;
-  const endpoint = await runtimeServer(t, (req, res) => {
+  const endpoint = await projectServer(t, (req, res) => {
     seen = { length: req.headers['content-length'], encoding: req.headers['accept-encoding'] };
     res.end('ok');
   });
-  await proxyToRuntime(endpoint, request('', {
+  await proxyToProject(endpoint, request('', {
     method: 'POST',
     headers: { 'content-length': '9999', 'accept-encoding': 'gzip' },
     body: async () => Buffer.from('hello'),
@@ -841,23 +754,12 @@ test('the body length sent on is the body actually sent', async (t) => {
   assert.equal(seen.encoding, 'identity', 'a compressed answer would arrive without the header explaining it');
 });
 
-test('a runtime answering with more than the limit is refused, not truncated', async (t) => {
-  const endpoint = await runtimeServer(t, (_req, res) => { res.end('x'.repeat(4096)); });
+test('a Project application answering with more than the limit is refused, not truncated', async (t) => {
+  const endpoint = await projectServer(t, (_req, res) => { res.end('x'.repeat(4096)); });
   await assert.rejects(
-    () => proxyToRuntime(endpoint, request(''), '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 5 }, SITE_ROOT),
+    () => proxyToProject(endpoint, request(''), '', { userId: null, name: null }, { maxResponseBytes: 1024, requestTimeoutSeconds: 5 }, SITE_ROOT),
     ProxyError,
   );
-});
-
-test('a command site that is not running says so instead of serving its files', async (t) => {
-  const { handler } = serveHarness(t, {
-    visibility: 'public', runtime: 'command', startCommand: 'node server.js', siteHostBase: 'sites.example.com',
-  });
-  const response = await handler(request('demo-abc123/', {
-    headers: { accept: 'text/html', host: 'demo-abc123.sites.example.com', 'x-elowen-site-gateway': GATEWAY_TOKEN },
-  }));
-  assert.equal(response.status, 503);
-  assert.match(String(response.body), /not running/i);
 });
 
 // ── configuration ────────────────────────────────────────────────────────────────────────────────
@@ -870,10 +772,6 @@ test('configuration is re-validated, because the settings API validates nothing'
     sessionTtlHours: 'nonsense',
     releasesKept: 0,
     publishers: 'whatever',
-    runtimeNetwork: 'shared',
-    allowLoopbackPorts: true,
-    loopbackPortMin: 43010,
-    loopbackPortMax: 43000,
   }, 'https://elowen.example');
 
   assert.equal(config.defaultVisibility, 'private', 'public is not an allowed default');
@@ -882,9 +780,8 @@ test('configuration is re-validated, because the settings API validates nothing'
   assert.equal(config.sessionTtlHours, 12);
   assert.equal(config.releasesKept, 1);
   assert.equal(config.publishers, 'everyone');
-  assert.equal(config.runtimeNetwork, 'shared');
-  assert.equal(config.allowLoopbackPorts, true);
-  assert.deepEqual([config.loopbackPortMin, config.loopbackPortMax], [41000, 41999], 'an inverted range falls back as one unit');
+  assert.equal(config.proxyRequestTimeoutSeconds, 15);
+  assert.equal(config.maxProxyResponseBytes, 8 * 1048576);
 });
 
 test('the largest-file ceiling and the settings field agree, and both are disk-sized', () => {
@@ -960,44 +857,10 @@ test('the Sites DNS destination is parsed once, strictly, for both readiness and
   assert.deepEqual(resolveGatewayDnsTarget(undefined, null), { target: null, error: null });
 });
 
-test('authenticated site API updates command and bind settings under the instance gate', async () => {
-  const store = new SitesStore(makeDb());
-  store.insertSite(site({ id: 'api-site', runtime: 'command', startCommand: 'node old.js', currentReleaseId: null }));
-  const handlers = createApiHandlers({
-    store,
-    access: deps(),
-    config: () => resolveConfig({ allowCommandRuntime: true, allowLoopbackPorts: true, runtimeNetwork: 'shared' }, 'https://elowen.example', 'sites.elowen.example'),
-    people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
-    projectSlug: () => 'demo',
-    deleteSite: async () => {},
-    activateRelease: () => {},
-    runtimeState: () => ({ running: false, logTail: '' }),
-    allocatePort: async () => 43000,
-    restartRuntime: async () => {},
-    gatewayReadiness: async () => ({ ok: true, status: 'ready', detail: 'ready' }),
-    gatewayRecord: () => null,
-  });
-  const response = await handlers.site({
-    method: 'PATCH',
-    path: 'api-site',
-    query: {},
-    headers: {},
-    auth: { userId: 1, admin: false, tokenScope: 'user', accessibleProjects: [2] },
-    params: {},
-    body: async () => Buffer.from(''),
-    json: async () => ({ startCommand: 'node new.js', bind: 'port' }),
-  });
-  assert.equal(response.status, 200);
-  assert.deepEqual(
-    { startCommand: store.siteById('api-site').startCommand, bind: store.siteById('api-site').bind, port: store.siteById('api-site').port },
-    { startCommand: 'node new.js', bind: 'port', port: 43000 },
-  );
-});
-
 test('site API exposes an unhealthy live publication and its concrete error without demoting it', async () => {
   const store = new SitesStore(makeDb());
   store.insertSite(site({
-    id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', runtime: 'static', status: 'live',
+    id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', status: 'live',
     currentReleaseId: null, lastError: 'The validated container is not running',
   }));
   const handlers = createApiHandlers({
@@ -1006,11 +869,8 @@ test('site API exposes an unhealthy live publication and its concrete error with
     config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
     people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
     projectSlug: () => 'demo',
-    runtimeState: () => ({ running: false, logTail: '' }),
     deleteSite: async () => {},
     activateRelease: () => {},
-    allocatePort: async () => 43000,
-    restartRuntime: async () => {},
     gatewayReadiness: async () => ({ ok: true, status: 'ready', detail: 'ready' }),
     gatewayRecord: () => null,
   });
@@ -1034,7 +894,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', runtimeAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, certificates } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, certificates } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -1057,7 +917,7 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     workDir: () => workDir ?? join(dir, 'project', 'deep', 'nested'),
     assertPathAllowed: (path) => path,
     currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1, projectRef }),
-    control: () => (runtimeAvailable || projectFiles
+    control: () => (sandboxAvailable || projectFiles
       ? { activeWorkspace: () => null, ...(projectFiles ? { projectFiles } : {}) }
       : undefined),
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
@@ -1071,7 +931,6 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     siteDir: (id) => join(dir, 'sites', id),
     releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
-    runtime: { allocatePort: () => 43000, stop: async () => {}, start: async () => {}, logTail: () => '', isRunning: () => false },
     // A test that does not stub the publication transport must FAIL loudly if it reaches for one: the
     // default refuses, so a static path that suddenly asked for a transport would not pass quietly.
     publications: publications ?? {
@@ -1090,10 +949,13 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
   return { store, dir, registered, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
 };
 
-test('SiteCreate no longer offers a per-site persistent environment runtime', (t) => {
+test('SiteCreate offers only static and managed Project proxy publication', (t) => {
   const harness = toolHarness(t);
-  const runtimeSchema = harness.registered.get('SiteCreate').parameters.properties.runtime;
-  assert.deepEqual(runtimeSchema.anyOf.map((entry) => entry.const), ['static', 'command', 'php']);
+  const tools = harness.registered;
+  const properties = tools.get('SiteCreate').parameters.properties;
+  assert.equal('runtime' in properties, false);
+  assert.deepEqual(properties.kind.anyOf.map((entry) => entry.const), ['static', 'proxy']);
+  assert.equal(tools.has('SiteLogs'), false);
 });
 
 test('a created site tells the agent the identifier the other tools demand', async (t) => {
@@ -1244,31 +1106,6 @@ test('the pending certificate line ends in exactly one full stop', async (t) => 
   }
 });
 
-test('SitePublish returns truthful command success when the public hostname is unavailable', async (t) => {
-  const harness = toolHarness(t, {
-    gatewayHost: null,
-    configRaw: { allowCommandRuntime: true },
-  });
-  const sourceDir = join(harness.dir, 'project', 'command-site');
-  mkdirSync(sourceDir, { recursive: true });
-  writeFileSync(join(sourceDir, 'server.mjs'), 'console.log("ok")');
-  harness.store.insertSite(site({
-    sourceRel: 'command-site',
-    runtime: 'command',
-    startCommand: 'node server.mjs',
-    status: 'draft',
-    currentReleaseId: null,
-    lastPublishAt: null,
-  }));
-
-  const published = await harness.call('SitePublish', { site: 'site-1' });
-
-  assert.equal(harness.store.siteById('site-1').status, 'live');
-  assert.equal(harness.store.releases('site-1').length, 1);
-  assert.equal(published.details.url, null);
-  assert.match(published.content[0].text, /public hostname is unavailable/i);
-});
-
 test('SitePublish cannot cross the selected managed Project through another owned Site', async (t) => {
   const harness = toolHarness(t, { projectRef: { kind: 'managed', projectId: 99 } });
   harness.store.insertSite(site({ sourceRel: 'sites/other-project' }));
@@ -1387,72 +1224,36 @@ test('sharing with somebody who does not exist fails with the roster', async (t)
   await assert.rejects(() => call('SiteShare', { site: 'report-a1b2c3', person: 'nobody' }), /josef\.kvitek/);
 });
 
-test('loopback binding is explicit and refused unless the instance enables it', async (t) => {
-  const disabled = toolHarness(t, { configRaw: { allowCommandRuntime: true } });
-  await assert.rejects(
-    () => disabled.call('SiteCreate', { title: 'API', runtime: 'command', startCommand: 'node server.js', bind: 'port' }),
-    /loopback ports are turned off/i,
-  );
-
-  const enabled = toolHarness(t, { configRaw: { allowCommandRuntime: true, allowLoopbackPorts: true } });
-  const created = await enabled.call('SiteCreate', { title: 'API', runtime: 'command', startCommand: 'node server.js', bind: 'port' });
-  const stored = enabled.store.siteById(created.details.siteId);
-  assert.equal(stored.bind, 'port');
-  assert.equal(stored.port, 43000);
-});
-
-test('a model that echoes every optional property with its default still creates and updates a static site', async (t) => {
-  // Recorded from gpt-5.6-terra on Azure, asked to call SiteCreate with a title and nothing else: it
-  // filled every optional property anyway. Presence of `bind`/`startCommand` used to be read as an
-  // instruction and refused with "Only a command site has a runtime bind mode.", which made static
-  // sites impossible to create from that model at all.
+test('a model that echoes every supported optional property still creates and updates a static site', async (t) => {
   const { store, call } = toolHarness(t);
   const created = await call('SiteCreate', {
     _reason: '', title: 'Provozní přehled', summary: '', visibility: 'private', spa: false,
-    runtime: 'static', startCommand: '', bind: 'socket',
+    kind: 'static', target: '',
   });
   const stored = store.siteById(created.details.siteId);
-  assert.equal(stored.runtime, 'static');
-  assert.equal(stored.bind, 'socket');
-  assert.equal(stored.startCommand, '');
+  assert.equal(stored.kind, 'static');
+  assert.equal(stored.target, '');
 
-  await call('SiteUpdate', { site: created.details.siteId, title: 'Nový název', summary: '', startCommand: '', bind: 'socket' });
+  await call('SiteUpdate', { site: created.details.siteId, title: 'Nový název', summary: '', spa: false });
   assert.equal(store.siteById(created.details.siteId).title, 'Nový název');
-
-  // A value that really contradicts the runtime is still a mistake, on both tools.
-  await assert.rejects(() => call('SiteCreate', { title: 'Port', bind: 'port' }), /Only a command site has a runtime bind mode/);
-  await assert.rejects(() => call('SiteUpdate', { site: created.details.siteId, bind: 'port' }), /Only a command site has runtime settings/);
-  await assert.rejects(() => call('SiteUpdate', { site: created.details.siteId, startCommand: 'node app.js' }), /Only a command site has runtime settings/);
 });
 
-test('SiteUpdate changes command runtime settings without republishing', async (t) => {
-  const { store, call } = toolHarness(t, { configRaw: { allowCommandRuntime: true, allowLoopbackPorts: true } });
-  store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, runtime: 'command', startCommand: 'node old.js' }));
-
-  await call('SiteUpdate', { site: 'id-1', startCommand: 'node new.js', bind: 'port' });
-  const updated = store.siteById('id-1');
-  assert.equal(updated.startCommand, 'node new.js');
-  assert.equal(updated.bind, 'port');
-  assert.equal(updated.port, 43000);
-});
-
-test('dormant legacy environment rows are invisible and deletion performs zero environment mutations', async () => {
+test('static deletion removes release data and the gateway record without runtime cleanup seams', async () => {
   const store = new SitesStore(makeDb());
-  const root = tempDir('delete-dormant-environment');
-  const target = site({ id: 'legacy-env', slug: 'legacy-a1b2c3', runtime: 'environment' });
+  const root = tempDir('delete-static');
+  const target = site({ id: 'static-site', slug: 'static-a1b2c3' });
   store.insertSite(target);
-  store.insertRelease({ id: 'snapshot-1', siteId: target.id, createdAt: new Date().toISOString(), model: 'old', fileCount: 0, sizeBytes: 0, note: '', kind: 'environment-snapshot', imageRef: 'retained', dataArchive: 'backup.tar' });
-  assert.equal(store.siteById(target.id), null);
-  assert.deepEqual(store.allSites(), []);
-  assert.deepEqual(store.sitesOwnedBy(target.ownerUserId), []);
+  mkdirSync(join(root, target.id), { recursive: true });
+  writeFileSync(join(root, target.id, 'release.txt'), 'published');
   store.beginDelete(target.id);
   const calls = [];
   await deleteSiteResources(target.id, {
     store, siteDir: (id) => join(root, id), hasGatewayBroker: () => true,
-    stopLegacy: async () => calls.push('stop'), releasePublication: async () => calls.push('release'),
-    removeRuntimeSocket: async () => calls.push('socket'), removeGateway: async () => calls.push('gateway'),
+    releasePublication: async () => calls.push('release'),
+    removeGateway: async () => calls.push('gateway'),
   });
-  assert.deepEqual(calls, ['socket', 'gateway']);
+  assert.deepEqual(calls, ['gateway']);
+  assert.equal(existsSync(join(root, target.id)), false);
   assert.equal(store.siteForCleanup(target.id), null);
 });
 
@@ -1513,17 +1314,15 @@ test('a proxy publication round trips its kind and port, and only live or failed
   assert.deepEqual(store.proxySitesForReconcile().map((entry) => entry.id), ['proxy-1'], 'a failed publish recovers');
 });
 
-test('a model that echoes every optional property still creates a proxy publication', async (t) => {
-  // Same recorded behaviour as the static case: gpt-5.6-terra fills every optional property, so a proxy
-  // create arrives with `runtime: 'static'`, `startCommand: ''`, `bind: 'socket'` and `spa: false` set.
+test('a model that echoes every supported optional property still creates a proxy publication', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
-    runtimeAvailable: true,
+    sandboxAvailable: true,
   });
   const created = await harness.call('SiteCreate', {
     _reason: '', title: 'Provozní aplikace', summary: '', visibility: 'private', spa: false,
-    runtime: 'static', startCommand: '', bind: 'socket', kind: 'proxy', target: '3000',
+    kind: 'proxy', target: '3000',
   });
 
   const stored = harness.store.siteById(created.details.siteId);
@@ -1536,20 +1335,16 @@ test('a model that echoes every optional property still creates a proxy publicat
   assert.match(created.content[0].text, /kolin/);
 });
 
-test('a proxy publication is refused without a usable port, a managed Project, or against a legacy runtime', async (t) => {
+test('a proxy publication is refused without a usable port or a managed Project', async (t) => {
   const managed = {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
-    runtimeAvailable: true,
+    sandboxAvailable: true,
   };
   const harness = toolHarness(t, managed);
   await assert.rejects(() => harness.call('SiteCreate', { title: 'No port', kind: 'proxy' }), /needs target/);
   await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', kind: 'proxy', target: '0' }), /needs target/);
   await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', kind: 'proxy', target: 'http' }), /needs target/);
-  await assert.rejects(
-    () => harness.call('SiteCreate', { title: 'Two ways', kind: 'proxy', target: '3000', runtime: 'command' }),
-    /no runtime of its own/,
-  );
   await assert.rejects(
     () => harness.call('SiteCreate', { title: 'Static with a port', target: '3000' }),
     /target is only for a proxy publication/,
@@ -1558,7 +1353,7 @@ test('a proxy publication is refused without a usable port, a managed Project, o
   const hostProject = toolHarness(t, {
     projects: [{ id: 7, slug: 'wemx', path: '/host/wemx', executionKind: 'host', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
-    runtimeAvailable: true,
+    sandboxAvailable: true,
   });
   await assert.rejects(() => hostProject.call('SiteCreate', { title: 'Host', kind: 'proxy', target: '3000' }), /managed Project/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create persists nothing');
@@ -1572,7 +1367,7 @@ test('SiteCreate names the Sandbox plugin when it is off, on both paths that can
   const proxy = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
-    runtimeAvailable: false,
+    sandboxAvailable: false,
   });
   await assert.rejects(
     () => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }),
@@ -1585,7 +1380,7 @@ test('SiteCreate names the Sandbox plugin when it is off, on both paths that can
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
     workDir: '/kolin',
-    runtimeAvailable: false,
+    sandboxAvailable: false,
   });
   await assert.rejects(
     () => managedSource.call('SiteCreate', { title: 'Static' }),
@@ -1606,7 +1401,7 @@ test('SitePublish verifies a proxy publication through the transport and flips i
   const adopted = [];
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    runtimeAvailable: true,
+    sandboxAvailable: true,
     publications: {
       establish: async (target) => ({ socketPath: `/run/project/broker/pub-${target.id}.sock`, generation: 3 }),
       probe: async (path) => {
@@ -1633,7 +1428,7 @@ test('SitePublish reports a verified proxy without a public base address', async
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     gatewayHost: null,
-    runtimeAvailable: true,
+    sandboxAvailable: true,
     publications: {
       establish: async (target) => ({ socketPath: `/run/project/broker/pub-${target.id}.sock`, generation: 3 }),
       probe: async () => ({ answered: true, status: 200, detail: 'GET / answered 200' }),
@@ -1654,7 +1449,7 @@ test('SitePublish reports a verified proxy without a public base address', async
 test('a proxy publication is not published when nothing answers on its port', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    runtimeAvailable: true,
+    sandboxAvailable: true,
     publications: {
       establish: async () => ({ socketPath: '/run/project/broker/pub.sock', generation: 1 }),
       probe: async () => ({ answered: false, status: null, detail: 'connect ECONNREFUSED' }),
@@ -1672,7 +1467,7 @@ test('a proxy publication is not published when nothing answers on its port', as
 test('a proxy publication is not published when its readiness request answers 5xx', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    runtimeAvailable: true,
+    sandboxAvailable: true,
     publications: {
       establish: async () => ({ socketPath: '/run/project/broker/pub.sock', generation: 1 }),
       probe: async () => ({ answered: true, status: 503, detail: 'GET / answered 503' }),
@@ -1689,7 +1484,7 @@ test('a proxy publication is not published when its readiness request answers 5x
 test('a proxy publication whose Project environment cannot be reached says so instead of going live', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    runtimeAvailable: true,
+    sandboxAvailable: true,
     publications: {
       establish: async () => { throw new Error('Environment is stopped; request an explicit start'); },
       probe: async () => { throw new Error('unreachable'); },
@@ -1727,14 +1522,13 @@ test('SiteGet tells the agent which managed Project transport serves a proxy pub
 
 test('the retired per-site lifecycle tools and update fields are absent', async (t) => {
   const harness = toolHarness(t, { admin: true });
-  for (const tool of ['SiteExec', 'SiteControl', 'SiteSnapshot']) assert.equal(harness.registered.has(tool), false);
+  for (const tool of ['SiteExec', 'SiteControl', 'SiteSnapshot', 'SiteLogs']) assert.equal(harness.registered.has(tool), false);
   const update = harness.registered.get('SiteUpdate').parameters.properties;
   assert.equal('environmentCpus' in update, false);
   assert.equal('environmentMemoryMb' in update, false);
   assert.equal('environmentPidsLimit' in update, false);
 
-  harness.store.insertSite(site({ id: 'proxy-5', slug: 'proxy-e1b2c3', kind: 'proxy', target: '3000', runtime: 'static', status: 'live', currentReleaseId: null }));
-  await assert.rejects(() => harness.call('SiteLogs', { site: 'proxy-e1b2c3' }), /managed Project logs through Sandbox/);
+  harness.store.insertSite(site({ id: 'proxy-5', slug: 'proxy-e1b2c3', kind: 'proxy', target: '3000', status: 'live', currentReleaseId: null }));
   await assert.rejects(() => harness.call('SiteRollback', { site: 'proxy-e1b2c3', releaseId: 'rel-1' }), /no file releases/);
   const updated = await harness.call('SiteUpdate', { site: 'proxy-e1b2c3', title: 'Nový název' });
   assert.equal(harness.store.siteById('proxy-5').title, 'Nový název');
@@ -1756,7 +1550,7 @@ test('a proxy publication answers through the project socket, and a stranger can
 
   const { handler } = serveHarness(
     t,
-    { kind: 'proxy', target: '3000', runtime: 'static', currentReleaseId: null, visibility: 'project' },
+    { kind: 'proxy', target: '3000', currentReleaseId: null, visibility: 'project' },
     { endpointFor: (siteId) => (siteId === 'site-1' ? { kind: 'socket', path: socketPath } : null) },
   );
 
@@ -1864,7 +1658,7 @@ test('a managed publication cannot report release while the Sandbox transport is
 });
 
 test('reconciliation keeps a 5xx publication live but records it as unhealthy', async (t) => {
-  const endpoint = await runtimeServer(t, (_req, res) => { res.writeHead(503); res.end('down'); });
+  const endpoint = await projectServer(t, (_req, res) => { res.writeHead(503); res.end('down'); });
   const store = new SitesStore(makeDb());
   store.insertSite(site({
     id: 'pub-5xx', slug: 'pub-f1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',

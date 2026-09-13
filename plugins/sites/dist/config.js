@@ -132,11 +132,6 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
     const defaultVisibility = typeof raw.defaultVisibility === 'string' && VISIBILITY_DEFAULTS.has(raw.defaultVisibility)
         ? raw.defaultVisibility
         : 'private';
-    const requestedPortMin = bounded(raw.loopbackPortMin, 41000, 1024, 65535);
-    const requestedPortMax = bounded(raw.loopbackPortMax, 41999, 1024, 65535);
-    const [loopbackPortMin, loopbackPortMax] = requestedPortMin <= requestedPortMax
-        ? [requestedPortMin, requestedPortMax]
-        : [41000, 41999];
     return {
         defaultVisibility,
         allowPublicSites: raw.allowPublicSites !== false,
@@ -149,14 +144,8 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         maxSitesPerAccount: bounded(raw.maxSitesPerAccount, 20, 1, 500),
         releasesKept: bounded(raw.releasesKept, 5, 1, 50),
         sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
-        allowCommandRuntime: raw.allowCommandRuntime === true,
-        runtimeNetwork: raw.runtimeNetwork === 'shared' ? 'shared' : 'isolated',
-        allowLoopbackPorts: raw.allowLoopbackPorts === true,
-        loopbackPortMin,
-        loopbackPortMax,
-        startTimeoutSeconds: bounded(raw.startTimeoutSeconds, 30, 5, 300),
-        requestTimeoutSeconds: bounded(raw.requestTimeoutSeconds, 15, 1, 120),
-        maxResponseBytes: bounded(raw.maxResponseMb, 8, 1, 64) * 1048576,
+        proxyRequestTimeoutSeconds: 15,
+        maxProxyResponseBytes: 8 * 1048576,
         siteHostBase,
         siteScheme: appScheme,
         appBaseUrl: appOrigin,

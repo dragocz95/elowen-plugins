@@ -3,7 +3,7 @@
   "version": "0.12.0",
   "apiVersion": "1",
   "requiresCore": "0.28.45",
-  "description": "Publish immutable static releases, confined command and PHP applications, or proxy an application from an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+  "description": "Publish immutable static releases or proxy an application already running in an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -14,7 +14,6 @@
       "SiteList",
       "SiteUpdate",
       "SiteRollback",
-      "SiteLogs",
       "SiteShare",
       "SiteUnshare",
       "SiteDelete"
@@ -36,8 +35,7 @@
   ],
   "planSafe": [
     "SiteList",
-    "SiteGet",
-    "SiteLogs"
+    "SiteGet"
   ],
   "icons": {
     "Site*": "🌐"
@@ -104,94 +102,6 @@
         }
       ],
       "hint": "Whether an ordinary account's agent may create and publish sites. Opening a site somebody shared is unaffected."
-    },
-    {
-      "key": "runtimes",
-      "label": "Site runtimes",
-      "type": "section"
-    },
-    {
-      "key": "allowCommandRuntime",
-      "label": "Allow command and PHP runtimes",
-      "type": "boolean",
-      "default": false,
-      "risk": "high",
-      "hint": "Let a published release run Node, Bun, Python or TypeScript behind a private unix socket or an explicitly enabled loopback port, or execute PHP through PHP-CGI.",
-      "help": "Command and PHP runtimes use Sandbox confinement and the command/PHP network policy below. Requests and responses remain buffered, so streaming, server-sent events and websockets are not supported; request bodies are capped at 1 MB."
-    },
-    {
-      "key": "runtimeNetwork",
-      "label": "Command and PHP network",
-      "type": "enum",
-      "default": "isolated",
-      "risk": "high",
-      "options": [
-        {
-          "value": "isolated",
-          "label": "No network"
-        },
-        {
-          "value": "shared",
-          "label": "Host network"
-        }
-      ],
-      "hint": "Shared gives site processes ordinary outbound internet and access to network services visible from this host. Site processes receive no Elowen bearer token or daemon secrets."
-    },
-    {
-      "key": "allowLoopbackPorts",
-      "label": "Allow loopback ports",
-      "type": "boolean",
-      "default": false,
-      "risk": "high",
-      "hint": "Compatibility mode for frameworks that cannot listen on SOCKET_PATH. Every local process on this host can reach these ports, so keep it off on mutually untrusted multi-user installations."
-    },
-    {
-      "key": "loopbackPortMin",
-      "label": "First runtime port",
-      "type": "number",
-      "default": 41000,
-      "min": 1024,
-      "max": 65535,
-      "advanced": true
-    },
-    {
-      "key": "loopbackPortMax",
-      "label": "Last runtime port",
-      "type": "number",
-      "default": 41999,
-      "min": 1024,
-      "max": 65535,
-      "advanced": true
-    },
-    {
-      "key": "startTimeoutSeconds",
-      "label": "Start timeout",
-      "type": "number",
-      "default": 30,
-      "min": 5,
-      "max": 300,
-      "advanced": true,
-      "hint": "How long a runtime has to answer after it is started before the publish is treated as failed."
-    },
-    {
-      "key": "requestTimeoutSeconds",
-      "label": "Request timeout",
-      "type": "number",
-      "default": 15,
-      "min": 1,
-      "max": 120,
-      "advanced": true,
-      "hint": "How long one exchange with a runtime may take in total before the visitor gets an error."
-    },
-    {
-      "key": "maxResponseMb",
-      "label": "Largest runtime response",
-      "type": "number",
-      "default": 8,
-      "min": 1,
-      "max": 64,
-      "advanced": true,
-      "hint": "A runtime answer is buffered whole before it is sent on, so this is a real ceiling."
     },
     {
       "key": "limits",
@@ -303,8 +213,6 @@
       "columnKind": "Publication",
       "kindStatic": "Static files",
       "kindProxy": "Managed Project proxy",
-      "kindCommand": "Command runtime",
-      "kindPhp": "PHP",
       "metricTotal": "Sites",
       "metricLive": "Live",
       "metricShared": "Shared with me",
@@ -323,26 +231,11 @@
       "visibilityProject": "Project",
       "visibilityAuthenticated": "Signed in",
       "visibilityPublic": "Public",
-      "runtime": "Runtime",
-      "runtimeRunning": "Running",
-      "runtimeStopped": "Not running",
-      "runtimeCommand": "Start command",
-      "runtimeBind": "Connection",
-      "runtimeSocket": "Secure socket",
-      "runtimePort": "Loopback port",
-      "runtimeNetwork": "Network",
-      "runtimeNetworkIsolated": "No network",
-      "runtimeNetworkShared": "Host network",
       "openProject": "Open Project",
       "copy": "Copy",
       "refresh": "Refresh",
       "pass": "PASS",
       "fail": "FAIL",
-      "saveRuntime": "Save runtime",
-      "runtimeLog": "Recent output",
-      "runtimeEmptyLog": "Nothing recorded yet.",
-      "restart": "Restart",
-      "restarted": "Restarting",
       "address": "Address",
       "lastPublish": "Last publish",
       "releases": "Releases",
@@ -372,7 +265,7 @@
       "saved": "Saved",
       "close": "Close",
       "releaseLive": "Live",
-      "projectRuntimeLink": "This publication uses the managed Project {project} transport."
+      "projectPublicationLink": "This publication uses the managed Project {project} transport."
     }
   }
 }

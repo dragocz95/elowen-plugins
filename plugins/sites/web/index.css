@@ -17,9 +17,6 @@
   .inline-flex {
     display: inline-flex;
   }
-  .max-h-64 {
-    max-height: calc(var(--spacing, 0.25rem) * 64);
-  }
   .w-full {
     width: 100%;
   }
@@ -85,9 +82,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .overflow-auto {
-    overflow: auto;
-  }
   .rounded-md {
     border-radius: var(--radius-md, 0.625rem);
   }
@@ -129,9 +123,6 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-primary, #ff5236) 10%, transparent);
     }
-  }
-  .p-3 {
-    padding: calc(var(--spacing, 0.25rem) * 3);
   }
   .px-2 {
     padding-inline: calc(var(--spacing, 0.25rem) * 2);
@@ -190,9 +181,6 @@
   }
   .whitespace-nowrap {
     white-space: nowrap;
-  }
-  .whitespace-pre-wrap {
-    white-space: pre-wrap;
   }
   .text-destructive {
     color: var(--color-destructive, #e94d42);

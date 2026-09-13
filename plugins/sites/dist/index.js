@@ -8,8 +8,6 @@ import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
-import { executePhp } from './php.js';
-import { SiteRuntimeSupervisor, isDaemonProcess } from './runtime.js';
 import { deleteSiteResources } from './deletion.js';
 import { ProjectPreviewService } from './preview.js';
 import { ProjectPublicationService } from './publication.js';
@@ -18,6 +16,7 @@ const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
 const GATEWAY_RECOVERY_MS = 60_000;
 const ISSUE_SWEEP_MS = 30_000;
+const isDaemonProcess = () => typeof process.send !== 'function';
 export function register(published) {
     const ctx = asSitesContext(published);
     const store = new SitesStore(ctx.db());
@@ -77,8 +76,8 @@ export function register(published) {
             : join(project.path, ...site.sourceRel.split('/'));
     };
     const proxyLimits = () => ({
-        maxResponseBytes: config().maxResponseBytes,
-        requestTimeoutSeconds: config().requestTimeoutSeconds,
+        maxResponseBytes: config().maxProxyResponseBytes,
+        requestTimeoutSeconds: config().proxyRequestTimeoutSeconds,
     });
     const pendingHits = new Map();
     const deletingSiteIds = new Set();
@@ -98,19 +97,6 @@ export function register(published) {
             ctx.logger.warn(`could not record visits: ${error instanceof Error ? error.message : String(error)}`);
         }
     };
-    const supervisor = new SiteRuntimeSupervisor({
-        ctx,
-        store,
-        config: () => ({
-            startTimeoutSeconds: config().startTimeoutSeconds,
-            runtimeNetwork: config().runtimeNetwork,
-            allowLoopbackPorts: config().allowLoopbackPorts,
-            loopbackPortMin: config().loopbackPortMin,
-            loopbackPortMax: config().loopbackPortMax,
-        }),
-        siteDir,
-        releaseDir,
-    });
     const previews = new ProjectPreviewService({
         store,
         access,
@@ -140,14 +126,7 @@ export function register(published) {
                 store,
                 siteDir,
                 hasGatewayBroker: () => gateway.hasBroker(),
-                stopLegacy: (id) => supervisor.stop(id),
                 releasePublication: (target) => publications.release(target),
-                removeRuntimeSocket: async (id) => {
-                    const control = ctx.control('publishedSitesGateway');
-                    if (!control)
-                        throw new Error('the published-sites socket broker is unavailable');
-                    await control.removeRuntimeSocket(id);
-                },
                 removeGateway: (slug) => gateway.removeSite(slug),
             });
             deletingSiteIds.delete(siteId);
@@ -196,21 +175,6 @@ export function register(published) {
     };
     const activateRelease = (site, releaseId) => {
         store.updateSite(site.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
-        if (site.runtime !== 'command' || !isDaemonProcess())
-            return;
-        void (async () => {
-            try {
-                await supervisor.stop(site.id);
-                const next = store.siteById(site.id);
-                if (next)
-                    await supervisor.start(next);
-            }
-            catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                store.updateSite(site.id, { status: 'failed', lastError: message });
-                ctx.logger.warn(`site ${site.slug} did not restart: ${message}`);
-            }
-        })();
     };
     ctx.registerHttpRoute({
         path: 's',
@@ -230,11 +194,10 @@ export function register(published) {
                 if (!deletingSiteIds.has(siteId))
                     pendingHits.set(siteId, (pendingHits.get(siteId) ?? 0) + 1);
             },
-            endpointFor: (siteId) => publications.endpointFor(siteId) ?? supervisor.endpointFor(siteId),
+            endpointFor: (siteId) => publications.endpointFor(siteId),
             previews,
             proxyLimits,
             usernameOf: (userId) => people().get(userId)?.username ?? null,
-            executePhp: (site, release, req, rest, viewer, siteRoot) => executePhp({ ctx, siteDir, network: () => config().runtimeNetwork }, site, release, req, rest, { userId: viewer.userId, name: viewer.userId === null ? null : people().get(viewer.userId)?.username ?? null }, proxyLimits(), siteRoot),
         }),
     });
     const handlers = createApiHandlers({
@@ -247,16 +210,6 @@ export function register(published) {
         sourceDisplayPath,
         deleteSite,
         activateRelease,
-        runtimeState: (siteId) => ({ running: supervisor.isRunning(siteId), logTail: supervisor.logTail(siteId) }),
-        allocatePort: () => supervisor.allocatePort(),
-        restartRuntime: async (site) => {
-            await supervisor.stop(site.id);
-            const next = store.siteById(site.id);
-            if (!next)
-                return;
-            await supervisor.start(next);
-            store.updateSite(site.id, { status: 'live', lastError: null });
-        },
         gatewayReadiness: () => gateway.readiness(),
         gatewayRecord: () => gateway.requiredRecord(),
     });
@@ -277,7 +230,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     registerTools({
-        ctx, store, access, config, siteDir, releaseDir, deleteSite, runtime: supervisor,
+        ctx, store, access, config, siteDir, releaseDir, deleteSite,
         publications, people, previews,
         certificates: {
             publish: (site) => certificates.publish(site, certificateHost(site)),
@@ -310,13 +263,9 @@ export function register(published) {
     if (isDaemonProcess()) {
         ctx.registerService({ name: 'site-gateway', start: async () => { await syncGateway(); }, stop: () => { } });
         ctx.registerService({
-            name: 'site-runtimes',
-            criticalStop: true,
-            start: async () => {
-                await supervisor.reconcile();
-                await publications.reconcile();
-            },
-            stop: () => supervisor.stopAll(),
+            name: 'site-publications',
+            start: async () => { await publications.reconcile(); },
+            stop: () => { },
         });
     }
     ctx.registerUserRemoved(async (userId) => {
@@ -336,8 +285,7 @@ export function register(published) {
         await cleanupDeletingSites();
     });
     ctx.registerInterval('cleanup-deleting-sites', cleanupDeletingSites, 5_000);
-    ctx.registerInterval('reconcile-site-runtimes', async () => {
-        await supervisor.reconcile();
+    ctx.registerInterval('reconcile-site-publications', async () => {
         await publications.reconcile();
     }, 2_000);
     ctx.registerInterval('issue-site-certificates', async () => {

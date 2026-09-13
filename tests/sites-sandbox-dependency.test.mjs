@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import Database from 'better-sqlite3';
 import { SANDBOX_REQUIRED, SandboxRequiredError, requireSandbox } from '../plugins/sites/dist/sandboxControl.js';
-import { SiteRuntimeSupervisor } from '../plugins/sites/dist/runtime.js';
 import { ProjectPreviewService } from '../plugins/sites/dist/preview.js';
 import { ProjectPublicationService } from '../plugins/sites/dist/publication.js';
-import { executePhp } from '../plugins/sites/dist/php.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { resolveConfig } from '../plugins/sites/dist/config.js';
 
@@ -33,10 +30,6 @@ const site = (overrides = {}) => ({
   spa: false,
   kind: 'static',
   target: '',
-  runtime: 'command',
-  startCommand: 'node server.mjs',
-  bind: 'port',
-  port: 41000,
   status: 'live',
   currentReleaseId: 'release-1',
   createdAt: new Date().toISOString(),
@@ -47,12 +40,6 @@ const site = (overrides = {}) => ({
   lastError: null,
   ...overrides,
 });
-
-const temp = (t, tag) => {
-  const dir = mkdtempSync(join(tmpdir(), `sites-${tag}-`));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-};
 
 /** Every required path must fail with the SAME sentence. Asserting the message rather than the class is
  *  the point: a caller that swapped in its own wording would still be an instance of the error. */
@@ -73,53 +60,6 @@ test('the accessor answers with the control, or with one refusal that names the 
   // unavailable" was true and sent every reader looking for a broken container instead.
   assert.match(SANDBOX_REQUIRED, /Sandbox/);
   assert.match(SANDBOX_REQUIRED, /Plugins/);
-});
-
-test('a confined site runtime refuses by name instead of failing further down', async (t) => {
-  const root = temp(t, 'runtime-nosandbox');
-  const release = join(root, 'release');
-  mkdirSync(release, { recursive: true });
-  writeFileSync(join(release, 'server.mjs'), 'export {};');
-
-  let prepared = 0;
-  const supervisor = new SiteRuntimeSupervisor({
-    ctx: {
-      // The Sandbox is gone; the socket broker is not. Without the accessor this start reached the port
-      // validation and the broker first, and reported whatever THOSE had to say about a cause that was
-      // never theirs.
-      control: (name) => (name === 'publishedSitesGateway'
-        ? { prepareRuntimeSocket: async () => { prepared += 1; return { path: join(root, 'app.sock') }; } }
-        : undefined),
-      logger: { info() {}, warn() {}, error() {} },
-    },
-    store: { liveCommandSites: () => [], siteById: () => site(), conversionSuspends: () => null, conversionSuspensions: () => new Map() },
-    config: () => ({ startTimeoutSeconds: 5, runtimeNetwork: 'isolated', allowLoopbackPorts: true, loopbackPortMin: 41000, loopbackPortMax: 41999 }),
-    siteDir: () => root,
-    releaseDir: () => release,
-  });
-
-  await refusesByName(() => supervisor.start(site(), { authorized: true }));
-  assert.equal(supervisor.isRunning(SITE_ID), false);
-  assert.equal(prepared, 0, 'nothing may be reserved for a runtime that cannot be confined');
-});
-
-test('PHP execution refuses by name, and reserves no session directory first', async (t) => {
-  const root = temp(t, 'php-nosandbox');
-  const release = join(root, 'release');
-  mkdirSync(release, { recursive: true });
-  writeFileSync(join(release, 'index.php'), '<?php');
-
-  await refusesByName(() => executePhp(
-    { ctx: { control: () => undefined, logger: { info() {}, warn() {}, error() {} } }, siteDir: () => root, network: () => 'isolated' },
-    { id: SITE_ID, ownerUserId: 7 },
-    release,
-    { method: 'GET', path: '', query: {}, headers: {}, body: async () => Buffer.alloc(0) },
-    '',
-    { userId: 7, name: 'member' },
-    { maxResponseBytes: 1024, requestTimeoutSeconds: 1 },
-    '/s/sandbox-demo',
-  ));
-  assert.deepEqual(readdirSync(root), ['release'], 'a refused request must not leave a runtime directory behind');
 });
 
 test('a Project preview refuses by name once access has been proved', async (t) => {
@@ -148,7 +88,7 @@ test('a proxy publication separates "no Sandbox" from "a Sandbox without this tr
   t.after(() => db.close());
   const handle = { exec: (sql) => db.exec(sql), prepare: (sql) => db.prepare(sql) };
   const store = new SitesStore({ ...handle, migrate: (steps) => steps.forEach((step) => step.up(handle)), transaction: (fn) => db.transaction(fn)() });
-  const managed = site({ kind: 'proxy', runtime: 'static', target: '3000', bind: 'socket', port: null });
+  const managed = site({ kind: 'proxy', target: '3000' });
 
   let control;
   const service = new ProjectPublicationService({

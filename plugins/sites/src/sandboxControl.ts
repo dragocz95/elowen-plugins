@@ -17,9 +17,9 @@ export class SandboxRequiredError extends Error {
 
 /** The single place the absence of the Sandbox control becomes an error.
  *
- *  Every path that CANNOT proceed without the Sandbox resolves it through here: starting or confining a
- *  runtime, executing PHP, reaching a managed Project's files, creating or publishing a site, and every
- *  environment operation. Generic in the control's shape because the services take narrower views of it
+ *  Every path that CANNOT proceed without the Sandbox resolves it through here: reaching a managed
+ *  Project's files, creating or publishing a site, and every Project transport operation. Generic in the
+ *  control's shape because the services take narrower views of it
  *  (`projectPreviewBinding` alone, the publication transport alone) and each keeps its own type.
  *
  *  The paths that legitimately answer "unknown" instead — a status projection, a readiness row, a

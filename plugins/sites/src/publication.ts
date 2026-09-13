@@ -1,6 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import type { Site, SitesStore } from './store.js';
-import type { Endpoint } from './runtime.js';
+import type { Endpoint } from './proxy.js';
 import { requireSandbox } from './sandboxControl.js';
 
 export interface PublicationControl {
