@@ -68,8 +68,6 @@ function renderEditor() {
   render(<ProjectEditor projectId={PROJECT_ID} onClose={() => {}} />, { wrapper: Wrapper });
 }
 
-const toolbar = () => screen.getByRole('toolbar', { name: strings.editorTitle });
-
 describe('the editor toolbar at desktop width', () => {
   it('keeps the root path out of the toolbar', async () => {
     renderEditor();
