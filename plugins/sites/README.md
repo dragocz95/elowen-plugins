@@ -22,9 +22,9 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 A static publication may use the plain file server, a confined command runtime or PHP-CGI. Command and PHP execution continue through Sandbox `prepareExecution`; socket-bound command applications use the host-owned runtime socket gateway.
 
-Managed static outputs are transferred through Sandbox Project file operations. Files are read in bounded chunks with a stable content version, and an interrupted or changing transfer removes its partial release before reporting failure.
+Managed Project releases are transferred through Sandbox Project file operations. Static output uses a bounded tree walk. Command and PHP output uses the Sandbox publication manifest so executable permission bits and safe relative symlinks survive the immutable snapshot. Regular files are read in bounded chunks against a stable content version, and an interrupted, inconsistent or changing transfer removes its partial release before reporting failure.
 
-Rows from the retired per-Site environment runtime remain stored as dormant historical data. They are absent from ordinary lists, reads, serving, readiness and reconciliation. Existing action, migration, snapshot and backup records remain available for explicit offline audit or cleanup, and no Sites operation starts, stops, restores, snapshots or executes such an environment.
+Rows from the retired per-Site environment runtime remain stored as dormant historical data. They are absent from ordinary lists, reads, serving, readiness and reconciliation. Their source values remain opaque audit data and never need a current Project path during plugin boot. Existing action, migration, snapshot and backup records remain available for explicit offline audit or cleanup, and no Sites operation starts, stops, restores, snapshots or executes such an environment.
 
 ## Tools
 
