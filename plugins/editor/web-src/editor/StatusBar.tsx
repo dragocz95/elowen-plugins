@@ -1,5 +1,5 @@
 'use client';
-import { Circle } from 'lucide-react';
+import { Circle, HardDrive } from 'lucide-react';
 import type { CursorState } from './EditorPane';
 
 function formatBytes(bytes: number): string {
@@ -28,6 +28,7 @@ export function StatusBar({ path, cursor, language, tabSize, size, dirty, labels
   return (
     <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-background px-3 text-[11px] text-muted-foreground">
       <span className="flex min-w-0 items-center gap-1.5">
+        <HardDrive size={11} className="shrink-0 text-primary" aria-hidden />
         {dirty ? <Circle size={7} className="shrink-0 fill-warning text-warning" aria-label={labels.unsaved} /> : null}
         <span className="truncate font-mono" title={path}>{path}</span>
       </span>

@@ -201,12 +201,17 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const editable = selected != null && textFile && !commit && !working;
   const effTab: Tab = (tab === 'preview' && !previewableText) || (tab === 'diff' && systemRoot) ? 'edit' : tab;
   const fileSize = selectedFile?.size ?? 0;
-  // Where the open file actually lives, for the roots whose relative paths mean nothing on their own.
-  // A managed project's mount comes from the host's projection (`guestRoot`), so the slug rule is stated
-  // once — on the daemon, which also resolves every request from it — and the interface only repeats it.
-  // A host project shows nothing here: its tree is the project and there is no second place to be.
-  const rootDisplay = hostSystem ? SYSTEM_ROOT : root === 'system' ? GUEST_SYSTEM_ROOT : (projectRow?.guestRoot ?? null);
-  const absoluteHint = rootDisplay === null ? null
+  // The status bar names the file where it actually lives. Managed roots use the guest mount reported by
+  // the host; host projects use their stored directory. Both values already come from the authorised
+  // Project projection, so the interface only joins the selected relative path.
+  const rootDisplay = hostSystem
+    ? SYSTEM_ROOT
+    : root === 'system'
+      ? GUEST_SYSTEM_ROOT
+      : projectRow?.executionKind === 'managed'
+        ? (projectRow.guestRoot ?? null)
+        : (projectRow?.path ?? null);
+  const fullPath = rootDisplay === null ? selected
     : rootDisplay === '/' ? `/${selected ?? ''}`
     : selected ? `${rootDisplay}/${selected}` : rootDisplay;
 
@@ -574,23 +579,6 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         {!commit && !working ? <MenuBar menus={menus} openId={openMenu} onOpen={openTopMenu} /> : null}
         {uploading ? <span className="text-xs text-muted-foreground">{s.uploading}</span> : null}
         <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-          {/* A path relative to a root the user cannot see is a path relative to nothing, so the header
-              carries the absolute one. It is also the only place the root itself is named once a file is
-              open, and for a managed project it is the guest directory the daemon resolved — reported by
-              the host projection, never re-derived here.
-
-              It reads as a status at the trailing edge rather than sitting between the title and the
-              menus, where a path that grows with every file opened kept pushing the menus along. The
-              flexible gap belongs to this group, so the path is right-aligned and shrinks before
-              anything else does: `min-w-0` with hidden overflow lets it ellipsis down to nothing, which
-              is also what keeps it from wrapping the row. On a phone it is not drawn at all — the menus
-              and the actions are what a narrow row has space for. */}
-          {absoluteHint && !mobile ? (
-            <span className="min-w-0 shrink truncate text-right font-mono text-xs text-muted-foreground" title={absoluteHint}>
-              <HardDrive size={11} className="mr-1 inline shrink-0 text-primary" aria-hidden />
-              {absoluteHint}
-            </span>
-          ) : null}
           {viewControls}
           {!fullscreen && onClose ? <button type="button" aria-label={t.common.close} onClick={closeEditor} className="overlay-touch-target flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"><X size={15} /></button> : null}
         </div>
@@ -691,7 +679,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
               describe a file the pane above is not letting you edit. */}
           {selected && textFile && !commit && !working && effTab === 'edit' ? (
             <StatusBar
-              path={selected}
+              path={fullPath ?? selected}
               cursor={cursor}
               language={langOf(selected)}
               tabSize={prefs.tabSize}
