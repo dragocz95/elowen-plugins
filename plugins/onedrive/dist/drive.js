@@ -95,6 +95,16 @@ export class RemoteItemAppearedError extends Error {
         this.name = 'RemoteItemAppearedError';
     }
 }
+function uploadSource(file) {
+    if ('handle' in file) {
+        return { size: file.size, read: async (offset, length) => {
+                const buffer = Buffer.allocUnsafe(length);
+                const result = await file.handle.read(buffer, 0, length, offset);
+                return buffer.subarray(0, result.bytesRead);
+            } };
+    }
+    return file;
+}
 export class Drive {
     graph;
     driveId;
@@ -291,9 +301,10 @@ export class Drive {
      *  the bytes sent are the bytes that were checked - reopening the path here would hand a symlink swapped
      *  in since then a way out of the project. */
     async upload(folderId, rel, file, ifMatch, expectNew = false) {
-        const send = (asNew) => file.size <= SIMPLE_UPLOAD_MAX
-            ? this.uploadSmall(folderId, rel, file, ifMatch, asNew)
-            : this.uploadLarge(folderId, rel, file, ifMatch, asNew);
+        const source = uploadSource(file);
+        const send = (asNew) => source.size <= SIMPLE_UPLOAD_MAX
+            ? this.uploadSmall(folderId, rel, source, ifMatch, asNew)
+            : this.uploadLarge(folderId, rel, source, ifMatch, asNew);
         try {
             return await send(expectNew);
         }
@@ -324,10 +335,11 @@ export class Drive {
         const body = Buffer.allocUnsafe(file.size);
         let read = 0;
         while (read < file.size) {
-            const { bytesRead } = await file.handle.read(body, read, file.size - read, read);
-            if (bytesRead === 0)
+            const bytes = await file.read(read, file.size - read);
+            if (bytes.length === 0)
                 break;
-            read += bytesRead;
+            body.set(bytes, read);
+            read += bytes.length;
         }
         const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
         const raw = await this.graph.json('PUT', `${this.itemPath(folderId, rel)}/content${behavior}`, {
@@ -352,9 +364,11 @@ export class Drive {
         let last = null;
         const buffer = Buffer.allocUnsafe(CHUNK);
         while (offset < size) {
-            const { bytesRead } = await file.handle.read(buffer, 0, Math.min(CHUNK, size - offset), offset);
+            const bytes = await file.read(offset, Math.min(CHUNK, size - offset));
+            const bytesRead = bytes.length;
             if (bytesRead === 0)
                 break;
+            buffer.set(bytes, 0);
             // The upload URL is pre-authenticated and MUST be called without the bearer, so this one request
             // goes out directly rather than through the scoped Graph client.
             const response = await fetch(uploadUrl, {
@@ -374,6 +388,10 @@ export class Drive {
                 last = await response.json().catch(() => null);
         }
         return itemFromGraph(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: rel, deleted: false };
+    }
+    async downloadBytes(itemId, maxBytes = 1024 * 1024 * 1024) {
+        const { body } = await this.graph.binary(`${this.base()}/items/${encodeURIComponent(itemId)}/content`, { maxBytes });
+        return body;
     }
     /** Fetch one item into `absolute`. Written to a sibling temporary file and renamed, so a reader never
      *  observes a half-written file and an interrupted download leaves the previous content intact. */

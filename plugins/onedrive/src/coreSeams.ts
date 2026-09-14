@@ -53,6 +53,29 @@ export interface MicrosoftIdentityControl {
   driveGraphFor(userId: number): Promise<MicrosoftDriveGraph | null>;
 }
 
+export interface ManagedProjectFileRoot {
+  root: string;
+  generation: number;
+  state: 'unprovisioned' | 'starting' | 'running' | 'stopped' | 'failed' | 'deleting' | 'deleted';
+  workspaceId: string | null;
+}
+interface GuestFileEntry { path: string; kind: 'file' | 'directory' | 'symlink' | 'other'; size: number; modifiedAt: string; version?: string }
+export type GuestFileResult =
+  | { kind: 'stat'; entry: GuestFileEntry | null }
+  | { kind: 'list'; entries: GuestFileEntry[]; truncated: boolean; nextCursor: string | null }
+  | { kind: 'read'; base64: string; version: string; totalBytes: number }
+  | { kind: 'write' | 'mkdir' | 'rename' | 'write-commit'; entry: GuestFileEntry }
+  | { kind: 'write-begin'; uploadId: string; chunkSize: number; received: number; resolvedPath: string }
+  | { kind: 'write-chunk'; received: number }
+  | { kind: 'write-abort'; aborted: true }
+  | { kind: 'remove'; removed: boolean }
+  | { kind: 'walk'; root: string; rootKind: 'file' | 'directory' | 'symlink' | 'other' | null; entries: { path: string; kind: 'file' | 'directory' | 'symlink'; size: number; mtime: number }[]; truncated: boolean };
+interface SandboxProjectControl {
+  projectFileRoot(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; workspaceId?: string | null }): Promise<ManagedProjectFileRoot>;
+  projectFiles(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; operation: Record<string, unknown>; expectedGeneration?: number; root?: string; workspaceId?: string | null; startIfNeeded?: boolean }): Promise<GuestFileResult>;
+  prepareExecution(input: { command: { type: 'argv'; file: string; args: string[] }; cwd: string; leaseKind: 'files'; projectRef: { kind: 'managed'; projectId: number } }, options?: { accountUserId: number | null; roots: readonly string[] }): Promise<{ mode: 'managed'; cwd: string; launch: { type: 'argv'; file: string; args: string[]; env: Record<string, string> } | { type: 'shell'; command: string; env: Record<string, string> }; lease: { release(): void | Promise<void> } }>;
+}
+
 interface SandboxWorkspaceView {
   workspaceId: string;
   projectId: number;
@@ -62,8 +85,9 @@ interface SandboxWorkspaceView {
   baseRef: string;
 }
 
-interface SandboxAccountControl {
-  workspacesFor(input: { userId: number; projectIds?: readonly number[] }): SandboxWorkspaceView[];
+export interface SandboxAccountControl extends SandboxProjectControl {
+  managedWorktrees(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; action: { kind: 'list' }; startIfNeeded?: boolean }): Promise<{ id: string; label: string; state?: string }[]>;
+  workspacesFor?(input: { userId: number; projectIds?: readonly number[] }): SandboxWorkspaceView[];
 }
 
 type UiVisibility = (req: { userId: number | null; isAdmin: boolean }) =>
@@ -83,6 +107,7 @@ export type OneDriveContext = Omit<PluginContext, 'control' | 'host'> & {
   // first one, so the extra member would type-check as absent at every call site.
   host: Omit<PluginContext['host'], 'stores'> & {
     stores: () => ReturnType<PluginContext['host']['stores']> & {
+      projects: { get(id: number): { id: number; slug: string; path: string; executionKind: 'host' | 'managed' } | null };
       userProjects: { canAccess(userId: number, projectId: number): boolean };
     };
   };

@@ -105,7 +105,7 @@ function harness(drive?: ReturnType<typeof fakeGraph>, root = '/tmp/demo') {
     rootFor: () => root,
     baseFor: () => root,
     withinBase: (base: string, subpath: string) => (subpath ? `${base}/${subpath}` : base),
-    workspacesOf: () => [],
+    workspacesOf: async () => [],
   });
 
   return { store, routes, engine, ctx };

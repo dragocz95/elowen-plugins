@@ -1,6 +1,6 @@
 # skills
 
-Loads markdown skills from disk and exposes them to the Elowen brain, with instance-wide, personal and bundled skills managed from a Settings page.
+Loads markdown skills from disk and exposes the complete live skill catalog to the Elowen brain. The Skills page shows personal, instance, bundled and plugin-contributed skills; administrators can narrow plugin skill availability per account.
 
 ## Install
 
@@ -8,8 +8,8 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.3.6` |
-| Requires core | `0.28.23` |
+| Version | `0.4.0` |
+| Requires core | `0.28.46` |
 | Requires shared API | `not declared` |
 | User-grantable | Yes |
 
@@ -19,7 +19,7 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 ## Configuration
 
-The manifest declares no settings fields. Skills themselves carry the configuration: each has a name, a one-line description, its body and whether the model may select it automatically.
+The manifest declares no settings fields. Personal and instance skill files retain their name, description, body and manual-only flag. Plugin-contributed skills are read-only artifacts; an administrator may select an account and set an explicit disabled override. Absence of an override means enabled, while plugin disablement and user grants still take precedence.
 
 ## Documentation
 

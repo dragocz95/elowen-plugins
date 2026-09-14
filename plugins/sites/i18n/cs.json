@@ -1,5 +1,5 @@
 {
-  "description": "Zveřejňujte neměnné statické verze nebo aplikaci, která už běží ve výslovně vybraném spravovaném projektu. Každá adresa má vlastní pravidla viditelnosti.",
+  "description": "Zveřejněte adresu pro aplikaci běžící ve výslovně vybraném spravovaném projektu a mějte snímek každé zveřejněné stránky. Každá adresa má vlastní pravidla viditelnosti.",
   "fields": {
     "publishing": {
       "label": "Zveřejňování"
@@ -28,21 +28,9 @@
     "limits": {
       "label": "Limity"
     },
-    "maxAssetMb": {
-      "label": "Největší soubor",
-      "hint": "Soubory nad tuto velikost se při zveřejnění odmítnou. Zveřejněný soubor se při servírování streamuje z disku, takže strop určuje disk, nikoli paměť démona."
-    },
-    "maxSiteMb": {
-      "label": "Největší stránka",
-      "hint": "Celková velikost jedné zveřejněné verze v MB. Omezuje ji jen disk, který jí dáte."
-    },
     "maxSitesPerAccount": {
       "label": "Počet stránek na účet",
       "hint": "Kolik stránek smí jeden účet mít současně."
-    },
-    "releasesKept": {
-      "label": "Kolik verzí uchovat",
-      "hint": "Starší verze nad tento počet se odstraní. Verze, kterou stránka právě servíruje, se neodstraní nikdy, ať je zde nastaveno cokoli."
     },
     "access": {
       "label": "Přístup"
@@ -82,12 +70,22 @@
       "filterStatus": "Stav",
       "filterAllVisibilities": "Libovolná viditelnost",
       "filterAllStatuses": "Libovolný stav",
-      "columnSite": "Stránka",
       "columnOwner": "Vlastník",
-      "columnVisibility": "Viditelnost",
-      "columnStatus": "Stav",
-      "columnPublished": "Zveřejněno",
-      "columnKind": "Publikace",
+      "project": "Projekt",
+      "noAddress": "Zatím bez adresy",
+      "previewTitle": "Náhled stránky",
+      "previewHint": "Snímek stránky pořízený přes její vlastní adresu. Instance ho obnoví, když zastará.",
+      "previewPending": "Snímá se stránka…",
+      "previewNone": "Zatím žádný snímek této stránky.",
+      "previewStale": "Zastaralý",
+      "previewFailed": "Poslední snímek se nepovedl",
+      "previewCapturedAt": "Snímek {time}",
+      "previewRefresh": "Pořídit nový snímek",
+      "previewRefreshed": "Snímek zařazen",
+      "openDetail": "Otevřít stránku {title}",
+      "openDetailShort": "Detail",
+      "stateHintDegraded": "Zveřejněno, ale aplikace za adresou neodpovídá.",
+      "stateHintFailed": "Poslední zveřejnění selhalo. Důvod najdete v detailu.",
       "kindStatic": "Statické soubory",
       "kindProxy": "Proxy spravovaného projektu",
       "metricTotal": "Stránek",
@@ -134,9 +132,9 @@
       "publicWarning": "Stránku bude moci otevřít kdokoli, kdo zná adresu, a to bez přihlášení.",
       "publicConfirm": "Zveřejnit",
       "publicDisabled": "Veřejné stránky jsou na této instanci vypnuté.",
-      "sourceNotice": "Zdrojová složka leží v projektu, takže si ji přečte každý, kdo má k projektu přístup. Toto nastavení řídí zveřejněnou stránku.",
+      "sourceNotice": "Toto nastavení řídí zveřejněnou adresu. Přístup k aplikaci a jejím souborům se spravuje samostatně v projektu.",
       "deleteTitle": "Smazat tuto stránku",
-      "deleteHint": "Adresa přestane fungovat a všechny verze se odstraní. Zdrojová složka v projektu zůstane nedotčená.",
+      "deleteHint": "Adresa přestane fungovat. Uchované verze starších souborových publikací se odstraní; spravovaný projekt a jeho aplikace zůstanou nedotčené.",
       "delete": "Smazat stránku",
       "deleted": "Stránka smazána",
       "saved": "Uloženo",

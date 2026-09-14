@@ -31,9 +31,9 @@ const toView = (site, deps, auth) => {
         createdModel: site.createdModel,
         lastPublishAt: site.lastPublishAt,
         lastPublishModel: site.lastPublishModel,
-        spa: site.spa,
         kind: site.kind,
         target: site.target,
+        preview: deps.previewImages?.view(site.id) ?? { state: 'none', version: 0, capturedAt: null, width: null, height: null },
         canManage: canManage(site, auth),
     };
 };
@@ -70,6 +70,10 @@ export function createApiHandlers(deps) {
     const list = async (req) => {
         const config = deps.config();
         const { mine, shared } = visibleSites(deps, req.auth);
+        // The register is what asks for pictures: a Site nobody has looked at in a TTL window is pictured when
+        // somebody looks again, and one an account only has shared with it is pictured by its own manager.
+        // Nobody is told about it here, because opening a register is not the place for a refusal.
+        deps.previewImages?.ensureFresh(req.auth.admin ? [...mine, ...shared] : mine);
         return json(200, {
             mine: mine.map((site) => toView(site, deps, req.auth)),
             shared: shared.map((site) => toView(site, deps, req.auth)),
@@ -91,25 +95,40 @@ export function createApiHandlers(deps) {
         if (req.method === 'GET' && action === '') {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
+            if (canManage(target, req.auth))
+                deps.previewImages?.ensureFresh([target]);
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
                 // who else the owner shared with, which is the owner's business and not part of opening a page.
                 members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
                     ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-                releases: deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
-                    id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
-                    fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
-                })),
+                releases: target.kind === 'static'
+                    ? deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
+                        id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
+                        fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
+                    }))
+                    : [],
                 hits: deps.store.hits(target.id, since),
-                sourceDir: canManage(target, req.auth) ? deps.sourceDisplayPath?.(target) ?? target.sourceRel : null,
+                sourceDir: canManage(target, req.auth) && target.kind === 'static'
+                    ? deps.sourceDisplayPath?.(target) ?? target.sourceRel
+                    : null,
                 // The stored publication failure is detail for somebody who may repair it. It stays out of the
                 // list response and away from guests, while the derived degraded flag remains safe to list.
                 lastError: canManage(target, req.auth) ? target.lastError : null,
+                // Why there is no picture, or why the last one could not be taken. Manager-only for the same
+                // reason: it names what this instance did on the owner's Project.
+                previewNotice: canManage(target, req.auth) ? deps.previewImages?.notice(target) ?? null : null,
             });
         }
+        // The picture of the published page. Whoever may OPEN the page may see this, and nobody else: it is
+        // the page itself, rendered, so it carries exactly the access rule the page already has.
+        if (req.method === 'GET' && action === 'preview')
+            return previewImage(target);
         if (!canManage(target, req.auth))
             return json(403, { error: 'forbidden' });
+        if (req.method === 'POST' && action === 'preview' && segments[2] === 'refresh')
+            return refreshPreview(target);
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {
@@ -130,6 +149,8 @@ export function createApiHandlers(deps) {
             return json(200, { ok: true });
         }
         if (req.method === 'POST' && action === 'rollback') {
+            if (target.kind === 'proxy')
+                return json(409, { error: 'a proxy publication has no file releases' });
             const body = await req.json().catch(() => ({}));
             const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
             const release = deps.store.release(target.id, releaseId);
@@ -140,6 +161,53 @@ export function createApiHandlers(deps) {
         }
         return json(405, { error: 'method not allowed' });
     };
+    /** GET /plugins/sites/api/site/<id>/preview — the one stored picture of this Site's page.
+     *
+     *  Immutable and long-lived on purpose: the query carries the version the metadata row is at, so a new
+     *  picture arrives under a new address and the browser never has to revalidate a card it already holds.
+     *  A client that asks without a version still gets the current picture. */
+    const previewImage = (target) => {
+        const image = deps.previewImages?.read(target.id);
+        if (!image)
+            return json(404, { error: 'there is no picture of this page' });
+        return {
+            status: 200,
+            headers: {
+                'content-type': image.mime,
+                'content-length': String(image.bytes.byteLength),
+                'cache-control': 'private, max-age=31536000, immutable',
+                'x-content-type-options': 'nosniff',
+                'x-robots-tag': 'noindex',
+                etag: `"preview-${image.version}"`,
+            },
+            body: image.bytes,
+        };
+    };
+    /** POST /plugins/sites/api/site/<id>/preview/refresh — take a new picture now.
+     *
+     *  Accepted rather than completed: a capture is a browser, and the answer says the request is queued.
+     *  The rate limit is the service's, so a person pressing the button twice is answered with the first
+     *  request instead of starting a second browser. */
+    const refreshPreview = (target) => {
+        const images = deps.previewImages;
+        if (!images)
+            return json(503, { error: 'this instance cannot take a picture of a page' });
+        const outcome = images.request(target.id, 'manual');
+        if (outcome.ok)
+            return json(202, { queued: true });
+        if (outcome.retryAfterMs !== undefined) {
+            return {
+                status: 429,
+                headers: {
+                    'content-type': 'application/json; charset=utf-8',
+                    'cache-control': 'no-store',
+                    'retry-after': String(Math.ceil(outcome.retryAfterMs / 1000)),
+                },
+                body: { error: outcome.reason },
+            };
+        }
+        return json(409, { error: outcome.reason });
+    };
     const patchSite = async (req, target) => {
         const body = await req.json().catch(() => ({}));
         const patch = {};
@@ -148,8 +216,6 @@ export function createApiHandlers(deps) {
             patch.title = body.title.trim().slice(0, 120);
         if (typeof body.summary === 'string')
             patch.summary = body.summary.trim().slice(0, 400);
-        if (typeof body.spa === 'boolean')
-            patch.spa = body.spa;
         if (typeof body.visibility === 'string') {
             if (!VISIBILITIES.includes(body.visibility)) {
                 return json(400, { error: 'unknown visibility' });

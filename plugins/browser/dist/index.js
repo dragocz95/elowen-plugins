@@ -6,6 +6,7 @@ import { DynamicProxyChainAdapter, EnforcingProxyManager } from './navigation-po
 import { browserDependencyReport, browserReadiness } from './readiness.js';
 import { BrowserService } from './service.js';
 import { SessionRegistry } from './session-registry.js';
+import { createSiteCaptureControl } from './site-capture.js';
 import { BrowserStore } from './store.js';
 import { registerBrowserTools } from './tools.js';
 import { VirtualDisplayPool } from './virtual-display.js';
@@ -17,7 +18,8 @@ export function register(ctx, deps = {}) {
     const artifacts = deps.artifacts ?? new ElowenArtifactPublisher(ctx);
     const processFactory = deps.processFactory ?? new PuppeteerCoreFactory();
     const processInspector = deps.processInspector ?? new LinuxProcessInspector();
-    const proxyFactory = deps.proxyFactory ?? new EnforcingProxyManager(config, deps.proxyAdapter ?? new DynamicProxyChainAdapter(), ctx.logger, deps.resolver);
+    const proxyAdapter = deps.proxyAdapter ?? new DynamicProxyChainAdapter();
+    const proxyFactory = deps.proxyFactory ?? new EnforcingProxyManager(config, proxyAdapter, ctx.logger, deps.resolver);
     const clock = deps.clock ?? SYSTEM_CLOCK;
     const displays = new VirtualDisplayPool({
         dataDir: ctx.dataDir(), config, store, processInspector, logger: ctx.logger,
@@ -57,6 +59,19 @@ export function register(ctx, deps = {}) {
         storage: () => pool.storageStatus(),
         liveView: () => core !== null,
     };
+    // The capture control is intentionally built from the plugin's own config and data directory rather
+    // than from the session pool: it must not be able to reach an account's browser, and the registry only
+    // offers it to Sites, which derives its targets from its own gateway configuration.
+    const siteCapture = createSiteCaptureControl({
+        dataDir: () => ctx.dataDir(),
+        chromeExecutable: () => config().chromeExecutable,
+        logger: ctx.logger,
+        proxyConcurrency: () => config().proxyConcurrency,
+        proxyRequestsPerMinute: () => config().proxyRequestsPerMinute,
+        proxyAdapter,
+        resolver: deps.resolver,
+    });
+    ctx.registerControl('browserCapture', siteCapture);
     if (core && transport)
         transport.register(core);
     registerBrowserTools(ctx, registry);
@@ -71,6 +86,7 @@ export function register(ctx, deps = {}) {
         // it is an orphan nothing will reconnect to, holding a framebuffer per account.
         stop: async () => {
             transport?.closeAll('daemon_stopping');
+            await siteCapture.dispose();
             await service.stop();
             await displays.releaseAll();
         },

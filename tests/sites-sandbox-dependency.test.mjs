@@ -70,7 +70,7 @@ test('a Project preview refuses by name once access has been proved', async (t) 
 
   const service = new ProjectPreviewService({
     store,
-    access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true },
+    access: { accountExists: () => true, isAdmin: () => false, canAccessProject: () => true, allowPublicSites: () => true },
     project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
     control: () => undefined,
     config: () => resolveConfig({}, 'https://app.example', 'sites.example'),

@@ -13,7 +13,8 @@ test('CI workflow parses and runs every registry gate before drift checks', () =
 
   assert.equal(job.defaults.run['working-directory'], 'registry');
   assert.equal(job.env.ELOWEN_CORE_ROOT, '${{ github.workspace }}/core');
-  assert.match(job.env.ELOWEN_CORE_REF, /^[0-9a-f]{40}$/);
+  assert.equal(job.env.ELOWEN_CORE_VERSION, '0.28.46');
+  assert.equal(job.env.ELOWEN_CORE_REF, 'b15e7790609c353a5eaca97f7bc455f2842428f9');
   const coreCheckout = job.steps.find((step) => step.with?.repository === 'dragocz95/elowen');
   assert.equal(coreCheckout.with.ref, '${{ env.ELOWEN_CORE_REF }}');
   assert.equal(coreCheckout.with.path, 'core');
@@ -33,10 +34,12 @@ test('CI workflow parses and runs every registry gate before drift checks', () =
   assert.match(job.steps[bubblewrap].run, /apt-get install .*bubblewrap/);
   assert.match(job.steps[bubblewrap].run, /bwrap --unshare-all/, 'the install is never proved usable');
   assert.ok(bubblewrap < job.steps.findIndex((step) => step.run === 'npm test'));
-  const versionGuard = job.steps.find((step) => step.name === 'Match core source to the installed daemon');
+  const versionGuard = job.steps.find((step) => step.name === 'Verify pinned core contract source');
   assert.match(versionGuard.run, /assert\.equal/);
+  assert.match(versionGuard.run, /semver\.gte/);
   assert.match(versionGuard.run, /node_modules\/elowen\/package\.json/);
   assert.match(versionGuard.run, /ELOWEN_CORE_ROOT/);
+  assert.match(versionGuard.run, /ELOWEN_CORE_VERSION/);
   const commands = job.steps.flatMap((step) => typeof step.run === 'string' && !step.name ? [step.run] : []);
   assert.deepEqual(commands, [
     'npm ci',

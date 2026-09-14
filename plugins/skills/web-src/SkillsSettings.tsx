@@ -1,18 +1,11 @@
-import { useRef, useState } from 'react';
-import { Hand, Package, Plus, User } from 'lucide-react';
-import { runtime, type PluginSkill, type SkillOwner } from './runtime';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Hand, Package, Plus, ShieldCheck, User } from 'lucide-react';
+import { runtime, type PluginSkill, type SkillAccount, type SkillOwner } from './runtime';
 
 type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner; revision?: number };
 type SkillForm = { editing: string | null; name: string; description: string; body: string } & SkillExtra;
-// `owner: null` on a NEW skill means "mine" — the daemon resolves an absent owner to the caller's own
-// set. Only an admin can switch the form to the instance set. `editingOwner` remains the original
-// identity while the draft owner is changed, so a move still addresses the correct source row.
-const EMPTY_FORM: SkillForm = { editing: null, name: '', description: '', body: '', disableModelInvocation: false, owner: null, editingOwner: null };
+const BLANK_FORM: SkillForm = { editing: null, name: '', description: '', body: '', disableModelInvocation: false, owner: null, editingOwner: null };
 
-/** Skills manager (the skills plugin's own page): bundled skills ship read-only with the install; user
- *  skills are one .md file each and can be created, edited and deleted here. Changes hot-reload the
- *  plugins, so NEW brain conversations pick them up immediately. The `disable-model-invocation` toggle
- *  hides a skill from progressive disclosure while keeping it reachable via /skill:name. */
 /** The `?owner=` / body value naming a set: an account id, the shared set, or the caller's own. */
 const ownerParam = (owner: SkillOwner): string => (owner === 'instance' ? 'instance' : owner === null ? 'me' : String(owner));
 
@@ -21,7 +14,6 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const s = hooks.usePluginStrings('skills');
   const { t } = hooks.useTranslation();
   const { toast } = hooks.useToast();
-  const query = hooks.usePluginSkills();
   const me = hooks.useMe();
   const myId = me.data?.user?.id ?? null;
   const isAdmin = me.data?.user?.is_admin === true;
@@ -30,47 +22,161 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const remove = hooks.useDeletePluginSkill();
   const [creating, setCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  /** The shared editor disables Save after React renders. This lock also rejects a second click in the
-   * same event turn, and remains held across the move-then-PATCH sequence. */
+  const [skills, setSkills] = useState<PluginSkill[]>();
+  const [accounts, setAccounts] = useState<SkillAccount[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [availabilityKey, setAvailabilityKey] = useState<string | null>(null);
   const submitRef = useRef(false);
+  const skillRequestRef = useRef(0);
+  const selectedAccountRef = useRef<number | null>(null);
 
-  // Quick per-row switch: flip the flag without opening the full editor.
-  // Which set a write addresses. A skill of MINE is written without an owner (the daemon resolves it to
-  // the caller), an instance-wide one explicitly, and — for an admin cleaning up — someone else's by id.
+  useEffect(() => {
+    if (myId !== null && selectedAccount === null) {
+      selectedAccountRef.current = myId;
+      setSelectedAccount(myId);
+    }
+  }, [myId, selectedAccount]);
+
+  const loadAccounts = useCallback(async () => {
+    if (!isAdmin) return;
+    try { setAccounts(await api('/plugins/skills/accounts') as SkillAccount[]); }
+    catch (error) { toast(utils.apiErrorMessage(error), 'error'); }
+  }, [api, isAdmin, toast, utils]);
+
+  const loadSkills = useCallback(async (account = selectedAccountRef.current) => {
+    if (account === null || selectedAccountRef.current !== account) return;
+    const requestId = ++skillRequestRef.current;
+    try {
+      setLoadError(false);
+      const suffix = isAdmin ? `?account=${encodeURIComponent(String(account))}` : '';
+      const rows = await api(`/plugins/skills/list${suffix}`) as PluginSkill[];
+      if (requestId !== skillRequestRef.current || selectedAccountRef.current !== account) return;
+      setSkills(rows);
+    } catch (error) {
+      if (requestId !== skillRequestRef.current || selectedAccountRef.current !== account) return;
+      setLoadError(true);
+      toast(utils.apiErrorMessage(error), 'error');
+    }
+  }, [api, isAdmin, toast, utils]);
+
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
+  useEffect(() => {
+    if (selectedAccount === null) return;
+    selectedAccountRef.current = selectedAccount;
+    skillRequestRef.current += 1;
+    setSkills(undefined);
+    void loadSkills(selectedAccount);
+  }, [loadSkills, selectedAccount]);
+
+  const query = useMemo(() => ({
+    data: skills,
+    isLoading: skills === undefined && !loadError,
+    isError: loadError,
+    refetch: () => { void loadSkills(); },
+  }), [loadError, loadSkills, skills]);
+
   const targetOwner = (skill: PluginSkill): SkillOwner => (skill.owner === null ? 'instance' : skill.owner);
+  const selectedPersonalOwner: SkillOwner = selectedAccount === myId ? null : selectedAccount;
 
   const toggleInvocation = (skill: PluginSkill, enabled: boolean) => {
+    const account = selectedAccountRef.current;
+    const before = skills;
+    setSkills((current) => current?.map((item) => item === skill ? { ...item, disableModelInvocation: !enabled } : item));
     update.mutate(
       { name: skill.name, owner: targetOwner(skill), patch: { disableModelInvocation: !enabled } },
-      { onError: (e) => toast(utils.apiErrorMessage(e), 'error') },
+      {
+        onSuccess: () => { void loadSkills(account); },
+        onError: (error) => {
+          if (selectedAccountRef.current === account) setSkills(before);
+          toast(utils.apiErrorMessage(error), 'error');
+        },
+      },
     );
   };
 
-  const ownerLabel = (skill: PluginSkill): string => {
-    if (skill.owner === null) return s.ownerInstance;
-    return skill.owner === myId ? s.ownerMine : `#${skill.owner}`;
+  const togglePluginAvailability = async (skill: PluginSkill, enabled: boolean) => {
+    const account = selectedAccountRef.current;
+    if (!isAdmin || account === null || !skill.pluginKey) return;
+    const before = skills;
+    const pendingKey = `${account}:${skill.pluginKey}`;
+    setAvailabilityKey(pendingKey);
+    setSkills((current) => current?.map((item) => item.pluginKey === skill.pluginKey
+      ? enabled ? { ...item, enabledForAccount: true } : {
+        ...item, enabledForAccount: false, effective: false, unavailableReason: 'disabled-for-account',
+      }
+      : item));
+    try {
+      await api('/plugins/skills/plugin-availability', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId: account, key: skill.pluginKey, enabled }),
+      });
+      await loadSkills(account);
+    } catch (error) {
+      if (selectedAccountRef.current === account) {
+        setSkills(before);
+        await loadSkills(account);
+      }
+      toast(utils.apiErrorMessage(error), 'error');
+    } finally {
+      setAvailabilityKey((current) => current === pendingKey ? null : current);
+    }
   };
 
-  const skills: PluginSkill[] = query.data ?? [];
+  const accountName = (id: number | null): string => {
+    if (id === null) return s.ownerInstance;
+    if (id === myId) return s.ownerMine;
+    const account = accounts.find((candidate) => candidate.id === id);
+    return account?.name || account?.username || `#${id}`;
+  };
+
+  const ownerLabel = (skill: PluginSkill): string => {
+    if (skill.catalogSource === 'plugin') return s.scopePlugin;
+    if (skill.catalogSource === 'bundled') return s.scopeBundled;
+    if (skill.catalogSource === 'instance') return s.ownerInstance;
+    return accountName(skill.owner);
+  };
+
   const editedSkill = (form: SkillForm): PluginSkill | undefined =>
-    (form.editing === null ? undefined : skills.find((skill) =>
+    (form.editing === null ? undefined : skills?.find((skill) =>
       skill.name === form.editing && targetOwner(skill) === form.editingOwner));
-  /** A new skill, an instance-wide one, or the admin's own — see the switch's comment for why somebody
-   *  else's personal skill is excluded. Fail CLOSED on an editing form whose skill is not in the list: a
-   *  refetch error or an in-flight invalidation empties it, and "unknown owner" must not read as
-   *  "switchable" — the form would show a foreign skill as "Only me" with that option already selected. */
   const scopeSwitchable = (form: SkillForm): boolean => {
     if (form.editing === null) return true;
     const skill = editedSkill(form);
-    return skill !== undefined && (skill.owner === null || skill.owner === myId);
+    return skill !== undefined && skill.catalogSource !== 'plugin' && (skill.owner === null || skill.owner === selectedAccount);
   };
-  const userCount = skills.filter((skill) => skill.source === 'user').length;
-  const manualCount = skills.filter((skill) => skill.disableModelInvocation).length;
+
+  const userCount = skills?.filter((skill) => skill.catalogSource === 'personal' || skill.catalogSource === 'instance').length ?? 0;
+  const pluginCount = skills?.filter((skill) => skill.catalogSource === 'plugin').length ?? 0;
+  const manualCount = skills?.filter((skill) => skill.disableModelInvocation).length ?? 0;
+  const effectiveCount = skills?.filter((skill) => skill.effective).length ?? 0;
+  const emptyForm = useMemo<SkillForm>(() => ({ ...BLANK_FORM, owner: selectedPersonalOwner }), [selectedPersonalOwner]);
 
   const addButton = <C.Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{s.add}</C.Button>;
+  const accountSelector = isAdmin && selectedAccount !== null ? (
+    <C.Field label={s.accountLabel} hint={s.accountHint}>
+      <C.SelectMenu
+        value={String(selectedAccount)}
+        onChange={(value: string) => {
+          const account = Number(value);
+          setCreating(false);
+          selectedAccountRef.current = account;
+          skillRequestRef.current += 1;
+          setSkills(undefined);
+          setSelectedAccount(account);
+        }}
+        options={(accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
+          value: String(account.id), label: account.name || account.username,
+        }))}
+        label={s.accountLabel}
+        className="min-w-[12rem]"
+      />
+    </C.Field>
+  ) : null;
 
   const surfaceDocument = (
     <C.ControlSurfaceDocument>
+      {accountSelector ? <div className="mb-4 max-w-sm">{accountSelector}</div> : null}
       <C.MarkdownAssetEditor
         query={query}
         creating={creating}
@@ -79,7 +185,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         labels={{
           empty: s.empty,
           badgeUser: s.badgeUser,
-          badgeBuiltin: s.badgeBundled,
+          badgeBuiltin: s.badgeProvided,
           addTitle: s.add,
           edit: s.edit,
           remove: s.remove,
@@ -98,7 +204,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           deleteTitle: s.deleteTitle,
           deleteDesc: s.deleteDesc,
         }}
-        emptyForm={EMPTY_FORM}
+        emptyForm={emptyForm}
         formFromItem={(skill: PluginSkill): SkillForm => ({
           editing: skill.name,
           name: skill.name,
@@ -113,35 +219,46 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           header: s.ownerColumn,
           label: ownerLabel,
           scopes: [
-            { value: 'mine', label: s.scopeMine, matches: (skill: PluginSkill) => skill.owner !== null && skill.owner === myId },
-            { value: 'instance', label: s.scopeInstance, matches: (skill: PluginSkill) => skill.owner === null && skill.source === 'user' },
-            { value: 'bundled', label: s.scopeBundled, matches: (skill: PluginSkill) => skill.source === 'bundled' },
+            { value: 'personal', label: s.scopeMine, matches: (skill: PluginSkill) => skill.catalogSource === 'personal' && skill.owner === selectedAccount },
+            { value: 'instance', label: s.scopeInstance, matches: (skill: PluginSkill) => skill.catalogSource === 'instance' },
+            { value: 'bundled', label: s.scopeBundled, matches: (skill: PluginSkill) => skill.catalogSource === 'bundled' },
+            { value: 'plugin', label: s.scopePlugin, matches: (skill: PluginSkill) => skill.catalogSource === 'plugin' },
           ],
         }}
         renderBadges={(skill: PluginSkill) => (
           <>
+            {skill.catalogSource === 'plugin' ? <C.Badge tone="default">{skill.contributorPlugin}</C.Badge> : null}
+            {skill.catalogSource === 'bundled' ? <C.Badge tone="default">{s.badgeBundled}</C.Badge> : null}
             {skill.version != null ? <C.Badge tone="default">v{skill.version}</C.Badge> : null}
             {skill.disableModelInvocation ? <C.Badge tone="default">{s.manualOnlyBadge}</C.Badge> : null}
+            {skill.unavailableReason === 'disabled-for-account' ? <C.Badge tone="warning">{s.statusDisabled}</C.Badge> : null}
+            {skill.unavailableReason === 'plugin-unavailable' ? <C.Badge tone="warning">{s.statusUnavailable}</C.Badge> : null}
+            {skill.unavailableReason === 'shadowed' ? <C.Badge tone="default">{s.statusShadowed}</C.Badge> : null}
+            {skill.effective ? <C.Badge tone="success">{s.statusEffective}</C.Badge> : null}
           </>
         )}
-        renderRowControl={(skill: PluginSkill) => (
+        renderRowControl={(skill: PluginSkill) => skill.catalogSource === 'plugin' ? (isAdmin ? (
+          <C.Toggle
+            checked={skill.enabledForAccount}
+            onChange={(enabled: boolean) => { void togglePluginAvailability(skill, enabled); }}
+            label={`${s.pluginAvailability}: ${skill.name}`}
+            disabled={availabilityKey === `${selectedAccount}:${skill.pluginKey}`}
+          />
+        ) : null) : (
           <C.Toggle
             checked={!skill.disableModelInvocation}
             onChange={(enabled: boolean) => toggleInvocation(skill, enabled)}
-            label={s.disableModelInvocation}
-            disabled={update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill)}
+            label={`${s.disableModelInvocation}: ${skill.name}`}
+            disabled={!skill.canDelete || (update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill))}
           />
         )}
-        renderFieldsAfterBody={(form: SkillForm, patch: (p: Partial<SkillForm>) => void) => (
+        renderFieldsAfterBody={(form: SkillForm, patch: (value: Partial<SkillForm>) => void) => (
           <>
-            {/* Only an admin may write the shared set. On an EXISTING skill this switch moves the file, so
-                it is offered only for a skill that is instance-wide or the admin's own: for somebody
-                else's personal skill "Only me" would read as a label and act as a transfer to the admin. */}
             {isAdmin && scopeSwitchable(form) ? (
               <C.Field label={s.scopeFieldLabel} hint={form.editing === null ? s.scopeFieldHint : s.scopeMoveHint}>
                 <C.Segmented
                   value={form.owner === 'instance' ? 'instance' : 'personal'}
-                  onChange={(value: string) => patch({ owner: value === 'instance' ? 'instance' : null })}
+                  onChange={(value: string) => patch({ owner: value === 'instance' ? 'instance' : selectedPersonalOwner })}
                   options={[
                     { value: 'personal', label: s.scopeFieldPersonal },
                     { value: 'instance', label: s.scopeFieldInstance },
@@ -164,23 +281,20 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
             </label>
           </>
         )}
-        onSave={(form: SkillForm, callbacks: { onSuccess: () => void; onError: (e: unknown) => void }) => {
+        onSave={(form: SkillForm, callbacks: { onSuccess: () => void; onError: (error: unknown) => void }) => {
           if (submitRef.current) return;
           submitRef.current = true;
           setSubmitting(true);
           const guarded = {
-            onSuccess: () => { submitRef.current = false; setSubmitting(false); callbacks.onSuccess(); },
-            onError: (e: unknown) => { submitRef.current = false; setSubmitting(false); callbacks.onError(e); },
+            onSuccess: () => { submitRef.current = false; setSubmitting(false); void loadSkills(); callbacks.onSuccess(); },
+            onError: (error: unknown) => { submitRef.current = false; setSubmitting(false); void loadSkills(); callbacks.onError(error); },
           };
           if (form.editing !== null) {
             const name = form.editing;
-            // The source identity belongs to the draft, not to a refetch that may have removed or moved
-            // the row while the editor remained open. Addressing the desired owner here could edit a
-            // different same-named skill after a stale refresh.
             const from = form.editingOwner;
             const patch = { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation };
             const revision = form.revision ?? 0;
-            const saveEdit = async () => {
+            void (async () => {
               const path = form.owner !== from
                 ? `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}`
                 : `/plugins/skills/${encodeURIComponent(name)}?owner=${encodeURIComponent(ownerParam(from))}`;
@@ -190,15 +304,8 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
               try {
                 await api(path, { method: form.owner !== from ? 'POST' : 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
                 guarded.onSuccess();
-              } catch (error) {
-                query.refetch();
-                guarded.onError(error);
-              }
-            };
-            // The move and edit are one server operation. It validates the complete edit first and rolls
-            // the filesystem move back if writing the destination fails, so a later PATCH cannot leave a
-            // skill in its new scope with its old body.
-            void saveEdit();
+              } catch (error) { guarded.onError(error); }
+            })();
           } else {
             create.mutate(
               { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
@@ -207,13 +314,15 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           }
         }}
         saving={submitting || create.isPending || update.isPending}
-        onDelete={(skill: PluginSkill, callbacks: { onSuccess: () => void; onError: (e: unknown) => void }) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, callbacks)}
+        onDelete={(skill: PluginSkill, callbacks: { onSuccess: () => void; onError: (error: unknown) => void }) =>
+          remove.mutate({ name: skill.name, owner: targetOwner(skill) }, {
+            onSuccess: () => { void loadSkills(); callbacks.onSuccess(); },
+            onError: callbacks.onError,
+          })}
       />
     </C.ControlSurfaceDocument>
   );
 
-  // In the Settings deck the surrounding panel supplies the page frame; on its own page the section
-  // draws the whole frame itself, which is why the bundle declares `skills` in `ownsPageFrame`.
   if (surface === 'deck') return surfaceDocument;
   return (
     <C.WorkspaceShell
@@ -221,14 +330,15 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
       hero={{
         eyebrow: s.workspaceEyebrow,
         title: s.title,
-        count: skills.length,
+        count: skills?.length ?? 0,
         description: s.sectionHint,
         mascot: query.isLoading ? 'saving' : query.isError ? 'error' : 'idle',
         status: !query.isLoading && !query.isError ? <span className="workspace-status">{s.workspaceReady}</span> : undefined,
         action: addButton,
         metrics: <>
+          <C.WorkspaceMetric label={s.statusEffective} value={effectiveCount} icon={ShieldCheck} />
           <C.WorkspaceMetric label={t.assetEditor.filterUser} value={userCount} icon={User} />
-          <C.WorkspaceMetric label={t.assetEditor.filterBuiltin} value={skills.length - userCount} icon={Package} />
+          <C.WorkspaceMetric label={s.scopePlugin} value={pluginCount} icon={Package} />
           <C.WorkspaceMetric label={s.manualOnlyBadge} value={manualCount} icon={Hand} />
         </>,
       }}

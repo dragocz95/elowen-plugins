@@ -1344,7 +1344,7 @@ export function MarkdownAssetEditor(props: any) {
                   return (
                     <DataTableRow key={assetKey(item)} interactive={editable} selected={isOpen} aria-selected={isOpen} className="group">
                       {renderRowControl ? (
-                        <DataTableCell priority="wide">{editable ? renderRowControl(item) : null}</DataTableCell>
+                        <DataTableCell priority="wide">{renderRowControl(item)}</DataTableCell>
                       ) : null}
                       <DataTableCell>
                         {editable

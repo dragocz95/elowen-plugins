@@ -3,8 +3,8 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.3.11",
-      "requiresCore": "0.28.35",
+      "version": "0.4.0",
+      "requiresCore": "0.28.46",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
@@ -141,8 +141,8 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.3",
-      "requiresCore": "0.28.17",
+      "version": "0.2.4",
+      "requiresCore": "0.28.46",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
       "author": "Elowen",
@@ -156,22 +156,22 @@
     },
     {
       "name": "skills",
-      "version": "0.3.6",
-      "requiresCore": "0.28.23",
+      "version": "0.4.0",
+      "requiresCore": "0.28.46",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "1",
       "provides": {
         "tools": 4,
-        "apiRoutes": 3
+        "apiRoutes": 6
       }
     },
     {
       "name": "sites",
-      "version": "0.12.0",
+      "version": "0.14.0",
       "requiresCore": "0.28.45",
-      "description": "Publish immutable static releases or proxy an application already running in an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+      "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "1",
@@ -227,17 +227,6 @@
       "apiVersion": "1",
       "provides": {
         "tools": 1
-      }
-    },
-    {
-      "name": "web",
-      "version": "0.3.1",
-      "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",
-      "category": "research",
-      "author": "Elowen",
-      "apiVersion": "1",
-      "provides": {
-        "tools": 2
       }
     },
     {

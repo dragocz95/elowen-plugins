@@ -4,10 +4,11 @@ import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import type { MicrosoftIdentityControl } from './coreSeams.js';
 import { Drive, RemoteItemAppearedError, StaleLocalError } from './drive.js';
+import type { ManagedMirror } from './managed.js';
 import { decide, type Baseline, type LocalFile, type RemoteFile } from './merge.js';
 import {
   buildIgnore, containedIn, containedInEventually, gitIgnoredAmong, hashFile, normalizeIgnorePatterns,
-  scanLocal, TRASH_DIR, openMirrorFile,
+  scanLocal, scanManaged, TRASH_DIR, openMirrorFile,
 } from './scan.js';
 import type { MirrorItem, MirrorLink, OneDriveStore } from './store.js';
 
@@ -51,6 +52,7 @@ export interface SyncDeps {
   /** The project or worktree directory the link starts from, BEFORE its chosen subfolder narrows it.
    *  Two mirrors of overlapping scopes share this, and that is what serialises them. */
   baseFor: (link: MirrorLink) => string | null;
+  managedFor?: (link: MirrorLink) => Promise<ManagedMirror | null>;
   settings: () => SyncSettingsInput;
   log: { info(m: string): void; warn(m: string): void; error(m: string): void };
 }
@@ -187,10 +189,11 @@ export class SyncEngine {
     const lease = this.deps.lease ?? { ms: LEASE_MS, renewAfterMs: RENEW_AFTER_MS };
     if (!this.deps.store.claim(link.id, this.owner, lease.ms)) return;
     try {
-      const root = this.deps.rootFor(link);
-      if (!root) {
-        // The worktree was removed, the project is gone, or the account lost access to it. Pausing is the
-        // honest answer: the mirror is not broken, it simply has nothing to mirror right now.
+      const managed = this.deps.managedFor ? await this.deps.managedFor(link) : null;
+      const root = managed ? managed.root : this.deps.rootFor(link);
+      if (!root && !managed) {
+        // The worktree was removed, the project is gone, the managed environment is unavailable, or the
+        // account lost access to it. Pausing is the honest answer: it is never an empty successful mirror.
         this.deps.store.setEnabled(link.id, false);
         this.deps.store.setStatus(link.id, 'paused', 'The mirrored folder is no longer available.');
         return;
@@ -210,11 +213,136 @@ export class SyncEngine {
       // account B mirroring `/project/docs` write to the same files while holding different keys, and
       // the loser's OneDrive edit is silently overwritten on the next cycle. Containment is the whole
       // point: a mirror of a subfolder is a mirror of part of the same directory.
-      const base = this.deps.baseFor(link) ?? root;
-      await this.underRootLock(base, () => this.applyCycle(link, drive, confirmDeletions, root, lease));
+      const base = managed?.lockKey ?? this.deps.baseFor(link) ?? root!;
+      if (managed) await this.underRootLock(base, () => this.applyManagedCycle(link, drive, confirmDeletions, managed, lease));
+      else await this.underRootLock(base, () => this.applyCycle(link, drive, confirmDeletions, root!, lease));
     } finally {
       this.deps.store.release(link.id, this.owner);
     }
+  }
+
+  private async applyManagedCycle(
+    link: MirrorLink, drive: Drive, confirmDeletions: boolean, fs: ManagedMirror,
+    lease: { ms: number; renewAfterMs: number },
+  ): Promise<void> {
+    const settings = normalizeSyncSettings(this.deps.settings());
+    const maxBytes = Math.max(1, settings.maxFileMb) * 1024 * 1024;
+    const baseline = this.deps.store.items(link.id);
+    const scan = await scanManaged(fs, { ignored: buildIgnore(settings.extraIgnore), maxBytes, settleMs: SETTLE_MS, now: Date.now(), maxFiles: MAX_FILES });
+    if (!scan.complete) {
+      this.deps.store.setStatus(link.id, 'error', 'The managed Project could not be read completely, so this cycle was skipped rather than risk deleting files from OneDrive.');
+      return;
+    }
+    const listing = await drive.listTree(link.remoteItemId);
+    if (listing.truncated) {
+      this.deps.store.setStatus(link.id, 'error', 'The OneDrive folder could not be listed completely, so this cycle was skipped rather than risk deleting files.');
+      return;
+    }
+    const vanished = [...baseline.keys()].filter((rel) => !scan.files.has(rel) && !scan.skippedPaths.has(rel));
+    const gitIgnored = new Set<string>();
+    if (scan.fromGit) {
+      for (const rel of vanished) {
+        const answer = await fs.git(['check-ignore', '--no-index', '--', rel]);
+        if (answer.code === 0) gitIgnored.add(rel);
+        else if (answer.code !== 1) {
+          this.deps.store.setStatus(link.id, 'error', 'Git could not say which files it ignores, so this cycle was skipped rather than risk deleting files from OneDrive.');
+          return;
+        }
+      }
+    }
+    const paths = new Set<string>([...scan.files.keys(), ...baseline.keys(), ...listing.files.keys()]);
+    const planned: { rel: string; action: string; local: LocalFile; remote: RemoteFile; known: MirrorItem | undefined; version?: string }[] = [];
+    let accounted = 0;
+    for (const rel of paths) {
+      if (scan.skippedPaths.has(rel)) continue;
+      const known = baseline.get(rel);
+      if (known && gitIgnored.has(rel)) continue;
+      if (known?.state === 'conflict') continue;
+      const scanned = scan.files.get(rel);
+      let local: LocalFile = { present: false };
+      let version: string | undefined;
+      if (scanned) {
+        const hashed = await fs.hash(rel);
+        local = { present: true, size: hashed.size, mtimeMs: scanned.mtimeMs, sha256: hashed.sha256 };
+        version = hashed.version;
+      }
+      const item = listing.files.get(rel);
+      if (item && item.size > maxBytes) continue;
+      const remote: RemoteFile = item ? { present: true, itemId: item.id, etag: item.etag, size: item.size } : { present: false };
+      if (known) accounted += 1;
+      planned.push({ rel, action: decide(local, remote, known ? { sha256: known.localSha256, etag: known.remoteEtag } : null).action, local, remote, known, version });
+    }
+    const deletions = planned.filter((entry) => entry.action === 'deleteRemote').length;
+    const excessive = deletions > DELETION_FLOOR && (deletions > accounted * DELETION_CEILING || deletions >= DELETION_ABSOLUTE);
+    const answersARefusal = confirmDeletions && link.status === 'blocked' && link.blockedDeletions > 0 && deletions <= link.blockedDeletions;
+    if (excessive && !answersARefusal) {
+      this.deps.store.setBlockedDeletions(link.id, deletions);
+      this.deps.store.setStatus(link.id, 'blocked', `${deletions} of ${accounted} mirrored files disappeared locally at once. Nothing was deleted in OneDrive. If that was intentional, choose Sync now to confirm; otherwise check that the Project environment is complete.`);
+      return;
+    }
+    const current = this.deps.store.linkById(link.id);
+    if (!current || !current.enabled || current.remoteItemId !== link.remoteItemId || current.remoteDriveId !== link.remoteDriveId) return;
+    this.deps.store.setBlockedDeletions(link.id, 0);
+    const failures: string[] = [];
+    let bytes = 0;
+    let renewedAt = Date.now();
+    for (const entry of planned) {
+      if (Date.now() - renewedAt >= lease.renewAfterMs) {
+        if (!this.deps.store.renew(link.id, this.owner, lease.ms)) return;
+        renewedAt = Date.now();
+      }
+      try {
+        if (entry.action === 'upload' && entry.local.present) {
+          const file = await fs.open(entry.rel);
+          try {
+            if (entry.version && file.version !== entry.version) throw new Error(`Managed file changed while it was being scanned: ${entry.rel}`);
+            const uploaded = await drive.upload(link.remoteItemId, entry.rel, { size: file.size, read: file.read }, entry.known?.remoteEtag || undefined, !entry.remote.present);
+            this.deps.store.putItem({ linkId: link.id, rel: entry.rel, localSize: entry.local.size, localMtimeMs: entry.local.mtimeMs, localSha256: entry.local.sha256, remoteItemId: uploaded.id, remoteEtag: uploaded.etag, state: 'synced', conflictCopy: null });
+            bytes += entry.local.size;
+          } finally { await file.close(); }
+        } else if (entry.action === 'download' && entry.remote.present) {
+          const body = await drive.downloadBytes(entry.remote.itemId, maxBytes);
+          if (body.byteLength > maxBytes) continue;
+          const existing = await fs.stat(entry.rel);
+          const written = await fs.write(entry.rel, body, existing?.version ?? null);
+          const hashed = await fs.hash(entry.rel);
+          this.deps.store.putItem({ linkId: link.id, rel: entry.rel, localSize: written.size, localMtimeMs: written.mtimeMs, localSha256: hashed.sha256, remoteItemId: entry.remote.itemId, remoteEtag: entry.remote.etag, state: 'synced', conflictCopy: null });
+          bytes += written.size;
+        } else if (entry.action === 'deleteRemote') {
+          if (await fs.stat(entry.rel)) continue;
+          if (entry.known?.remoteItemId) await drive.remove(entry.known.remoteItemId, entry.known.remoteEtag || undefined);
+          this.deps.store.dropItem(link.id, entry.rel);
+        } else if (entry.action === 'trashLocal' && entry.known?.remoteItemId) {
+          if (await drive.stillExists(entry.known.remoteItemId)) continue;
+          const local = await fs.stat(entry.rel);
+          if (!local?.version) continue;
+          if (!settings.applyRemoteDeletions) {
+            const file = await fs.open(entry.rel);
+            try {
+              const uploaded = await drive.upload(link.remoteItemId, entry.rel, { size: file.size, read: file.read }, undefined, true);
+              const hashed = await fs.hash(entry.rel);
+              this.deps.store.putItem({ linkId: link.id, rel: entry.rel, localSize: file.size, localMtimeMs: local.mtimeMs, localSha256: hashed.sha256, remoteItemId: uploaded.id, remoteEtag: uploaded.etag, state: 'synced', conflictCopy: null });
+            } finally { await file.close(); }
+          } else {
+            const trash = `.elowen-trash/${new Date().toISOString().replaceAll(':', '-')}/${entry.rel}`;
+            await fs.mkdir('.elowen-trash');
+            await fs.mkdir(trash.split('/').slice(0, -1).join('/'));
+            await fs.rename(entry.rel, trash, local.version);
+            this.deps.store.dropItem(link.id, entry.rel);
+          }
+        } else if (entry.action === 'conflict' && entry.local.present && entry.remote.present) {
+          const copy = `${entry.rel}.onedrive-conflict-${new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', '-')}`;
+          const body = await drive.downloadBytes(entry.remote.itemId, maxBytes);
+          await fs.write(copy, body, null);
+          this.deps.store.putItem({ linkId: link.id, rel: entry.rel, localSize: entry.local.size, localMtimeMs: entry.local.mtimeMs, localSha256: entry.local.sha256, remoteItemId: entry.remote.itemId, remoteEtag: entry.remote.etag, state: 'conflict', conflictCopy: copy });
+        } else if (entry.action === 'forget') this.deps.store.dropItem(link.id, entry.rel);
+      } catch (error) {
+        failures.push(entry.rel);
+        this.deps.log.warn(`onedrive managed mirror ${link.id}: ${entry.action} ${entry.rel}: ${message(error)}`);
+      }
+    }
+    const after = this.deps.store.items(link.id);
+    this.deps.store.finish(link.id, { status: failures.length ? 'error' : 'idle', error: failures.length ? `${failures.length} file(s) could not be synchronised, including: ${failures.slice(0, 3).join(', ')}. Everything else is up to date.` : null, fileCount: after.size, byteCount: bytes, conflictCount: [...after.values()].filter((item) => item.state === 'conflict').length });
   }
 
   private async applyCycle(

@@ -4,6 +4,17 @@ import { VISIBILITIES } from './store.js';
 import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 import type { RequiredRecord, SiteGatewayReadiness } from './gateway.js';
+import type { PreviewImageView, PreviewRequestCause, PreviewRequestOutcome } from './previewImage.js';
+
+/** The picture half of a Site, as this plugin's own capture service answers it. Structural rather than the
+ *  class, so a test can hand the routes a service without a browser and without a filesystem. */
+interface PreviewImages {
+  view(siteId: string, at?: number): PreviewImageView;
+  notice(site: Site): string | null;
+  request(siteId: string, cause: PreviewRequestCause): PreviewRequestOutcome;
+  ensureFresh(sites: readonly Site[], at?: number): void;
+  read(siteId: string): { bytes: Uint8Array; mime: string; version: number } | null;
+}
 
 /** A person as this plugin's surfaces show them. Mirrored in web-src/runtime.ts, which cannot import
  *  from here: the browser bundle is a separate compile unit. */
@@ -21,6 +32,8 @@ export interface ApiDeps {
   access: AccessDeps;
   config(): SitesConfig;
   previewSite?(slug: string): Site | null;
+  /** The stored pictures of published pages. Optional so a surface that has no browser still lists Sites. */
+  previewImages?: PreviewImages;
   people(): Map<number, Person>;
   projectSlug(projectId: number): string | null;
   sourceDisplayPath?(site: Site): string;
@@ -65,11 +78,14 @@ interface SiteView {
   createdModel: string;
   lastPublishAt: string | null;
   lastPublishModel: string | null;
-  spa: boolean;
   /** What this address publishes: a copied release, or an application inside the Project's environment. */
   kind: Site['kind'];
   /** The Project port for a proxy publication; empty for a static one. */
   target: string;
+  /** The picture of the page, as far as it is known without fetching it: whether there is one, whether it
+   *  is current, and which version a client should ask for. Never a URL — the image has an endpoint of its
+   *  own, and a view that built one would be a second place that decides what an address may be. */
+  preview: PreviewImageView;
   canManage: boolean;
 }
 
@@ -95,9 +111,9 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     createdModel: site.createdModel,
     lastPublishAt: site.lastPublishAt,
     lastPublishModel: site.lastPublishModel,
-    spa: site.spa,
     kind: site.kind,
     target: site.target,
+    preview: deps.previewImages?.view(site.id) ?? { state: 'none', version: 0, capturedAt: null, width: null, height: null },
     canManage: canManage(site, auth),
   };
 };
@@ -133,6 +149,10 @@ export function createApiHandlers(deps: ApiDeps) {
   const list = async (req: PluginApiRequest): Promise<PluginHttpResponse> => {
     const config = deps.config();
     const { mine, shared } = visibleSites(deps, req.auth);
+    // The register is what asks for pictures: a Site nobody has looked at in a TTL window is pictured when
+    // somebody looks again, and one an account only has shared with it is pictured by its own manager.
+    // Nobody is told about it here, because opening a register is not the place for a refusal.
+    deps.previewImages?.ensureFresh(req.auth.admin ? [...mine, ...shared] : mine);
     return json(200, {
       mine: mine.map((site) => toView(site, deps, req.auth)),
       shared: shared.map((site) => toView(site, deps, req.auth)),
@@ -156,6 +176,7 @@ export function createApiHandlers(deps: ApiDeps) {
     if (req.method === 'GET' && action === '') {
       const people = deps.people();
       const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
+      if (canManage(target, req.auth)) deps.previewImages?.ensureFresh([target]);
 
       return json(200, {
         site: toView(target, deps, req.auth),
@@ -163,20 +184,32 @@ export function createApiHandlers(deps: ApiDeps) {
         // who else the owner shared with, which is the owner's business and not part of opening a page.
         members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
           ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-        releases: deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
-          id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
-          fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
-        })),
+        releases: target.kind === 'static'
+          ? deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
+              id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
+              fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
+            }))
+          : [],
         hits: deps.store.hits(target.id, since),
-        sourceDir: canManage(target, req.auth) ? deps.sourceDisplayPath?.(target) ?? target.sourceRel : null,
+        sourceDir: canManage(target, req.auth) && target.kind === 'static'
+          ? deps.sourceDisplayPath?.(target) ?? target.sourceRel
+          : null,
         // The stored publication failure is detail for somebody who may repair it. It stays out of the
         // list response and away from guests, while the derived degraded flag remains safe to list.
         lastError: canManage(target, req.auth) ? target.lastError : null,
+        // Why there is no picture, or why the last one could not be taken. Manager-only for the same
+        // reason: it names what this instance did on the owner's Project.
+        previewNotice: canManage(target, req.auth) ? deps.previewImages?.notice(target) ?? null : null,
       });
     }
 
+    // The picture of the published page. Whoever may OPEN the page may see this, and nobody else: it is
+    // the page itself, rendered, so it carries exactly the access rule the page already has.
+    if (req.method === 'GET' && action === 'preview') return previewImage(target);
+
     if (!canManage(target, req.auth)) return json(403, { error: 'forbidden' });
 
+    if (req.method === 'POST' && action === 'preview' && segments[2] === 'refresh') return refreshPreview(target);
 
     if (req.method === 'PATCH' && action === '') return patchSite(req, target);
     if (req.method === 'DELETE' && action === '') {
@@ -195,6 +228,7 @@ export function createApiHandlers(deps: ApiDeps) {
       return json(200, { ok: true });
     }
     if (req.method === 'POST' && action === 'rollback') {
+      if (target.kind === 'proxy') return json(409, { error: 'a proxy publication has no file releases' });
       const body = await req.json<{ releaseId?: unknown }>().catch(() => ({} as { releaseId?: unknown }));
       const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
       const release = deps.store.release(target.id, releaseId);
@@ -205,13 +239,58 @@ export function createApiHandlers(deps: ApiDeps) {
     return json(405, { error: 'method not allowed' });
   };
 
+  /** GET /plugins/sites/api/site/<id>/preview — the one stored picture of this Site's page.
+   *
+   *  Immutable and long-lived on purpose: the query carries the version the metadata row is at, so a new
+   *  picture arrives under a new address and the browser never has to revalidate a card it already holds.
+   *  A client that asks without a version still gets the current picture. */
+  const previewImage = (target: Site): PluginHttpResponse => {
+    const image = deps.previewImages?.read(target.id);
+    if (!image) return json(404, { error: 'there is no picture of this page' });
+    return {
+      status: 200,
+      headers: {
+        'content-type': image.mime,
+        'content-length': String(image.bytes.byteLength),
+        'cache-control': 'private, max-age=31536000, immutable',
+        'x-content-type-options': 'nosniff',
+        'x-robots-tag': 'noindex',
+        etag: `"preview-${image.version}"`,
+      },
+      body: image.bytes,
+    };
+  };
+
+  /** POST /plugins/sites/api/site/<id>/preview/refresh — take a new picture now.
+   *
+   *  Accepted rather than completed: a capture is a browser, and the answer says the request is queued.
+   *  The rate limit is the service's, so a person pressing the button twice is answered with the first
+   *  request instead of starting a second browser. */
+  const refreshPreview = (target: Site): PluginHttpResponse => {
+    const images = deps.previewImages;
+    if (!images) return json(503, { error: 'this instance cannot take a picture of a page' });
+    const outcome = images.request(target.id, 'manual');
+    if (outcome.ok) return json(202, { queued: true });
+    if (outcome.retryAfterMs !== undefined) {
+      return {
+        status: 429,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'retry-after': String(Math.ceil(outcome.retryAfterMs / 1000)),
+        },
+        body: { error: outcome.reason },
+      };
+    }
+    return json(409, { error: outcome.reason });
+  };
+
   const patchSite = async (req: PluginApiRequest, target: Site): Promise<PluginHttpResponse> => {
     const body = await req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const patch: Parameters<SitesStore['updateSite']>[1] = {};
     let accessChanged = false;
     if (typeof body.title === 'string' && body.title.trim() !== '') patch.title = body.title.trim().slice(0, 120);
     if (typeof body.summary === 'string') patch.summary = body.summary.trim().slice(0, 400);
-    if (typeof body.spa === 'boolean') patch.spa = body.spa;
     if (typeof body.visibility === 'string') {
       if (!(VISIBILITIES as readonly string[]).includes(body.visibility)) {
         return json(400, { error: 'unknown visibility' });

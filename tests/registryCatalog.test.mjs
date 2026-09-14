@@ -39,6 +39,11 @@ test('every plugin folder is listed in the catalog', () => {
   assert.deepEqual(unlisted, [], `plugin folders absent from registry.json: ${unlisted.join(', ')}`);
 });
 
+test('the bundled Web plugin is not duplicated as a marketplace authority', () => {
+  assert.equal(folders.includes('web'), false);
+  assert.equal(catalog.plugins.some((plugin) => plugin.name === 'web'), false);
+});
+
 test('every catalog entry has a plugin folder behind it', () => {
   // The opposite failure: the catalog offers a name, the user clicks install, and the copy step fails
   // with a 502 because there is no payload in the repo.
@@ -152,8 +157,8 @@ const normalizeCapabilities = (capabilities) =>
 
 test('every plugin that asks for capabilities is pinned', () => {
   // Both directions. A plugin that GAINS a capabilities block is the interesting case: it would be
-  // granted whatever it declares, unpinned, because no expectation below names it. Thirteen of the
-  // nineteen plugins declare one today.
+  // granted whatever it declares, unpinned, because no expectation below names it. The exact count is
+  // read from disk so removing a superseded plugin does not weaken the comparison.
   const declaring = folders.filter((name) => manifestOf(name).capabilities).sort();
   assert.ok(declaring.length >= 8, `expected the manifests to declare capabilities, found ${declaring.length}`);
   assert.deepEqual(

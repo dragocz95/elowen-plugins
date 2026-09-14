@@ -1,8 +1,8 @@
 {
   "name": "skills",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.23",
+  "requiresCore": "0.28.46",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
   "entry": "index.mjs",
   "provides": {
@@ -18,6 +18,8 @@
     "apiRoutes": [
       "/plugins/skills",
       "/plugins/skills/list",
+      "/plugins/skills/accounts",
+      "/plugins/skills/plugin-availability",
       "/plugins/skills/:name",
       "/plugins/skills/:name/owner"
     ]
@@ -59,6 +61,7 @@
       "sectionHint": "Reusable instructions injected into the system prompt. Apply to new conversations.",
       "empty": "No skills yet.",
       "badgeBundled": "bundled",
+      "badgeProvided": "provided",
       "badgeUser": "custom",
       "add": "Add skill",
       "edit": "Edit skill",
@@ -85,6 +88,14 @@
       "scopeMine": "Mine",
       "scopeInstance": "Instance",
       "scopeBundled": "Bundled",
+      "scopePlugin": "Plugin",
+      "accountLabel": "Account",
+      "accountHint": "Choose the account whose effective skill catalog you want to review.",
+      "pluginAvailability": "Available for this account",
+      "statusEffective": "Effective",
+      "statusDisabled": "Disabled for account",
+      "statusUnavailable": "Plugin unavailable or not granted",
+      "statusShadowed": "Shadowed by precedence",
       "scopeFieldLabel": "Visible to",
       "scopeFieldPersonal": "Only me",
       "scopeFieldInstance": "Everyone",

@@ -14,7 +14,7 @@ function harness(t) {
   const handle = { exec: sql => db.exec(sql), prepare: sql => db.prepare(sql) };
   const store = new SitesStore({ ...handle, migrate: steps => steps.forEach(step => step.up(handle)), transaction: fn => db.transaction(fn)() });
   const members = new Set([7]);
-  const access = { accountExists: id => [7, 8, 99].includes(id), isAdmin: id => id === 99, canAccessProject: (id, projectId) => projectId === 11 && members.has(id) };
+  const access = { accountExists: id => [7, 8, 99].includes(id), isAdmin: id => id === 99, canAccessProject: (id, projectId) => projectId === 11 && members.has(id), allowPublicSites: () => true };
   let available = true, active = true, proxy = async () => ({ status: 200, headers: {}, body: 'project application' });
   const calls = [], removed = [], issued = [];
   let released = 0;

@@ -10,15 +10,24 @@ import type { ComponentType } from 'react';
 export interface PluginSkill {
   name: string;
   description: string;
-  source: 'bundled' | 'user';
+  source: string;
+  catalogSource: 'personal' | 'instance' | 'bundled' | 'plugin';
+  contributorPlugin: string;
+  pluginKey: string | null;
   /** The account this skill belongs to; null for bundled and instance-wide ones. */
   owner: number | null;
   canDelete: boolean;
   disableModelInvocation: boolean;
+  enabledForAccount: boolean;
+  effective: boolean;
+  unavailableReason: 'plugin-unavailable' | 'disabled-for-account' | 'shadowed' | null;
+  location?: string;
   version: number | null;
   revision?: number;
   content?: string;
 }
+
+export interface SkillAccount { id: number; username: string; name?: string }
 
 /** Which set a write addresses: an account id, the shared instance set, or the caller's own. */
 export type SkillOwner = number | 'instance' | null;
@@ -53,7 +62,7 @@ type AnyComponent = ComponentType<any>;
 
 interface SkillsComponents {
   Badge: AnyComponent; Toggle: AnyComponent; SettingsGroup: AnyComponent; PluginSection: AnyComponent;
-  MarkdownAssetEditor: AnyComponent; Button: AnyComponent; Field: AnyComponent; Segmented: AnyComponent;
+  MarkdownAssetEditor: AnyComponent; Button: AnyComponent; Field: AnyComponent; Segmented: AnyComponent; SelectMenu: AnyComponent;
   ControlSurfaceDocument: AnyComponent;
   WorkspaceShell: AnyComponent; WorkspaceMetric: AnyComponent;
 }

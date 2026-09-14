@@ -1,6 +1,6 @@
-import { AlertTriangle, CircleDashed, CircleDot, FolderGit2, Globe, Lock, Users } from 'lucide-react';
+import { AlertTriangle, CircleDashed, CircleDot, FileCode2, FolderGit2, Globe, Lock, Server, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { SiteStatus, SiteView, Visibility } from './runtime.js';
+import type { PublicationKind, SiteStatus, SiteView, Visibility } from './runtime.js';
 
 /** How a site's access and lifecycle are labelled everywhere on this page. The tables live here rather
  *  than in a view so the register, the drawer and the visibility dropdown cannot drift into three
@@ -58,3 +58,34 @@ export const STATUS_TONE: Record<DisplayStatus, 'success' | 'warning' | 'muted' 
   draft: 'muted',
   failed: 'danger',
 };
+
+/** Which of the two publication shapes a card is looking at. It used to be a column of its own; on a card
+ *  it is one badge in the state band, so the same fact is stated once. */
+export const KIND_STRING: Record<PublicationKind, string> = {
+  static: 'kindStatic',
+  proxy: 'kindProxy',
+};
+
+export const KIND_ICON: Record<PublicationKind, LucideIcon> = {
+  static: FileCode2,
+  proxy: Server,
+};
+
+/** The address a card shows: the site's own hostname, which is what a reader recognises a published page
+ *  by. The slug is the honest fallback while this instance has no Sites hostname to put it on — inventing
+ *  an address the gateway never serves would be worse than naming the site. */
+export function siteAddress(site: Pick<SiteView, 'url' | 'slug'>): string {
+  if (site.url === null) return site.slug;
+  try {
+    return new URL(site.url).host;
+  } catch {
+    return site.slug;
+  }
+}
+
+/** The initial the plate is marked with. Taken from the title the owner gave the site, by code point so a
+ *  non-Latin or emoji first character survives, and never invented when the title carries no letter. */
+export function monogram(title: string): string {
+  const first = [...title.trim()][0];
+  return first ? first.toLocaleUpperCase() : '';
+}

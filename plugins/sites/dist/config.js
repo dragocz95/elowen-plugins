@@ -136,13 +136,7 @@ export function resolveConfig(raw, publicWebUrl, gatewayHostBase = null) {
         defaultVisibility,
         allowPublicSites: raw.allowPublicSites !== false,
         publishers: raw.publishers === 'admins' ? 'admins' : 'everyone',
-        // The ceiling is the disk, not the heap: a published file is streamed to the visitor rather than
-        // read into the daemon, so the only reason for an upper bound here is to keep one site from filling
-        // the volume by accident. It matches "Largest site" for that reason.
-        maxAssetBytes: bounded(raw.maxAssetMb, 8, 1, 1048576) * 1048576,
-        maxSiteBytes: bounded(raw.maxSiteMb, 200, 1, 1048576) * 1048576,
         maxSitesPerAccount: bounded(raw.maxSitesPerAccount, 20, 1, 500),
-        releasesKept: bounded(raw.releasesKept, 5, 1, 50),
         sessionTtlHours: bounded(raw.sessionTtlHours, 12, 1, 720),
         proxyRequestTimeoutSeconds: 15,
         maxProxyResponseBytes: 8 * 1048576,
@@ -177,6 +171,6 @@ export const requestOnSiteHost = (config, slug, hostHeader) => {
     const parsed = /^([^:]+)(?::(\d{1,5}))?$/.exec(hostHeader.trim());
     return parsed?.[1]?.toLowerCase() === expected;
 };
-/** The absolute prefix a build must be configured with. A site owns the root of its own hostname, so
- *  this is a constant — it is stated here because a publisher has to configure their bundler with it. */
+/** Every publication owns the root of its own hostname. Kept in the API for legacy file rows and for
+ *  callers that build links without knowing whether the row is file-backed or proxied. */
 export const SITE_BASE_PATH = '/';

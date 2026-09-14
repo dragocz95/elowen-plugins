@@ -1,8 +1,8 @@
 {
   "name": "browser",
-  "version": "0.3.11",
+  "version": "0.4.0",
   "apiVersion": "1",
-  "requiresCore": "0.28.35",
+  "requiresCore": "0.28.46",
   "description": "Browser automation for linked accounts. Each account browser keeps an account-private profile on the host, with a virtual display, a VNC live view, exclusive user takeover and an enforcing network proxy around every session.",
   "entry": "dist/index.js",
   "userGrantable": true,
@@ -51,6 +51,9 @@
     ],
     "wsRoutes": [
       "vnc"
+    ],
+    "controls": [
+      "browserCapture"
     ]
   },
   "planSafe": [
@@ -60,7 +63,7 @@
     "BrowserAudit"
   ],
   "icons": {
-    "Browser*": "\ud83c\udf10"
+    "Browser*": "🌐"
   },
   "configSchema": [
     {
@@ -200,7 +203,7 @@
         "control": "slider",
         "unit": "ms"
       },
-      "hint": "How long the VNC server gathers screen changes before sending them. Measured at 1280\u00d7800: 10 ms reacts in 88 ms and costs about 590 kB/s while scrolling, 40 ms costs about 370 kB/s but takes 146 ms to react."
+      "hint": "How long the VNC server gathers screen changes before sending them. Measured at 1280×800: 10 ms reacts in 88 ms and costs about 590 kB/s while scrolling, 40 ms costs about 370 kB/s but takes 146 ms to react."
     },
     {
       "key": "control",
@@ -338,7 +341,7 @@
       "enlarge": "Enlarge browser",
       "closeView": "Close view",
       "dismissNarration": "Dismiss agent message",
-      "connectingImage": "Connecting to the browser image\u2026",
+      "connectingImage": "Connecting to the browser image…",
       "liveViewUnavailable": "The live view is unavailable",
       "browserViewport": "Live browser view",
       "waitingForUser": "Waiting for user input",
@@ -390,13 +393,13 @@
       "dep_liveview_missing": "This host cannot carry a plugin WebSocket, so sessions run without a live view or user takeover.",
       "dep_liveview_missing_fix": "Update Elowen to a release that offers plugin WebSocket routes.",
       "dep_chrome_missing": "No supported Chrome or Chromium executable was found on this host.",
-      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin\u2019s settings.",
+      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin’s settings.",
       "dep_chrome_unusable": "The configured executable is missing or cannot be executed by the daemon account.",
-      "dep_chrome_unusable_fix": "Correct the Chrome executable in this plugin\u2019s settings, or clear it to detect one automatically.",
+      "dep_chrome_unusable_fix": "Correct the Chrome executable in this plugin’s settings, or clear it to detect one automatically.",
       "dep_control_missing": "puppeteer-core is missing from the daemon runtime, or does not expose launch().",
-      "dep_control_missing_fix": "The plugin shares the Elowen daemon\u2019s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
+      "dep_control_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
       "dep_proxy_missing": "proxy-chain 3.0 cannot be loaded, so browser launch is refused.",
-      "dep_proxy_missing_fix": "The plugin shares the Elowen daemon\u2019s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
+      "dep_proxy_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
       "dep_proxy_unsupported": "The proxy adapter cannot pin DNS per request, so browser launch is refused.",
       "dep_proxy_unsupported_fix": "Restore the bundled proxy adapter; a browser session may only reach a host the navigation policy resolved.",
       "dep_storage_unwritable": "The profile directory cannot be written by the daemon account.",
