@@ -136,12 +136,13 @@ export class SyncEngine {
         const key = await realpath(root).catch(() => root);
         const previous = this.rootLocks.get(key) ?? Promise.resolve();
         const mine = previous.then(work, work);
-        this.rootLocks.set(key, mine.catch(() => undefined));
+        const settled = mine.catch(() => undefined);
+        this.rootLocks.set(key, settled);
         try {
             return await mine;
         }
         finally {
-            if (this.rootLocks.get(key) === undefined)
+            if (this.rootLocks.get(key) === settled)
                 this.rootLocks.delete(key);
         }
     }
