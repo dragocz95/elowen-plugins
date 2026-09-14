@@ -22,8 +22,6 @@ export interface ToolDeps {
   previews?: Pick<ProjectPreviewService, 'request'>;
   /** The picture half of the register. A publish asks for one; a refusal is never a publish failure. */
   previewImages?: { request(siteId: string, cause: PreviewRequestCause): PreviewRequestOutcome };
-  siteDir(siteId: string): string;
-  releaseDir(siteId: string, releaseId: string): string;
   deleteSite(siteId: string): Promise<void>;
   /** The transport half of a proxy publication: asking the Project's environment for it, reading through
    *  it, and remembering where it answered. */
@@ -459,7 +457,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteGet',
     label: 'Read a site',
-    description: 'Full site detail including source, visibility and retained file releases. A proxy publication reports the managed Project and port it publishes.',
+    description: 'Full site detail including visibility and publication state. Legacy file publications include their retained source reference and releases; a proxy publication reports its managed Project and port.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
@@ -473,7 +471,7 @@ export function registerTools(deps: ToolDeps): void {
           throw new ToolError('Only the site owner may read this site detail.');
         }
         const config = deps.config();
-        const releases = store.releases(site.id);
+        const releases = site.kind === 'static' ? store.releases(site.id) : [];
         // What serves this publication, read through the account the Project belongs to rather than through
         // whoever is asking: the environment seam answers per account, and a reader of a site is not
         // necessarily a member of its Project.
@@ -503,7 +501,9 @@ export function registerTools(deps: ToolDeps): void {
         ].join('\n'), {
           siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
           status: site.status, degraded: site.status === 'live' && site.lastError !== null,
-          sourceDir: project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel,
+          sourceDir: site.kind === 'static'
+            ? project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel
+            : null,
           basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
           guests, currentReleaseId: site.currentReleaseId,
           ...(certificate ? { certificate } : {}),
@@ -528,12 +528,11 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteUpdate',
     label: 'Update a site',
-    description: 'Change a site\'s title, summary, router behaviour or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+    description: 'Change a site\'s title, summary or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
     parameters: Type.Object({
       site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
       summary: Type.Optional(Type.String({ maxLength: 400 })),
-      spa: Type.Optional(Type.Boolean()),
       visibility: Type.Optional(Type.Union(
         [Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')],
       )),
@@ -545,7 +544,6 @@ export function registerTools(deps: ToolDeps): void {
         const patch: Parameters<SitesStore['updateSite']>[1] = {};
         if (input.title !== undefined) patch.title = input.title.trim();
         if (input.summary !== undefined) patch.summary = input.summary.trim();
-        if (input.spa !== undefined) patch.spa = input.spa;
         const nextVisibility = input.visibility as Visibility | undefined;
         if (nextVisibility !== undefined && !(VISIBILITIES as readonly string[]).includes(nextVisibility)) {
           throw new ToolError('Unknown visibility.');
@@ -641,14 +639,16 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteDelete',
     label: 'Delete a site',
-    description: 'Remove a site: the address stops working and every release is deleted. The source folder in the Project is left untouched.',
+    description: 'Remove a site: the address stops working and retained legacy file releases are deleted. The managed Project and its application are left untouched.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
         const site = requireOwned(deps, input.site, userId);
         await deps.deleteSite(site.id);
-        return text(`Deleted "${site.title}". Its Project source folder ${site.sourceRel} was left in place.`);
+        return text(site.kind === 'proxy'
+          ? `Deleted "${site.title}". Its managed Project and application were left in place.`
+          : `Deleted "${site.title}". Its retained file releases were removed; the Project source ${site.sourceRel} was left in place.`);
       } catch (error) {
         throw isRefusal(error) ? error : new Error(String(error));
       }

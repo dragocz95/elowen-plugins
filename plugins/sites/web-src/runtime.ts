@@ -44,7 +44,6 @@ export interface SiteView {
   createdModel: string;
   lastPublishAt: string | null;
   lastPublishModel: string | null;
-  spa: boolean;
   /** Which of the two publication shapes this row is. */
   kind: PublicationKind;
   /** The forwarder port inside the Project environment for a proxy row ('3000'), empty for a static one:

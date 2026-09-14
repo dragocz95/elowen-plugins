@@ -727,33 +727,25 @@ test('a Project application answering with more than the limit is refused, not t
 test('configuration is re-validated, because the settings API validates nothing', () => {
   const config = resolveConfig({
     defaultVisibility: 'public',
-    maxAssetMb: 99999,
-    maxSiteMb: -3,
+    maxSitesPerAccount: 9999,
     sessionTtlHours: 'nonsense',
-    releasesKept: 0,
     publishers: 'whatever',
   }, 'https://elowen.example');
 
   assert.equal(config.defaultVisibility, 'private', 'public is not an allowed default');
-  assert.equal(config.maxAssetBytes, 99999 * 1048576, 'inside the declared maximum, which is now the disk');
-  assert.equal(config.maxSiteBytes, 1048576, 'clamped to the declared minimum');
+  assert.equal(config.maxSitesPerAccount, 500);
   assert.equal(config.sessionTtlHours, 12);
-  assert.equal(config.releasesKept, 1);
   assert.equal(config.publishers, 'everyone');
   assert.equal(config.proxyRequestTimeoutSeconds, 15);
   assert.equal(config.maxProxyResponseBytes, 8 * 1048576);
 });
 
-test('the largest-file ceiling and the settings field agree, and both are disk-sized', () => {
+test('retired file-publication limits are absent from config and the settings form', () => {
   const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
-  const field = manifest.configSchema.find((entry) => entry.key === 'maxAssetMb');
-  // A field the form allows but the plugin clamps away is a setting that silently does nothing, so the
-  // two ceilings are asserted against each other rather than each against a literal.
-  assert.equal(field.max, 1048576);
-  assert.equal(resolveConfig({ maxAssetMb: field.max }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
-  assert.equal(resolveConfig({ maxAssetMb: field.max + 1 }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
-  // Nothing buffers a published file any more, so the per-file ceiling is no smaller than the per-site one.
-  assert.ok(field.max >= manifest.configSchema.find((entry) => entry.key === 'maxSiteMb').max);
+  const retired = ['maxAssetMb', 'maxSiteMb', 'releasesKept'];
+  assert.deepEqual(manifest.configSchema.filter((entry) => retired.includes(entry.key)), []);
+  const config = resolveConfig({ maxAssetMb: 1, maxSiteMb: 1, releasesKept: 1 }, 'https://elowen.example');
+  for (const key of ['maxAssetBytes', 'maxSiteBytes', 'releasesKept']) assert.equal(key in config, false);
 });
 
 test('every site gets the root of the gateway hostname derived by core', () => {
@@ -823,6 +815,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
     id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', status: 'live',
     currentReleaseId: null, lastError: 'The validated container is not running',
   }));
+  store.insertRelease({ id: 'stale-release', siteId: 'api-proxy', createdAt: new Date().toISOString(), model: 'old', fileCount: 1, sizeBytes: 1, note: '' });
   const handlers = createApiHandlers({
     store,
     access: deps(),
@@ -842,10 +835,16 @@ test('site API exposes an unhealthy live publication and its concrete error with
   const response = await handlers.list({ ...request, path: '' });
   assert.equal(response.body.mine[0].status, 'live');
   assert.equal(response.body.mine[0].degraded, true);
+  assert.equal('spa' in response.body.mine[0], false, 'the retired file-router switch is not a public field');
 
   const detail = await handlers.site({ ...request, path: 'api-proxy' });
   assert.equal(detail.status, 200);
   assert.equal(detail.body.lastError, 'The validated container is not running');
+  assert.equal(detail.body.sourceDir, null, 'a proxy publication owns no copied source directory');
+  assert.deepEqual(detail.body.releases, [], 'stale legacy rows cannot become a second proxy release model');
+  const rollback = await handlers.site({ ...request, method: 'POST', path: 'api-proxy/rollback', json: async () => ({ releaseId: 'stale-release' }) });
+  assert.equal(rollback.status, 409);
+  assert.equal(store.siteById('api-proxy').currentReleaseId, null);
 });
 
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
@@ -854,13 +853,12 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, certificates } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
   const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
-  // Three levels down from the Project root on purpose: an agent is almost never standing exactly on it.
-  mkdirSync(join(dir, 'project', 'deep', 'nested'), { recursive: true });
+  mkdirSync(join(dir, 'project'), { recursive: true });
   const roots = projects ?? [{ id: 7, slug: 'demo', path: join(dir, 'project') }];
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -874,12 +872,8 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     currentContributionUserId: () => 1,
     currentIdentity: () => ({ elowenUserId: 1 }),
     currentSessionId: () => 'session-1',
-    workDir: () => workDir ?? join(dir, 'project', 'deep', 'nested'),
-    assertPathAllowed: (path) => path,
     currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1, projectRef }),
-    control: () => (sandboxAvailable || projectFiles
-      ? { activeWorkspace: () => null, ...(projectFiles ? { projectFiles } : {}) }
-      : undefined),
+    control: () => sandboxAvailable ? { activeWorkspace: () => null } : undefined,
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
   registerTools({
@@ -888,8 +882,6 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
     people: () => new Map(accounts.map((person) => [person.id, person])),
-    siteDir: (id) => join(dir, 'sites', id),
-    releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
     // A test that does not stub the publication transport must FAIL loudly if it reaches for one: the
     // default refuses, so a static path that suddenly asked for a transport would not pass quietly.
@@ -932,6 +924,7 @@ test('SiteCreate offers one publication model: a managed Project target port', (
   // output directory for a copy that no longer happens.
   assert.equal('kind' in properties, false);
   assert.equal('spa' in properties, false);
+  assert.equal('spa' in harness.registered.get('SiteUpdate').parameters.properties, false);
   assert.equal('outputDir' in harness.registered.get('SitePublish').parameters.properties, false);
   assert.ok(properties.target, 'the port inside the Project is the whole target, so it is required');
   assert.equal(harness.registered.has('SiteLogs'), false);
@@ -1250,6 +1243,14 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
 // the transport instead of copying files, and the serving path that must reach the same socket a
 // visitor's request would.
 
+test('SiteDelete describes a proxy publication without inventing a source folder', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'proxy-delete', slug: 'proxy-delete-a1b2c3', ownerUserId: 1, kind: 'proxy', target: '3000', sourceRel: '', currentReleaseId: null }));
+  const deleted = await call('SiteDelete', { site: 'proxy-delete-a1b2c3' });
+  assert.match(deleted.content[0].text, /managed Project and application were left in place/);
+  assert.doesNotMatch(deleted.content[0].text, /source folder/);
+});
+
 test('a row written before the publication model is a static publication', () => {
   const db = makeDb();
   const store = new SitesStore(db);
@@ -1286,15 +1287,14 @@ test('a proxy publication round trips its kind and port, and only live or failed
   assert.deepEqual(store.proxySitesForReconcile().map((entry) => entry.id), ['proxy-1'], 'a failed publish recovers');
 });
 
-test('a model that echoes every supported optional property still creates a proxy publication', async (t) => {
+test('the declared SiteCreate inputs create only a proxy publication', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
     sandboxAvailable: true,
   });
   const created = await harness.call('SiteCreate', {
-    _reason: '', title: 'Provozní aplikace', summary: '', visibility: 'private', spa: false,
-    kind: 'proxy', target: '3000',
+    _reason: '', title: 'Provozní aplikace', summary: '', visibility: 'private', target: '3000',
   });
 
   const stored = harness.store.siteById(created.details.siteId);
@@ -1469,6 +1469,7 @@ test('the retired per-site lifecycle tools and update fields are absent', async 
   assert.equal('environmentCpus' in update, false);
   assert.equal('environmentMemoryMb' in update, false);
   assert.equal('environmentPidsLimit' in update, false);
+  assert.equal('spa' in update, false);
 
   harness.store.insertSite(site({ id: 'proxy-5', slug: 'proxy-e1b2c3', kind: 'proxy', target: '3000', status: 'live', currentReleaseId: null }));
   await assert.rejects(() => harness.call('SiteRollback', { site: 'proxy-e1b2c3', releaseId: 'rel-1' }), /no file releases/);

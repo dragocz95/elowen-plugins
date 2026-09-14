@@ -45,8 +45,9 @@ export type SitesHttpRequest = PluginHttpRequest & { acceptsStreamBody?: boolean
  *
  *  Restated here for the same reason as the Sandbox transports above: the registry compiles against the
  *  published `elowen` package, which does not carry this type until the core release that introduces it
- *  lands. It is the ONLY way this plugin can render a page: a throwaway browser, no account, one hostname
- *  it may resolve, and nothing of the reader's. Core hands it to Sites and to nobody else. */
+ *  lands. It is the ONLY way this plugin can render a page: a throwaway browser, no account, one validated
+ *  public HTTPS origin pinned to its approved address, and nothing of the reader's. Core hands it to Sites
+ *  and to nobody else. */
 interface SitesBrowserCapture {
   /** Whether this instance can render at all: a browser is installed and its control library loads. */
   available(): boolean;

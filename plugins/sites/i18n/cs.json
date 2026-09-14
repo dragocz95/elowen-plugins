@@ -28,21 +28,9 @@
     "limits": {
       "label": "Limity"
     },
-    "maxAssetMb": {
-      "label": "Největší soubor",
-      "hint": "Soubory nad tuto velikost se při zveřejnění odmítnou. Zveřejněný soubor se při servírování streamuje z disku, takže strop určuje disk, nikoli paměť démona."
-    },
-    "maxSiteMb": {
-      "label": "Největší stránka",
-      "hint": "Celková velikost jedné zveřejněné verze v MB. Omezuje ji jen disk, který jí dáte."
-    },
     "maxSitesPerAccount": {
       "label": "Počet stránek na účet",
       "hint": "Kolik stránek smí jeden účet mít současně."
-    },
-    "releasesKept": {
-      "label": "Kolik verzí uchovat",
-      "hint": "Starší verze nad tento počet se odstraní. Verze, kterou stránka právě servíruje, se neodstraní nikdy, ať je zde nastaveno cokoli."
     },
     "access": {
       "label": "Přístup"
@@ -144,9 +132,9 @@
       "publicWarning": "Stránku bude moci otevřít kdokoli, kdo zná adresu, a to bez přihlášení.",
       "publicConfirm": "Zveřejnit",
       "publicDisabled": "Veřejné stránky jsou na této instanci vypnuté.",
-      "sourceNotice": "Zdrojová složka leží v projektu, takže si ji přečte každý, kdo má k projektu přístup. Toto nastavení řídí zveřejněnou stránku.",
+      "sourceNotice": "Toto nastavení řídí zveřejněnou adresu. Přístup k aplikaci a jejím souborům se spravuje samostatně v projektu.",
       "deleteTitle": "Smazat tuto stránku",
-      "deleteHint": "Adresa přestane fungovat a všechny verze se odstraní. Zdrojová složka v projektu zůstane nedotčená.",
+      "deleteHint": "Adresa přestane fungovat. Uchované verze starších souborových publikací se odstraní; spravovaný projekt a jeho aplikace zůstanou nedotčené.",
       "delete": "Smazat stránku",
       "deleted": "Stránka smazána",
       "saved": "Uloženo",

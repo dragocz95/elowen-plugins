@@ -245,7 +245,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     registerTools({
-        ctx, store, access, config, siteDir, releaseDir, deleteSite,
+        ctx, store, access, config, deleteSite,
         publications, people, previews, previewImages,
         certificates: {
             publish: (site) => certificates.publish(site, certificateHost(site)),

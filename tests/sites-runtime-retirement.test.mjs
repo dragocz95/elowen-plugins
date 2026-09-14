@@ -12,7 +12,9 @@ test('the shipped Sites surface contains only static and managed Project proxy p
     'SiteRollback', 'SiteShare', 'SiteUnshare', 'SiteDelete',
   ]);
   assert.equal(manifest.provides.apiRoutes.includes('conversion'), false);
-  assert.equal(manifest.configSchema.some((field) => /environment|runtime|loopback|startTimeout|maxResponse/i.test(field.key)), false);
+  const retiredConfigKeys = new Set(['maxAssetMb', 'maxSiteMb', 'releasesKept']);
+  assert.equal(manifest.configSchema.some((field) => retiredConfigKeys.has(field.key)
+    || /environment|runtime|loopback|startTimeout|maxResponse/i.test(field.key)), false);
   assert.equal(Object.keys(manifest.web.strings).some((key) => /runtime|command|php/i.test(key)), false);
   assert.equal('settings' in manifest.web, false);
   for (const file of [

@@ -505,7 +505,6 @@ export class SitesStore {
             title: 'title',
             summary: 'summary',
             visibility: 'visibility',
-            spa: 'spa',
             status: 'status',
             currentReleaseId: 'current_release_id',
             lastPublishAt: 'last_publish_at',

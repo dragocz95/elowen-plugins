@@ -694,14 +694,13 @@ export class SitesStore {
   }
 
   updateSite(id: string, patch: Partial<Pick<Site,
-    'title' | 'summary' | 'visibility' | 'spa' | 'status' | 'currentReleaseId' |
+    'title' | 'summary' | 'visibility' | 'status' | 'currentReleaseId' |
     'lastPublishAt' | 'lastPublishModel' | 'lastError' |
     'certificateRequestedAt' | 'certificateError'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
       visibility: 'visibility',
-      spa: 'spa',
       status: 'status',
       currentReleaseId: 'current_release_id',
       lastPublishAt: 'last_publish_at',

@@ -78,7 +78,6 @@ interface SiteView {
   createdModel: string;
   lastPublishAt: string | null;
   lastPublishModel: string | null;
-  spa: boolean;
   /** What this address publishes: a copied release, or an application inside the Project's environment. */
   kind: Site['kind'];
   /** The Project port for a proxy publication; empty for a static one. */
@@ -112,7 +111,6 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     createdModel: site.createdModel,
     lastPublishAt: site.lastPublishAt,
     lastPublishModel: site.lastPublishModel,
-    spa: site.spa,
     kind: site.kind,
     target: site.target,
     preview: deps.previewImages?.view(site.id) ?? { state: 'none', version: 0, capturedAt: null, width: null, height: null },
@@ -186,12 +184,16 @@ export function createApiHandlers(deps: ApiDeps) {
         // who else the owner shared with, which is the owner's business and not part of opening a page.
         members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
           ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
-        releases: deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
-          id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
-          fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
-        })),
+        releases: target.kind === 'static'
+          ? deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
+              id: release.id, siteId: release.siteId, createdAt: release.createdAt, model: release.model,
+              fileCount: release.fileCount, sizeBytes: release.sizeBytes, note: release.note, kind: 'files',
+            }))
+          : [],
         hits: deps.store.hits(target.id, since),
-        sourceDir: canManage(target, req.auth) ? deps.sourceDisplayPath?.(target) ?? target.sourceRel : null,
+        sourceDir: canManage(target, req.auth) && target.kind === 'static'
+          ? deps.sourceDisplayPath?.(target) ?? target.sourceRel
+          : null,
         // The stored publication failure is detail for somebody who may repair it. It stays out of the
         // list response and away from guests, while the derived degraded flag remains safe to list.
         lastError: canManage(target, req.auth) ? target.lastError : null,
@@ -226,6 +228,7 @@ export function createApiHandlers(deps: ApiDeps) {
       return json(200, { ok: true });
     }
     if (req.method === 'POST' && action === 'rollback') {
+      if (target.kind === 'proxy') return json(409, { error: 'a proxy publication has no file releases' });
       const body = await req.json<{ releaseId?: unknown }>().catch(() => ({} as { releaseId?: unknown }));
       const releaseId = typeof body.releaseId === 'string' ? body.releaseId : '';
       const release = deps.store.release(target.id, releaseId);
@@ -288,7 +291,6 @@ export function createApiHandlers(deps: ApiDeps) {
     let accessChanged = false;
     if (typeof body.title === 'string' && body.title.trim() !== '') patch.title = body.title.trim().slice(0, 120);
     if (typeof body.summary === 'string') patch.summary = body.summary.trim().slice(0, 400);
-    if (typeof body.spa === 'boolean') patch.spa = body.spa;
     if (typeof body.visibility === 'string') {
       if (!(VISIBILITIES as readonly string[]).includes(body.visibility)) {
         return json(400, { error: 'unknown visibility' });
