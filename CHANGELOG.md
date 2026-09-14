@@ -25,6 +25,11 @@
 - Let administrators select an account and disable or re-enable individual plugin skill contributions without changing plugin grants or another account's catalog.
 - Resolve `ListSkills` through the same live host catalog as the prompt and `SkillLoad`; plugin skill writes require Elowen core 0.28.46.
 
+## onedrive 0.2.4 - 2026-09-14
+
+- Mirror host and managed Projects through their authoritative file transport. Managed mirrors stay confined to the Project guest root and pin the environment generation and file version while scanning and transferring data.
+- Require Elowen core 0.28.46 so an older daemon refuses installation instead of exposing a host-path API error on managed Projects.
+
 ## sites 0.13.0 - 2026-09-14
 
 - The Sites register is a responsive grid of cards led by an address plate, three across on a wide desktop and one on a phone, and the standalone Publication column is withdrawn in favour of a single badge on the card.
