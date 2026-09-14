@@ -23,7 +23,7 @@ No field is required. The 15 optional settings cover the Chrome executable and p
 
 ## Controls
 
-`browserCapture` renders one host-derived absolute URL in a throwaway headless context and returns the picture. It is the one way the plugin renders a page outside an account: a fresh process, a profile removed afterwards, no proxy lease and no identity of its own. Core hands it to the Sites plugin and to nobody else, which uses it for the register's picture of each published page.
+`browserCapture` renders one server-derived published HTTPS URL in a throwaway headless context and returns the picture. It is the one way the plugin renders a page outside an account: a fresh process, a profile removed afterwards, no identity and an authenticated enforcing proxy pinned to the exact validated public origin and address. Redirects and every document, subresource, fetch, WebSocket and worker request remain on that origin; literal, loopback, private, link-local and rebound destinations are refused. Core hands the control to Sites and to nobody else.
 
 ## Documentation
 

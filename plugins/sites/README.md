@@ -25,7 +25,7 @@ Rows from retired per-Site command, PHP and environment runtimes remain stored a
 
 ## Page pictures
 
-The register shows a picture of each published page. A picture is taken by the Browser plugin's `browserCapture` control through the site's own published hostname, so what it shows is what a visitor gets, and it is stored once per site.
+The register shows a picture of each published page. Browser 0.4.0 takes it through the site's own published HTTPS hostname in a fresh throwaway Chrome profile. Its enforcing proxy resolves and pins the public address once and permits only that exact origin for redirects, documents, assets, fetches, sockets and workers.
 
 - A capture is authorised by a one-use grant, minted for one attempt, bound to the site and to its access generation, and spent by the first request that presents it. The grant never reaches the application inside the Project.
 - Rendering is anonymous: the grant proves the right to be served, not an account, so no identity is forwarded to the application and the visit counters are left alone.
@@ -39,7 +39,7 @@ Ten `Site*` tools create, preview, inspect, list, update, publish, roll back, sh
 
 ## Configuration
 
-No field is required. Settings cover publishing defaults and permissions, size and retention limits, access sessions, DNS and certificate contact details. Sites has no application lifecycle or resource settings.
+No field is required. Settings cover publishing defaults and permissions, the per-account publication count, access sessions, DNS and certificate contact details. Retired file-size and release-retention inputs are gone because no new file publication is copied. Sites has no application lifecycle or resource settings.
 
 ## Documentation
 

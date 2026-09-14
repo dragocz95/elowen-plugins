@@ -230,17 +230,6 @@
       }
     },
     {
-      "name": "web",
-      "version": "0.3.1",
-      "description": "Web research: WebSearch (Tavily) and WebFetch (fetch a page as readable text).",
-      "category": "research",
-      "author": "Elowen",
-      "apiVersion": "1",
-      "provides": {
-        "tools": 2
-      }
-    },
-    {
       "name": "whatsapp",
       "version": "0.2.18",
       "requiresCore": "0.28.11",

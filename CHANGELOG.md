@@ -1,8 +1,13 @@
 # Changelog
 
+## registry catalog - 2026-09-14
+
+- Removed the obsolete marketplace `web` 0.3.1 copy. Web has been bundled in Elowen core since the 0.28.17 release line, bundled folders always win over an installed plugin with the same name, and the marketplace classifies that entry as bundled rather than installable. Core Web 0.5.0 is now the single authority.
+
 ## browser 0.4.0 - 2026-09-14
 
-- The browser plugin publishes a browserCapture control that renders one host-derived URL in a throwaway headless context with no account profile, no proxy lease, downloads denied and a name resolver holding only the target host.
+- The browser plugin publishes a Sites-only `browserCapture` control for one server-derived HTTPS publication URL. It resolves and validates the public hostname once, pins that address behind the existing authenticated enforcing proxy, and permits only the exact origin for redirects, documents, subresources, fetches, WebSockets and workers. Literal, loopback, private, link-local and rebound destinations are refused.
+- Capture timeout and plugin disposal retain ownership until a late browser launch is closed and the throwaway profile is removed. Cleanup failures fail the attempt instead of returning a successful picture, downloads remain denied, and only one capture runs at a time.
 
 ## sites 0.14.0 - 2026-09-14
 
@@ -12,6 +17,7 @@
 - One bounded picture per site, replaced atomically under a new version, renewed lazily while a register is open, after a publish and on a rate-limited manager request from the drawer. The picture has its own access-controlled endpoint, goes with the site on deletion, and a capture that fails leaves the previous one in place while the card states the caveat.
 - The proxy probe now presents the site's public Host rather than `localhost`, so an application that answers by Host is judged as a visitor would find it.
 - Turning public sites off now closes the pages that are already public, instead of only removing the option from the settings form, and a method a file release refuses is answered after access rather than before it.
+- Retired file-publication size and retention settings, the public SPA router input and unused copy-path dependencies are removed. Existing file rows still serve, roll back and delete; proxy rows expose no source folder or release activation path.
 
 ## sites 0.13.0 - 2026-09-14
 
