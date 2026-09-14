@@ -6,6 +6,11 @@ import { readdir, rename, stat } from 'node:fs/promises';
 import { remoteRootFor, trashFile } from './sync.js';
 const json = (body, status = 200) => ({ status, body: body });
 const bad = (error, status = 400) => ({ status, body: { error } });
+const managedFailure = (error) => {
+    const value = error;
+    const status = typeof value.status === 'number' && value.status >= 400 && value.status < 600 ? value.status : 503;
+    return bad(typeof value.message === 'string' && value.message ? value.message : 'Managed Project files are unavailable.', status);
+};
 /** `req.body` is a function returning the RAW bytes, and `req.json()` is the parser over it - a request
  *  object, not a parsed payload. Reading `req.body` as if it were the object silently yields nothing,
  *  which every route here then reports as a missing field. An empty or unparseable body is an empty
@@ -54,7 +59,7 @@ export function registerApi(deps) {
             return json({
                 identity: identityFor(gate.value),
                 rootFolder: deps.settings().rootFolder,
-                workspaces: deps.workspacesOf(gate.value, projectId).map((workspace) => ({
+                workspaces: (await deps.workspacesOf(gate.value, projectId)).map((workspace) => ({
                     ...workspace,
                     connected: links.some((link) => link.workspaceId === workspace.workspaceId),
                 })),
@@ -85,7 +90,7 @@ export function registerApi(deps) {
             if (!gate.ok)
                 return gate.response;
             const workspaceId = typeof req.query?.workspaceId === 'string' && req.query.workspaceId ? req.query.workspaceId : null;
-            if (workspaceId && !deps.workspacesOf(gate.value, projectId).some((entry) => entry.workspaceId === workspaceId)) {
+            if (workspaceId && !(await deps.workspacesOf(gate.value, projectId)).some((entry) => entry.workspaceId === workspaceId)) {
                 return bad('that workspace is not yours or is no longer active', 404);
             }
             const rel = normalizeSubpath(req.query?.path);
@@ -95,39 +100,54 @@ export function registerApi(deps) {
             // directory the cycle would then refuse - or worse, one the cycle would accept and the browser
             // never showed - is how a picker starts lying about what it is offering.
             const probe = { userId: gate.value, projectId, workspaceId, subpath: '' };
-            const base = deps.baseFor(probe);
-            if (!base)
-                return bad('not found', 404);
-            const dir = deps.withinBase(base, rel);
-            if (!dir)
-                return bad('that folder cannot be mirrored', 400);
             const project = ctx.host.stores().projects.get(projectId);
             if (!project)
                 return bad('not found', 404);
+            let managed = null;
+            try {
+                managed = project.executionKind === 'managed' && deps.managedFor ? await deps.managedFor(probe) : null;
+            }
+            catch (error) {
+                return managedFailure(error);
+            }
+            const base = managed ? null : deps.baseFor(probe);
+            const dir = base ? deps.withinBase(base, rel) : null;
+            if (project.executionKind === 'managed' && !managed)
+                return bad('Managed Project files are unavailable.', 503);
+            if (project.executionKind !== 'managed' && !dir)
+                return bad('that folder cannot be mirrored', 400);
             const workspaceLabel = workspaceId
-                ? deps.workspacesOf(gate.value, projectId).find((entry) => entry.workspaceId === workspaceId)?.label ?? null
+                ? (await deps.workspacesOf(gate.value, projectId)).find((entry) => entry.workspaceId === workspaceId)?.label ?? null
                 : null;
             // The UI must never do this arithmetic itself. A workspace mirror lands under
             // `workspaces/<slug>/<label> (<id>)`, which a browser-side template got wrong, and telling somebody
             // the wrong destination for their files is worse than telling them nothing.
             const remoteFor = (candidate) => remoteRootFor(deps.settings().rootFolder, project.slug, { workspaceId, workspaceLabel, subpath: candidate });
             const ignored = buildIgnore(deps.settings().extraIgnore);
-            let entries;
-            try {
-                entries = await readdir(dir, { withFileTypes: true });
+            let folders;
+            if (managed) {
+                folders = (await managed.listFolders(rel))
+                    .filter((entry) => normalizeSubpath(entry.path) !== null && !ignored(entry.path))
+                    .sort((left, right) => left.name.localeCompare(right.name))
+                    .slice(0, 500)
+                    .map((entry) => ({ ...entry, remotePath: remoteFor(entry.path) }));
             }
-            catch {
-                return bad('that folder cannot be read', 404);
+            else {
+                let entries;
+                try {
+                    entries = await readdir(dir, { withFileTypes: true });
+                }
+                catch {
+                    return bad('that folder cannot be read', 404);
+                }
+                folders = entries
+                    .filter((entry) => entry.isDirectory())
+                    .map((entry) => ({ name: entry.name, path: rel ? `${rel}/${entry.name}` : entry.name }))
+                    .filter((entry) => normalizeSubpath(entry.path) !== null && !ignored(entry.path))
+                    .sort((left, right) => left.name.localeCompare(right.name))
+                    .slice(0, 500)
+                    .map((entry) => ({ ...entry, remotePath: remoteFor(entry.path) }));
             }
-            const folders = entries
-                .filter((entry) => entry.isDirectory())
-                .map((entry) => ({ name: entry.name, path: rel ? `${rel}/${entry.name}` : entry.name }))
-                // The floor is not negotiable in the picker either: offering `.git` or `node_modules` as a
-                // choice would let someone mirror by name exactly what the scan exists to keep out.
-                .filter((entry) => normalizeSubpath(entry.path) !== null && !ignored(entry.path))
-                .sort((left, right) => left.name.localeCompare(right.name))
-                .slice(0, 500)
-                .map((entry) => ({ ...entry, remotePath: remoteFor(entry.path) }));
             return json({ path: rel, remotePath: remoteFor(rel), folders });
         },
     });
@@ -140,7 +160,7 @@ export function registerApi(deps) {
             if (!gate.ok)
                 return gate.response;
             const workspaceId = typeof body.workspaceId === 'string' && body.workspaceId ? body.workspaceId : null;
-            const workspaces = deps.workspacesOf(gate.value, projectId);
+            const workspaces = await deps.workspacesOf(gate.value, projectId);
             const workspace = workspaceId ? workspaces.find((entry) => entry.workspaceId === workspaceId) : null;
             if (workspaceId && !workspace)
                 return bad('that workspace is not yours or is no longer active', 404);
@@ -163,7 +183,16 @@ export function registerApi(deps) {
             // Prove the chosen folder is really there and really inside the project before creating anything
             // in OneDrive; a mirror whose local side does not exist is a folder the person has to clean up.
             const base = deps.baseFor(draft);
-            if (!base || !deps.withinBase(base, subpath))
+            let managed = null;
+            try {
+                managed = project.executionKind === 'managed' && deps.managedFor ? await deps.managedFor(draft) : null;
+            }
+            catch (error) {
+                return managedFailure(error);
+            }
+            if (project.executionKind === 'managed' && !managed)
+                return bad('Managed Project files are unavailable.', 503);
+            if (project.executionKind !== 'managed' && (!base || !deps.withinBase(base, subpath)))
                 return bad('that folder cannot be mirrored', 400);
             const drive = await Drive.open(graph);
             const folder = await drive.ensureFolder(remotePath);

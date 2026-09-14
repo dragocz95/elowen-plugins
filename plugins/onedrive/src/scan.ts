@@ -344,6 +344,44 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
   };
 }
 
+export interface ManagedScanFs {
+  walk(options: { limit: number; skip?: readonly string[] }): Promise<{ entries: { rel?: string; kind: 'file' | 'directory' | 'symlink' | 'other'; size: number; mtimeMs: number }[]; complete: boolean }>;
+  hash(rel: string): Promise<{ sha256: string; size: number; version: string }>;
+  git(args: readonly string[]): Promise<{ stdout: string; stderr: string; code: number }>;
+}
+
+/** Scan a managed Project through Sandbox's bounded guest walk. The guest, not the daemon, resolves the
+ *  tree and refuses symlink escapes; the returned inventory is metadata only until a version-pinned hash. */
+export async function scanManaged(fs: ManagedScanFs, options: ScanOptions): Promise<ScanResult> {
+  const listed = await fs.git(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
+  const notARepository = /not a git repository|unknown revision/i.test(`${listed.stderr} ${listed.stdout}`);
+  const fromGit = listed.code === 0;
+  if (listed.code !== 0 && !notARepository) {
+    return { files: new Map(), skipped: [], skippedPaths: new Set(), fromGit: true, complete: false, isIgnored: options.ignored };
+  }
+  const walked = await fs.walk({ limit: options.maxFiles, skip: IGNORE_FLOOR.filter((pattern) => !pattern.includes('/')).map((pattern) => pattern.replaceAll('*', '')) });
+  const listedNames = fromGit ? new Set(listed.stdout.split('\0').filter(Boolean)) : null;
+  const candidates = walked.entries.filter((entry) => entry.kind === 'file' && entry.rel && (!listedNames || listedNames.has(entry.rel)) && !options.ignored(entry.rel)).map((entry) => ({
+    rel: entry.rel!, size: entry.size, mtimeMs: entry.mtimeMs,
+  }));
+  const byRemoteKey = new Map<string, string[]>();
+  for (const entry of candidates) {
+    const bucket = byRemoteKey.get(remoteKey(entry.rel));
+    if (bucket) bucket.push(entry.rel); else byRemoteKey.set(remoteKey(entry.rel), [entry.rel]);
+  }
+  const colliding = new Set<string>();
+  for (const bucket of byRemoteKey.values()) if (bucket.length > 1) for (const rel of bucket) colliding.add(rel);
+  const files = new Map<string, ScannedFile>();
+  const skipped: ScanResult['skipped'] = [];
+  for (const entry of candidates) {
+    if (colliding.has(entry.rel)) { skipped.push({ rel: entry.rel, reason: 'collision' }); continue; }
+    if (entry.size > options.maxBytes) { skipped.push({ rel: entry.rel, reason: 'too-large' }); continue; }
+    if (options.now - entry.mtimeMs < options.settleMs) { skipped.push({ rel: entry.rel, reason: 'settling' }); continue; }
+    files.set(entry.rel, entry);
+  }
+  return { files, skipped, skippedPaths: new Set(skipped.map((entry) => entry.rel)), fromGit, complete: walked.complete, isIgnored: options.ignored };
+}
+
 /** Open a project file for reading WITHOUT following a symlink at the final path component.
  *
  *  The scan checks containment and then stores a path, and everything afterwards - hashing, uploading -

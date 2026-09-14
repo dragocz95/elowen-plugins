@@ -5,6 +5,7 @@ import { registerApi } from './api.js';
 import { OneDriveStore } from './store.js';
 import { SyncEngine } from './sync.js';
 import { normalizeIgnorePatterns, normalizeSubpath } from './scan.js';
+import { ManagedMirror } from './managed.js';
 const numberSetting = (value, fallback) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -22,8 +23,23 @@ export function register(published) {
     });
     /** Active worktrees of one project for an EXPLICITLY named account. The ambient `workspaceRoots` is
      *  useless here: both the background cycle and an HTTP route run without a turn scope to read. */
-    const workspacesOf = (userId, projectId) => (ctx.control('sandbox')?.workspacesFor({ userId, projectIds: [projectId] }) ?? [])
-        .map((workspace) => ({ workspaceId: workspace.workspaceId, label: workspace.label, path: workspace.path }));
+    const legacyWorkspacesOf = (userId, projectId) => {
+        const sandbox = ctx.control('sandbox');
+        return (sandbox?.workspacesFor?.({ userId, projectIds: [projectId] }) ?? [])
+            .map((workspace) => ({ workspaceId: workspace.workspaceId, label: workspace.label, path: workspace.path }));
+    };
+    const workspacesOf = async (userId, projectId) => {
+        const sandbox = ctx.control('sandbox');
+        if (sandbox?.managedWorktrees) {
+            const project = ctx.host.stores().projects.get(projectId);
+            if (project?.executionKind === 'managed') {
+                const rows = await sandbox.managedWorktrees({ project: { kind: 'managed', projectId }, accountUserId: userId, action: { kind: 'list' }, startIfNeeded: false });
+                return rows.map((workspace) => ({ workspaceId: workspace.id, label: workspace.label }));
+            }
+        }
+        return (sandbox?.workspacesFor?.({ userId, projectIds: [projectId] }) ?? [])
+            .map((workspace) => ({ workspaceId: workspace.workspaceId, label: workspace.label }));
+    };
     /** The absolute directory a mirror covers, or null when it must stop.
      *
      *  Re-resolved every cycle rather than trusted from the row: a project can be re-pointed, a worktree
@@ -33,11 +49,13 @@ export function register(published) {
         if (!ctx.host.stores().userProjects.canAccess(link.userId, link.projectId))
             return null;
         if (link.workspaceId) {
-            const workspace = workspacesOf(link.userId, link.projectId).find((entry) => entry.workspaceId === link.workspaceId);
+            const workspace = legacyWorkspacesOf(link.userId, link.projectId).find((entry) => entry.workspaceId === link.workspaceId);
             return workspace && existsSync(workspace.path) ? workspace.path : null;
         }
         const project = ctx.host.stores().projects.get(link.projectId);
-        return project && existsSync(project.path) ? project.path : null;
+        if (!project || project.executionKind === 'managed')
+            return null;
+        return existsSync(project.path) ? project.path : null;
     };
     /** Join a stored subpath onto a base and prove the result is still inside it.
      *
@@ -63,15 +81,30 @@ export function register(published) {
         const base = baseFor(link);
         return base === null ? null : withinBase(base, link.subpath);
     };
+    const managedFor = async (link) => {
+        if (!ctx.host.stores().userProjects.canAccess(link.userId, link.projectId))
+            return null;
+        const project = ctx.host.stores().projects.get(link.projectId);
+        if (!project || project.executionKind !== 'managed')
+            return null;
+        const sandbox = ctx.control('sandbox');
+        if (!sandbox)
+            throw Object.assign(new Error('Managed Project files are unavailable because the Sandbox plugin is not loaded.'), { status: 503, code: 'managed_transport_unavailable' });
+        const root = await sandbox.projectFileRoot({ project: { kind: 'managed', projectId: link.projectId }, accountUserId: link.userId, workspaceId: link.workspaceId });
+        if (root.state !== 'running')
+            throw Object.assign(new Error(`Managed Project environment is ${root.state}; start it before syncing OneDrive.`), { status: 503, code: 'managed_environment_unavailable' });
+        return new ManagedMirror(sandbox, { kind: 'managed', projectId: link.projectId }, link.userId, root, link.subpath, link.workspaceId);
+    };
     const engine = new SyncEngine({
         store,
         identity: () => ctx.control('microsoftIdentity'),
         rootFor,
         baseFor,
+        managedFor,
         settings,
         log: ctx.logger,
     });
-    registerApi({ ctx, store, engine, settings, rootFor, baseFor, withinBase, workspacesOf });
+    registerApi({ ctx, store, engine, settings, rootFor, baseFor, withinBase, workspacesOf, managedFor });
     // Only an account actually bound to a Microsoft identity is offered the tab. Answered from the Teams
     // plugin's local directory read - no network on a page load - and fail-closed, because a panel that
     // cannot possibly work is worse than no panel at all.

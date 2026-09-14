@@ -112,6 +112,22 @@ export class RemoteItemAppearedError extends Error {
   }
 }
 
+export interface UploadSource {
+  size: number;
+  read(offset: number, length: number): Promise<Uint8Array>;
+}
+
+function uploadSource(file: { handle: FileHandle; size: number } | UploadSource): UploadSource {
+  if ('handle' in file) {
+    return { size: file.size, read: async (offset, length) => {
+      const buffer = Buffer.allocUnsafe(length);
+      const result = await file.handle.read(buffer, 0, length, offset);
+      return buffer.subarray(0, result.bytesRead);
+    } };
+  }
+  return file;
+}
+
 export class Drive {
   constructor(private readonly graph: MicrosoftDriveGraph, readonly driveId: string) {}
 
@@ -291,12 +307,13 @@ export class Drive {
    *  the bytes sent are the bytes that were checked - reopening the path here would hand a symlink swapped
    *  in since then a way out of the project. */
   async upload(
-    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    folderId: string, rel: string, file: { handle: FileHandle; size: number } | UploadSource,
     ifMatch?: string, expectNew = false,
   ): Promise<DriveItem> {
-    const send = (asNew: boolean): Promise<DriveItem> => file.size <= SIMPLE_UPLOAD_MAX
-      ? this.uploadSmall(folderId, rel, file, ifMatch, asNew)
-      : this.uploadLarge(folderId, rel, file, ifMatch, asNew);
+    const source = uploadSource(file);
+    const send = (asNew: boolean): Promise<DriveItem> => source.size <= SIMPLE_UPLOAD_MAX
+      ? this.uploadSmall(folderId, rel, source, ifMatch, asNew)
+      : this.uploadLarge(folderId, rel, source, ifMatch, asNew);
 
     try {
       return await send(expectNew);
@@ -323,15 +340,16 @@ export class Drive {
   }
 
   private async uploadSmall(
-    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    folderId: string, rel: string, file: UploadSource,
     ifMatch?: string, expectNew = false,
   ): Promise<DriveItem> {
     const body = Buffer.allocUnsafe(file.size);
     let read = 0;
     while (read < file.size) {
-      const { bytesRead } = await file.handle.read(body, read, file.size - read, read);
-      if (bytesRead === 0) break;
-      read += bytesRead;
+      const bytes = await file.read(read, file.size - read);
+      if (bytes.length === 0) break;
+      body.set(bytes, read);
+      read += bytes.length;
     }
     const behavior = expectNew && !ifMatch ? '?%40microsoft.graph.conflictBehavior=fail' : '';
     const raw = await this.graph.json('PUT', `${this.itemPath(folderId, rel)}/content${behavior}`, {
@@ -342,7 +360,7 @@ export class Drive {
   }
 
   private async uploadLarge(
-    folderId: string, rel: string, file: { handle: FileHandle; size: number },
+    folderId: string, rel: string, file: UploadSource,
     ifMatch?: string, expectNew = false,
   ): Promise<DriveItem> {
     const size = file.size;
@@ -360,8 +378,10 @@ export class Drive {
     let last: unknown = null;
     const buffer = Buffer.allocUnsafe(CHUNK);
     while (offset < size) {
-      const { bytesRead } = await file.handle.read(buffer, 0, Math.min(CHUNK, size - offset), offset);
+      const bytes = await file.read(offset, Math.min(CHUNK, size - offset));
+      const bytesRead = bytes.length;
       if (bytesRead === 0) break;
+      buffer.set(bytes, 0);
       // The upload URL is pre-authenticated and MUST be called without the bearer, so this one request
       // goes out directly rather than through the scoped Graph client.
       const response = await fetch(uploadUrl, {
@@ -380,6 +400,11 @@ export class Drive {
       if (response.status !== 202) last = await response.json().catch(() => null);
     }
     return itemFromGraph(last) ?? { id: '', name: '', etag: '', size, isFolder: false, path: rel, deleted: false };
+  }
+
+  async downloadBytes(itemId: string, maxBytes = 1024 * 1024 * 1024): Promise<Uint8Array> {
+    const { body } = await this.graph.binary(`${this.base()}/items/${encodeURIComponent(itemId)}/content`, { maxBytes });
+    return body;
   }
 
   /** Fetch one item into `absolute`. Written to a sibling temporary file and renamed, so a reader never
