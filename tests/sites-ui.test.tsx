@@ -3,6 +3,7 @@ import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testi
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { SitesPage } from '../plugins/sites/web-src/SitesPage';
+import { PREVIEW_POLL_MS, awaitingPreview, previewImageUrl } from '../plugins/sites/web-src/runtime';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 
@@ -45,6 +46,8 @@ const site = {
   spa: false,
   kind: 'static',
   target: '',
+  // A picture of the page, already taken: the card's plate shows it rather than a monogram.
+  preview: { state: 'ready', version: 3, capturedAt: '2026-08-20T10:00:00.000Z', width: 1280, height: 800 },
   degraded: false,
   canManage: true,
 };
@@ -56,6 +59,7 @@ const detail = {
   hits: [{ day: '2026-08-20', count: 41 }],
   sourceDir: '/var/www/kolin/reports',
   lastError: null,
+  previewNotice: null,
 };
 
 setDefaults(
@@ -304,5 +308,152 @@ describe('the Sites workspace', () => {
 
     // The server receives the complete intended set and applies it in one transaction.
     await waitFor(() => expect(replaced).toEqual([{ userIds: [GUEST.id, OUTSIDER.id] }]));
+  });
+
+  /** The plate is where the picture of the page belongs. It is the site's own, stored by the instance
+   *  through the site's published address, and the card must show it under the version it was stored as —
+   *  which is what lets a long cache be correct. */
+  it('puts the stored picture of the page on the card, under the version it was taken as', async () => {
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    const picture = card.querySelector('[data-site-picture]');
+    expect(picture).not.toBeNull();
+    expect(picture).toHaveAttribute('src', previewImageUrl(site.id, 3));
+    expect(picture).toHaveAttribute('src', '/api/plugins/sites/api/site/site-1/preview?v=3');
+    // Decoration with an origin: the title is the card's heading, so the picture announces nothing.
+    expect(picture).toHaveAttribute('alt', '');
+    expect(card.querySelector('[data-site-plate]')?.getAttribute('data-site-preview')).toBe('ready');
+  });
+
+  it('falls back to the monogram when there is no picture to show', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [{ ...site, preview: { state: 'none', version: 0, capturedAt: null, width: null, height: null } }],
+      shared: [], allowPublicSites: true,
+    })));
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    expect(card.querySelector('[data-site-picture]')).toBeNull();
+    expect(card.querySelector('[data-site-plate]')?.getAttribute('data-site-preview')).toBe('none');
+    // The card is still a card: the address and the title are what it is made of either way.
+    expect(within(card).getByText(site.title)).toBeVisible();
+    expect(within(card).getByText('dashboard-abc123.sites.example.com')).toBeVisible();
+  });
+
+  it('drops back to the monogram when the stored picture will not load', async () => {
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    fireEvent.error(card.querySelector('[data-site-picture]') as HTMLImageElement);
+    await waitFor(() => expect(card.querySelector('[data-site-picture]')).toBeNull());
+    expect(within(card).getByText(site.title)).toBeVisible();
+  });
+
+  /** A picture that is merely out of date keeps its place. Falling back to a monogram on every failed
+   *  refresh would make a register flicker over a page the picture still describes perfectly well. */
+  it('keeps a stale or failed picture on the card and states the caveat', async () => {
+    for (const [state, label] of [['stale', strings.previewStale], ['failed', strings.previewFailed]] as const) {
+      use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+        mine: [{
+          ...site,
+          preview: { state, version: 4, capturedAt: '2026-08-20T10:00:00.000Z', width: 1280, height: 800 },
+        }],
+        shared: [], allowPublicSites: true,
+      })));
+      mount();
+      const card = await screen.findByTestId('sites-register');
+      expect(card.querySelector('[data-site-picture]')).not.toBeNull();
+      expect(within(card).getByText(label)).toBeVisible();
+      expect(card.querySelector(`[data-site-picture-state="${state}"]`)).not.toBeNull();
+      cleanup();
+      resetHandlers();
+    }
+  });
+
+  it('says a first picture is being taken rather than showing nothing', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [{ ...site, preview: { state: 'pending', version: 0, capturedAt: null, width: null, height: null } }],
+      shared: [], allowPublicSites: true,
+    })));
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    expect(card.querySelector('[data-site-preview="pending"]')).not.toBeNull();
+    expect(card.querySelector('[data-site-picture]')).toBeNull();
+  });
+
+  /** The register asks for nothing on its own except the pictures it is waiting for. A register nobody is
+   *  publishing into has to be silent, so the polling is a function of the data rather than a heartbeat. */
+  it('looks again on its own only while a picture is being taken', async () => {
+    expect(awaitingPreview([site])).toBe(false);
+    expect(awaitingPreview([{ ...site, preview: { state: 'ready', version: 1, capturedAt: null, width: null, height: null } }])).toBe(false);
+    expect(awaitingPreview([{ ...site, preview: { state: 'pending', version: 0, capturedAt: null, width: null, height: null } }])).toBe(true);
+
+    let lists = 0;
+    use(http.get('/api/plugins/sites/api/sites', () => {
+      lists += 1;
+      return HttpResponse.json({
+        mine: [{ ...site, preview: { state: 'pending', version: 0, capturedAt: null, width: null, height: null } }],
+        shared: [], allowPublicSites: true,
+      });
+    }));
+    mount();
+    await screen.findByTestId('sites-register');
+    const first = lists;
+    await waitFor(() => expect(lists).toBeGreaterThan(first), { timeout: PREVIEW_POLL_MS + 3000 });
+  }, 12_000);
+
+  it('shows the picture, when it was taken and the control that takes a new one', async () => {
+    const refreshed: string[] = [];
+    use(http.post('/api/plugins/sites/api/site/:id/preview/refresh', ({ request }) => {
+      refreshed.push(new URL(request.url).pathname);
+      return HttpResponse.json({ queued: true }, { status: 202 });
+    }));
+    mount();
+    const drawer = within(await openSite());
+
+    expect(drawer.getByText(strings.previewTitle)).toBeVisible();
+    expect(drawer.getByText(new RegExp(strings.previewCapturedAt.split('{time}')[0].trim()))).toBeVisible();
+    // The drawer shows the same stored picture the card does, and it is decoration there too.
+    const picture = document.querySelector(`[data-site-picture="${site.id}"]`);
+    expect(picture).not.toBeNull();
+    expect(picture).toHaveAttribute('alt', '');
+
+    fireEvent.click(drawer.getByRole('button', { name: strings.previewRefresh }));
+    await waitFor(() => expect(refreshed).toEqual(['/api/plugins/sites/api/site/site-1/preview/refresh']));
+  });
+
+  it('reports a refused refresh as itself rather than swallowing it', async () => {
+    use(http.post('/api/plugins/sites/api/site/:id/preview/refresh', () => HttpResponse.json(
+      { error: 'a picture of this site was taken a moment ago' }, { status: 429 },
+    )));
+    mount();
+    const drawer = within(await openSite());
+    fireEvent.click(drawer.getByRole('button', { name: strings.previewRefresh }));
+
+    // Shown as itself, in the drawer's own error state and as a toast: a refusal the daemon explained is
+    // never swallowed into a silent no-op.
+    const refusals = await screen.findAllByText(/a picture of this site was taken a moment ago/);
+    expect(refusals[0]).toBeVisible();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeVisible();
+  });
+
+  it('explains why there is no picture, to the manager who could fix it', async () => {
+    use(http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json({
+      ...detail,
+      site: { ...site, preview: { state: 'none', version: 0, capturedAt: null, width: null, height: null } },
+      previewNotice: 'this instance has no browser to render pages with',
+    })));
+    mount();
+    const drawer = within(await openSite());
+    expect(drawer.getByText(strings.previewNone)).toBeVisible();
+    expect(drawer.getByText(/this instance has no browser to render pages with/)).toBeVisible();
+  });
+
+  it('offers no refresh control to somebody who does not manage the site', async () => {
+    use(http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json({
+      ...detail, site: { ...site, canManage: false },
+    })));
+    mount();
+    const drawer = within(await openSite());
+    expect(drawer.getByText(strings.previewTitle)).toBeVisible();
+    expect(drawer.queryByRole('button', { name: strings.previewRefresh })).not.toBeInTheDocument();
   });
 });

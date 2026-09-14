@@ -68,6 +68,9 @@ var jsonBody = (method, value) => ({
 var SITES_LIST_KEY = ["sites", "list"];
 var siteDetailKey = (siteId) => ["sites", "detail", siteId];
 var avatarUser = (person) => person;
+var previewImageUrl = (siteId, version) => `/api/plugins/sites/api/site/${encodeURIComponent(siteId)}/preview?v=${version}`;
+var PREVIEW_POLL_MS = 4e3;
+var awaitingPreview = (sites) => sites.some((site) => site.preview.state === "pending");
 function relativeTime(iso) {
   if (!iso) return "";
   const then = Date.parse(iso);
@@ -85,7 +88,7 @@ function relativeTime(iso) {
 var formatBytes = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
 
 // plugins/sites/web-src/SitesPage.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -288,6 +291,13 @@ var History = createLucideIcon("History", [
   ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/image.js
+var Image = createLucideIcon("Image", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }],
+  ["circle", { cx: "9", cy: "9", r: "2", key: "af1f0g" }],
+  ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21", key: "1xmnt7" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/layers.js
 var Layers = createLucideIcon("Layers", [
   [
@@ -312,6 +322,14 @@ var Link2 = createLucideIcon("Link2", [
 var Lock = createLucideIcon("Lock", [
   ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+var RefreshCw = createLucideIcon("RefreshCw", [
+  ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
+  ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
+  ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
+  ["path", { d: "M8 16H3v5", key: "1cv678" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
@@ -445,26 +463,56 @@ function monogram(title) {
 }
 
 // plugins/sites/web-src/SiteCard.tsx
+var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 function SitePlate({ site, strings }) {
   const KindIcon = KIND_ICON[site.kind];
   const state = displayStatus(site);
+  const preview = site.preview;
+  const [refusedVersion, setRefusedVersion] = (0, import_react3.useState)(null);
+  const picture = preview.version > 0 && refusedVersion !== preview.version;
   const frame = state === "failed" ? "border-destructive/40" : state === "degraded" ? "border-warning/40" : "border-border/60";
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
     "div",
     {
       "data-site-plate": state,
+      "data-site-preview": preview.state,
       className: `relative aspect-[16/6] w-full shrink-0 overflow-hidden rounded-lg border bg-muted/40 ${frame}`,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        picture ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "img",
+          {
+            src: previewImageUrl(site.id, preview.version),
+            alt: "",
+            "aria-hidden": true,
+            loading: "lazy",
+            decoding: "async",
+            "data-site-picture": site.id,
+            onError: () => setRefusedVersion(preview.version),
+            className: "absolute inset-0 h-full w-full object-cover object-top"
+          },
+          preview.version
+        ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "span",
           {
             "aria-hidden": true,
-            className: "absolute inset-0 flex select-none items-center justify-center pb-7 text-[2.75rem] font-semibold leading-none tracking-tight text-foreground/[0.09]",
+            className: `absolute inset-0 flex select-none items-center justify-center pb-7 text-[2.75rem] font-semibold leading-none tracking-tight text-foreground/[0.09] ${preview.state === "pending" ? "motion-safe:animate-pulse" : ""}`,
             children: monogram(site.title)
           }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-1.5 border-t border-border/60 bg-card/85 px-2.5 py-1.5", children: [
+        ) }),
+        picture && preview.state !== "ready" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+          "span",
+          {
+            "data-site-picture-state": preview.state,
+            title: preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : void 0,
+            className: `absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border bg-card/90 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur-sm ${preview.state === "failed" ? "border-destructive/40 text-destructive" : "border-warning/40 text-warning"}`,
+            children: [
+              preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 9, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 9, "aria-hidden": true }),
+              preview.state === "failed" ? strings.previewFailed : strings.previewStale
+            ]
+          }
+        ) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-1.5 border-t border-border/60 bg-card/85 px-2.5 py-1.5 backdrop-blur-sm", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(KindIcon, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
           site.url === null ? (
             // A draft has no address yet, and the slug it would get is not one. Saying so is the whole
@@ -585,9 +633,54 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
 }
 
 // plugins/sites/web-src/SiteDetail.tsx
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
+function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
+  const { components } = runtime();
+  const { Badge, Button, DetailBlock } = components;
+  const preview = site.preview;
+  const [refusedVersion, setRefusedVersion] = (0, import_react4.useState)(null);
+  const picture = preview.version > 0 && refusedVersion !== preview.version;
+  const taken = preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : null;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Image, title: strings.previewTitle, hint: strings.previewHint, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40", children: picture ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "img",
+      {
+        src: previewImageUrl(site.id, preview.version),
+        alt: "",
+        "aria-hidden": true,
+        "data-site-picture": site.id,
+        onError: () => setRefusedVersion(preview.version),
+        className: "absolute inset-0 h-full w-full object-cover object-top"
+      },
+      preview.version
+    ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "span",
+      {
+        className: `absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-muted-foreground ${preview.state === "pending" ? "motion-safe:animate-pulse" : ""}`,
+        children: preview.state === "pending" ? strings.previewPending : strings.previewNone
+      }
+    ) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
+      taken ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: taken }) : null,
+      preview.state === "stale" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "warning", children: strings.previewStale }) : null,
+      preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "danger", children: strings.previewFailed }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex-1" }),
+      site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        Button,
+        {
+          variant: "ghost",
+          icon: RefreshCw,
+          disabled: busy || preview.state === "pending",
+          onClick: onRefresh,
+          children: strings.previewRefresh
+        }
+      ) : null
+    ] }),
+    notice ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] leading-tight text-muted-foreground", children: notice }) : null
+  ] });
+}
 function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const { components, hooks, utils } = runtime();
   const {
@@ -606,18 +699,21 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const strings = hooks.usePluginStrings("sites");
   const { toast } = hooks.useToast();
   const queryClient = hooks.useQueryClient();
-  const [pendingPublic, setPendingPublic] = (0, import_react3.useState)(false);
-  const [confirmDelete, setConfirmDelete] = (0, import_react3.useState)(false);
-  const [guestPicker, setGuestPicker] = (0, import_react3.useState)(false);
-  const [failedAction, setFailedAction] = (0, import_react3.useState)(null);
-  const [failedGuests, setFailedGuests] = (0, import_react3.useState)(null);
-  const callRef = (0, import_react3.useRef)(false);
-  const guestsRef = (0, import_react3.useRef)(false);
+  const [pendingPublic, setPendingPublic] = (0, import_react4.useState)(false);
+  const [confirmDelete, setConfirmDelete] = (0, import_react4.useState)(false);
+  const [guestPicker, setGuestPicker] = (0, import_react4.useState)(false);
+  const [failedAction, setFailedAction] = (0, import_react4.useState)(null);
+  const [failedGuests, setFailedGuests] = (0, import_react4.useState)(null);
+  const callRef = (0, import_react4.useRef)(false);
+  const guestsRef = (0, import_react4.useRef)(false);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
-    queryFn: () => runtime().api(basePath(siteId))
+    queryFn: () => runtime().api(basePath(siteId)),
+    // A capture is the only reason this drawer has to look again on its own, and only while one is running:
+    // a register nothing is happening in asks for nothing.
+    refetchInterval: (query) => query.state.data?.site.preview.state === "pending" ? PREVIEW_POLL_MS : false
   });
-  const detailRefetch = (0, import_react3.useRef)(detail.refetch);
+  const detailRefetch = (0, import_react4.useRef)(detail.refetch);
   detailRefetch.current = detail.refetch;
   const site = detail.data?.site;
   const members = detail.data?.members ?? [];
@@ -685,7 +781,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       guestsRef.current = false;
     }
   };
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
   }, [call.isPending, onBusyChange, saveGuests.isPending]);
   if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
@@ -773,6 +869,20 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: site.url }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      PreviewBlock,
+      {
+        site,
+        notice: detail.data?.previewNotice ?? null,
+        busy: call.isPending,
+        strings,
+        onRefresh: () => runCall({
+          path: `${basePath(siteId)}/preview/refresh`,
+          init: { method: "POST" },
+          done: strings.previewRefreshed
+        })
+      }
+    ),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
         Metric,
@@ -983,32 +1093,39 @@ function SitesPage() {
   const strings = hooks.usePluginStrings("sites");
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
-    queryFn: () => runtime().api("/plugins/sites/api/sites")
+    queryFn: () => runtime().api("/plugins/sites/api/sites"),
+    // A picture being taken is the only reason this register looks again on its own. The interval is a
+    // function of the data, so the moment the last capture lands the polling stops by itself — a register
+    // nobody is publishing into costs nothing.
+    refetchInterval: (query2) => {
+      const data = query2.state.data;
+      return data && awaitingPreview([...data.mine, ...data.shared]) ? PREVIEW_POLL_MS : false;
+    }
   });
   const [section, setSection] = hooks.usePersistentState("elowen.sites.section", "mine", SECTIONS);
   const [visibility, setVisibility] = hooks.usePersistentState("elowen.sites.visibility", "all", isVisibilityFilter);
   const [status, setStatus] = hooks.usePersistentState("elowen.sites.status", "all", isStatusFilter);
-  const [query, setQuery] = (0, import_react4.useState)("");
-  const [selectedId, setSelectedId] = (0, import_react4.useState)(null);
-  const [detailBusy, setDetailBusy] = (0, import_react4.useState)(false);
-  const mine = (0, import_react4.useMemo)(() => list.data?.mine ?? [], [list.data]);
-  const shared = (0, import_react4.useMemo)(() => list.data?.shared ?? [], [list.data]);
-  const sectionSites = (0, import_react4.useMemo)(
+  const [query, setQuery] = (0, import_react5.useState)("");
+  const [selectedId, setSelectedId] = (0, import_react5.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react5.useState)(false);
+  const mine = (0, import_react5.useMemo)(() => list.data?.mine ?? [], [list.data]);
+  const shared = (0, import_react5.useMemo)(() => list.data?.shared ?? [], [list.data]);
+  const sectionSites = (0, import_react5.useMemo)(
     () => section === "mine" ? mine : shared,
     [section, mine, shared]
   );
-  const filtered = (0, import_react4.useMemo)(() => {
+  const filtered = (0, import_react5.useMemo)(() => {
     const needle = query.trim().toLowerCase();
     return sectionSites.filter((site) => visibility === "all" || site.visibility === visibility).filter((site) => status === "all" || displayStatus(site) === status).filter((site) => matches(site, needle));
   }, [sectionSites, visibility, status, query]);
-  const selected = (0, import_react4.useMemo)(
+  const selected = (0, import_react5.useMemo)(
     () => [...mine, ...shared].find((site) => site.id === selectedId) ?? null,
     [mine, shared, selectedId]
   );
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (selectedId !== null && list.data && selected === null) setSelectedId(null);
   }, [selectedId, list.data, selected]);
-  const summary = (0, import_react4.useMemo)(() => {
+  const summary = (0, import_react5.useMemo)(() => {
     const all = [...mine, ...shared];
     return {
       total: all.length,
@@ -1117,17 +1234,17 @@ function SitesPage() {
 }
 
 // plugins/sites/web-src/EnterPage.tsx
-var import_react5 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 function EnterPage() {
   const { components, hooks } = runtime();
   const { WorkspacePage, PluginPageHeader, LoadingState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [phase, setPhase] = (0, import_react5.useState)("working");
-  const formRef = (0, import_react5.useRef)(null);
-  const [handoff, setHandoff] = (0, import_react5.useState)(null);
-  const started = (0, import_react5.useRef)(false);
-  (0, import_react5.useEffect)(() => {
+  const [phase, setPhase] = (0, import_react6.useState)("working");
+  const formRef = (0, import_react6.useRef)(null);
+  const [handoff, setHandoff] = (0, import_react6.useState)(null);
+  const started = (0, import_react6.useRef)(false);
+  (0, import_react6.useEffect)(() => {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(window.location.search);
@@ -1146,7 +1263,7 @@ function EnterPage() {
       setHandoff({ action: ticket.action, token: ticket.token });
     }).catch(() => setPhase("denied"));
   }, []);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (handoff) formRef.current?.submit();
   }, [handoff]);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(WorkspacePage, { children: [
@@ -1164,19 +1281,19 @@ function EnterPage() {
 }
 
 // plugins/sites/web-src/SitesProjectPanel.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function SitesProjectPanel({ project }) {
   const { components, hooks } = runtime();
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [selectedId, setSelectedId] = (0, import_react6.useState)(null);
-  const [detailBusy, setDetailBusy] = (0, import_react6.useState)(false);
+  const [selectedId, setSelectedId] = (0, import_react7.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react7.useState)(false);
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api("/plugins/sites/api/sites")
   });
-  const sites = (0, import_react6.useMemo)(
+  const sites = (0, import_react7.useMemo)(
     () => [...list.data?.mine ?? [], ...list.data?.shared ?? []].filter((site) => site.projectId === project.id),
     [list.data, project.id]
   );

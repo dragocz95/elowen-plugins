@@ -1,15 +1,80 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Boxes, Clock, Copy, ExternalLink, History, Link2, RotateCcw,
+  Activity, Boxes, Clock, Copy, ExternalLink, History, Image as ImageIcon, Link2, RefreshCw, RotateCcw,
   Server, ShieldCheck, Trash2, UserMinus, Users,
 } from 'lucide-react';
 import {
-  runtime, avatarUser, formatBytes, jsonBody, relativeTime, siteDetailKey, SITES_LIST_KEY,
-  type DirectoryResponse, type SiteDetailResponse, type Visibility,
+  PREVIEW_POLL_MS, runtime, avatarUser, formatBytes, jsonBody, previewImageUrl, relativeTime, siteDetailKey, SITES_LIST_KEY,
+  type DirectoryResponse, type SiteDetailResponse, type SiteView, type Visibility,
 } from './runtime.js';
 import { displayStatus, STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
+
+/** The picture of the published page, with the one control that takes a new one.
+ *
+ *  It belongs next to the address because it is the page: the drawer already says what the address is and
+ *  who may open it, and this is what they will see. The refresh control is the manager's, and the server
+ *  rate-limits it, so a second press inside the window comes back as the refusal it is rather than as a
+ *  second browser. Nothing here is fetched by the drawer itself: the picture has its own endpoint and its
+ *  own version, so a new one arrives as a new address rather than as a stale cache entry. */
+function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
+  site: SiteView;
+  notice: string | null;
+  busy: boolean;
+  onRefresh(): void;
+  strings: Record<string, string>;
+}) {
+  const { components } = runtime();
+  const { Badge, Button, DetailBlock } = components;
+  const preview = site.preview;
+  const [refusedVersion, setRefusedVersion] = useState<number | null>(null);
+  const picture = preview.version > 0 && refusedVersion !== preview.version;
+  const taken = preview.capturedAt ? strings.previewCapturedAt.replace('{time}', relativeTime(preview.capturedAt)) : null;
+
+  return (
+    <DetailBlock icon={ImageIcon} title={strings.previewTitle} hint={strings.previewHint}>
+      <div className="relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40">
+        {picture ? (
+            <img
+            key={preview.version}
+            src={previewImageUrl(site.id, preview.version)}
+            alt=""
+            aria-hidden
+            data-site-picture={site.id}
+            onError={() => setRefusedVersion(preview.version)}
+            className="absolute inset-0 h-full w-full object-cover object-top"
+          />
+        ) : (
+          <span
+            className={`absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-muted-foreground ${preview.state === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+          >
+            {preview.state === 'pending' ? strings.previewPending : strings.previewNone}
+          </span>
+        )}
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        {/* What the picture IS, and how current it is. Both facts, said once, next to the thing they
+            describe — the card repeats only the caveat, because a card has no room for the rest. */}
+        {taken ? <span className="min-w-0 truncate text-[11px] text-muted-foreground">{taken}</span> : null}
+        {preview.state === 'stale' ? <Badge tone="warning">{strings.previewStale}</Badge> : null}
+        {preview.state === 'failed' ? <Badge tone="danger">{strings.previewFailed}</Badge> : null}
+        <span className="flex-1" />
+        {site.canManage ? (
+          <Button
+            variant="ghost"
+            icon={RefreshCw}
+            disabled={busy || preview.state === 'pending'}
+            onClick={onRefresh}
+          >
+            {strings.previewRefresh}
+          </Button>
+        ) : null}
+      </div>
+      {notice ? <p className="text-[11px] leading-tight text-muted-foreground">{notice}</p> : null}
+    </DetailBlock>
+  );
+}
 
 /** Everything about one site, as a single scrolling document inside the workspace drawer.
  *
@@ -45,6 +110,10 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   const detail = hooks.useQuery<SiteDetailResponse>({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId)),
+    // A capture is the only reason this drawer has to look again on its own, and only while one is running:
+    // a register nothing is happening in asks for nothing.
+    refetchInterval: (query: { state: { data?: SiteDetailResponse } }) =>
+      query.state.data?.site.preview.state === 'pending' ? PREVIEW_POLL_MS : false,
   });
   const detailRefetch = useRef(detail.refetch);
   detailRefetch.current = detail.refetch;
@@ -198,6 +267,18 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       <DetailBlock icon={Link2} title={strings.address}>
         <code className="break-all font-mono text-xs text-foreground">{site.url}</code>
       </DetailBlock>
+
+      <PreviewBlock
+        site={site}
+        notice={detail.data?.previewNotice ?? null}
+        busy={call.isPending}
+        strings={strings}
+        onRefresh={() => runCall({
+          path: `${basePath(siteId)}/preview/refresh`,
+          init: { method: 'POST' },
+          done: strings.previewRefreshed,
+        })}
+      />
 
       <div className="grid grid-cols-3 divide-x divide-border/70 border-y border-border/70">
         <Metric

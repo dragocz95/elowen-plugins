@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Globe, Layers, Search, Users } from 'lucide-react';
 import {
-  runtime, SITES_LIST_KEY,
+  PREVIEW_POLL_MS, awaitingPreview, runtime, SITES_LIST_KEY,
   type SiteView, type SitesListResponse,
 } from './runtime.js';
 import {
@@ -93,6 +93,13 @@ export function SitesPage() {
   const list = hooks.useQuery<SitesListResponse>({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api('/plugins/sites/api/sites'),
+    // A picture being taken is the only reason this register looks again on its own. The interval is a
+    // function of the data, so the moment the last capture lands the polling stops by itself — a register
+    // nobody is publishing into costs nothing.
+    refetchInterval: (query: { state: { data?: SitesListResponse } }) => {
+      const data = query.state.data;
+      return data && awaitingPreview([...data.mine, ...data.shared]) ? PREVIEW_POLL_MS : false;
+    },
   });
 
   const [section, setSection] = hooks.usePersistentState<Section>('elowen.sites.section', 'mine', SECTIONS);

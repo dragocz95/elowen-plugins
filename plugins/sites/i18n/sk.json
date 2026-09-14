@@ -1,5 +1,5 @@
 {
-  "description": "Zverejňujte nemenné statické verzie alebo aplikáciu, ktorá už beží vo výslovne vybranom spravovanom projekte. Každá adresa má vlastné pravidlá viditeľnosti.",
+  "description": "Zverejnite adresu pre aplikáciu bežiacu vo výslovne vybranom spravovanom projekte a majte snímku každej zverejnenej stránky. Každá adresa má vlastné pravidlá viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
@@ -85,6 +85,15 @@
       "columnOwner": "Vlastník",
       "project": "Projekt",
       "noAddress": "Zatiaľ bez adresy",
+      "previewTitle": "Náhľad stránky",
+      "previewHint": "Snímka stránky vytvorená cez jej vlastnú adresu. Inštancia ju obnoví, keď zastará.",
+      "previewPending": "Sníma sa stránka…",
+      "previewNone": "Zatiaľ žiadna snímka tejto stránky.",
+      "previewStale": "Zastaraná",
+      "previewFailed": "Posledná snímka sa nepodarila",
+      "previewCapturedAt": "Snímka {time}",
+      "previewRefresh": "Vytvoriť novú snímku",
+      "previewRefreshed": "Snímka zaradená",
       "openDetail": "Otvoriť stránku {title}",
       "openDetailShort": "Detail",
       "stateHintDegraded": "Zverejnené, ale aplikácia za adresou neodpovedá.",

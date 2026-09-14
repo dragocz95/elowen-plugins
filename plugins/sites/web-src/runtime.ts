@@ -9,6 +9,20 @@ export type SiteStatus = 'draft' | 'live' | 'failed';
  *  the drawer renders it from a different set of facts than a static one. */
 export type PublicationKind = 'static' | 'proxy';
 
+/** Whether a stored picture of the page exists, and whether it is still worth showing as current.
+ *
+ *  `stale` and `failed` both keep the picture: what is out of date is the information about the page, not
+ *  the picture of it. A register that dropped to a monogram every time a capture failed would be a register
+ *  that flickers, and the monogram is reserved for having no picture at all. */
+interface PreviewView {
+  state: 'none' | 'pending' | 'ready' | 'stale' | 'failed';
+  /** Cache key of the stored picture; 0 when there is none. */
+  version: number;
+  capturedAt: string | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface SiteView {
   id: string;
   slug: string;
@@ -36,6 +50,8 @@ export interface SiteView {
   /** The forwarder port inside the Project environment for a proxy row ('3000'), empty for a static one:
    *  a static publication is served from its own files, so it has no target to reach. */
   target: string;
+  /** The picture of the published page, as far as it is known without fetching it. */
+  preview: PreviewView;
   canManage: boolean;
 }
 
@@ -75,6 +91,8 @@ export interface SiteDetailResponse {
   sourceDir: string | null;
   /** The stored failure behind a degraded or failed publication, disclosed only to a manager. */
   lastError: string | null;
+  /** Why there is no picture of the page, or why the last one could not be taken: a manager's detail. */
+  previewNotice: string | null;
 }
 
 export interface DirectoryResponse {
@@ -327,6 +345,24 @@ export const siteDetailKey = (siteId: string): unknown[] => ['sites', 'detail', 
 /** The Avatar takes exactly this shape already, so this is an identity — kept as a named function so
  *  every call site goes through one place if the host contract ever widens. */
 export const avatarUser = (person: Person): Person => person;
+
+/** Where a Site's stored picture is fetched from.
+ *
+ *  The version is part of the address on purpose: the endpoint may then be cached for as long as a browser
+ *  likes, because a new picture always arrives under a new version and no card ever has to be revalidated.
+ *  The path is the app's own same-origin prefix, which is what a plain `<img>` can reach with the session
+ *  the browser already holds. */
+export const previewImageUrl = (siteId: string, version: number): string =>
+  `/api/plugins/sites/api/site/${encodeURIComponent(siteId)}/preview?v=${version}`;
+
+/** How long a register waits before looking again while a picture is being taken. Long enough that a
+ *  capture has a chance to land, short enough that nobody watches a monogram for no reason. */
+export const PREVIEW_POLL_MS = 4000;
+
+/** Whether anything on this register is waiting for a picture, which is the only reason to look again
+ *  without being asked. A register nothing is happening in polls nothing. */
+export const awaitingPreview = (sites: readonly SiteView[]): boolean =>
+  sites.some((site) => site.preview.state === 'pending');
 
 /** Relative time in the shape the register uses: short, and never a bare timestamp nobody reads. */
 export function relativeTime(iso: string | null): string {

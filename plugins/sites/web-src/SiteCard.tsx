@@ -1,42 +1,82 @@
-import { ArrowUpRight, Copy, ExternalLink, FolderGit2 } from 'lucide-react';
-import { runtime, avatarUser, relativeTime, type SiteView } from './runtime.js';
+import { useState } from 'react';
+import { AlertTriangle, ArrowUpRight, Clock, Copy, ExternalLink, FolderGit2 } from 'lucide-react';
+import { runtime, avatarUser, previewImageUrl, relativeTime, type SiteView } from './runtime.js';
 import {
   displayStatus, monogram, siteAddress, KIND_ICON, KIND_STRING,
   STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_STRING, VISIBILITY_TONE,
 } from './meta.js';
 
-/** The plate that carries the card's identity.
+/** The plate that carries the card's identity: a picture of the published page, with the address along its
+ *  foot.
  *
- *  This band is reserved for a cached picture of the published page, which this instance cannot take: no
- *  maintained screenshot seam is offered to a plugin, and the plate deliberately does NOT imitate one.
- *  What it shows instead is true and is the fact a reader scans a register of published pages for — the
- *  address — over a monogram taken from the site's own title, so a grid of cards is distinguishable at a
- *  glance rather than a column of identical rectangles.
+ *  The picture is the site's own, taken by the instance through the site's published hostname and stored
+ *  once per site. It is decoration with an origin — the title is the card's heading and the address is the
+ *  fact a reader scans for — so it is announced to nobody. The monogram is what a card shows when there is
+ *  no picture, either because none has been taken, because the capture failed before one existed, or
+ *  because the browser refused the bytes: those are all the same thing to this band, and none of them is a
+ *  reason to leave a rectangle blank.
  *
- *  The address strip sits on the card's own ground with a border above it, so it stays legible under every
- *  skin without a scrim: nothing behind it is an image whose brightness could be anything. */
+ *  A picture that is merely OUT OF DATE keeps its place and says so in a chip. Dropping back to a monogram
+ *  on every failed refresh would make a register flicker over a page that is still perfectly well
+ *  described by the picture already on screen. */
 function SitePlate({ site, strings }: { site: SiteView; strings: Record<string, string> }) {
   const KindIcon = KIND_ICON[site.kind];
   const state = displayStatus(site);
+  const preview = site.preview;
+  // Which version the browser refused, remembered per version: a picture that failed to load once is not
+  // retried on every render, and a NEW picture is given its own chance.
+  const [refusedVersion, setRefusedVersion] = useState<number | null>(null);
+  const picture = preview.version > 0 && refusedVersion !== preview.version;
   const frame = state === 'failed' ? 'border-destructive/40'
     : state === 'degraded' ? 'border-warning/40'
       : 'border-border/60';
   return (
     <div
       data-site-plate={state}
+      data-site-preview={preview.state}
       className={`relative aspect-[16/6] w-full shrink-0 overflow-hidden rounded-lg border bg-muted/40 ${frame}`}
     >
-      {/* The monogram is the site's own initial, not an icon standing in for a picture. It is decoration
-          with an origin, so it never announces itself: the title is already the card's heading. The
-          bottom padding is the address strip's height, so the letter is centred in what is left rather
-          than in a box a strip covers a third of. */}
-      <span
-        aria-hidden
-        className="absolute inset-0 flex select-none items-center justify-center pb-7 text-[2.75rem] font-semibold leading-none tracking-tight text-foreground/[0.09]"
-      >
-        {monogram(site.title)}
-      </span>
-      <span className="absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-1.5 border-t border-border/60 bg-card/85 px-2.5 py-1.5">
+      {picture ? (
+        <img
+          key={preview.version}
+          src={previewImageUrl(site.id, preview.version)}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          data-site-picture={site.id}
+          onError={() => setRefusedVersion(preview.version)}
+          className="absolute inset-0 h-full w-full object-cover object-top"
+        />
+      ) : (
+        <>
+          {/* The monogram is the site's own initial, not an icon standing in for a picture. The bottom
+              padding is the address strip's height, so the letter is centred in what is left rather than in
+              a box a strip covers a third of. While a first picture is being taken it breathes, which is the
+              whole of what this band has to say about a capture in progress. */}
+          <span
+            aria-hidden
+            className={`absolute inset-0 flex select-none items-center justify-center pb-7 text-[2.75rem] font-semibold leading-none tracking-tight text-foreground/[0.09] ${preview.state === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+          >
+            {monogram(site.title)}
+          </span>
+        </>
+      )}
+      {/* The one caveat a picture can carry. Stated once, quietly, and only over a picture: with none, the
+          card's state badge and hint already say what is wrong with the site itself. */}
+      {picture && preview.state !== 'ready' ? (
+        <span
+          data-site-picture-state={preview.state}
+          title={preview.capturedAt
+            ? strings.previewCapturedAt.replace('{time}', relativeTime(preview.capturedAt))
+            : undefined}
+          className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border bg-card/90 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur-sm ${preview.state === 'failed' ? 'border-destructive/40 text-destructive' : 'border-warning/40 text-warning'}`}
+        >
+          {preview.state === 'failed' ? <AlertTriangle size={9} aria-hidden /> : <Clock size={9} aria-hidden />}
+          {preview.state === 'failed' ? strings.previewFailed : strings.previewStale}
+        </span>
+      ) : null}
+      <span className="absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-1.5 border-t border-border/60 bg-card/85 px-2.5 py-1.5 backdrop-blur-sm">
         <KindIcon size={11} aria-hidden className="shrink-0 text-muted-foreground" />
         {site.url === null ? (
           // A draft has no address yet, and the slug it would get is not one. Saying so is the whole
