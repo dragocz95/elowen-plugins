@@ -69,4 +69,66 @@ describe('OneDrive managed Project transport', () => {
     }));
     expect(store.linkById(link.id)?.status).toBe('idle');
   });
+
+  it('pipes the managed launch request into Git before waiting for its result', async () => {
+    const release = vi.fn();
+    const sandbox = {
+      prepareExecution: vi.fn(async () => ({
+        mode: 'managed',
+        projectRef: { kind: 'managed', projectId: 41 },
+        cwd: process.cwd(),
+        launch: {
+          type: 'argv' as const,
+          file: process.execPath,
+          args: ['-e', `
+            let input = '';
+            const deadline = setTimeout(() => { process.stderr.write('missing stdin'); process.exit(9); }, 100);
+            process.stdin.setEncoding('utf8');
+            process.stdin.on('data', chunk => { input += chunk; });
+            process.stdin.on('end', () => { clearTimeout(deadline); process.stdout.write(input); });
+          `],
+          env: process.env,
+        },
+        stdin: 'framed managed request',
+        cancel: vi.fn(),
+        lease: { release, heartbeat: vi.fn() },
+        sanitizeOutput: (text: string) => text,
+      })),
+    } as never;
+    const transport = new ManagedMirror(sandbox, { kind: 'managed', projectId: 41 }, 7,
+      { root: '/demo', generation: 9, state: 'running', workspaceId: null });
+
+    await expect(transport.git(['status'])).resolves.toEqual({
+      stdout: 'framed managed request', stderr: '', code: 0,
+    });
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('cancels and releases a prepared Git command that does not settle', async () => {
+    const cancel = vi.fn(async () => {});
+    const release = vi.fn();
+    const sandbox = {
+      prepareExecution: vi.fn(async () => ({
+        mode: 'managed',
+        projectRef: { kind: 'managed', projectId: 41 },
+        cwd: process.cwd(),
+        launch: {
+          type: 'argv' as const,
+          file: process.execPath,
+          args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+          env: process.env,
+        },
+        stdin: 'framed managed request',
+        cancel,
+        lease: { release, heartbeat: vi.fn() },
+        sanitizeOutput: (text: string) => text,
+      })),
+    } as never;
+    const transport = new ManagedMirror(sandbox, { kind: 'managed', projectId: 41 }, 7,
+      { root: '/demo', generation: 9, state: 'running', workspaceId: null }, '', null, 25);
+
+    await expect(transport.git(['status'])).resolves.toMatchObject({ code: 1, stderr: 'Managed Git command timed out' });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
 });

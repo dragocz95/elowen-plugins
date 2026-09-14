@@ -408,6 +408,7 @@ describe('onedrive review round five', () => {
     expect(peak).toBe(1);
     expect(store.linkById(link.id)?.status).toBe('idle');
     expect(store.linkById(narrowed.id)?.status).toBe('idle');
+    expect((engine as unknown as { rootLocks: Map<string, unknown> }).rootLocks.size).toBe(0);
   });
 
   it('queues a deletion confirmation instead of joining the cycle that refused it', async () => {

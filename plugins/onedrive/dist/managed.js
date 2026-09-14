@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
-const execFileP = promisify(execFile);
 const MANAGED_CHUNK_BYTES = 512 * 1024;
+const MANAGED_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+const MANAGED_GIT_TIMEOUT_MS = 120_000;
+const MANAGED_LEASE_HEARTBEAT_MS = 10_000;
 export class ManagedMirror {
     sandbox;
     project;
@@ -11,16 +12,18 @@ export class ManagedMirror {
     rootInfo;
     subpath;
     workspaceId;
+    gitTimeoutMs;
     kind = 'managed';
     lockKey;
     get root() { return this.rootInfo.root; }
-    constructor(sandbox, project, accountUserId, rootInfo, subpath = '', workspaceId = null) {
+    constructor(sandbox, project, accountUserId, rootInfo, subpath = '', workspaceId = null, gitTimeoutMs = MANAGED_GIT_TIMEOUT_MS) {
         this.sandbox = sandbox;
         this.project = project;
         this.accountUserId = accountUserId;
         this.rootInfo = rootInfo;
         this.subpath = subpath;
         this.workspaceId = workspaceId;
+        this.gitTimeoutMs = gitTimeoutMs;
         this.lockKey = `managed:${project.projectId}:${workspaceId ?? 'project'}`;
     }
     path(rel) {
@@ -146,18 +149,72 @@ export class ManagedMirror {
     }
     async git(args) {
         const prepared = await this.sandbox.prepareExecution({ command: { type: 'argv', file: '/usr/bin/git', args: [...args] }, cwd: this.path(''), leaseKind: 'files', projectRef: this.project }, { accountUserId: this.accountUserId, roots: [this.rootInfo.root] });
+        if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== this.project.projectId
+            || typeof prepared.cancel !== 'function') {
+            await prepared.lease.release();
+            throw new Error('Managed Git execution returned a different Project or an incomplete launch');
+        }
+        let heartbeat;
+        let timer;
         try {
-            const launch = prepared.launch;
-            const result = launch.type === 'argv'
-                ? await execFileP(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, maxBuffer: 64 * 1024 * 1024 })
-                : await execFileP('/bin/sh', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, maxBuffer: 64 * 1024 * 1024 });
-            return { stdout: String(result.stdout), stderr: String(result.stderr), code: 0 };
+            const result = await new Promise((resolve, reject) => {
+                const launch = prepared.launch;
+                const child = launch.type === 'argv'
+                    ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
+                    : spawn('/bin/sh', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
+                const stdout = [];
+                const stderr = [];
+                let bytes = 0;
+                let failure;
+                let cancelling;
+                const stop = (error) => {
+                    failure ??= error;
+                    cancelling ??= prepared.cancel().catch((cancelError) => {
+                        failure = new AggregateError([failure, cancelError], 'Managed Git cancellation failed');
+                    }).then(() => { child.kill('SIGKILL'); });
+                };
+                const collect = (chunk, target) => {
+                    bytes += chunk.length;
+                    if (bytes > MANAGED_GIT_OUTPUT_BYTES)
+                        stop(new Error('Managed Git output exceeded its bound'));
+                    else
+                        target.push(chunk);
+                };
+                timer = setTimeout(() => stop(new Error('Managed Git command timed out')), this.gitTimeoutMs);
+                timer.unref?.();
+                heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, MANAGED_LEASE_HEARTBEAT_MS);
+                heartbeat.unref?.();
+                child.stdout.on('data', (chunk) => collect(chunk, stdout));
+                child.stderr.on('data', (chunk) => collect(chunk, stderr));
+                child.once('error', stop);
+                child.stdin.on('error', stop);
+                child.once('close', (code) => {
+                    void Promise.resolve(cancelling).then(() => {
+                        const output = {
+                            stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
+                            stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')),
+                            code: typeof code === 'number' ? code : 1,
+                        };
+                        if (!failure)
+                            resolve(output);
+                        else
+                            reject(Object.assign(failure instanceof Error ? failure : new Error(String(failure)), output));
+                    }, reject);
+                });
+                // Managed nspawn launches carry the privileged framed request on stdin. Omitting it leaves the
+                // helper waiting forever before Git is ever started, while the mirror remains joined to that run.
+                child.stdin.end(prepared.stdin);
+            });
+            return result;
         }
         catch (error) {
             const value = error;
-            return { stdout: String(value.stdout ?? ''), stderr: String(value.stderr ?? ''), code: typeof value.code === 'number' ? value.code : 1 };
+            const stderr = String(value.stderr ?? '');
+            return { stdout: String(value.stdout ?? ''), stderr: stderr || String(value.message ?? ''), code: typeof value.code === 'number' ? value.code : 1 };
         }
         finally {
+            clearTimeout(timer);
+            clearInterval(heartbeat);
             await prepared.lease.release();
         }
     }
