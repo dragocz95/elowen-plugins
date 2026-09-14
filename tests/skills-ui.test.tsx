@@ -39,13 +39,23 @@ setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'skills', url: '/plugins/skills/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
   // The register labels the owner column against the signed-in account, so the page reads /auth/me.
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 7, username: 'filip', is_admin: true } })),
+  http.get('/api/plugins/skills/accounts', () => HttpResponse.json([{ id: 7, username: 'filip', name: 'Filip' }, { id: 9, username: 'patricie', name: 'Patricie' }])),
 );
 beforeAll(() => listen()); afterEach(() => { cleanup(); resetHandlers(); }); afterAll(() => close());
 
 const skillRow = (name: string, disableModelInvocation: boolean, owner: number | null = null, canDelete = true) =>
-  ({ name, description: `${name} desc`, source: 'user', owner, canDelete, disableModelInvocation, version: null, content: `Body ${name}.` });
+  ({
+    name, description: `${name} desc`, source: 'user', catalogSource: owner === null ? 'instance' : 'personal',
+    contributorPlugin: 'skills', pluginKey: null, owner, canDelete, disableModelInvocation,
+    enabledForAccount: true, effective: true, unavailableReason: null, version: null, content: `Body ${name}.`,
+  });
+const pluginRow = (name: string, contributorPlugin: string, enabledForAccount = true, effective = true, unavailableReason: string | null = null) => ({
+  name, description: `${name} desc`, source: `plugin:${contributorPlugin}`, catalogSource: 'plugin', contributorPlugin,
+  pluginKey: `v1:${contributorPlugin}:${name}`, owner: null, canDelete: false, disableModelInvocation: false,
+  enabledForAccount, effective, unavailableReason, version: null,
+});
 const list = [skillRow('alpha', false), skillRow('beta', false)];
-const toggles = () => screen.getAllByRole('switch', { name: strings.disableModelInvocation });
+const toggles = () => screen.getAllByRole('switch', { name: new RegExp(`^${strings.disableModelInvocation}:`) });
 
 const mount = (surface: 'page' | 'deck' = 'deck') => {
   const { wrapper: Wrapper, client } = createWrapper();
@@ -112,6 +122,88 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     await waitFor(() => expect(alpha).toBeChecked()); // rolled back on error
   });
 
+  it('lets Filip select Patricie and toggle only Patricie plugin contribution', async () => {
+    let write: unknown;
+    use(
+      http.get('/api/plugins/skills/list', ({ request }) => {
+        const account = new URL(request.url).searchParams.get('account');
+        return HttpResponse.json([pluginRow('salon-operations', 'sarah-hair', account !== '9', account !== '9', account === '9' ? 'disabled-for-account' : null)]);
+      }),
+      http.patch('/api/plugins/skills/plugin-availability', async ({ request }) => {
+        write = await request.json();
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    mount('page');
+
+    expect(await screen.findByText('salon-operations')).toBeInTheDocument();
+    fireEvent.change(await screen.findByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
+    await waitFor(() => expect(screen.getByText(strings.statusDisabled)).toBeInTheDocument());
+    const toggle = screen.getByRole('switch', { name: `${strings.pluginAvailability}: salon-operations` });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(write).toEqual({ userId: 9, key: 'v1:sarah-hair:salon-operations', enabled: true }));
+  });
+
+  it('keeps a late Filip response from replacing Patricie after an account switch', async () => {
+    let releaseFilip!: () => void;
+    const filipPending = new Promise<void>((resolve) => { releaseFilip = resolve; });
+    use(http.get('/api/plugins/skills/list', async ({ request }) => {
+      const account = new URL(request.url).searchParams.get('account');
+      if (account === '7') {
+        await filipPending;
+        return HttpResponse.json([pluginRow('filip-only', 'filip-plugin')]);
+      }
+      return HttpResponse.json([pluginRow('patricie-only', 'patricie-plugin')]);
+    }));
+    mount('page');
+
+    fireEvent.change(await screen.findByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
+    expect(await screen.findByText('patricie-only')).toBeInTheDocument();
+    await act(async () => { releaseFilip(); await filipPending; });
+    await waitFor(() => expect(screen.queryByText('filip-only')).toBeNull());
+    expect(screen.getByText('patricie-only')).toBeInTheDocument();
+  });
+
+  it('does not let a completed Filip write invalidate Patricie loading', async () => {
+    let releaseWrite!: () => void;
+    let releasePatricie!: () => void;
+    const writePending = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    const patriciePending = new Promise<void>((resolve) => { releasePatricie = resolve; });
+    use(
+      http.get('/api/plugins/skills/list', async ({ request }) => {
+        const account = new URL(request.url).searchParams.get('account');
+        if (account === '9') await patriciePending;
+        return HttpResponse.json([pluginRow(account === '9' ? 'patricie-only' : 'filip-only', 'salon')]);
+      }),
+      http.patch('/api/plugins/skills/plugin-availability', async () => {
+        await writePending;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    mount('page');
+
+    const filipToggle = await screen.findByRole('switch', { name: `${strings.pluginAvailability}: filip-only` });
+    fireEvent.click(filipToggle);
+    fireEvent.change(screen.getByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
+    await act(async () => { releaseWrite(); await writePending; });
+    await act(async () => { releasePatricie(); await patriciePending; });
+    expect(await screen.findByText('patricie-only')).toBeInTheDocument();
+  });
+
+  it('shows Patricie the effective read-only plugin catalog without admin controls', async () => {
+    use(
+      http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 9, username: 'patricie', is_admin: false } })),
+      http.get('/api/plugins/skills/list', () => HttpResponse.json([pluginRow('salon-operations', 'sarah-hair')])),
+    );
+    mount('page');
+
+    await screen.findByText('salon-operations');
+    expect(screen.queryByRole('combobox', { name: strings.accountLabel })).toBeNull();
+    expect(screen.queryByRole('switch', { name: `${strings.pluginAvailability}: salon-operations` })).toBeNull();
+    expect(screen.getAllByText(strings.statusEffective).length).toBeGreaterThan(0);
+  });
+
   it('creates a skill through the editor form (list → add → save)', async () => {
     let created: unknown;
     let createdOwner: string | null = null;
@@ -155,7 +247,7 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     await waitFor(() => expect(screen.getAllByText('alpha')).toHaveLength(2));
     expect(screen.getAllByText(strings.ownerInstance).length).toBeGreaterThan(0);
     expect(screen.getAllByText(strings.ownerMine).length).toBeGreaterThan(0);
-    expect(screen.getByText('#9')).toBeInTheDocument();
+    expect(screen.getAllByText('Patricie').length).toBeGreaterThan(0);
 
     // Opening MY alpha must select exactly one row, not both.
     fireEvent.click(screen.getByRole('radio', { name: strings.scopeMine }));

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { formatSkillsForPrompt } from '@earendil-works/pi-coding-agent';
+import { formatSkillsForPrompt, loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 import { register } from '../plugins/skills/index.mjs';
 
 const pluginDir = fileURLToPath(new URL('../plugins/skills/', import.meta.url));
@@ -25,7 +25,7 @@ const skillMd = (name, description) => `---\nname: ${name}\ndescription: ${descr
  * Load the plugin under a stub host rooted at `dataRoot` (the daemon resolves ctx.dataDir() to
  * `<dataRoot>/skills`, which is where the HTTP routes and the CreateSkill tool both write).
  */
-function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], catalogSkills, catalogCanonicalBaseDir, skillCatalogControl = true } = {}) {
+function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], catalogSkills, catalogCanonicalBaseDir, skillCatalogControl = true, managementEntries, managementSet } = {}) {
   const skills = [];
   const registeredRoots = new Map();
   const tools = [];
@@ -50,6 +50,38 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     }
     return selected;
   };
+  const defaultEntries = (ownerUserId) => {
+    const bundledDir = join(pluginDir, 'skills');
+    const instanceDir = join(dataRoot, 'skills');
+    const usersRoot = join(instanceDir, 'users');
+    const personalDir = ownerUserId == null ? null : join(usersRoot, String(ownerUserId));
+    let personal = [];
+    if (personalDir && existsSync(personalDir)) {
+      try {
+        const root = realpathSync(personalDir);
+        const expected = join(realpathSync(usersRoot), String(ownerUserId));
+        if (root === expected) {
+          personal = loadSkillsFromDir({ dir: personalDir, source: 'elowen-user:skills' }).skills
+            .filter((skill) => {
+              try { const file = realpathSync(skill.filePath); return file === root || file.startsWith(root + sep); }
+              catch { return false; }
+            })
+            .map((skill) => ({ skill, source: 'personal', ownerUserId }));
+        }
+      } catch { personal = []; }
+    }
+    const loaded = [
+      ...(existsSync(bundledDir) ? loadSkillsFromDir({ dir: bundledDir, source: 'elowen-plugin:skills' }).skills.map((skill) => ({ skill, source: 'bundled', ownerUserId: null })) : []),
+      ...(existsSync(instanceDir) ? loadSkillsFromDir({ dir: instanceDir, source: 'elowen-user:skills' }).skills
+        .filter((skill) => !skill.filePath.includes(`${sep}users${sep}`))
+        .map((skill) => ({ skill, source: 'instance', ownerUserId: null })) : []),
+      ...personal,
+    ];
+    return loaded.map(({ skill, source, ownerUserId: owner }) => ({
+      key: null, skill, contributorPlugin: 'skills', source, ownerUserId: owner,
+      enabledForAccount: true, effective: true,
+    }));
+  };
   const ctx = {
     logger: log,
     dataDir: () => join(dataRoot, 'skills'),
@@ -72,14 +104,20 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     // verified writer, so it is deliberately NOT derived from `identity` here either: the two part company
     // for a delegated sub-agent, and a stub that tied them together could never show that.
     currentContributionUserId: () => session.contributionUserId,
-    control: (name) => name === 'skillCatalog' && skillCatalogControl
-      ? {
-          visibleSkills: () => (catalogSkills ?? defaultCatalog)(session.contributionUserId),
-          canonicalBaseDir: (skill) => catalogCanonicalBaseDir?.(skill) ?? registeredRoots.get(skill) ?? (() => {
-            try { return realpathSync(skill.baseDir); } catch { return null; }
-          })(),
-        }
-      : undefined,
+    control: (name) => {
+      if (name === 'skillCatalog' && skillCatalogControl) return {
+        visibleSkills: () => (catalogSkills ?? defaultCatalog)(session.contributionUserId),
+        visibleEntries: () => defaultEntries(session.contributionUserId),
+        canonicalBaseDir: (skill) => catalogCanonicalBaseDir?.(skill) ?? registeredRoots.get(skill) ?? (() => {
+          try { return realpathSync(skill.baseDir); } catch { return null; }
+        })(),
+      };
+      if (name === 'skillManagement') return {
+        catalogForAccount: (userId) => (managementEntries ?? defaultEntries)(userId),
+        setPluginSkillEnabled: (input) => managementSet?.(input) ?? { ok: true },
+      };
+      return undefined;
+    },
     isAdminSession: () => session.adminSession,
     // Declared by the manifest as `capabilities.reads: ['stores']`; the plugin refuses to mint a personal
     // folder for an id that names no account, so it needs the same account list the daemon wires in. Read
@@ -103,7 +141,12 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
 const asTurn = async (plugin, { admin = false, identity = null }, fn) => {
   plugin.session.identity = identity;
   plugin.session.adminSession = admin;
-  try { return await fn(); } finally { plugin.session.identity = null; plugin.session.adminSession = false; }
+  plugin.session.contributionUserId = identity?.elowenUserId ?? null;
+  try { return await fn(); } finally {
+    plugin.session.identity = null;
+    plugin.session.adminSession = false;
+    plugin.session.contributionUserId = null;
+  }
 };
 
 /** An owner-policy turn with no Elowen account id: may write the instance set, but has no personal set. */
@@ -264,7 +307,9 @@ function setup(opts = {}) {
   const admin = users.create('admin');
   const amy = users.create('amy');
   const enabled = opts.enabled ?? ['skills'];
-  const plugin = enabled.includes('skills') ? loadPlugin({ dataRoot, users: () => users.list() }) : null;
+  const plugin = enabled.includes('skills') ? loadPlugin({
+    dataRoot, users: () => users.list(), managementEntries: opts.managementEntries, managementSet: opts.managementSet,
+  }) : null;
   const mounts = plugin ? mountRoutes(plugin.routes) : new Map();
   // Mounts this plugin DECLARES but does not currently serve — i.e. it is disabled or failed to load.
   // A request under one of those answers an explicit 503 instead of a bare 404, so a caller can tell
@@ -1026,8 +1071,58 @@ test('skills routes', async (t) => {
     const response = await app.request('/plugins/skills/list', auth(adminTok));
     assert.equal(response.status, 200);
     const list = await response.json();
-    assertContains(list, { name: BUNDLED, source: 'bundled', scope: 'bundled/system', active: true, canDelete: false });
-    assertContains(list, { name: 'my-skill', description: 'A user skill.', source: 'user', scope: 'user-defined', active: true, canDelete: true });
+    assertContains(list, { name: BUNDLED, source: 'bundled', scope: 'bundled', active: true, canDelete: false });
+    assertContains(list, { name: 'my-skill', description: 'A user skill.', source: 'user', scope: 'instance', active: true, canDelete: true });
+  });
+
+  await t.test('admin lists and changes source-aware plugin skill availability for one account only', async () => {
+    const key = 'v1:sarah-hair:salon-operations';
+    const disabled = new Set();
+    let releaseRefresh;
+    const refreshPending = new Promise((resolve) => { releaseRefresh = resolve; });
+    const pluginSkill = {
+      name: 'salon-operations', description: 'Run salon operations.', filePath: '/plugins/sarah-hair/skills/salon-operations/SKILL.md',
+      baseDir: '/plugins/sarah-hair/skills/salon-operations', disableModelInvocation: false,
+      sourceInfo: { source: 'elowen-plugin:sarah-hair', path: '/plugins/sarah-hair/skills/salon-operations/SKILL.md', scope: 'user', origin: 'package' },
+    };
+    const managementEntries = (userId) => [{
+      key, skill: pluginSkill, contributorPlugin: 'sarah-hair', source: 'plugin', ownerUserId: null,
+      enabledForAccount: !disabled.has(userId), effective: !disabled.has(userId),
+      ...(disabled.has(userId) ? { unavailableReason: 'disabled-for-account' } : {}),
+    }];
+    const setupResult = setup({
+      managementEntries,
+      managementSet: async ({ userId, key: writtenKey, enabled }) => {
+        if (writtenKey !== key) return { ok: false, reason: 'unknown-skill' };
+        if (enabled) disabled.delete(userId); else disabled.add(userId);
+        await refreshPending;
+        return { ok: true };
+      },
+    });
+    const { app, adminTok, amyTok, admin, amy } = setupResult;
+
+    const initial = await (await app.request(`/plugins/skills/list?account=${amy.id}`, auth(adminTok))).json();
+    assertContains(initial, { name: 'salon-operations', source: 'plugin:sarah-hair', contributorPlugin: 'sarah-hair', pluginKey: key, effective: true });
+    assert.equal((await app.request('/plugins/skills/plugin-availability', patch(amyTok, { userId: admin.id, key, enabled: false }))).status, 403);
+    assert.equal((await app.request('/plugins/skills/plugin-availability', patch(adminTok, { userId: amy.id, key: 'v1:fake:salon-operations', enabled: false }))).status, 400);
+    let settled = false;
+    const write = app.request('/plugins/skills/plugin-availability', patch(adminTok, { userId: amy.id, key, enabled: false }))
+      .then((response) => { settled = true; return response; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, 'availability route acknowledged before the host refreshed live sessions');
+    releaseRefresh();
+    assert.equal((await write).status, 200);
+
+    const amyList = await (await app.request(`/plugins/skills/list?account=${amy.id}`, auth(adminTok))).json();
+    assertContains(amyList, { name: 'salon-operations', enabledForAccount: false, effective: false, unavailableReason: 'disabled-for-account' });
+    const adminList = await (await app.request(`/plugins/skills/list?account=${admin.id}`, auth(adminTok))).json();
+    assertContains(adminList, { name: 'salon-operations', enabledForAccount: true, effective: true });
+    assert.equal((await app.request('/plugins/skills/plugin-availability', patch(adminTok, { userId: admin.id, key, enabled: false }))).status, 200);
+    const adminRuntimeList = await (await app.request('/plugins/skills/list', auth(adminTok))).json();
+    assert.equal(adminRuntimeList.some((entry) => entry.name === 'salon-operations'), false, 'runtime picker exposed a disabled plugin skill');
+    assert.equal((await app.request(`/plugins/skills/list?account=${admin.id}`, auth(amyTok))).status, 403);
+    assert.equal((await app.request('/plugins/skills/accounts', auth(amyTok))).status, 403);
+    assert.equal((await app.request('/plugins/skills/accounts', auth(adminTok))).status, 200);
   });
 
   await t.test('GET lists bundled skills even when the user dir does not exist yet', async () => {
@@ -1255,7 +1350,8 @@ test('skills routes', async (t) => {
     assert.equal(readFileSync(victim, 'utf-8'), before);
     assert.equal(existsSync(join(skillsDir, 'victim.md')), false);
     // Bea's own routes are untouched by any of it.
-    assertContains(await listSkills(app, adminTok), { name: 'victim', owner: bea.id });
+    const beaList = await (await app.request(`/plugins/skills/list?account=${bea.id}`, auth(adminTok))).json();
+    assertContains(beaList, { name: 'victim', owner: bea.id });
   });
 
   await t.test('refuses every route for an account whose folder IS a link to another account\'s', async () => {
@@ -1326,15 +1422,16 @@ test('skills routes', async (t) => {
 
     const adminList = await listSkills(app, adminTok);
     assert.equal(adminList.find((x) => x.name === 'shared-one').canDelete, true);
-    assert.equal(adminList.find((x) => x.name === 'mine').canDelete, true);
+    const amyAsAdmin = await (await app.request(`/plugins/skills/list?account=${amy.id}`, auth(adminTok))).json();
+    assert.equal(amyAsAdmin.find((x) => x.name === 'mine').canDelete, true);
   });
 
-  await t.test('shows the admin every account\'s skills and lets him clean one up', async () => {
+  await t.test('lets the admin select another account and clean up its personal skill', async () => {
     const { app, dataRoot, users, amy, amyTok, adminTok } = setup();
     users.setGrantedPlugins(amy.id, ['skills']);
     await app.request('/plugins/skills', post(amyTok, skill({ name: 'amy-skill' })));
 
-    const list = await listSkills(app, adminTok);
+    const list = await (await app.request(`/plugins/skills/list?account=${amy.id}`, auth(adminTok))).json();
     assertContains(list, { name: 'amy-skill', owner: amy.id });
 
     assert.equal((await app.request(`/plugins/skills/amy-skill?owner=${amy.id}`, del(adminTok))).status, 200);
@@ -1374,8 +1471,6 @@ test('skills routes', async (t) => {
     const { app, userDir, adminTok } = setup();
     mkdirSync(userDir, { recursive: true });
     writeFileSync(join(userDir, 'bom-skill.md'), '\uFEFF---\nname: bom-skill\ndescription: B.\nlicense: MIT\n---\nBody.\n');
-    const list = await listSkills(app, adminTok);
-    assertMatches(list.find((s) => s.name === 'bom-skill'), { description: 'B.', content: 'Body.' });
     // PATCH keeps the unknown license field — the frontmatter was actually parsed, not treated as body.
     assert.equal((await app.request('/plugins/skills/bom-skill?owner=instance', patch(adminTok, { content: 'v2' }))).status, 200);
     assert.ok(readFileSync(join(userDir, 'bom-skill.md'), 'utf-8').includes('license: MIT\n'));

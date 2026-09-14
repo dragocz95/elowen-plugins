@@ -19,6 +19,12 @@
 - Turning public sites off now closes the pages that are already public, instead of only removing the option from the settings form, and a method a file release refuses is answered after access rather than before it.
 - Retired file-publication size and retention settings, the public SPA router input and unused copy-path dependencies are removed. Existing file rows still serve, roll back and delete; proxy rows expose no source folder or release activation path.
 
+## skills 0.4.0 - 2026-09-14
+
+- Show the live effective skill catalog from every source in Skills, including plugin-contributed skills with contributor, scope, manual-only and availability status.
+- Let administrators select an account and disable or re-enable individual plugin skill contributions without changing plugin grants or another account's catalog.
+- Resolve `ListSkills` through the same live host catalog as the prompt and `SkillLoad`; plugin skill writes require Elowen core 0.28.46.
+
 ## sites 0.13.0 - 2026-09-14
 
 - The Sites register is a responsive grid of cards led by an address plate, three across on a wide desktop and one on a phone, and the standalone Publication column is withdrawn in favour of a single badge on the card.

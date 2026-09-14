@@ -15,7 +15,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 // Names that collide with the core per-plugin route family under /plugins/skills/* (PATCH
 // /plugins/:name/config would eat PATCH /plugins/skills/config, and the rest are reserved for URL
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
-const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users']);
+const RESERVED_NAMES = new Set(['config', 'icon', 'logs', 'contributions', 'hook-executions', 'data', 'restore', 'api', 'list', 'users', 'accounts', 'plugin-availability']);
 
 /** Split an argument string into tokens the way a shell would, honouring single and double quotes so a
  *  quoted phrase stays ONE argument. Nothing is expanded: `$FOO` and backticks travel through as literal
@@ -150,7 +150,8 @@ function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
   for (const [ownerUserId, owned] of personalSkills) personal.set(ownerUserId, indexVisible(owned, logger));
   const visibleCatalog = () => {
     const control = ctx.control?.('skillCatalog');
-    if (!control || typeof control.visibleSkills !== 'function' || typeof control.canonicalBaseDir !== 'function') {
+    if (!control || typeof control.visibleSkills !== 'function' || typeof control.visibleEntries !== 'function'
+      || typeof control.canonicalBaseDir !== 'function') {
       throw new SkillLoadError('The live skill catalog is unavailable, so SkillLoad cannot safely decide which skill belongs to this turn. Continue without it and tell the user.');
     }
     try {
@@ -424,16 +425,6 @@ export function register(ctx) {
     return clash === undefined ? null : `an account already has a personal skill named "${name}" — pick another name`;
   };
 
-  // Every skill file in a dir, from both layouts. A folder only counts when it carries a SKILL.md —
-  // support dirs (references/, scripts/) never appear as skills on their own.
-  const enumerateSkills = (dir) => {
-    const out = [];
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.md')) out.push({ name: entry.name.replace(/\.md$/, ''), file: join(dir, entry.name) });
-      else if (entry.isDirectory() && existsSync(join(dir, entry.name, 'SKILL.md'))) out.push({ name: entry.name, file: join(dir, entry.name, 'SKILL.md') });
-    }
-    return out;
-  };
   // Frontmatter as an object + trimmed body. Unknown fields (license, allowed-tools, compatibility,
   // metadata…) stay in the object so a write preserves them verbatim instead of dropping them.
   const splitSkillFile = (raw, file) => {
@@ -563,24 +554,53 @@ export function register(ctx) {
   const describeSkill = (name, file, source, owner, canWrite = true) => {
     const parsed = readSkillFile(file);
     return {
-      name,
-      description: parsed.description,
-      source,
-      scope: source === 'bundled' ? 'bundled/system' : 'user-defined',
-      // The account this skill belongs to; null for bundled and instance-wide skills. The catalog UI
-      // renders it as the owner column, and it is the value a write passes back as `?owner=`.
-      owner,
-      location: file,
-      active: true, // this plugin is serving the request, so it is enabled by definition
-      // Whether THIS caller may edit or delete it. The UI hides its controls on this, so it must carry the
-      // same rule the write routes enforce — offering a button that always 403s is worse than no button.
+      name, description: parsed.description, source,
+      catalogSource: source === 'bundled' ? 'bundled' : owner === null ? 'instance' : 'personal',
+      scope: source === 'bundled' ? 'bundled' : owner === null ? 'instance' : 'personal',
+      contributorPlugin: 'skills', pluginKey: null, owner,
+      location: source === 'bundled' ? 'elowen-plugin:skills' : 'elowen-user:skills',
+      active: true, effective: true, enabledForAccount: true, unavailableReason: null,
       canDelete: source === 'user' && canWrite,
       disableModelInvocation: parsed.disableModelInvocation,
       version: parsed.version,
       revision: skillRevision(parsed.front),
-      // Editable skills carry their body so the web editor can prefill an edit; bundled skills are
-      // read-only, so their (larger) content is left off the list payload.
       ...(source === 'user' ? { content: parsed.content } : {}),
+    };
+  };
+
+  const management = () => {
+    const control = ctx.control?.('skillManagement');
+    return control && typeof control.catalogForAccount === 'function' && typeof control.setPluginSkillEnabled === 'function'
+      ? control : null;
+  };
+
+  const describeCatalogEntry = (entry, req) => {
+    const localFile = entry.contributorPlugin === 'skills' && entry.source !== 'plugin';
+    const source = entry.source === 'bundled' ? 'bundled'
+      : entry.source === 'plugin' ? `plugin:${entry.contributorPlugin}` : 'user';
+    const parsed = localFile ? readSkillFile(entry.skill.filePath) : null;
+    const owner = entry.source === 'personal' ? entry.ownerUserId : null;
+    const canWrite = source === 'user' && (req.auth.admin || owner === req.auth.userId);
+    return {
+      name: entry.skill.name,
+      description: parsed?.description ?? entry.skill.description,
+      source,
+      catalogSource: entry.source,
+      scope: entry.source,
+      contributorPlugin: entry.contributorPlugin,
+      pluginKey: entry.key,
+      owner,
+      // Source metadata is useful provenance without disclosing an absolute host path.
+      location: entry.skill.sourceInfo?.source ?? `elowen-plugin:${entry.contributorPlugin}`,
+      active: entry.effective,
+      effective: entry.effective,
+      enabledForAccount: entry.enabledForAccount,
+      unavailableReason: entry.unavailableReason ?? null,
+      canDelete: canWrite,
+      disableModelInvocation: parsed?.disableModelInvocation ?? entry.skill.disableModelInvocation === true,
+      version: parsed?.version ?? null,
+      revision: parsed ? skillRevision(parsed.front) : undefined,
+      ...(canWrite && parsed ? { content: parsed.content } : {}),
     };
   };
 
@@ -588,28 +608,52 @@ export function register(ctx) {
     rootMount: '/plugins/skills/list', path: '', method: 'GET', access: 'user',
     handler: async (req) => {
       if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
-      const out = [];
-      for (const { name, file } of existsSync(bundledDir) ? enumerateSkills(bundledDir) : []) {
-        out.push(describeSkill(name, file, 'bundled', null));
+      if (req.auth.userId === null) return jsonRes({ error: 'forbidden' }, 403);
+      const managementView = typeof req.query?.account === 'string' && req.query.account.trim() !== '';
+      const requested = managementView ? Number(req.query.account) : req.auth.userId;
+      if (!Number.isSafeInteger(requested) || requested <= 0) return jsonRes({ error: 'invalid account' }, 400);
+      if (managementView && !req.auth.admin) return jsonRes({ error: 'forbidden' }, 403);
+      const control = management();
+      if (!control) return jsonRes({ error: 'skill management is unavailable; upgrade Elowen core' }, 503);
+      let entries;
+      try { entries = control.catalogForAccount(requested); }
+      catch (error) {
+        return jsonRes({ error: error instanceof Error && error.message === 'unknown user' ? 'unknown account' : 'forbidden' }, error instanceof Error && error.message === 'unknown user' ? 404 : 403);
       }
-      for (const { name, file } of existsSync(instanceDir) ? enumerateSkills(instanceDir) : []) {
-        if (isPersonalPath(file)) continue; // enumerated per account below
-        out.push(describeSkill(name, file, 'user', null, req.auth.admin));
+      const visible = managementView ? entries : entries.filter((entry) => entry.effective);
+      return jsonRes(visible.map((entry) => describeCatalogEntry(entry, req)));
+    },
+  });
+
+  ctx.registerApiRoute({
+    rootMount: '/plugins/skills/accounts', path: '', method: 'GET', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
+      return jsonRes(ctx.host.stores().usersRead.list().map((user) => ({ id: user.id, username: user.username, name: user.name })));
+    },
+  });
+
+  ctx.registerApiRoute({
+    rootMount: '/plugins/skills/plugin-availability', path: '', method: 'PATCH', access: 'admin',
+    handler: async (req) => {
+      if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
+      let body;
+      try { body = await req.json(); } catch { body = null; }
+      const userId = body?.userId;
+      const key = typeof body?.key === 'string' ? body.key : '';
+      const enabled = body?.enabled;
+      if (!Number.isSafeInteger(userId) || userId <= 0 || key === '' || typeof enabled !== 'boolean') {
+        return jsonRes({ error: 'userId, key and enabled are required' }, 400);
       }
-      // Own skills always; everyone else's only for an admin, who is the one person who has to be able to
-      // see (and clean up) what the instance actually loads.
-      const owners = req.auth.admin ? skillOwnerIds() : (req.auth.userId === null ? [] : [req.auth.userId]);
-      for (const ownerUserId of owners) {
-        const dir = userSkillsDir(ownerUserId);
-        if (!existsSync(dir) || scopeRootAliased(ownerUserId)) continue;
-        for (const { name, file } of enumerateSkills(dir)) {
-          // The listing carries each user skill's full body, so a link out of this account's folder would
-          // hand another account's skill to the caller before any load ever happened.
-          if (canonicalWithin(dir, file) === null) continue;
-          out.push(describeSkill(name, file, 'user', ownerUserId, req.auth.admin || ownerUserId === req.auth.userId));
-        }
-      }
-      return jsonRes(out);
+      const control = management();
+      if (!control) return jsonRes({ error: 'skill management is unavailable; upgrade Elowen core' }, 503);
+      const result = await control.setPluginSkillEnabled({ userId, key, enabled });
+      if (result.ok) return jsonRes({ ok: true });
+      if (result.reason === 'forbidden') return jsonRes({ error: 'forbidden' }, 403);
+      if (result.reason === 'unknown-user') return jsonRes({ error: 'unknown account' }, 404);
+      if (result.reason === 'invalid-overrides') return jsonRes({ error: 'stored plugin skill overrides are invalid' }, 409);
+      if (result.reason === 'refresh-failed') return jsonRes({ error: 'saved, but the account session could not be refreshed' }, 503);
+      return jsonRes({ error: 'unknown plugin skill' }, 400);
     },
   });
 
@@ -849,24 +893,20 @@ export function register(ctx) {
     description: [
       'List every skill available in this session — the reusable markdown procedures and workflows the agent can follow — with each name, its scope tag and the one-line description that says when it applies.',
       'Use it to check what know-how is already saved before writing a new skill with CreateSkill, to find the exact name you need for DeleteSkill, or when the user asks what you can do or what instructions you have been given. It takes no parameters.',
-      'Three sets are shown: bundled skills that ship with the plugin, instance-wide skills shared by every session, and your own personal ones. It never reveals other accounts private skills. Entries flagged "/skill only" are hidden from automatic matching and run only when invoked explicitly; the listing shows names and descriptions, not the full instruction bodies, so use SkillLoad when you need the steps.',
+      'The live list includes bundled, instance-wide, personal and plugin-contributed skills after account grants and plugin-skill overrides are applied. It never reveals another account’s private skills or unavailable contributions. Entries flagged "/skill only" are hidden from automatic matching and run only when invoked explicitly; the listing shows names and descriptions, not the full instruction bodies, so use SkillLoad when you need the steps.',
     ].join(' '),
     parameters: Type.Object({}),
     execute: async () => {
       try {
-        const me = callerId();
-        const rows = [];
-        const add = (skills, tag) => {
-          for (const sk of skills) {
-            const flags = sk.disableModelInvocation ? ', /skill only' : '';
-            rows.push(`- ${sk.name} (${tag}${flags}) — ${sk.description}`);
-          }
-        };
-        add(loadSkills(bundledDir, 'elowen-plugin:skills'), 'bundled');
-        add(loadSkills(instanceDir, 'elowen-user:skills').filter((sk) => !isPersonalPath(sk.filePath)), 'instance');
-        // Only the caller's own personal skills — this tool has no admin gate, so it must not become a
-        // way to enumerate what other people keep.
-        if (me !== null) add(personalSkillsOf(me), 'personal');
+        const control = ctx.control?.('skillCatalog');
+        if (!control || typeof control.visibleEntries !== 'function') {
+          return ok('Error: the live skill catalog is unavailable; upgrade Elowen core.');
+        }
+        const rows = control.visibleEntries().map((entry) => {
+          const tag = entry.source === 'plugin' ? `plugin:${entry.contributorPlugin}` : entry.source;
+          const flags = entry.skill.disableModelInvocation ? ', /skill only' : '';
+          return `- ${entry.skill.name} (${tag}${flags}) — ${entry.skill.description}`;
+        });
         return ok(rows.length ? rows.join('\n') : 'No skills found.');
       } catch (e) { return fail(e); }
     },
