@@ -288,15 +288,18 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.3.11, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.4.0, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
       capabilities: { reads?: string[] };
-      provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[] };
+      provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[]; controls?: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.3.11');
+    expect(manifest.version).toBe('0.4.0');
+    // The capture seam is DECLARED, not merely registered: a control a sibling plugin resolves has to be
+    // visible in the manifest, or an operator reading it cannot tell which plugins reach into which.
+    expect(manifest.provides.controls).toEqual(['browserCapture']);
     expect(manifest.userGrantable).toBe(true);
     // The session listing reads the agent's last reply through `host.stores()`, which the core refuses
     // outright unless the manifest asks for it — an undeclared grant makes the whole panel fail, not the
@@ -357,8 +360,11 @@ describe('browser plugin contract', () => {
     // The floor was 0.28.30, the release that carries plugin WebSocket routes: below it the daemon
     // cannot hand a socket to a plugin at all, and a live view is the only live view there is now. It
     // moved to 0.28.35 because a project browser now runs inside the project's environment and needs the
-    // Sandbox environment control, which is strictly later. Both properties hold at the higher floor.
-    expect(manifest.requiresCore).toBe('0.28.35');
+    // Sandbox environment control, which is strictly later. It moved again to 0.28.46, the release that
+    // knows the `browserCapture` key: on an older daemon that control is an unknown name, so the sibling
+    // that depends on it would resolve undefined with nothing to say why. Every property holds at the
+    // higher floor.
+    expect(manifest.requiresCore).toBe('0.28.46');
   });
 });
 

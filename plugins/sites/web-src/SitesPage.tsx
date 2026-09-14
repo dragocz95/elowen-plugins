@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronRight, ExternalLink, Globe, Layers, Search, Users } from 'lucide-react';
+import { CheckCircle2, Globe, Layers, Search, Users } from 'lucide-react';
 import {
-  runtime, avatarUser, relativeTime, SITES_LIST_KEY,
+  PREVIEW_POLL_MS, awaitingPreview, runtime, SITES_LIST_KEY,
   type SiteView, type SitesListResponse,
 } from './runtime.js';
 import {
-  displayStatus, STATUS_ICON, STATUS_ORDER, STATUS_STRING, STATUS_TONE,
-  VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE,
+  displayStatus, STATUS_ICON, STATUS_ORDER, STATUS_STRING,
+  VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING,
 } from './meta.js';
+import { SiteCard } from './SiteCard.js';
 import { SiteDetail } from './SiteDetail.js';
 
 type Section = 'mine' | 'shared';
@@ -19,55 +20,53 @@ const isStatusFilter = (raw: string): boolean => raw === 'all' || (STATUS_ORDER 
 const matches = (site: SiteView, needle: string): boolean =>
   needle === '' || `${site.title} ${site.slug} ${site.summary} ${site.owner.name}`.toLowerCase().includes(needle);
 
-/** The register of sites: the same table on the Sites page and inside a Project panel, so a site reads
- *  identically wherever it is listed. One row opens the shared detail drawer. */
+/** The register of sites: the same grid on the Sites page and inside a Project panel, so a site reads
+ *  identically wherever it is listed. One card opens the shared detail drawer.
+ *
+ *  It stopped being a table because a site is not a row of comparable fields: it is an identity and an
+ *  address, a lifecycle, an access rule, a publication shape, an owner and a Project. A table could align
+ *  only the short ones, which is how the Publication column ended up as a third place stating the same
+ *  fact the drawer and the state band already carried.
+ *
+ *  The column counts are the CONTAINER's, not the viewport's: this register is rendered both on the Sites
+ *  page and inside a Project panel, and three cards across a narrow panel is exactly the failure the
+ *  breakpoints exist to prevent. */
 export function SitesRegister({ sites, selectedId, onSelect }: {
   sites: SiteView[];
   selectedId: string | null;
   onSelect(siteId: string): void;
 }) {
   const { components, hooks } = runtime();
-  const { DataTable, DataTableRow, DataTableCell, MotionPresence, MotionLayoutItem } = components;
+  const { MotionPresence, MotionLayoutItem } = components;
   const strings = hooks.usePluginStrings('sites');
 
   return (
-    <DataTable
-      ariaLabel={strings.title}
-      columns="minmax(0,1fr) 11rem 8rem 10.5rem 6.5rem 10.5rem 1.75rem 1.25rem"
-      compactColumns="minmax(0,1fr) 1.75rem 1.25rem"
-    >
-      <DataTableRow header>
-        <DataTableCell header>{strings.columnSite}</DataTableCell>
-        <DataTableCell header priority="wide">{strings.columnOwner}</DataTableCell>
-        <DataTableCell header priority="wide">{strings.columnVisibility}</DataTableCell>
-        <DataTableCell header priority="wide">{strings.columnStatus}</DataTableCell>
-        <DataTableCell header priority="wide">{strings.columnPublished}</DataTableCell>
-        <DataTableCell header priority="wide">{strings.columnKind}</DataTableCell>
-        <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
-        <DataTableCell header role="presentation" aria-hidden>{null}</DataTableCell>
-      </DataTableRow>
-
-      <div role="rowgroup">
+    // The container is the WRAPPER, not the grid. A container query resolves against an ancestor
+    // container and never against the element declaring itself one, so `@container` on the grid would
+    // silently leave the column variants resolving against whatever shell happens to be above it — one
+    // column wherever no shell declares itself a container, which is exactly what a Project panel is.
+    <div className="@container">
+      <div
+        role="list"
+        aria-label={strings.title}
+        data-testid="sites-register"
+        className="grid grid-cols-1 gap-3 @min-[38rem]:grid-cols-2 @min-[58rem]:grid-cols-3"
+      >
         <MotionPresence>
           {sites.map((site) => (
-            <MotionLayoutItem
-              key={site.id}
-              layoutId={`site-${site.id}`}
-              role="presentation"
-              className="border-b border-border/70 last:border-b-0"
-            >
-              <SiteRow
+            <MotionLayoutItem key={site.id} layoutId={`site-${site.id}`} role="listitem" className="min-w-0">
+              <SiteCard
                 site={site}
                 strings={strings}
-                active={selectedId === site.id}
-                onSelect={() => onSelect(site.id)}
+                selected={selectedId === site.id}
+                onOpen={() => onSelect(site.id)}
                 onNavigate={(direction) => {
                   const index = sites.findIndex((item) => item.id === site.id);
                   const next = direction === 'home' ? sites[0]
                     : direction === 'end' ? sites[sites.length - 1]
                       : sites[index + (direction === 'next' ? 1 : -1)];
                   if (!next) return;
-                  // Arrow/Home/End move the row focus only. Opening the drawer here would inert the
+                  // Arrow/Home/End move the card focus only. Opening the drawer here would inert the
                   // register underneath it and interrupt keyboard traversal after a single step.
                   requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-site-open="${next.id}"]`)?.focus());
                 }}
@@ -76,90 +75,7 @@ export function SitesRegister({ sites, selectedId, onSelect }: {
           ))}
         </MotionPresence>
       </div>
-    </DataTable>
-  );
-}
-
-/** One site = one register row. The owner is a face and a name, never an account id. Secondary columns
- *  appear as the workspace widens, exactly as they do in the app's other registers. */
-function SiteRow({ site, strings, active, onSelect, onNavigate }: {
-  site: SiteView;
-  strings: Record<string, string>;
-  active: boolean;
-  onSelect(): void;
-  onNavigate(direction: 'next' | 'previous' | 'home' | 'end'): void;
-}) {
-  const { components } = runtime();
-  const { DataTableRow, DataTableCell, Badge, Avatar, IconButton } = components;
-  const displayedStatus = displayStatus(site);
-  const StatusIcon = STATUS_ICON[displayedStatus];
-  const statusLabel = strings[STATUS_STRING[displayedStatus]];
-  const statusTone = STATUS_TONE[displayedStatus];
-  const VisibilityIcon = VISIBILITY_ICON[site.visibility];
-  const published = site.lastPublishAt ? relativeTime(site.lastPublishAt) : '—';
-  const publication = site.kind === 'proxy'
-    ? { label: strings.kindProxy, target: site.target }
-    : { label: strings.kindStatic, target: '' };
-
-  return (
-    <DataTableRow selected={active} interactive aria-selected={active} className="group">
-      <DataTableCell>
-        <button
-          type="button"
-          data-site-open={site.id}
-          onClick={onSelect}
-          onKeyDown={(event) => {
-            const direction = event.key === 'ArrowDown' ? 'next'
-              : event.key === 'ArrowUp' ? 'previous'
-                : event.key === 'Home' ? 'home'
-                  : event.key === 'End' ? 'end' : null;
-            if (!direction) return;
-            event.preventDefault();
-            onNavigate(direction);
-          }}
-          className="flex w-full min-w-0 items-center gap-2 text-left"
-        >
-          <StatusIcon size={12} aria-hidden className={site.degraded ? 'shrink-0 text-warning' : site.status === 'live' ? 'shrink-0 text-success' : site.status === 'failed' ? 'shrink-0 text-destructive' : 'shrink-0 text-muted-foreground'} />
-          <span className="truncate text-sm text-foreground">{site.title}</span>
-        </button>
-      </DataTableCell>
-      <DataTableCell priority="wide" title={site.owner.name}>
-        <span className="flex min-w-0 items-center gap-2">
-          <Avatar size={22} name={site.owner.name} user={avatarUser(site.owner)} />
-          <span className="truncate text-xs text-muted-foreground">{site.owner.name}</span>
-        </span>
-      </DataTableCell>
-      <DataTableCell priority="wide">
-        <Badge tone={VISIBILITY_TONE[site.visibility]}>
-          <VisibilityIcon size={10} aria-hidden className="mr-1" />
-          {strings[VISIBILITY_STRING[site.visibility]]}
-        </Badge>
-      </DataTableCell>
-      <DataTableCell priority="wide">
-        <Badge tone={statusTone}>{statusLabel}</Badge>
-      </DataTableCell>
-      <DataTableCell priority="wide" className="whitespace-nowrap text-xs text-muted-foreground">{published}</DataTableCell>
-      <DataTableCell priority="wide" className="whitespace-nowrap">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Badge tone={site.kind === 'proxy' ? 'accent' : 'muted'}>{publication.label}</Badge>
-          {publication.target ? (
-            <code className="font-mono text-[11px] text-muted-foreground">:{publication.target}</code>
-          ) : null}
-        </span>
-      </DataTableCell>
-      <DataTableCell>
-        {site.status === 'live' && site.url !== null ? (
-          <IconButton
-            icon={ExternalLink}
-            label={strings.openSite}
-            onClick={() => window.open(site.url as string, '_blank', 'noopener,noreferrer')}
-          />
-        ) : null}
-      </DataTableCell>
-      <DataTableCell aria-hidden className="text-muted-foreground/50 transition-colors group-hover:text-foreground">
-        <ChevronRight size={15} />
-      </DataTableCell>
-    </DataTableRow>
+    </div>
   );
 }
 
@@ -177,6 +93,13 @@ export function SitesPage() {
   const list = hooks.useQuery<SitesListResponse>({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api('/plugins/sites/api/sites'),
+    // A picture being taken is the only reason this register looks again on its own. The interval is a
+    // function of the data, so the moment the last capture lands the polling stops by itself — a register
+    // nobody is publishing into costs nothing.
+    refetchInterval: (query: { state: { data?: SitesListResponse } }) => {
+      const data = query.state.data;
+      return data && awaitingPreview([...data.mine, ...data.shared]) ? PREVIEW_POLL_MS : false;
+    },
   });
 
   const [section, setSection] = hooks.usePersistentState<Section>('elowen.sites.section', 'mine', SECTIONS);

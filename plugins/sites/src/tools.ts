@@ -1,17 +1,15 @@
-import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { join, posix, resolve, sep } from 'node:path';
+import { join, posix } from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import type { SitesContext } from './coreSeams.js';
-import type { Site, SitesStore, PublicationKind, Visibility } from './store.js';
+import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { mayPublish, type AccessDeps } from './access.js';
-import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
-import { PublishError, pruneReleases, relativeAssetWarning, snapshotRelease } from './publish.js';
-import { snapshotManagedRelease } from './managedPublish.js';
+import { SITE_BASE_PATH, siteHost, siteUrl, type SitesConfig } from './config.js';
 import type { ProjectPreviewService } from './preview.js';
 import { publicationPort, type ProjectPublicationService } from './publication.js';
+import type { PreviewRequestCause, PreviewRequestOutcome } from './previewImage.js';
 import { recordedCertificate, type RecordedCertificate, type SiteCertificateReadiness } from './certificate.js';
 import { requireSandbox, SandboxRequiredError } from './sandboxControl.js';
 
@@ -22,8 +20,8 @@ export interface ToolDeps {
   config(): SitesConfig;
   people(): Map<number, { id: number; username: string; name: string; avatar: string }>;
   previews?: Pick<ProjectPreviewService, 'request'>;
-  siteDir(siteId: string): string;
-  releaseDir(siteId: string, releaseId: string): string;
+  /** The picture half of the register. A publish asks for one; a refusal is never a publish failure. */
+  previewImages?: { request(siteId: string, cause: PreviewRequestCause): PreviewRequestOutcome };
   deleteSite(siteId: string): Promise<void>;
   /** The transport half of a proxy publication: asking the Project's environment for it, reading through
    *  it, and remembering where it answered. */
@@ -78,50 +76,6 @@ const slugify = (title: string): string => {
   return `${stem}-${randomBytes(3).toString('hex')}`;
 };
 
-/** Where the agent should write this site's source.
- *
- *  The active Sandbox workspace comes first because it is a real Git worktree: the source is versioned,
- *  committable and publishable like anything else the agent is working on. The bound Project is the
- *  fallback. There is deliberately no third option — `defaultCwd()` answers with an arbitrary allowed
- *  root, or the daemon's own working directory, and neither is a place the caller chose.
- *
- *  A managed Project has no host path to fall back to: it is mounted inside its own container at its own
- *  name (`/<slug>`, core's `managedGuestRoot` in `src/shared/projectExecution.ts`), and the turn's working
- *  directory IS that root. `/workspace` is a reserved name and no such directory exists there, so a folder
- *  built under it landed outside the Project: the agent was told to write into a tree the Project tools
- *  and the publish export never looked at. */
-function resolveSourceRoot(ctx: SitesContext, slug: string): { dir: string; projectId: number; rel: string } {
-  const rel = posix.join('sites', slug);
-  const selected = ctx.currentAccess().projectRef;
-  if (selected?.kind === 'managed') {
-    const root = ctx.workDir();
-    if (!root) throw new ToolError('This turn has no Project directory, so the site has nowhere to put its source.');
-    return { dir: posix.join(root, rel), projectId: selected.projectId, rel };
-  }
-  const workDir = ctx.workDir();
-  if (!workDir) {
-    throw new ToolError('This conversation is not bound to a Project. Open a Project first, and create a Sandbox workspace if you want the site under version control.');
-  }
-  const real = (() => {
-    try { return realpathSync(workDir); } catch { return workDir; }
-  })();
-  // The DEEPEST Project containing the working directory, not one whose root happens to equal it.
-  // Agents work from subdirectories constantly, and exact equality refused every one of them with a
-  // message that read as "you are nowhere" while standing well inside a registered Project.
-  const within = (root: string): boolean => {
-    const base = (() => { try { return realpathSync(root); } catch { return root; } })();
-    return real === base || real.startsWith(base.endsWith(sep) ? base : base + sep);
-  };
-  const project = ctx.host.stores().projects.list()
-    .filter((entry) => within(entry.path))
-    .sort((a, b) => b.path.length - a.path.length)[0];
-  if (!project) {
-    throw new ToolError(`${real} is not inside any registered Project, so there is nowhere to put the site's source. Open a Project first.`);
-  }
-
-  return { dir: join(project.path, ...rel.split('/')), projectId: project.id, rel };
-}
-
 /** Resolve whichever identifier the caller had to hand.
  *
  *  The slug is the only identifier that appears in the address and in every listing, so it is the one an
@@ -165,18 +119,6 @@ const requirePerson = (deps: ToolDeps, ref: string): { id: number; name: string 
     throw new ToolError(`No account matches "${wanted}". Known accounts: ${people.map((person) => person.username).join(', ')}.`);
   }
   return { id: match.id, name: match.name || match.username };
-};
-
-/** The site's public address, or a refusal.
- *
- *  A null base means this instance has no HTTPS domain of its own, and published sites have no second
- *  place to live: a page on the app's own origin would be same-origin with the app's session cookie. */
-const addressOf = (config: SitesConfig, slug: string): string => {
-  const url = siteUrl(config, slug);
-  if (url === null) {
-    throw new ToolError('Published sites need this Elowen instance to be installed on its own HTTPS domain, because every site is served from its own hostname under that domain. There is no address to publish to here.');
-  }
-  return url;
 };
 
 /** End a detail as one sentence. A certificate detail may be several sentences and already carry its own
@@ -290,7 +232,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteCreate',
     label: 'Create a site',
-    description: 'Create a static release site or a proxy publication. Static sites remain drafts until SitePublish copies a finished build. Proxy publications forward to an application already running inside the selected managed Project on the port given in target.',
+    description: 'Create a proxy publication: an address that forwards to an application already running inside the selected managed Project, on the port given in target. Nothing is copied and nothing is started.',
     parameters: Type.Object({
       title: Type.String({ minLength: 1, maxLength: 120, description: 'Human title shown in the Sites screen.' }),
       summary: Type.Optional(Type.String({ maxLength: 400, description: 'One line describing what the page is for.' })),
@@ -298,140 +240,62 @@ export function registerTools(deps: ToolDeps): void {
         [Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')],
         { description: 'Who may open it. Defaults to the instance setting. A site is never made public here; that is confirmed by a person in the Sites screen.' },
       )),
-      spa: Type.Optional(Type.Boolean({ description: 'Serve index.html for unknown paths, for a client-side router. Default false.' })),
-      kind: Type.Optional(Type.Union(
-        [Type.Literal('static'), Type.Literal('proxy')],
-        { description: 'What the address publishes. "static" copies a built folder into a release on SitePublish; "proxy" forwards to an application already running inside the selected managed Project, and needs target.' },
-      )),
-      target: Type.Optional(Type.String({
+      target: Type.String({
         maxLength: 64,
-        description: 'For kind "proxy": the TCP port the application listens on at 127.0.0.1 INSIDE the Project container, e.g. "3000". Nothing else is copied or started.',
-      })),
+        description: 'The TCP port the application listens on at 127.0.0.1 INSIDE the selected managed Project, e.g. "3000". Nothing else is copied or started.',
+      }),
     }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
         guardPublisher(userId);
         const config = deps.config();
-        const kind: PublicationKind = input.kind === 'proxy' ? 'proxy' : 'static';
-        // The same rule as everywhere else in this tool: a value decides, never the presence of a key. A
-        // model that echoes every optional property sends `target: ""` with a plain static site, and that
-        // is not an instruction to publish anything else.
-        const target = (input.target ?? '').trim();
-        if (kind === 'static' && target !== '') {
-          throw new ToolError('target is only for a proxy publication. A static site publishes a folder, so leave target out or send kind "proxy" with the port the application listens on.');
+        // A publication is not a folder: the application already runs inside the Project, and the only
+        // thing this row adds is an address and the transport that carries requests to its port. So the
+        // port is the whole target, and it is required — a publication with no port to reach has nothing
+        // to publish.
+        const target = input.target.trim();
+        if (!/^\d+$/.test(target) || Number(target) < 1 || Number(target) > 65535) {
+          throw new ToolError('target must be the TCP port the application listens on at 127.0.0.1 inside the Project, for example "3000".');
         }
-        if (kind === 'proxy') {
-          // A proxy publication is not a folder: the application already runs inside the Project, and the
-          // only thing this row adds is an address and the transport that carries requests to its port.
-          if (!/^\d+$/.test(target) || Number(target) < 1 || Number(target) > 65535) {
-            throw new ToolError('A proxy publication needs target: the TCP port the application listens on at 127.0.0.1 inside the Project, for example "3000".');
-          }
-          const selected = ctx.currentAccess().projectRef;
-          if (selected?.kind !== 'managed') {
-            throw new ToolError('A proxy publication is served by a managed Project, so select that Project before creating it.');
-          }
-          requireSandbox(ctx.control('sandbox'));
-          if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
-            throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
-          }
-          const project = ctx.host.stores().projects.get(selected.projectId);
-          if (!project) throw new ToolError('The Project no longer exists.');
-          if (project.executionKind !== 'managed') {
-            throw new ToolError(`Project ${project.slug} is a host Project, so it has no environment to publish from. A proxy publication needs a managed Project.`);
-          }
-
-          let slug = slugify(input.title);
-          while (store.slugTaken(slug)) slug = slugify(input.title);
-          const now = new Date().toISOString();
-          const site: Site = {
-            id: randomUUID(),
-            slug,
-            title: input.title.trim(),
-            summary: (input.summary ?? '').trim(),
-            projectId: selected.projectId,
-            ownerUserId: userId,
-            visibility: (input.visibility as Visibility | undefined) ?? config.defaultVisibility,
-            accessGeneration: 1,
-            // Nothing is copied for this publication, so it owns no folder. Its application lives in the
-            // Project, which is also where its logs and its environment state come from.
-            sourceRel: '',
-            spa: false,
-            kind: 'proxy',
-            target: String(Number(target)),
-            status: 'draft',
-            currentReleaseId: null,
-            createdAt: now,
-            updatedAt: now,
-            createdModel: modelLabel(ctx),
-            lastPublishAt: null,
-            lastPublishModel: null,
-            lastError: null,
-          };
-          store.insertSite(site);
-          const address = siteUrl(config, site.slug);
-          return text([
-            `Created "${site.title}" as a proxy publication of project ${project.slug}.`,
-            `  id   ${site.id}`,
-            `  slug ${site.slug}`,
-            `  port ${site.target} (inside the Project)`,
-            'Name the site by either identifier in Sites tools.',
-            '',
-            `The application must listen on 127.0.0.1:${site.target} inside the Project ${project.slug}.`,
-            'Run it there with the Project shell, a service, or an Elowen turn, and call SitePublish once it answers.',
-            address
-              ? `It will be published at: ${address}`
-              : 'No public address is available until the domain gateway DNS is ready.',
-            '',
-            'Nothing is copied: the published page is the application itself, reached through the managed Project.',
-            'Lifecycle and logs belong to the managed Project, not to this publication.',
-          ].join('\n'), {
-            siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
-            projectId: site.projectId, projectSlug: project.slug, url: address,
-            visibility: site.visibility,
-          });
+        const selected = ctx.currentAccess().projectRef;
+        if (selected?.kind !== 'managed') {
+          throw new ToolError('A published site is an application inside a managed Project, so select that Project before creating one.');
         }
+        requireSandbox(ctx.control('sandbox'));
         if (store.countOwnedBy(userId) >= config.maxSitesPerAccount) {
           throw new ToolError(`This account already has ${config.maxSitesPerAccount} sites, which is the configured limit.`);
+        }
+        const project = ctx.host.stores().projects.get(selected.projectId);
+        if (!project) throw new ToolError('The Project no longer exists.');
+        if (project.executionKind !== 'managed') {
+          throw new ToolError(`Project ${project.slug} is a host Project, so it has no environment to publish from. Select a managed Project.`);
+        }
+        // The environment has to be running before a publication means anything: a Site row pointing at a
+        // container that is not there is an address that cannot answer, and creating it would only move
+        // that discovery to the first visitor.
+        if (project.lifecycle !== 'active') {
+          throw new ToolError(`Project ${project.slug} is not running (${project.lifecycle}), so there is no application to publish. Start it, then create the site.`);
         }
 
         let slug = slugify(input.title);
         while (store.slugTaken(slug)) slug = slugify(input.title);
-
-        // File-published sites need a public origin before the first side effect.
-        const address = addressOf(config, slug);
-
-        const { dir, projectId, rel: sourceRel } = resolveSourceRoot(ctx, slug);
-        const sourceProject = ctx.host.stores().projects.get(projectId);
-        if (!sourceProject) throw new ToolError('The source Project no longer exists.');
-        const managed = sourceProject.executionKind === 'managed';
-        const siteId = randomUUID();
-        let allowed: string;
-        if (managed) {
-          const sandbox = requireSandbox(ctx.control('sandbox'));
-          allowed = dir;
-          await sandbox.projectFiles({ project: { kind: 'managed', projectId }, accountUserId: userId, operation: { kind: 'mkdir', path: dir } });
-        } else {
-          try { allowed = ctx.assertPathAllowed(dir); }
-          catch { throw new ToolError(`The site folder ${dir} is outside what this account may write to.`); }
-          if (existsSync(allowed)) throw new ToolError(`${allowed} already exists.`);
-          mkdirSync(allowed, { recursive: true });
-        }
-
         const now = new Date().toISOString();
         const site: Site = {
-          id: siteId,
+          id: randomUUID(),
           slug,
           title: input.title.trim(),
           summary: (input.summary ?? '').trim(),
-          projectId,
+          projectId: selected.projectId,
           ownerUserId: userId,
           visibility: (input.visibility as Visibility | undefined) ?? config.defaultVisibility,
           accessGeneration: 1,
-          sourceRel,
-          spa: input.spa === true,
-          kind: 'static',
-          target: '',
+          // Nothing is copied for this publication, so it owns no folder. Its application lives in the
+          // Project, which is also where its logs and its environment state come from.
+          sourceRel: '',
+          spa: false,
+          kind: 'proxy',
+          target: String(Number(target)),
           status: 'draft',
           currentReleaseId: null,
           createdAt: now,
@@ -442,23 +306,26 @@ export function registerTools(deps: ToolDeps): void {
           lastError: null,
         };
         store.insertSite(site);
-
+        const address = siteUrl(config, site.slug);
         return text([
-          `Created "${site.title}".`,
+          `Created "${site.title}" as a publication of project ${project.slug}.`,
           `  id   ${site.id}`,
           `  slug ${site.slug}`,
-          'Name the site by either of those in Sites tools.',
+          `  port ${site.target} (inside the Project)`,
+          'Name the site by either identifier in Sites tools.',
           '',
-          `Write the project here: ${allowed}`,
-          'For an isolated Git worktree, create and activate a Sandbox workspace before SiteCreate; Sites automatically uses the active workspace.',
-          `Configure the build with base path: ${SITE_BASE_PATH}`,
-          `It will be published at: ${address}`,
+          `The application must listen on 127.0.0.1:${site.target} inside the Project ${project.slug}.`,
+          'Run it there with the Project shell, a service, or an Elowen turn, and call SitePublish once it answers.',
+          address
+            ? `It will be published at: ${address}`
+            : 'No public address is available until the domain gateway DNS is ready.',
           '',
-          'Asset URLs must be absolute. A relative reference (./assets/...) resolves against whatever address the visitor opened, so it works at the root and breaks on every deeper route.',
-          'When the output is ready, call SitePublish with the output directory.',
+          'Nothing is copied: the published page is the application itself, reached through the managed Project.',
+          'Lifecycle and logs belong to the managed Project, not to this publication.',
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, sourceDir: allowed,
-          basePath: SITE_BASE_PATH, url: address, visibility: site.visibility,
+          siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
+          projectId: site.projectId, projectSlug: project.slug, url: address,
+          visibility: site.visibility,
         });
       } catch (error) {
         throw isRefusal(error) ? error : new Error(`Could not create the site: ${String(error)}`);
@@ -469,11 +336,9 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SitePublish',
     label: 'Publish a site',
-    description: 'Publish a site. For a file publication, copy a finished build output into a new release and make it the live one: build it yourself first, because this publishes what is already on disk and runs nothing. For a proxy publication, verify that the application inside the Project answers on its port and make the address live; nothing is copied and nothing is started.',
+    description: 'Publish a site: verify that the application inside the managed Project answers on its port through the same transport a visitor\'s request takes, and make the address live. Nothing is copied and nothing is started.',
     parameters: Type.Object({
       site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
-      outputDir: Type.Optional(Type.String({ description: 'Build output directory, relative to the site folder (e.g. "dist"). Defaults to the site folder itself.' })),
-      note: Type.Optional(Type.String({ maxLength: 200, description: 'Short note about what changed in this release.' })),
     }),
     execute: async (_id, input) => {
       try {
@@ -483,144 +348,75 @@ export function registerTools(deps: ToolDeps): void {
         const config = deps.config();
         const address = siteUrl(config, site.slug);
 
-        // A proxy publication has nothing to copy: publishing it means proving the application inside the
-        // Project answers through the same transport a visitor's request takes, and only then making the
-        // address live. A failure is recorded on the row and reported, never a site that is live behind a
-        // dead port.
-        if (site.kind === 'proxy') {
-          const port = publicationPort(site);
-          if (port === null) throw new ToolError('This publication has no usable port. Recreate it with SiteCreate (kind "proxy" and the port in target).');
-          // Response facts are resolved before the transport or row is mutated. A missing public base is a
-          // valid installation state, so success reports the verified socket and leaves the URL null.
-          const projectName = ctx.host.stores().projects.get(site.projectId)?.slug ?? String(site.projectId);
-          let socketPath: string;
-          try {
-            socketPath = (await deps.publications.establish(site, userId)).socketPath;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            store.updateSite(site.id, { status: 'failed', lastError: message });
-            throw new ToolError(`The managed Project could not be reached, so nothing was published: ${message}`);
-          }
-          const probe = await deps.publications.probe(socketPath);
-          if (!probe.answered || probe.status === null || probe.status >= 500) {
-            const message = probe.answered
-              ? `127.0.0.1:${port} inside the Project answered with an unhealthy status (${probe.detail})`
-              : `nothing answered on 127.0.0.1:${port} inside the Project (${probe.detail})`;
-            store.updateSite(site.id, { status: 'failed', lastError: message });
-            throw new ToolError(`Not published: ${message}. Start or fix the application in the managed Project, then call SitePublish again.`);
-          }
-          const now = new Date().toISOString();
-          const model = modelLabel(ctx);
-          // The transport is already established and verified, so the very next visitor request is served
-          // through it instead of waiting for the next sweep to adopt the same socket.
-          deps.publications.adopt(site.id, socketPath);
-          store.updateSite(site.id, {
-            status: 'live',
-            lastPublishAt: now,
-            lastPublishModel: model,
-            lastError: null,
-          });
-          // Only now: the row has to be live before a certificate is asked for, because the gateway serves
-          // what the store says is published and the HTTP-01 challenge is answered through that config.
-          const certificate = await deps.certificates.publish(site);
-          return text([
-            `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
-            ...publishedAddressLines(address, certificate),
-            `Transport socket: ${socketPath}`,
-            `Visible to: ${site.visibility}`,
-            '',
-            'Nothing was copied, so the address always shows what the application serves right now. Restarting, snapshotting and reading its logs happen in the managed Project.',
-          ].join('\n'), {
-            siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
-            url: address, socketPath, visibility: site.visibility, status: 'live', answered: probe.status,
-            certificate,
-          });
+        // A publication has nothing to copy: publishing it means proving the application inside the Project
+        // answers through the same transport a visitor's request takes, and only then making the address
+        // live. A failure is recorded on the row and reported, never a site that is live behind a dead port.
+        //
+        // A row from the retired file-publication model has no application behind it. It keeps serving the
+        // files it already holds, and publishing it again is REFUSED rather than quietly reviving a copy
+        // path this release does not have any more.
+        if (site.kind !== 'proxy') {
+          throw new ToolError('This site is a file publication from the retired model. It keeps serving what it already published, and it cannot be published again: create a site for the application in its Project, and delete this one when nothing needs the old address.');
         }
-
-        const relative = (input.outputDir ?? '').replace(/^\/+/, '');
-        if (relative.split('/').some((segment) => segment === '..')) {
-          throw new ToolError('outputDir must stay inside the site folder.');
-        }
-        const sourceProject = ctx.host.stores().projects.get(site.projectId);
-        if (!sourceProject) throw new ToolError('The source Project no longer exists.');
-        const managed = sourceProject.executionKind === 'managed';
-        const sourceRoot = managed
-          ? posix.join(`/${sourceProject.slug}`, site.sourceRel)
-          : join(sourceProject.path, ...site.sourceRel.split('/'));
-        const source = resolve(sourceRoot, relative);
-        const root = resolve(sourceRoot);
-        if (source !== root && !source.startsWith(root + sep)) {
-          throw new ToolError('outputDir must stay inside the site folder.');
-        }
-        const selected = ctx.currentAccess().projectRef;
-        if (selected?.kind === 'managed' && selected.projectId !== site.projectId) throw new ToolError('The publication source is outside the selected managed Project.');
-        if (!managed) {
-          if (!existsSync(source)) throw new ToolError(`${source} does not exist. Build the project first.`);
-          ctx.assertPathAllowed(source);
-        }
-
-        const releaseId = randomUUID();
-        const target = deps.releaseDir(site.id, releaseId);
-        let snapshot;
+        const port = publicationPort(site);
+        if (port === null) throw new ToolError('This publication has no usable port. Create it again with SiteCreate and the port the application listens on.');
+        // Response facts are resolved before the transport or row is mutated. A missing public base is a
+        // valid installation state, so success reports the verified socket and leaves the URL null.
+        const projectName = ctx.host.stores().projects.get(site.projectId)?.slug ?? String(site.projectId);
+        let socketPath: string;
         try {
-          snapshot = managed
-            ? await snapshotManagedRelease(requireSandbox(ctx.control('sandbox')), {
-              projectId: site.projectId,
-              accountUserId: userId,
-              sourceRoot: source,
-              releaseDir: target,
-              limits: { maxAssetBytes: config.maxAssetBytes, maxTotalBytes: config.maxSiteBytes },
-            })
-            : snapshotRelease(source, target, {
-              maxAssetBytes: config.maxAssetBytes,
-              maxTotalBytes: config.maxSiteBytes,
-            });
+          socketPath = (await deps.publications.establish(site, userId)).socketPath;
         } catch (error) {
-          rmSync(target, { recursive: true, force: true });
-          store.updateSite(site.id, { status: site.currentReleaseId ? 'live' : 'failed', lastError: error instanceof Error ? error.message : String(error) });
-          throw new ToolError(error instanceof PublishError ? `Publish refused: ${error.message}` : `Publish failed: ${String(error)}`);
+          const message = error instanceof Error ? error.message : String(error);
+          store.updateSite(site.id, { status: 'failed', lastError: message });
+          throw new ToolError(`The managed Project could not be reached, so nothing was published: ${message}`);
         }
-
-        const model = modelLabel(ctx);
+        // Probed as a visitor reaches it: the application may answer by Host, and a publication that only
+        // answers to `localhost` is not one anybody can open.
+        const probe = await deps.publications.probe(socketPath, { host: siteHost(config, site.slug) ?? undefined });
+        if (!probe.answered || probe.status === null || probe.status >= 500) {
+          const message = probe.answered
+            ? `127.0.0.1:${port} inside the Project answered with an unhealthy status (${probe.detail})`
+            : `nothing answered on 127.0.0.1:${port} inside the Project (${probe.detail})`;
+          store.updateSite(site.id, { status: 'failed', lastError: message });
+          throw new ToolError(`Not published: ${message}. Start or fix the application in the managed Project, then call SitePublish again.`);
+        }
         const now = new Date().toISOString();
-        store.transaction(() => {
-          store.insertRelease({
-            id: releaseId,
-            siteId: site.id,
-            createdAt: now,
-            model,
-            fileCount: snapshot.fileCount,
-            sizeBytes: snapshot.sizeBytes,
-            note: (input.note ?? '').trim().slice(0, 200),
-          });
-          store.updateSite(site.id, {
-            status: 'live',
-            currentReleaseId: releaseId,
-            lastPublishAt: now,
-            lastPublishModel: model,
-            lastError: null,
-          });
+        const model = modelLabel(ctx);
+        // The transport is already established and verified, so the very next visitor request is served
+        // through it instead of waiting for the next sweep to adopt the same socket.
+        deps.publications.adopt(site.id, socketPath);
+        store.updateSite(site.id, {
+          status: 'live',
+          lastPublishAt: now,
+          lastPublishModel: model,
+          lastError: null,
         });
-        const warnings = [...snapshot.warnings];
-
-        pruneReleases(store, site.id, deps.siteDir(site.id), config.releasesKept, releaseId);
-
-        const relativeWarning = relativeAssetWarning(target, SITE_BASE_PATH);
-        if (relativeWarning) warnings.push(relativeWarning);
-
-        // After the release is live: a certificate for a
-        // hostname whose publish then failed would be issued for a page nobody published.
+        // Only now: the row has to be live before a certificate is asked for, because the gateway serves
+        // what the store says is published and the HTTP-01 challenge is answered through that config.
         const certificate = await deps.certificates.publish(site);
-
+        // The address is live and the register is built to show a picture of it, so one is asked for here.
+        // After the certificate, because a capture reaches the site over HTTPS through the gateway it just
+        // asked to serve the hostname. A refusal is never a publish failure: the address works, and the
+        // register asks again by itself.
+        const picture = deps.previewImages?.request(site.id, 'publish');
         return text([
-          `Published "${site.title}" - ${snapshot.fileCount} files, ${(snapshot.sizeBytes / 1048576).toFixed(2)} MB.`,
+          `Published "${site.title}" - the application inside project ${projectName} answered on 127.0.0.1:${port} (${probe.detail}).`,
           ...publishedAddressLines(address, certificate),
+          `Transport socket: ${socketPath}`,
           `Visible to: ${site.visibility}`,
-          ...(warnings.length > 0 ? ['', 'Warnings:', ...warnings.map((line) => `  - ${line}`)] : []),
+          ...(picture === undefined
+            ? []
+            : picture.ok
+              ? ['A picture of the page is being taken for the Sites register.']
+              : [`No picture of the page was queued: ${picture.reason}`]),
+          '',
+          'Nothing was copied, so the address always shows what the application serves right now. Restarting, snapshotting and reading its logs happen in the managed Project.',
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, releaseId, url: address,
-          visibility: site.visibility, fileCount: snapshot.fileCount, sizeBytes: snapshot.sizeBytes, warnings,
+          siteId: site.id, slug: site.slug, kind: site.kind, target: site.target,
+          url: address, socketPath, visibility: site.visibility, status: 'live', answered: probe.status,
           certificate,
+          ...(picture === undefined ? {} : { preview: picture.ok ? { queued: true } : { queued: false, reason: picture.reason } }),
         });
       } catch (error) {
         throw isRefusal(error) ? error : new Error(`Could not publish: ${String(error)}`);
@@ -661,7 +457,7 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteGet',
     label: 'Read a site',
-    description: 'Full site detail including source, visibility and retained file releases. A proxy publication reports the managed Project and port it publishes.',
+    description: 'Full site detail including visibility and publication state. Legacy file publications include their retained source reference and releases; a proxy publication reports its managed Project and port.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
@@ -675,7 +471,7 @@ export function registerTools(deps: ToolDeps): void {
           throw new ToolError('Only the site owner may read this site detail.');
         }
         const config = deps.config();
-        const releases = store.releases(site.id);
+        const releases = site.kind === 'static' ? store.releases(site.id) : [];
         // What serves this publication, read through the account the Project belongs to rather than through
         // whoever is asking: the environment seam answers per account, and a reader of a site is not
         // necessarily a member of its Project.
@@ -705,7 +501,9 @@ export function registerTools(deps: ToolDeps): void {
         ].join('\n'), {
           siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
           status: site.status, degraded: site.status === 'live' && site.lastError !== null,
-          sourceDir: project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel,
+          sourceDir: site.kind === 'static'
+            ? project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel
+            : null,
           basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
           guests, currentReleaseId: site.currentReleaseId,
           ...(certificate ? { certificate } : {}),
@@ -730,12 +528,11 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteUpdate',
     label: 'Update a site',
-    description: 'Change a site\'s title, summary, router behaviour or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
+    description: 'Change a site\'s title, summary or visibility. Visibility cannot be set to public here: making a site readable by anyone is confirmed by a person in the Sites screen.',
     parameters: Type.Object({
       site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }),
       title: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
       summary: Type.Optional(Type.String({ maxLength: 400 })),
-      spa: Type.Optional(Type.Boolean()),
       visibility: Type.Optional(Type.Union(
         [Type.Literal('private'), Type.Literal('project'), Type.Literal('authenticated')],
       )),
@@ -747,7 +544,6 @@ export function registerTools(deps: ToolDeps): void {
         const patch: Parameters<SitesStore['updateSite']>[1] = {};
         if (input.title !== undefined) patch.title = input.title.trim();
         if (input.summary !== undefined) patch.summary = input.summary.trim();
-        if (input.spa !== undefined) patch.spa = input.spa;
         const nextVisibility = input.visibility as Visibility | undefined;
         if (nextVisibility !== undefined && !(VISIBILITIES as readonly string[]).includes(nextVisibility)) {
           throw new ToolError('Unknown visibility.');
@@ -843,14 +639,16 @@ export function registerTools(deps: ToolDeps): void {
   ctx.registerTool(defineTool({
     name: 'SiteDelete',
     label: 'Delete a site',
-    description: 'Remove a site: the address stops working and every release is deleted. The source folder in the Project is left untouched.',
+    description: 'Remove a site: the address stops working and retained legacy file releases are deleted. The managed Project and its application are left untouched.',
     parameters: Type.Object({ site: Type.String({ description: 'Which site: its slug (as shown in the address and in SiteList) or its id. Both work.' }) }),
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
         const site = requireOwned(deps, input.site, userId);
         await deps.deleteSite(site.id);
-        return text(`Deleted "${site.title}". Its Project source folder ${site.sourceRel} was left in place.`);
+        return text(site.kind === 'proxy'
+          ? `Deleted "${site.title}". Its managed Project and application were left in place.`
+          : `Deleted "${site.title}". Its retained file releases were removed; the Project source ${site.sourceRel} was left in place.`);
       } catch (error) {
         throw isRefusal(error) ? error : new Error(String(error));
       }

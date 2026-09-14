@@ -10,6 +10,7 @@ import { registerTools } from './tools.js';
 import { SiteGatewayManager } from './gateway.js';
 import { deleteSiteResources } from './deletion.js';
 import { ProjectPreviewService } from './preview.js';
+import { SitePreviewImageService } from './previewImage.js';
 import { ProjectPublicationService } from './publication.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
@@ -62,6 +63,7 @@ export function register(published) {
         accountExists: (userId) => ctx.host.stores().usersRead.list().some((user) => user.id === userId),
         isAdmin: (userId) => ctx.host.stores().usersRead.isAdmin(userId),
         canAccessProject: (userId, projectId) => ctx.host.stores().userProjects.canAccess(userId, projectId),
+        allowPublicSites: () => config().allowPublicSites,
     };
     const people = () => new Map(asUserViews(ctx.host.stores().usersRead.list()).map((user) => [user.id, {
             id: user.id, username: user.username, name: user.name || user.username, avatar: user.avatar,
@@ -111,6 +113,18 @@ export function register(published) {
         store,
         control: () => ctx.control('sandbox'),
         project: id => ctx.host.stores().projects.get(id),
+        siteHost: slug => siteHost(config(), slug),
+        logger: ctx.logger,
+    });
+    /** The picture of each published page, for the register. It renders through the site's own published
+     *  hostname, so it needs nothing from the Project transport itself: what the gateway serves through that
+     *  transport is exactly what a visitor gets. */
+    const previewImages = new SitePreviewImageService({
+        store,
+        siteDir,
+        project: id => ctx.host.stores().projects.get(id),
+        captureControl: () => ctx.control('browserCapture'),
+        config,
         logger: ctx.logger,
     });
     const deleteSite = async (siteId) => {
@@ -205,6 +219,7 @@ export function register(published) {
         store,
         access,
         config,
+        previewImages,
         people,
         projectSlug,
         sourceDisplayPath,
@@ -230,8 +245,8 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     registerTools({
-        ctx, store, access, config, siteDir, releaseDir, deleteSite,
-        publications, people, previews,
+        ctx, store, access, config, deleteSite,
+        publications, people, previews, previewImages,
         certificates: {
             publish: (site) => certificates.publish(site, certificateHost(site)),
             readiness: (site) => certificates.readiness(site, certificateHost(site)),
@@ -281,6 +296,7 @@ export function register(published) {
     });
     ctx.registerBootReconcile(async () => {
         store.pruneTickets(Date.now());
+        store.pruneCaptureGrants(Date.now());
         await cleanupOrphans();
         await cleanupDeletingSites();
     });
@@ -304,6 +320,9 @@ export function register(published) {
     ctx.registerInterval('flush-visits', () => {
         flushHits();
         store.pruneTickets(Date.now());
+        // A grant that was never spent is dead within a minute anyway; sweeping it here keeps the table from
+        // holding tokens for captures that never reached the site.
+        store.pruneCaptureGrants(Date.now());
     }, HIT_FLUSH_MS);
     ctx.logger.info('sites plugin registered');
 }

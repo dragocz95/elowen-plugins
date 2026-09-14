@@ -27,10 +27,10 @@ function hostOnlyCookie(value: string): string {
   return value.split(';').filter((part) => !/^\s*domain\s*=/i.test(part)).join(';');
 }
 
-function withoutCookie(header: string, blockedName: string): string {
+function withoutCookies(header: string, blockedNames: readonly string[]): string {
   return header.split(';').filter((part) => {
     const separator = part.indexOf('=');
-    return separator <= 0 || part.slice(0, separator).trim() !== blockedName;
+    return separator <= 0 || !blockedNames.includes(part.slice(0, separator).trim());
   }).map((part) => part.trim()).filter(Boolean).join('; ');
 }
 
@@ -52,7 +52,11 @@ function projectResponseHeaders(
 
 export class ProxyError extends Error {}
 
-/** Forward a request to an application already running inside the managed Project environment. */
+/** Forward a request to an application already running inside the managed Project environment.
+ *
+ *  `blockedCookieNames` are the cookies this plugin owns and the application must never see: the visitor's
+ *  site session, and the capture session a screenshot of the page runs under. Both prove a right to be
+ *  served by THIS plugin, and neither is something the application inside the Project can interpret. */
 export async function proxyToProject(
   endpoint: Endpoint,
   req: PluginHttpRequest,
@@ -60,7 +64,7 @@ export async function proxyToProject(
   viewer: ProxyViewer,
   limits: ProxyLimits,
   siteRoot: string,
-  blockedCookieName?: string,
+  blockedCookieNames: readonly string[] = [],
 ): Promise<SitesHttpResponse> {
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -68,8 +72,8 @@ export async function proxyToProject(
     const hostOwned = lower === 'host' || lower === 'content-length' || lower === 'forwarded'
       || lower.startsWith('x-forwarded-') || lower.startsWith('x-elowen-');
     if (HOP_BY_HOP_HEADERS.has(lower) || hostOwned) continue;
-    if (lower === 'cookie' && blockedCookieName) {
-      const filtered = withoutCookie(value, blockedCookieName);
+    if (lower === 'cookie' && blockedCookieNames.length > 0) {
+      const filtered = withoutCookies(value, blockedCookieNames);
       if (filtered) headers[lower] = filtered;
     } else {
       headers[lower] = value;

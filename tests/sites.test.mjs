@@ -10,9 +10,9 @@ import {
   mayOpen, mayPublish, normalizeReturnPath, signSession, verifySession, cookieName, readCookies, mintTicket, hashToken,
 } from '../plugins/sites/dist/access.js';
 import { SitesStore } from '../plugins/sites/dist/store.js';
-import { snapshotRelease, resolveWithin, pruneReleases, relativeAssetWarning } from '../plugins/sites/dist/publish.js';
+import { resolveWithin } from '../plugins/sites/dist/releaseFiles.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost, SITE_BASE_PATH } from '../plugins/sites/dist/config.js';
+import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
 import { proxyToProject, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
@@ -65,10 +65,12 @@ const site = (overrides = {}) => ({
 /** Only the store surface an access decision touches. */
 const memberStore = (memberIds = []) => ({ isMember: (_siteId, userId) => memberIds.includes(userId) });
 
-const deps = ({ accounts = [1, 2, 3, 9], admins = [9], projects = {} } = {}) => ({
+const deps = ({ accounts = [1, 2, 3, 9], admins = [9], projects = {}, allowPublicSites = true } = {}) => ({
   accountExists: (userId) => accounts.includes(userId),
   isAdmin: (userId) => admins.includes(userId),
   canAccessProject: (userId, projectId) => (projects[userId] ?? []).includes(projectId),
+  // The instance switch is read per decision, so a test can change it without rebuilding anything.
+  allowPublicSites: () => allowPublicSites,
 });
 
 const tempDir = (label) => mkdtempSync(join(tmpdir(), `sites-${label}-`));
@@ -102,6 +104,24 @@ test('sites manifest and marketplace registry expose the same release', () => {
 test('a public site is open to everyone, including a signed-out visitor', () => {
   const target = site({ visibility: 'public' });
   assert.equal(mayOpen(target, { userId: null, admin: false }, memberStore(), deps()), true);
+});
+
+test('turning public pages off closes the pages that are already public', () => {
+  // The setting is not only a form: an operator who switches it off is closing the pages that are open,
+  // or the switch governs nothing but the moment it was changed. Read per decision, never cached.
+  const publicSite = site({ visibility: 'public' });
+  const closed = deps({ allowPublicSites: false });
+  assert.equal(mayOpen(publicSite, { userId: null, admin: false }, memberStore(), closed), false,
+    'a signed-out visitor is no longer a reader');
+  assert.equal(mayOpen(publicSite, { userId: 2, admin: false }, memberStore(), closed), false,
+    'and neither is an unrelated signed-in account');
+  assert.equal(mayOpen(publicSite, { userId: 1, admin: false }, memberStore(), closed), true, 'the owner still is');
+  assert.equal(mayOpen(publicSite, { userId: 9, admin: false }, memberStore(), closed), true, 'so is an administrator');
+  assert.equal(mayOpen(publicSite, { userId: 3, admin: false }, memberStore([3]), closed), true, 'and a named guest');
+
+  // With the switch on, nothing about the other rules changes.
+  const open = deps({ allowPublicSites: true });
+  assert.equal(mayOpen(publicSite, { userId: null, admin: false }, memberStore(), open), true);
 });
 
 test('a private site admits only its owner and an administrator', () => {
@@ -267,88 +287,6 @@ test('forgetting a removed account reports every site whose access changed', () 
 
 // ── publishing ───────────────────────────────────────────────────────────────────────────────────
 
-test('a snapshot copies the output and refuses what it must not follow', (t) => {
-  const source = tempDir('src');
-  const release = tempDir('rel');
-  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
-
-  writeFileSync(join(source, 'index.html'), '<!doctype html><title>ok</title>');
-  writeFileSync(join(source, 'app.css'), 'body{color:red}');
-  mkdirSync(join(source, 'node_modules'));
-  writeFileSync(join(source, 'node_modules', 'huge.js'), 'x');
-  const secret = join(source, 'secret.txt');
-  writeFileSync(secret, 'not for publishing');
-  symlinkSync('/etc/passwd', join(source, 'escape.html'));
-
-  const result = snapshotRelease(source, join(release, 'r1'), { maxAssetBytes: 1048576, maxTotalBytes: 10485760 });
-
-  assert.equal(result.fileCount, 3, 'index.html, app.css and secret.txt; node_modules is skipped');
-  assert.ok(result.warnings.some((line) => line.includes('symlink')), 'the symlink is reported, not followed');
-  assert.throws(() => readFileSync(join(release, 'r1', 'escape.html')), 'the symlink target was not copied');
-});
-
-test('a release file larger than the copy buffer is copied whole', (t) => {
-  // The copier used to allocate one buffer the size of the file, which is the other half of the memory
-  // ceiling: a release may now hold an asset far larger than the daemon's heap.
-  const source = tempDir('big-src');
-  const release = tempDir('big-rel');
-  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
-
-  const bytes = Buffer.alloc(9 * 1048576);
-  for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251; // not uniform: a short copy would show
-  // Exactly two whole chunks: the loop has to stop on the size it was given rather than on a short read.
-  const aligned = Buffer.alloc(8 * 1048576, 0x41);
-  writeFileSync(join(source, 'index.html'), '<!doctype html><title>ok</title>');
-  writeFileSync(join(source, 'movie.mp4'), bytes);
-  writeFileSync(join(source, 'aligned.mp4'), aligned);
-  writeFileSync(join(source, 'empty.css'), '');
-
-  const target = join(release, 'r1');
-  const result = snapshotRelease(source, target, { maxAssetBytes: 64 * 1048576, maxTotalBytes: 128 * 1048576 });
-  assert.equal(result.fileCount, 4);
-  assert.deepEqual(readFileSync(join(target, 'movie.mp4')), bytes);
-  assert.deepEqual(readFileSync(join(target, 'aligned.mp4')), aligned);
-  assert.equal(readFileSync(join(target, 'empty.css')).length, 0, 'an empty file survives the chunked copy');
-  assert.equal(result.sizeBytes, bytes.length + aligned.length + 32);
-});
-
-test('a snapshot refuses a file above the configured ceiling', (t) => {
-  const source = tempDir('big');
-  const release = tempDir('bigrel');
-  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(release, { recursive: true, force: true }); });
-  writeFileSync(join(source, 'index.html'), 'x'.repeat(2048));
-  assert.throws(
-    () => snapshotRelease(source, join(release, 'r1'), { maxAssetBytes: 1024, maxTotalBytes: 10485760 }),
-    /above the per-file limit/,
-  );
-});
-
-test('relative asset references are reported rather than rewritten', (t) => {
-  const release = tempDir('warn');
-  t.after(() => rmSync(release, { recursive: true, force: true }));
-  const html = '<!doctype html><script src="./assets/app.js"></script>';
-  writeFileSync(join(release, 'index.html'), html);
-  // A site owns the root of its own hostname, so the base path handed to a build is always '/'. The
-  // warning still matters: a relative reference resolves against the address the visitor opened, so it
-  // survives the root and 404s on every deeper route.
-  assert.match(relativeAssetWarning(release, SITE_BASE_PATH), /base path \//);
-  assert.equal(readFileSync(join(release, 'index.html'), 'utf8'), html, 'the output is left exactly as built');
-});
-
-test('retention never removes the release a site is serving', () => {
-  const store = new SitesStore(makeDb());
-  const dir = tempDir('prune');
-  store.insertSite(site());
-  for (const id of ['rel-1', 'rel-2', 'rel-3', 'rel-4']) {
-    store.insertRelease({ id, siteId: 'site-1', createdAt: new Date(Date.parse('2026-01-01') + Number(id.slice(4)) * 1000).toISOString(), model: '', fileCount: 1, sizeBytes: 1, note: '' });
-  }
-  pruneReleases(store, 'site-1', dir, 2, 'rel-1');
-  const kept = store.releases('site-1').map((release) => release.id);
-  assert.ok(kept.includes('rel-1'), 'the live release survives retention');
-  assert.equal(kept.length, 2);
-  rmSync(dir, { recursive: true, force: true });
-});
-
 test('a request path cannot escape the release directory', (t) => {
   const release = tempDir('within');
   t.after(() => rmSync(release, { recursive: true, force: true }));
@@ -434,6 +372,28 @@ test('an unknown slug and a slug you may not see answer identically', async (t) 
   assert.equal(unknownFetch.status, 404);
   assert.equal(forbiddenFetch.status, 404);
   assert.equal(unknownFetch.body, forbiddenFetch.body);
+});
+
+test('the method a static release refuses is decided after access, not before it', async (t) => {
+  // Answering 405 to a stranger who guessed the slug would confirm the address is published and which kind
+  // it is — a directory of the instance, which is exactly what the identical-bounce rule exists to prevent.
+  // So the refusal comes after access, where only a reader who may open the page ever sees it.
+  const { handler, store } = serveHarness(t, { visibility: 'private' });
+  const stranger = await handler(request('demo-abc123/', { method: 'POST', body: async () => Buffer.from('x=1') }));
+  const unknownSlug = await handler(request('never-taken-000000/', { method: 'POST', body: async () => Buffer.from('x=1') }));
+  assert.equal(stranger.status, 404);
+  assert.equal(stranger.status, unknownSlug.status);
+  assert.equal(stranger.body, unknownSlug.body);
+
+  // A reader who may open the page is told what a file release answers to.
+  store.addMember('site-1', 3);
+  const member = await handler(request('demo-abc123/', {
+    method: 'POST',
+    body: async () => Buffer.from('x=1'),
+    headers: { cookie: `${cookieName('site-1')}=${signSession('serve-secret', { u: 3, g: 1, e: Date.now() + 60_000 })}` },
+  }));
+  assert.equal(member.status, 405);
+  assert.equal(member.headers.allow, 'GET, HEAD');
 });
 
 test('a site marked for deletion is a flat tombstone, not a sign-in bounce', async (t) => {
@@ -767,33 +727,25 @@ test('a Project application answering with more than the limit is refused, not t
 test('configuration is re-validated, because the settings API validates nothing', () => {
   const config = resolveConfig({
     defaultVisibility: 'public',
-    maxAssetMb: 99999,
-    maxSiteMb: -3,
+    maxSitesPerAccount: 9999,
     sessionTtlHours: 'nonsense',
-    releasesKept: 0,
     publishers: 'whatever',
   }, 'https://elowen.example');
 
   assert.equal(config.defaultVisibility, 'private', 'public is not an allowed default');
-  assert.equal(config.maxAssetBytes, 99999 * 1048576, 'inside the declared maximum, which is now the disk');
-  assert.equal(config.maxSiteBytes, 1048576, 'clamped to the declared minimum');
+  assert.equal(config.maxSitesPerAccount, 500);
   assert.equal(config.sessionTtlHours, 12);
-  assert.equal(config.releasesKept, 1);
   assert.equal(config.publishers, 'everyone');
   assert.equal(config.proxyRequestTimeoutSeconds, 15);
   assert.equal(config.maxProxyResponseBytes, 8 * 1048576);
 });
 
-test('the largest-file ceiling and the settings field agree, and both are disk-sized', () => {
+test('retired file-publication limits are absent from config and the settings form', () => {
   const manifest = JSON.parse(readFileSync(new URL('../plugins/sites/elowen-plugin.json', import.meta.url), 'utf8'));
-  const field = manifest.configSchema.find((entry) => entry.key === 'maxAssetMb');
-  // A field the form allows but the plugin clamps away is a setting that silently does nothing, so the
-  // two ceilings are asserted against each other rather than each against a literal.
-  assert.equal(field.max, 1048576);
-  assert.equal(resolveConfig({ maxAssetMb: field.max }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
-  assert.equal(resolveConfig({ maxAssetMb: field.max + 1 }, 'https://elowen.example').maxAssetBytes, field.max * 1048576);
-  // Nothing buffers a published file any more, so the per-file ceiling is no smaller than the per-site one.
-  assert.ok(field.max >= manifest.configSchema.find((entry) => entry.key === 'maxSiteMb').max);
+  const retired = ['maxAssetMb', 'maxSiteMb', 'releasesKept'];
+  assert.deepEqual(manifest.configSchema.filter((entry) => retired.includes(entry.key)), []);
+  const config = resolveConfig({ maxAssetMb: 1, maxSiteMb: 1, releasesKept: 1 }, 'https://elowen.example');
+  for (const key of ['maxAssetBytes', 'maxSiteBytes', 'releasesKept']) assert.equal(key in config, false);
 });
 
 test('every site gets the root of the gateway hostname derived by core', () => {
@@ -863,6 +815,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
     id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', status: 'live',
     currentReleaseId: null, lastError: 'The validated container is not running',
   }));
+  store.insertRelease({ id: 'stale-release', siteId: 'api-proxy', createdAt: new Date().toISOString(), model: 'old', fileCount: 1, sizeBytes: 1, note: '' });
   const handlers = createApiHandlers({
     store,
     access: deps(),
@@ -882,10 +835,16 @@ test('site API exposes an unhealthy live publication and its concrete error with
   const response = await handlers.list({ ...request, path: '' });
   assert.equal(response.body.mine[0].status, 'live');
   assert.equal(response.body.mine[0].degraded, true);
+  assert.equal('spa' in response.body.mine[0], false, 'the retired file-router switch is not a public field');
 
   const detail = await handlers.site({ ...request, path: 'api-proxy' });
   assert.equal(detail.status, 200);
   assert.equal(detail.body.lastError, 'The validated container is not running');
+  assert.equal(detail.body.sourceDir, null, 'a proxy publication owns no copied source directory');
+  assert.deepEqual(detail.body.releases, [], 'stale legacy rows cannot become a second proxy release model');
+  const rollback = await handlers.site({ ...request, method: 'POST', path: 'api-proxy/rollback', json: async () => ({ releaseId: 'stale-release' }) });
+  assert.equal(rollback.status, 409);
+  assert.equal(store.siteById('api-proxy').currentReleaseId, null);
 });
 
 // ── the tool surface ─────────────────────────────────────────────────────────────────────────────
@@ -894,13 +853,12 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, workDir, projectFiles, publications, certificates } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
   const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
-  // Three levels down from the Project root on purpose: an agent is almost never standing exactly on it.
-  mkdirSync(join(dir, 'project', 'deep', 'nested'), { recursive: true });
+  mkdirSync(join(dir, 'project'), { recursive: true });
   const roots = projects ?? [{ id: 7, slug: 'demo', path: join(dir, 'project') }];
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -914,22 +872,16 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     currentContributionUserId: () => 1,
     currentIdentity: () => ({ elowenUserId: 1 }),
     currentSessionId: () => 'session-1',
-    workDir: () => workDir ?? join(dir, 'project', 'deep', 'nested'),
-    assertPathAllowed: (path) => path,
     currentAccess: () => ({ projectIds: [7], admin: false, owner: false, accountUserId: 1, projectRef }),
-    control: () => (sandboxAvailable || projectFiles
-      ? { activeWorkspace: () => null, ...(projectFiles ? { projectFiles } : {}) }
-      : undefined),
+    control: () => sandboxAvailable ? { activeWorkspace: () => null } : undefined,
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
   registerTools({
     ctx,
     store,
-    access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true },
+    access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
     people: () => new Map(accounts.map((person) => [person.id, person])),
-    siteDir: (id) => join(dir, 'sites', id),
-    releaseDir: (id, releaseId) => join(dir, 'sites', id, releaseId),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
     // A test that does not stub the publication transport must FAIL loudly if it reaches for one: the
     // default refuses, so a static path that suddenly asked for a transport would not pass quietly.
@@ -949,81 +901,106 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
   return { store, dir, registered, call: (name, input) => registered.get(name).execute('call-1', input ?? {}) };
 };
 
-test('SiteCreate offers only static and managed Project proxy publication', (t) => {
+/** A publication of the one model there is now: an application inside a managed Project, reached on a
+ *  port. The transport and the certificate are stubbed per test, so a publish test asserts the publish. */
+const managedPublication = (store, overrides = {}) => store.insertSite(site({
+  id: 'pub-1', slug: 'demo-abc123', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
+  sourceRel: '', currentReleaseId: null, status: 'draft', lastPublishAt: null, ...overrides,
+}));
+
+const answeringTransport = {
+  establish: async () => ({ socketPath: '/run/elowen-publication.sock', generation: 4 }),
+  probe: async () => ({ answered: true, status: 200, detail: 'GET / answered 200' }),
+  adopt: () => {},
+};
+
+const activeManagedProject = [{ id: 7, slug: 'demo', path: '/host/demo', executionKind: 'managed', lifecycle: 'active' }];
+
+test('SiteCreate offers one publication model: a managed Project target port', (t) => {
   const harness = toolHarness(t);
-  const tools = harness.registered;
-  const properties = tools.get('SiteCreate').parameters.properties;
+  const properties = harness.registered.get('SiteCreate').parameters.properties;
   assert.equal('runtime' in properties, false);
-  assert.deepEqual(properties.kind.anyOf.map((entry) => entry.const), ['static', 'proxy']);
-  assert.equal(tools.has('SiteLogs'), false);
+  // The retired file model's own switches are gone: no kind to choose, no client-side router flag, and no
+  // output directory for a copy that no longer happens.
+  assert.equal('kind' in properties, false);
+  assert.equal('spa' in properties, false);
+  assert.equal('spa' in harness.registered.get('SiteUpdate').parameters.properties, false);
+  assert.equal('outputDir' in harness.registered.get('SitePublish').parameters.properties, false);
+  assert.ok(properties.target, 'the port inside the Project is the whole target, so it is required');
+  assert.equal(harness.registered.has('SiteLogs'), false);
 });
 
 test('a created site tells the agent the identifier the other tools demand', async (t) => {
   // The whole failure in one assertion: an agent can only publish what SiteCreate named.
-  const harness = toolHarness(t);
-  const created = await harness.call('SiteCreate', { title: 'Provozní přehled' });
+  const harness = toolHarness(t, {
+    projects: activeManagedProject, projectRef: { kind: 'managed', projectId: 7 }, sandboxAvailable: true,
+  });
+  const created = await harness.call('SiteCreate', { title: 'Provozní přehled', target: '3000' });
   const body = created.content[0].text;
   assert.ok(created.details.siteId, 'the id must be a structured field, not something to parse out of prose');
   assert.match(body, new RegExp(created.details.siteId), 'and it must be visible in the text too');
   assert.equal(created.details.slug, created.details.slug.toLowerCase());
+  assert.equal(created.details.kind, 'proxy');
+  assert.equal(created.details.target, '3000');
+  assert.equal(harness.store.siteById(created.details.siteId).sourceRel, '',
+    'nothing is copied, so the row owns no folder');
 });
 
-test('SiteCreate refuses a file-published site with no address before creating anything', async (t) => {
-  // The refusal used to fire while building the SUCCESS text, after the row and folder existed: the
-  // agent read a failure while every retry leaked another site towards the per-account limit.
-  const harness = toolHarness(t, { gatewayHost: null });
-  await assert.rejects(() => harness.call('SiteCreate', { title: 'No address here' }), /HTTPS domain/);
-  assert.deepEqual(harness.store.allSites(), [], 'a refused create must not persist a site row');
-  assert.equal(existsSync(join(harness.dir, 'project', 'sites')), false, 'not even the source folder may appear');
-});
-
-test('SiteCreate builds a managed Project site folder under the guest root the Project is mounted at', async (t) => {
-  // A managed Project is mounted at its own name (`/<slug>`), never at `/workspace`: that name is
-  // reserved and no such directory exists in the Project container, so a folder built under it landed
-  // outside the Project the agent was told to write into, and the publish export looked in the Project
-  // root for a tree that was never there. The turn's working directory IS the Project guest root (core's
-  // `managedGuestRoot` in src/shared/projectExecution.ts, resolved by `effectiveTurnWorkDir`).
-  const created = [];
-  const harness = toolHarness(t, {
-    projects: [{ id: 7, slug: 'Kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    projectRef: { kind: 'managed', projectId: 7 },
-    workDir: '/kolin',
-    projectFiles: async ({ operation }) => {
-      created.push(operation.path);
-      return { kind: 'mkdir', entry: { path: operation.path, kind: 'directory', sizeBytes: 0, modifiedAt: '2026-09-10T00:00:00.000Z' } };
+test('SiteCreate refuses a host Project, a stopped Project or an unusable port before creating anything', async (t) => {
+  for (const entry of [
+    {
+      label: 'a host Project has no environment to publish from',
+      projects: [{ id: 7, slug: 'demo', path: '/host/demo', executionKind: 'host', lifecycle: 'active' }],
+      input: { title: 'Host project', target: '3000' },
+      expected: /host Project/i,
     },
-  });
-
-  const result = await harness.call('SiteCreate', { title: 'Kontrolní panel' });
-  const expected = `/kolin/sites/${result.details.slug}`;
-  assert.deepEqual(created, [expected], 'the source folder is created inside the Project root');
-  assert.equal(harness.store.siteById(result.details.siteId).sourceRel, `sites/${result.details.slug}`,
-    'and the row records it Project-relatively, so the guest root is resolved rather than stored');
-  assert.match(result.content[0].text, new RegExp(expected), 'and the agent is told to write there');
+    {
+      label: 'a Project that is not running has no application to publish',
+      projects: [{ id: 7, slug: 'demo', path: '/host/demo', executionKind: 'managed', lifecycle: 'stopped' }],
+      input: { title: 'Stopped project', target: '3000' },
+      expected: /is not running/i,
+    },
+    {
+      label: 'a target that is not a port inside the Project',
+      projects: activeManagedProject,
+      input: { title: 'Bad target', target: 'http://127.0.0.1:3000/' },
+      expected: /target must be the TCP port/,
+    },
+  ]) {
+    const harness = toolHarness(t, {
+      projects: entry.projects, projectRef: { kind: 'managed', projectId: 7 }, sandboxAvailable: true,
+    });
+    await assert.rejects(() => harness.call('SiteCreate', entry.input), entry.expected, entry.label);
+    assert.deepEqual(harness.store.allSites(), [], `${entry.label}: a refused create must not persist a row`);
+  }
 });
 
-test('SitePublish refuses a removed Project without interpreting its guest source as a host path', async (t) => {
-  const harness = toolHarness(t, { projects: [] });
-  harness.store.insertSite(site({ sourceRel: 'sites/deleted-project' }));
-  await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /source Project no longer exists/);
-  assert.equal(harness.store.releases('site-1').length, 0);
+test('SiteCreate refuses a publication with no managed Project selected, and creates nothing', async (t) => {
+  const harness = toolHarness(t, { projectRef: undefined, sandboxAvailable: true });
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'Nowhere', target: '3000' }), /select that Project/);
+  assert.deepEqual(harness.store.allSites(), []);
+});
+
+test('SitePublish refuses a row from the retired file model instead of reviving a copy path', async (t) => {
+  // The row keeps serving the files it already has, and there is no way to make it publish again: with no
+  // copier in the plugin, a publish that fell through to one would be publishing nothing at all.
+  const harness = toolHarness(t);
+  harness.store.insertSite(site({ sourceRel: 'sites/old-build' }));
+  await assert.rejects(() => harness.call('SitePublish', { site: 'site-1' }), /retired model/);
+  assert.equal(harness.store.releases('site-1').length, 0, 'nothing is copied');
+  assert.equal(harness.store.siteById('site-1').status, 'live', 'and the row is left exactly as it was');
 });
 
 test('SitePublish never reports the new address as one that already answers', async (t) => {
-  // The release is written and the row is live before ANY certificate exists for the hostname: issuance
-  // happens afterwards, in the daemon's own gateway sweep, which a forked tool runner can neither call
-  // nor observe. Reporting "Live at <address>" therefore sent the reader to a hostname still answered by
-  // the catch-all 443 block holding another site's certificate, which a browser rejects outright with
-  // ERR_CERT_COMMON_NAME_INVALID — a working publication that reads as a broken product.
-  const harness = toolHarness(t);
-  const sourceDir = join(harness.dir, 'project', 'static-site');
-  mkdirSync(sourceDir, { recursive: true });
-  writeFileSync(join(sourceDir, 'index.html'), '<!doctype html><title>ok</title>');
-  harness.store.insertSite(site({
-    sourceRel: 'static-site', status: 'draft', currentReleaseId: null, lastPublishAt: null,
-  }));
+  // The row is live before ANY certificate exists for the hostname: issuance happens afterwards, in the
+  // daemon's own gateway sweep, which a forked tool runner can neither call nor observe. Reporting
+  // "Live at <address>" therefore sent the reader to a hostname still answered by the catch-all 443 block
+  // holding another site's certificate, which a browser rejects with ERR_CERT_COMMON_NAME_INVALID — a
+  // working publication that reads as a broken product.
+  const harness = toolHarness(t, { publications: answeringTransport });
+  managedPublication(harness.store);
 
-  const published = await harness.call('SitePublish', { site: 'site-1' });
+  const published = await harness.call('SitePublish', { site: 'pub-1' });
   const body = published.content[0].text;
 
   assert.equal(published.details.url, 'https://demo-abc123.sites.elowen.example/');
@@ -1034,17 +1011,15 @@ test('SitePublish never reports the new address as one that already answers', as
 
 test('SitePublish presents the address as usable only against a verified certificate', async (t) => {
   const harness = toolHarness(t, {
+    publications: answeringTransport,
     certificates: {
       publish: async () => ({ state: 'ready', detail: 'the gateway serves a certificate for demo-abc123.sites.elowen.example' }),
       readiness: async () => ({ state: 'ready', detail: 'verified' }),
     },
   });
-  const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
-  mkdirSync(sourceDir, { recursive: true });
-  writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
-  harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+  managedPublication(harness.store);
 
-  const published = await harness.call('SitePublish', { site: 'site-1' });
+  const published = await harness.call('SitePublish', { site: 'pub-1' });
 
   assert.equal(published.details.certificate.state, 'ready');
   assert.match(published.content[0].text, /^Address: https:\/\/demo-abc123\.sites\.elowen\.example\/$/m);
@@ -1057,14 +1032,12 @@ test('SitePublish never announces a plain address while the certificate is unver
     { state: 'error', detail: 'certbot failed: too many failed authorizations recently' },
   ]) {
     const harness = toolHarness(t, {
+      publications: answeringTransport,
       certificates: { publish: async () => certificate, readiness: async () => certificate },
     });
-    const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
-    mkdirSync(sourceDir, { recursive: true });
-    writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
-    harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+    managedPublication(harness.store);
 
-    const published = await harness.call('SitePublish', { site: 'site-1' });
+    const published = await harness.call('SitePublish', { site: 'pub-1' });
     const text = published.content[0].text;
 
     // The whole defect: a bare address line reads as a working HTTPS page, and until the certificate is
@@ -1092,25 +1065,16 @@ test('the pending certificate line ends in exactly one full stop', async (t) => 
   ]) {
     const certificate = { state: 'pending', detail };
     const harness = toolHarness(t, {
+      publications: answeringTransport,
       certificates: { publish: async () => certificate, readiness: async () => certificate },
     });
-    const sourceDir = join(harness.dir, 'project', 'sites', 'demo-abc123');
-    mkdirSync(sourceDir, { recursive: true });
-    writeFileSync(join(sourceDir, 'index.html'), '<html><body>ok</body></html>');
-    harness.store.insertSite(site({ sourceRel: 'sites/demo-abc123', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
+    managedPublication(harness.store);
 
-    const published = await harness.call('SitePublish', { site: 'site-1' });
+    const published = await harness.call('SitePublish', { site: 'pub-1' });
     const line = published.content[0].text.split('\n').find((candidate) => candidate.startsWith('Certificate pending:'));
 
     assert.equal(line, expected);
   }
-});
-
-test('SitePublish cannot cross the selected managed Project through another owned Site', async (t) => {
-  const harness = toolHarness(t, { projectRef: { kind: 'managed', projectId: 99 } });
-  harness.store.insertSite(site({ sourceRel: 'sites/other-project' }));
-  await assert.rejects(harness.call('SitePublish', { site: 'site-1' }), /outside the selected managed Project/);
-  assert.equal(harness.store.releases('site-1').length, 0);
 });
 
 test('SiteList reports what each row records about its certificate, and probes nothing to do it', async (t) => {
@@ -1224,17 +1188,18 @@ test('sharing with somebody who does not exist fails with the roster', async (t)
   await assert.rejects(() => call('SiteShare', { site: 'report-a1b2c3', person: 'nobody' }), /josef\.kvitek/);
 });
 
-test('a model that echoes every supported optional property still creates and updates a static site', async (t) => {
-  const { store, call } = toolHarness(t);
+test('a model that echoes every supported optional property still creates a publication', async (t) => {
+  const { store, call } = toolHarness(t, {
+    projects: activeManagedProject, projectRef: { kind: 'managed', projectId: 7 }, sandboxAvailable: true,
+  });
   const created = await call('SiteCreate', {
-    _reason: '', title: 'Provozní přehled', summary: '', visibility: 'private', spa: false,
-    kind: 'static', target: '',
+    _reason: '', title: 'Provozní přehled', summary: '', visibility: 'private', target: '8080',
   });
   const stored = store.siteById(created.details.siteId);
-  assert.equal(stored.kind, 'static');
-  assert.equal(stored.target, '');
+  assert.equal(stored.kind, 'proxy');
+  assert.equal(stored.target, '8080');
 
-  await call('SiteUpdate', { site: created.details.siteId, title: 'Nový název', summary: '', spa: false });
+  await call('SiteUpdate', { site: created.details.siteId, title: 'Nový název', summary: '' });
   assert.equal(store.siteById(created.details.siteId).title, 'Nový název');
 });
 
@@ -1278,6 +1243,14 @@ test('SiteDelete uses the shared cascading cleanup and leaves the Project source
 // the transport instead of copying files, and the serving path that must reach the same socket a
 // visitor's request would.
 
+test('SiteDelete describes a proxy publication without inventing a source folder', async (t) => {
+  const { store, call } = toolHarness(t);
+  store.insertSite(site({ id: 'proxy-delete', slug: 'proxy-delete-a1b2c3', ownerUserId: 1, kind: 'proxy', target: '3000', sourceRel: '', currentReleaseId: null }));
+  const deleted = await call('SiteDelete', { site: 'proxy-delete-a1b2c3' });
+  assert.match(deleted.content[0].text, /managed Project and application were left in place/);
+  assert.doesNotMatch(deleted.content[0].text, /source folder/);
+});
+
 test('a row written before the publication model is a static publication', () => {
   const db = makeDb();
   const store = new SitesStore(db);
@@ -1314,15 +1287,14 @@ test('a proxy publication round trips its kind and port, and only live or failed
   assert.deepEqual(store.proxySitesForReconcile().map((entry) => entry.id), ['proxy-1'], 'a failed publish recovers');
 });
 
-test('a model that echoes every supported optional property still creates a proxy publication', async (t) => {
+test('the declared SiteCreate inputs create only a proxy publication', async (t) => {
   const harness = toolHarness(t, {
     projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
     projectRef: { kind: 'managed', projectId: 7 },
     sandboxAvailable: true,
   });
   const created = await harness.call('SiteCreate', {
-    _reason: '', title: 'Provozní aplikace', summary: '', visibility: 'private', spa: false,
-    kind: 'proxy', target: '3000',
+    _reason: '', title: 'Provozní aplikace', summary: '', visibility: 'private', target: '3000',
   });
 
   const stored = harness.store.siteById(created.details.siteId);
@@ -1335,66 +1307,36 @@ test('a model that echoes every supported optional property still creates a prox
   assert.match(created.content[0].text, /kolin/);
 });
 
-test('a proxy publication is refused without a usable port or a managed Project', async (t) => {
-  const managed = {
-    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    projectRef: { kind: 'managed', projectId: 7 },
-    sandboxAvailable: true,
-  };
-  const harness = toolHarness(t, managed);
-  await assert.rejects(() => harness.call('SiteCreate', { title: 'No port', kind: 'proxy' }), /needs target/);
-  await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', kind: 'proxy', target: '0' }), /needs target/);
-  await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', kind: 'proxy', target: 'http' }), /needs target/);
-  await assert.rejects(
-    () => harness.call('SiteCreate', { title: 'Static with a port', target: '3000' }),
-    /target is only for a proxy publication/,
-  );
-  // A host Project has no environment to publish from, so the refusal comes before anything is written.
-  const hostProject = toolHarness(t, {
-    projects: [{ id: 7, slug: 'wemx', path: '/host/wemx', executionKind: 'host', lifecycle: 'active' }],
-    projectRef: { kind: 'managed', projectId: 7 },
-    sandboxAvailable: true,
+test('a publication is refused without a usable port inside a managed Project', async (t) => {
+  const harness = toolHarness(t, {
+    projects: activeManagedProject, projectRef: { kind: 'managed', projectId: 7 }, sandboxAvailable: true,
   });
-  await assert.rejects(() => hostProject.call('SiteCreate', { title: 'Host', kind: 'proxy', target: '3000' }), /managed Project/);
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'No port', target: '' }), /target must be the TCP port/);
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', target: '0' }), /target must be the TCP port/);
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', target: 'http' }), /target must be the TCP port/);
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'Bad port', target: '70000' }), /target must be the TCP port/);
   assert.deepEqual(harness.store.allSites(), [], 'a refused create persists nothing');
 });
 
-test('SiteCreate names the Sandbox plugin when it is off, on both paths that cannot do without it', async (t) => {
+test('SiteCreate names the Sandbox plugin when it is off, on the one path that cannot do without it', async (t) => {
   // Sites declares `requiresControls: ['sandbox']`, so this is the reload window between the daemon
   // refusing to enable Sites without a provider and refusing to switch that provider off underneath it.
-  // Both paths used to say "The Sandbox environment runtime is unavailable", which reads as a broken
+  // The refusal used to say "The Sandbox environment runtime is unavailable", which reads as a broken
   // container rather than as a switch somebody turned off.
-  const proxy = toolHarness(t, {
-    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    projectRef: { kind: 'managed', projectId: 7 },
-    sandboxAvailable: false,
+  const harness = toolHarness(t, {
+    projects: activeManagedProject, projectRef: { kind: 'managed', projectId: 7 }, sandboxAvailable: false,
   });
   await assert.rejects(
-    () => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }),
+    () => harness.call('SiteCreate', { title: 'Publication', target: '3000' }),
     /Sandbox plugin, which is not enabled[\s\S]*Settings › Plugins/,
   );
-
-  // A managed source folder is created THROUGH the Sandbox, so a file publication out of one is the
-  // second path with no fallback of its own.
-  const managedSource = toolHarness(t, {
-    projects: [{ id: 7, slug: 'kolin', path: '/host/kolin', executionKind: 'managed', lifecycle: 'active' }],
-    projectRef: { kind: 'managed', projectId: 7 },
-    workDir: '/kolin',
-    sandboxAvailable: false,
-  });
-  await assert.rejects(
-    () => managedSource.call('SiteCreate', { title: 'Static' }),
-    /Sandbox plugin, which is not enabled/,
-  );
-
   // The refusal must arrive as itself. The tool wraps an unexpected failure in "Could not create the
   // site:", which would bury the one sentence naming what to switch on.
-  await assert.rejects(() => proxy.call('SiteCreate', { title: 'Proxy', kind: 'proxy', target: '3000' }), (error) => {
+  await assert.rejects(() => harness.call('SiteCreate', { title: 'Publication', target: '3000' }), (error) => {
     assert.doesNotMatch(error.message, /Could not create the site/);
     return true;
   });
-  assert.deepEqual(proxy.store.allSites(), [], 'a refused create persists nothing');
-  assert.deepEqual(managedSource.store.allSites(), []);
+  assert.deepEqual(harness.store.allSites(), [], 'a refused create persists nothing');
 });
 
 test('SitePublish verifies a proxy publication through the transport and flips it live', async (t) => {
@@ -1527,6 +1469,7 @@ test('the retired per-site lifecycle tools and update fields are absent', async 
   assert.equal('environmentCpus' in update, false);
   assert.equal('environmentMemoryMb' in update, false);
   assert.equal('environmentPidsLimit' in update, false);
+  assert.equal('spa' in update, false);
 
   harness.store.insertSite(site({ id: 'proxy-5', slug: 'proxy-e1b2c3', kind: 'proxy', target: '3000', status: 'live', currentReleaseId: null }));
   await assert.rejects(() => harness.call('SiteRollback', { site: 'proxy-e1b2c3', releaseId: 'rel-1' }), /no file releases/);
@@ -1596,7 +1539,8 @@ test('the publication service establishes, probes and releases one transport per
   const dir = tempDir('publication-service');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const socketPath = join(dir, 'pub.sock');
-  const application = createServer((_req, res) => { res.writeHead(204); res.end(); });
+  const hosts = [];
+  const application = createServer((req, res) => { hosts.push(req.headers.host); res.writeHead(204); res.end(); });
   await new Promise((resolve, reject) => { application.once('error', reject); application.listen(socketPath, resolve); });
   t.after(() => new Promise((resolve) => application.close(resolve)));
 
@@ -1613,6 +1557,7 @@ test('the publication service establishes, probes and releases one transport per
       projectPublicationRelease: async (input) => { calls.push(['release', input]); },
     }),
     project: () => ({ executionKind: 'managed', lifecycle: 'active' }),
+    siteHost: (slug) => `${slug}.sites.example`,
   });
 
   // A publish creates the durable record, and the seam refuses to write one for nobody: the account that
@@ -1622,9 +1567,10 @@ test('the publication service establishes, probes and releases one transport per
     project: { kind: 'managed', projectId: 7 }, accountUserId: 1, publicationId: 'pub-1', port: 3000,
   }]);
   assert.equal(binding.socketPath, socketPath);
-  const probe = await service.probe(socketPath);
+  const probe = await service.probe(socketPath, { host: 'pub-a1b2c3.sites.example' });
   assert.equal(probe.answered, true);
   assert.equal(probe.status, 204);
+  assert.deepEqual(hosts, ['pub-a1b2c3.sites.example'], 'the probe presents the Host a visitor reaches the site on');
   assert.equal((await service.probe(join(dir, 'gone.sock'))).answered, false, 'a socket nobody listens on is not an answer');
 
   service.adopt('pub-1', socketPath);
@@ -1637,6 +1583,8 @@ test('the publication service establishes, probes and releases one transport per
   await service.reconcile();
   assert.equal(calls.filter(([name]) => name === 'bind').length, 1, 'an answering transport is not re-established');
   assert.equal(store.siteById('pub-1').lastError, null);
+  assert.equal(hosts.at(-1), 'pub-a1b2c3.sites.example',
+    'and the sweep probes as a visitor reaches it, not as localhost, so a Host-aware application is not misjudged');
 
   await service.release(store.siteById('pub-1'));
   assert.deepEqual(calls.at(-1), ['release', { project: { kind: 'managed', projectId: 7 }, publicationId: 'pub-1' }]);

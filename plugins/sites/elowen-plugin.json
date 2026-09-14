@@ -1,9 +1,9 @@
 {
   "name": "sites",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "apiVersion": "1",
   "requiresCore": "0.28.45",
-  "description": "Publish immutable static releases or proxy an application already running in an explicit managed Project. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+  "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
   "provides": {
     "tools": [
@@ -109,24 +109,6 @@
       "type": "section"
     },
     {
-      "key": "maxAssetMb",
-      "label": "Largest file",
-      "type": "number",
-      "default": 8,
-      "min": 1,
-      "max": 1048576,
-      "hint": "Files larger than this are refused when publishing. A published file is streamed from disk while it is served, so the ceiling is the disk rather than the daemon's memory."
-    },
-    {
-      "key": "maxSiteMb",
-      "label": "Largest site",
-      "type": "number",
-      "default": 200,
-      "min": 1,
-      "max": 1048576,
-      "hint": "Total size of one published release, in MB. Bounded only by the disk you give it."
-    },
-    {
       "key": "maxSitesPerAccount",
       "label": "Sites per account",
       "type": "number",
@@ -134,16 +116,6 @@
       "min": 1,
       "max": 500,
       "hint": "How many sites one account may keep at once."
-    },
-    {
-      "key": "releasesKept",
-      "label": "Releases kept",
-      "type": "number",
-      "default": 5,
-      "min": 1,
-      "max": 50,
-      "advanced": true,
-      "hint": "Older releases beyond this count are removed. The release a site currently serves is never removed, whatever this is set to."
     },
     {
       "key": "access",
@@ -205,12 +177,22 @@
       "filterStatus": "Status",
       "filterAllVisibilities": "Any visibility",
       "filterAllStatuses": "Any status",
-      "columnSite": "Site",
       "columnOwner": "Owner",
-      "columnVisibility": "Visibility",
-      "columnStatus": "Status",
-      "columnPublished": "Published",
-      "columnKind": "Publication",
+      "project": "Project",
+      "noAddress": "No address yet",
+      "previewTitle": "Page preview",
+      "previewHint": "A picture of the page taken through its own address, renewed when it goes out of date.",
+      "previewPending": "Taking a picture of the page…",
+      "previewNone": "No picture of this page yet.",
+      "previewStale": "Stale",
+      "previewFailed": "Last picture failed",
+      "previewCapturedAt": "Pictured {time}",
+      "previewRefresh": "Take a new picture",
+      "previewRefreshed": "Picture queued",
+      "openDetail": "Open {title}",
+      "openDetailShort": "Details",
+      "stateHintDegraded": "Published, but the application behind it is not answering.",
+      "stateHintFailed": "The last publish failed. Open the details for the reason.",
       "kindStatic": "Static files",
       "kindProxy": "Managed Project proxy",
       "metricTotal": "Sites",
@@ -257,9 +239,9 @@
       "publicWarning": "Anyone who knows the address will be able to open this site without signing in.",
       "publicConfirm": "Make public",
       "publicDisabled": "Public sites are turned off for this instance.",
-      "sourceNotice": "The source folder lives in the Project, so everyone with access to the Project can read it. This setting governs the published site.",
+      "sourceNotice": "This setting governs the published address. Access to the application and its files is managed separately by the Project.",
       "deleteTitle": "Delete this site",
-      "deleteHint": "The address stops working and every release is removed. The source folder in the Project is left alone.",
+      "deleteHint": "The address stops working. Retained legacy file releases are removed; the managed Project and its application are left alone.",
       "delete": "Delete site",
       "deleted": "Site deleted",
       "saved": "Saved",

@@ -8,8 +8,8 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.3.11` |
-| Requires core | `0.28.35` |
+| Version | `0.4.0` |
+| Requires core | `0.28.46` |
 | Requires shared API | `not declared` |
 | User-grantable | Yes |
 
@@ -20,6 +20,10 @@ Seventeen `Browser*` tools drive a session end to end: opening the browser and r
 ## Configuration
 
 No field is required. The 15 optional settings cover the Chrome executable and process limits, session timeouts, the live view on a virtual display, the takeover lease, per-account resource caps and the enforcing network policy, which includes an advanced private-network allowlist. No field is a secret.
+
+## Controls
+
+`browserCapture` renders one server-derived published HTTPS URL in a throwaway headless context and returns the picture. It is the one way the plugin renders a page outside an account: a fresh process, a profile removed afterwards, no identity and an authenticated enforcing proxy pinned to the exact validated public origin and address. Redirects and every document, subresource, fetch, WebSocket and worker request remain on that origin; literal, loopback, private, link-local and rebound destinations are refused. Core hands the control to Sites and to nobody else.
 
 ## Documentation
 
