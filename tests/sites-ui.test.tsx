@@ -78,8 +78,8 @@ const mount = () => {
   render(<Wrapper><ToastProvider><SitesPage /></ToastProvider></Wrapper>);
 };
 
-/** The register row opens the drawer through its own control; its accessible name is the site's title
- *  followed by the address the API reported. */
+/** The register card opens the drawer through its own control; its accessible name carries the site's
+ *  title, which is what makes one card's open control distinguishable from the next one's. */
 const openSite = async () => {
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(site.title) }));
   const drawer = await screen.findByRole('dialog', { name: strings.detailTitle });
@@ -122,6 +122,66 @@ describe('the Sites workspace', () => {
     expect(await screen.findByText(degradedSite.title)).toBeVisible();
     expect(screen.queryByText(site.title)).not.toBeInTheDocument();
     expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterStatus}: ${strings.statusDegraded}`);
+  });
+
+  /** The register is a GRID OF CARDS, not a table. Three things have to hold for that to be true rather
+   *  than a restyle: the container is a list whose column count comes from its own width, the card is not
+   *  a control wrapping controls, and the Publication column is gone — its fact now stated once, as a
+   *  badge, instead of in a column of its own. */
+  it('lists sites as responsive cards instead of a table with a Publication column', async () => {
+    mount();
+    const register = await screen.findByTestId('sites-register');
+    expect(register).toHaveAttribute('role', 'list');
+    // One card per site, each its own list item, and the column count is the CONTAINER's: this register
+    // also renders inside a Project panel, where three across would not fit.
+    expect(within(register).getAllByRole('listitem')).toHaveLength(1);
+    expect(register.className).toContain('grid-cols-1');
+    expect(register.className).toContain('@min-[38rem]:grid-cols-2');
+    expect(register.className).toContain('@min-[58rem]:grid-cols-3');
+    // The query container has to be the WRAPPER. A container query resolves against an ancestor
+    // container and never against the element that declares itself one, so `@container` on the grid
+    // leaves the column variants resolving against whatever shell happens to be above it — one column
+    // wherever no shell declares itself a container, which a browser confirmed is what happens.
+    expect(register.parentElement?.className).toContain('@container');
+    expect(register.className).not.toContain('@container');
+    // The standalone Publication column is withdrawn; the publication shape is a badge on the card.
+    expect(screen.queryByRole('columnheader')).not.toBeInTheDocument();
+    expect(screen.getByText(strings.kindStatic)).toBeVisible();
+  });
+
+  /** The plate is the card's signature band. It must carry the address — the fact a reader recognises a
+   *  published page by — and it must never be a control of its own inside a card that is already
+   *  clickable. */
+  it('puts the published address on the card plate', async () => {
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    const plate = card.querySelector('[data-site-plate]');
+    expect(plate).not.toBeNull();
+    expect(within(plate as HTMLElement).getByText('dashboard-abc123.sites.example.com')).toBeVisible();
+    expect(within(plate as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(plate as HTMLElement).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  /** Copying an address is not asking for the drawer. Both card actions sit inside a surface whose click
+   *  opens the detail, so each one has to stop the event — otherwise every copy opens a rail nobody
+   *  asked for. */
+  it('keeps the card actions separate from opening the detail', async () => {
+    mount();
+    await screen.findByText(site.title);
+    fireEvent.click(screen.getByRole('button', { name: strings.copyLink }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole('dialog', { name: strings.detailTitle })).not.toBeInTheDocument();
+  });
+
+  /** A published address whose application stopped answering says so on the card. The stored failure is
+   *  a manager's detail and is deliberately not in the list response, so the card states the derived
+   *  condition and points at the drawer rather than inventing a reason. */
+  it('states the derived degraded condition on the card', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [{ ...site, degraded: true }], shared: [], allowPublicSites: true,
+    })));
+    mount();
+    expect(await screen.findByText(strings.stateHintDegraded)).toBeVisible();
   });
 
   it('shows each site\'s owner as an avatar and a name, never as an account id', async () => {

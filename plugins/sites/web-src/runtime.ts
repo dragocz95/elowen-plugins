@@ -7,7 +7,7 @@ export type SiteStatus = 'draft' | 'live' | 'failed';
 /** How a publication reaches a visitor: its own copied release files, or a forwarder inside the managed
  *  Project's environment. A proxy publication has no release and no container of its own, which is why
  *  the drawer renders it from a different set of facts than a static one. */
-type PublicationKind = 'static' | 'proxy';
+export type PublicationKind = 'static' | 'proxy';
 
 export interface SiteView {
   id: string;
@@ -269,25 +269,6 @@ interface RuntimeComponents {
   }>;
   ControlSurfaceRegister: ComponentType<{ className?: string; children: ReactNode }>;
   ControlSurfaceState: ComponentType<{ tone?: 'default' | 'danger'; className?: string; children: ReactNode }>;
-  DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; className?: string; children: ReactNode }>;
-  DataTableRow: ComponentType<{
-    header?: boolean;
-    selected?: boolean;
-    interactive?: boolean;
-    className?: string;
-    role?: string;
-    'aria-selected'?: boolean;
-    children: ReactNode;
-  }>;
-  DataTableCell: ComponentType<{
-    header?: boolean;
-    priority?: 'always' | 'wide';
-    className?: string;
-    title?: string;
-    role?: string;
-    'aria-hidden'?: boolean;
-    children: ReactNode;
-  }>;
   DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
   MotionPresence: ComponentType<{ mode?: 'sync' | 'wait' | 'popLayout'; children: ReactNode }>;
   MotionLayoutItem: ComponentType<{ layoutId?: string; role?: string; className?: string; children: ReactNode }>;
