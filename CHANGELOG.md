@@ -1,5 +1,10 @@
 # Changelog
 
+## onedrive 0.2.5 - 2026-09-15
+
+- Managed Project mirrors now pass the authenticated guest request when launching Git, renew and release their execution lease, cancel bounded commands that do not settle, and discard completed root locks instead of leaving later cycles joined to stale work.
+- Complete managed scans preserve the documented 20,000-path limit with one explicit sentinel entry. A larger or partially read tree is reported as incomplete rather than silently mirrored as a complete inventory.
+
 ## registry catalog - 2026-09-14
 
 - Removed the obsolete marketplace `web` 0.3.1 copy. Web has been bundled in Elowen core since the 0.28.17 release line, bundled folders always win over an installed plugin with the same name, and the marketplace classifies that entry as bundled rather than installable. Core Web 0.5.0 is now the single authority.
