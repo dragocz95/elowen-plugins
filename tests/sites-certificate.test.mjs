@@ -447,8 +447,10 @@ test('migration v18 adds two nullable certificate columns and leaves a row writt
   );
 });
 
-test('opening a database that already carries migration v18 alters nothing and keeps its values', () => {
-  const first = makeDb({ beforeStep: (version, handle) => { if (version === 18) insertLegacySite(handle, 'legacy'); } });
+test('opening a database that already carries the newest migration alters nothing and keeps its values', () => {
+  // 19 is the newest step: the preview-image and capture-grant tables. Nothing about it touches an
+  // existing column, which is what this pins — a second load over the same file adds nothing twice.
+  const first = makeDb({ beforeStep: (version, handle) => { if (version === 19) insertLegacySite(handle, 'legacy'); } });
   const before = new SitesStore(first);
   before.updateSite('legacy', { certificateError: 'certbot failed: DNS problem' });
   const shapeBefore = tableShape(first, 'p_sites_sites');
@@ -457,7 +459,7 @@ test('opening a database that already carries migration v18 alters nothing and k
   const reopened = makeDb({ from: first });
   const store = new SitesStore(reopened);
 
-  assert.equal(reopened.appliedVersion(), 18);
+  assert.equal(reopened.appliedVersion(), 19);
   assert.deepEqual(tableShape(reopened, 'p_sites_sites'), shapeBefore, 'a second load adds no column a second time');
   assert.equal(store.siteById('legacy').certificateError, 'certbot failed: DNS problem');
 });
@@ -478,7 +480,7 @@ test('a database left at the schema before the certificate columns upgrades into
   const freshStore = new SitesStore(fresh);
   freshStore.insertSite(site({ ...stamps }));
 
-  assert.equal(upgraded.appliedVersion(), 18);
+  assert.equal(upgraded.appliedVersion(), 19, 'the upgrade chain reaches the current schema');
   assert.deepEqual(tableShape(upgraded, 'p_sites_sites'), tableShape(fresh, 'p_sites_sites'));
   assert.deepEqual(store.siteById('site-1'), freshStore.siteById('site-1'),
     'an upgraded row reads back exactly like one written against the current schema');

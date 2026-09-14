@@ -6,10 +6,11 @@ import type { PluginHttpRequest } from 'elowen/plugin-api';
 import type { SitesHttpRequest, SitesHttpResponse } from './coreSeams.js';
 import type { Site, SitesStore } from './store.js';
 import {
-  RESERVED_PREFIX, cookieName, hashToken, mayOpen, normalizeReturnPath, readCookies, signSession, verifySession,
+  CAPTURE_HEADER, RESERVED_PREFIX, captureCookieName, cookieName, hashToken, mayOpen, normalizeReturnPath,
+  publiclyReadable, readCookies, signCaptureSession, signSession, verifyCaptureSession, verifySession,
   type AccessDeps, type Viewer,
 } from './access.js';
-import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './publish.js';
+import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './releaseFiles.js';
 import { requestOnSiteHost } from './config.js';
 import { ProxyError, proxyToProject, type Endpoint, type ProxyLimits, type ProxyViewer } from './proxy.js';
 import type { ProjectPreviewService } from './preview.js';
@@ -47,10 +48,15 @@ export interface ServeDeps {
     viewer: ProxyViewer,
     limits: ProxyLimits,
     siteRoot: string,
-    blockedCookieName?: string,
+    blockedCookieNames?: readonly string[],
   ): Promise<SitesHttpResponse>;
   usernameOf(userId: number): string | null;
 }
+
+/** How long the session a capture grant is exchanged for may render for. Minutes, not hours: it exists to
+ *  carry the document and the assets that document asks for, in a browser profile that is deleted as soon
+ *  as the picture is taken. */
+const CAPTURE_SESSION_MS = 5 * 60_000;
 
 /** Security headers applied to EVERY published response.
  *
@@ -96,14 +102,14 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
  *  constrain, and no shared caching of a failure. The status keeps the distinction the serving path has
  *  always made: 503 when there is no transport to send the request down at all, 502 when there is one and
  *  the application behind it failed. */
-const ingressRefusal = (site: Site, status: 502 | 503, title: string, message: string): SitesHttpResponse => ({
+const ingressRefusal = (isPublic: boolean, status: 502 | 503, title: string, message: string): SitesHttpResponse => ({
   status,
   headers: {
     'content-type': HTML_TYPE,
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
-    ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+    ...(isPublic ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
   },
   body: `<!doctype html><meta charset="utf-8"><title>${title}</title><p>${message}</p>`,
 });
@@ -207,8 +213,7 @@ function parseRange(raw: string | undefined, size: number): { start: number; end
  *  The bytes are streamed off the disk rather than read into the daemon: nothing here scales with the
  *  size of the file, which is what lets a site publish something far larger than the daemon's heap.
  *  HEAD is answered from the stat alone, so it never opens the file at all. */
-function serveFile(site: Site, releaseDir: string, rest: string, req: SitesHttpRequest): SitesHttpResponse {
-  const isPublic = site.visibility === 'public';
+function serveFile(site: Site, isPublic: boolean, releaseDir: string, rest: string, req: SitesHttpRequest): SitesHttpResponse {
   const headers = securityHeaders(isPublic);
   // `no-cache` still lets a cache STORE the bytes; it just has to revalidate before reusing them.
   // A plain max-age would keep serving a page after its visibility was narrowed back to private,
@@ -305,29 +310,34 @@ export function createSiteHandler(deps: ServeDeps) {
   ): Promise<SitesHttpResponse> => {
     const endpoint = deps.endpointFor(site.id);
     if (!endpoint || endpoint.kind !== 'socket') {
-      return ingressRefusal(site, 503, 'Not running', refusal.notRunning);
+      return ingressRefusal(publiclyReadable(site, deps.access), 503, 'Not running', refusal.notRunning);
     }
     try {
       const proxied = await (deps.proxyProject ?? proxyToProject)(
         endpoint,
         req,
         rest,
-        { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
+        // A capture renders what an anonymous visitor gets. The grant proves the right to be SERVED here;
+        // it is not an account, and forwarding one to the application would put a person's identity into a
+        // picture taken for a register.
+        viewer.capability === 'capture'
+          ? { userId: null, name: null }
+          : { userId: viewer.userId, name: viewer.userId === null ? null : deps.usernameOf(viewer.userId) },
         deps.proxyLimits(),
         siteRoot,
-        cookieName(site.id),
+        [cookieName(site.id), captureCookieName(site.id)],
       );
       return {
         ...proxied,
         headers: {
           ...proxied.headers,
-          'cache-control': site.visibility === 'public' ? 'public, max-age=0' : 'private, no-store',
-          ...(site.visibility === 'public' ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+          'cache-control': publiclyReadable(site, deps.access) ? 'public, max-age=0' : 'private, no-store',
+          ...(publiclyReadable(site, deps.access) ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
         },
       };
     } catch (error) {
       if (!(error instanceof ProxyError)) throw error;
-      return ingressRefusal(site, 502, 'Unavailable', refusal.noAnswer);
+      return ingressRefusal(publiclyReadable(site, deps.access), 502, 'Unavailable', refusal.noAnswer);
     }
   };
 
@@ -362,38 +372,86 @@ export function createSiteHandler(deps: ServeDeps) {
     }
     if (rest.split('/')[0] === RESERVED_PREFIX) return notFound();
 
-    // Static releases answer reads only. Proxy publications forward the application's own methods.
-    if (site.kind !== 'proxy' && req.method !== 'GET' && req.method !== 'HEAD') {
-      return { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' }, body: '' };
-    }
-
-    const viewer = viewerFor(req, site, deps);
+    const granted = claimCapture(req, site, deps);
+    const viewer: Viewer = granted ? { userId: null, capability: 'capture' } : viewerFor(req, site, deps);
     if (!mayOpen(site, viewer, deps.store, deps.access)) {
       return bounceOrNotFound(req, site.slug, rest, config);
     }
 
-    if (deps.previews?.isPreview(site.id)) return deps.previews.serve(site, req, rest, viewer, siteRoot);
-    deps.countHit(site.id);
-
-    // A proxy publication is an application inside the managed Project, reached through the durable
-    // transport Sandbox keeps alive for it. Access, sessions and the preview origin are decided exactly
-    // as for every other publication: this branch changes the TRANSPORT, never who may open the page.
-    if (site.kind === 'proxy') {
-      return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
-        notRunning: 'The managed Project transport that serves this page is not available right now.',
-        noAnswer: 'The managed Project application did not answer.',
-      });
+    // Static releases answer reads only. Proxy publications forward the application's OWN methods, so a
+    // refusal here would be this plugin inventing a contract for somebody else's application.
+    //
+    // Decided AFTER access, deliberately: answering 405 to a stranger who guessed the slug would tell them
+    // the address is published and which kind it is, which is exactly what the sign-in bounce above exists
+    // to hide. A visitor who may open the page is the only reader this answer is for.
+    if (site.kind !== 'proxy' && req.method !== 'GET' && req.method !== 'HEAD') {
+      return { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' }, body: '' };
     }
 
-    if (!site.currentReleaseId) return notFound();
-    // A served file answers HEAD from its directory entry, so no stream is opened for one; the wrapper
-    // covers the small documents serveFile returns when there is no file to serve.
-    return withoutHeadBody(serveFile(site, deps.releaseDir(site.id, site.currentReleaseId), rest, req), req.method);
+    const answer = await (async (): Promise<SitesHttpResponse> => {
+      if (deps.previews?.isPreview(site.id)) return deps.previews.serve(site, req, rest, viewer, siteRoot);
+      // A picture of the page is not a visit. Counting the capture itself would also count every asset it
+      // loads, so one screenshot would arrive in the register's own numbers as a small crowd.
+      if (viewer.capability !== 'capture') deps.countHit(site.id);
+
+      // A proxy publication is an application inside the managed Project, reached through the durable
+      // transport Sandbox keeps alive for it. Access, sessions and the preview origin are decided exactly
+      // as for every other publication: this branch changes the TRANSPORT, never who may open the page.
+      if (site.kind === 'proxy') {
+        return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
+          notRunning: 'The managed Project transport that serves this page is not available right now.',
+          noAnswer: 'The managed Project application did not answer.',
+        });
+      }
+
+      if (!site.currentReleaseId) return notFound();
+      // A served file answers HEAD from its directory entry, so no stream is opened for one; the wrapper
+      // covers the small documents serveFile returns when there is no file to serve.
+      return withoutHeadBody(
+        serveFile(site, publiclyReadable(site, deps.access), deps.releaseDir(site.id, site.currentReleaseId), rest, req),
+        req.method,
+      );
+    })();
+
+    return granted ? withCaptureSession(answer, site, deps, config) : answer;
   };
+}
+
+/** Spend a capture grant, if this request presents one.
+ *
+ *  Decided before access is, because for this one render the grant IS the access decision. A request that
+ *  presents nothing — or something this site never minted, or a token already spent, or one minted before
+ *  the site's access last changed — is left exactly as it was, so it takes the ordinary sign-in path. */
+function claimCapture(req: PluginHttpRequest, site: Site, deps: ServeDeps): boolean {
+  const token = req.headers[CAPTURE_HEADER];
+  if (!token) return false;
+  return deps.store.takeCaptureGrant(hashToken(token), site.id, site.accessGeneration, Date.now());
+}
+
+/** Hand the browser the session a spent grant bought, so the page's own assets are served too.
+ *
+ *  Appended to whatever the answer already carries rather than replacing it: a proxied page sets its own
+ *  cookies, and dropping them would break the page this picture is of. */
+function withCaptureSession(response: SitesHttpResponse, site: Site, deps: ServeDeps, config: ServeConfig): SitesHttpResponse {
+  const value = signCaptureSession(deps.secret(), { g: site.accessGeneration, e: Date.now() + CAPTURE_SESSION_MS });
+  const cookie = [
+    `${captureCookieName(site.id)}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(CAPTURE_SESSION_MS / 1000)}`,
+    ...(config.siteScheme === 'https:' ? ['Secure'] : []),
+  ].join('; ');
+  const existing = response.headers?.['set-cookie'];
+  const setCookie = existing === undefined ? [cookie] : [...(Array.isArray(existing) ? existing : [existing]), cookie];
+  return { ...response, headers: { ...response.headers, 'set-cookie': setCookie } };
 }
 
 function viewerFor(req: PluginHttpRequest, site: Site, deps: ServeDeps): Viewer {
   const cookies = readCookies(req.headers.cookie);
+  // The capture session first: it names no account, so nothing below it could stand in for one.
+  const capture = verifyCaptureSession(deps.secret(), cookies[captureCookieName(site.id)], Date.now());
+  if (capture && capture.g === site.accessGeneration) return { userId: null, capability: 'capture' };
   const session = verifySession(deps.secret(), cookies[cookieName(site.id)], Date.now());
   if (!session || session.g !== site.accessGeneration) return { userId: null };
   return { userId: session.u };

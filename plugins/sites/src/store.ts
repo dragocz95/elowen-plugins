@@ -12,7 +12,7 @@ type SiteStatus = 'draft' | 'live' | 'failed' | 'deleting';
  *  running on a loopback port inside the managed Project's own environment, reached through the durable
  *  transport Sandbox establishes for the publication. The legacy runtime columns remain only for schema
  *  compatibility and audit; active rows always carry the historical `static` value. */
-export type PublicationKind = 'static' | 'proxy';
+type PublicationKind = 'static' | 'proxy';
 
 export const VISIBILITIES: readonly Visibility[] = ['private', 'project', 'authenticated', 'public'];
 
@@ -74,6 +74,67 @@ export interface Ticket {
   returnPath: string;
   expiresAt: number;
 }
+
+/** Whether a stored picture of the page exists, and what the last attempt to take one did.
+ *
+ *  `failed` is not the same as "no picture": a capture that fails leaves the last good image exactly where
+ *  it was, so a row can be `failed` and still have bytes to show. That is what keeps a transient failure
+ *  from blanking a register somebody is looking at. */
+type PreviewImageState = 'none' | 'ready' | 'failed';
+
+export interface SitePreviewImage {
+  siteId: string;
+  state: PreviewImageState;
+  /** Bumped by every stored image. It is the cache key a client fetches with, so two captures can never
+   *  be confused for one another however fast they land. */
+  version: number;
+  capturedAt: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  mime: string | null;
+  /** Why the last attempt failed, or null when it succeeded. */
+  lastError: string | null;
+  /** Epoch milliseconds before which this site must not be captured again. */
+  nextAttemptAt: number;
+  /** When a capture was last asked for and by whom, so a queued request survives a reload and so a
+   *  manager pressing Refresh twice is answered with the first request instead of a second browser. */
+  requestedAt: number | null;
+  requestedBy: string | null;
+  attempts: number;
+}
+
+interface PreviewImageDbRow {
+  site_id: string;
+  state: string;
+  version: number;
+  captured_at: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  mime: string | null;
+  last_error: string | null;
+  next_attempt_at: number;
+  requested_at: number | null;
+  requested_by: string | null;
+  attempts: number;
+}
+
+const toPreviewImage = (row: PreviewImageDbRow): SitePreviewImage => ({
+  siteId: row.site_id,
+  state: row.state === 'ready' ? 'ready' : row.state === 'failed' ? 'failed' : 'none',
+  version: row.version,
+  capturedAt: row.captured_at,
+  width: row.width,
+  height: row.height,
+  bytes: row.bytes,
+  mime: row.mime,
+  lastError: row.last_error,
+  nextAttemptAt: row.next_attempt_at,
+  requestedAt: row.requested_at,
+  requestedBy: row.requested_by,
+  attempts: row.attempts,
+});
 
 
 interface SiteDbRow {
@@ -448,6 +509,38 @@ export class SitesStore {
           ALTER TABLE p_sites_sites ADD COLUMN certificate_error TEXT;
         `),
       },
+      {
+        version: 19,
+        // A register that shows a picture of each published page. One row per Site, holding the metadata of
+        // the ONE image a Site may keep: a capture replaces both together, so a row can never describe an
+        // image that is not the one on disk. The grant table is the other half of that: a one-use,
+        // site-and-generation-bound token the capture presents through the published hostname, which is
+        // how a page behind an access rule is rendered without inventing a visitor for it. Purely additive.
+        up: handle => handle.exec(`
+          CREATE TABLE IF NOT EXISTS p_sites_previews (
+            site_id TEXT PRIMARY KEY,
+            state TEXT NOT NULL DEFAULT 'none',
+            version INTEGER NOT NULL DEFAULT 0,
+            captured_at TEXT,
+            width INTEGER,
+            height INTEGER,
+            bytes INTEGER,
+            mime TEXT,
+            last_error TEXT,
+            next_attempt_at INTEGER NOT NULL DEFAULT 0,
+            requested_at INTEGER,
+            requested_by TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS p_sites_capture_grants (
+            token_hash TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            access_generation INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_p_sites_capture_grants_site ON p_sites_capture_grants (site_id);
+        `),
+      },
     ]);
   }
 
@@ -650,6 +743,11 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+      // The picture this Site kept goes with it, and so does any grant minted for a capture of it: a
+      // tombstone that still answered with a photograph of the deleted page would be the one read path
+      // the durable delete marker had not closed.
+      this.db.prepare('DELETE FROM p_sites_previews WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_capture_grants WHERE site_id = ?').run(id);
     });
   }
 
@@ -659,6 +757,8 @@ export class SitesStore {
       this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_previews WHERE site_id = ?').run(id);
+      this.db.prepare('DELETE FROM p_sites_capture_grants WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_actions WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_environment_exec_leases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_runtime_migrations WHERE site_id = ?').run(id);
@@ -749,6 +849,84 @@ export class SitesStore {
 
   pruneTickets(now: number): void {
     this.db.prepare('DELETE FROM p_sites_tickets WHERE expires_at <= ?').run(now);
+  }
+
+  /** The stored picture of one Site's page, or null when none was ever taken. */
+  previewImage(siteId: string): SitePreviewImage | null {
+    const row = this.db.prepare('SELECT * FROM p_sites_previews WHERE site_id = ?').get(siteId) as PreviewImageDbRow | undefined;
+    return row ? toPreviewImage(row) : null;
+  }
+
+  /** Remember that a capture was asked for. It survives a plugin reload, so a request that was in flight
+   *  when the plugin went away is still visible as one rather than silently forgotten. */
+  markPreviewImageRequested(siteId: string, cause: string, now: number): void {
+    this.db.prepare(`
+      INSERT INTO p_sites_previews (site_id, state, version, next_attempt_at, requested_at, requested_by)
+      VALUES (?, 'none', 0, 0, ?, ?)
+      ON CONFLICT(site_id) DO UPDATE SET requested_at = excluded.requested_at, requested_by = excluded.requested_by
+    `).run(siteId, now, cause);
+  }
+
+  /** Record the image that is now on disk, and make it the one this Site serves.
+   *
+   *  Called only AFTER the bytes have been replaced atomically, and the version is bumped here rather than
+   *  passed in, so the metadata always describes the image a client will fetch with that version. */
+  storePreviewImage(siteId: string, image: { bytes: number; mime: string; width: number; height: number }, now: number): number {
+    return this.db.transaction(() => {
+      const version = (this.previewImage(siteId)?.version ?? 0) + 1;
+      this.db.prepare(`
+        INSERT INTO p_sites_previews (site_id, state, version, captured_at, width, height, bytes, mime, last_error, next_attempt_at, requested_at, requested_by, attempts)
+        VALUES (?, 'ready', ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL, 0)
+        ON CONFLICT(site_id) DO UPDATE SET
+          state = 'ready', version = excluded.version, captured_at = excluded.captured_at,
+          width = excluded.width, height = excluded.height, bytes = excluded.bytes, mime = excluded.mime,
+          last_error = NULL, next_attempt_at = 0, requested_at = NULL, requested_by = NULL, attempts = 0
+      `).run(siteId, version, new Date(now).toISOString(), image.width, image.height, image.bytes, image.mime);
+      return version;
+    });
+  }
+
+  /** Record a failed attempt. The stored image, its version and its capture time are deliberately left
+   *  alone: a picture that was true a minute ago is still worth showing, and the failure is what says so. */
+  failPreviewImage(siteId: string, message: string, nextAttemptAt: number): void {
+    this.db.prepare(`
+      INSERT INTO p_sites_previews (site_id, state, version, last_error, next_attempt_at, requested_at, requested_by, attempts)
+      VALUES (?, 'failed', 0, ?, ?, NULL, NULL, 1)
+      ON CONFLICT(site_id) DO UPDATE SET
+        state = 'failed', last_error = excluded.last_error, next_attempt_at = excluded.next_attempt_at,
+        requested_at = NULL, requested_by = NULL, attempts = p_sites_previews.attempts + 1
+    `).run(siteId, message, nextAttemptAt);
+  }
+
+  deletePreviewImage(siteId: string): void {
+    this.db.prepare('DELETE FROM p_sites_previews WHERE site_id = ?').run(siteId);
+  }
+
+  /** Write the one outstanding capture grant of a Site. A new capture replaces the previous one, so a
+   *  grant that was never claimed cannot be replayed after a second capture was asked for. */
+  putCaptureGrant(tokenHash: string, siteId: string, accessGeneration: number, expiresAt: number): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM p_sites_capture_grants WHERE site_id = ?').run(siteId);
+      this.db.prepare('INSERT INTO p_sites_capture_grants (token_hash, site_id, access_generation, expires_at) VALUES (?, ?, ?, ?)')
+        .run(tokenHash, siteId, accessGeneration, expiresAt);
+    });
+  }
+
+  /** Claim a capture grant. The delete IS the claim, so two requests presenting the same token cannot both
+   *  be answered, and a token that is unknown, expired or minted under an older access generation is
+   *  refused identically — consuming it either way, so nothing can be probed by replay. */
+  takeCaptureGrant(tokenHash: string, siteId: string, accessGeneration: number, now: number): boolean {
+    return this.db.transaction(() => {
+      const row = this.db.prepare('SELECT site_id AS siteId, access_generation AS accessGeneration, expires_at AS expiresAt FROM p_sites_capture_grants WHERE token_hash = ?')
+        .get(tokenHash) as { siteId: string; accessGeneration: number; expiresAt: number } | undefined;
+      if (!row) return false;
+      this.db.prepare('DELETE FROM p_sites_capture_grants WHERE token_hash = ?').run(tokenHash);
+      return row.siteId === siteId && row.accessGeneration === accessGeneration && row.expiresAt > now;
+    });
+  }
+
+  pruneCaptureGrants(now: number): void {
+    this.db.prepare('DELETE FROM p_sites_capture_grants WHERE expires_at <= ?').run(now);
   }
 
   recordHits(siteId: string, day: string, count: number): void {

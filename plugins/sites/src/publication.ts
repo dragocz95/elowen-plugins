@@ -33,6 +33,8 @@ export interface PublicationDeps {
   /** The durable transport seam, absent on a daemon whose Sandbox does not offer it. */
   control(): PublicationControl | undefined;
   project(id: number): { executionKind: string; lifecycle: string } | null | undefined;
+  /** The hostname a visitor reaches a Site on, or null while the gateway has no hostname base. */
+  siteHost?(slug: string): string | null;
   logger?: { warn(message: string): void };
 }
 
@@ -145,14 +147,24 @@ export class ProjectPublicationService {
     this.endpoints.set(siteId, { kind: 'socket', path: socketPath });
   }
 
+  /** The Host a request to this Site carries, which is what the application behind it answers by.
+   *
+   *  A probe that presented `localhost` would be answered by whatever the application does with an unknown
+   *  host — often a default vhost, sometimes a refusal — so a publication could look healthy to the sweep
+   *  that runs every two seconds and broken to every visitor. The probe therefore looks like the request it
+   *  is standing in for. */
+  private hostOf(slug: string): string {
+    return this.deps.siteHost?.(slug) ?? 'localhost';
+  }
+
   /** One HTTP request through the publication transport — the same path a visitor's request takes. */
-  async probe(socketPath: string, options: { path?: string; timeoutMs?: number } = {}): Promise<PublicationProbe> {
+  async probe(socketPath: string, options: { path?: string; timeoutMs?: number; host?: string } = {}): Promise<PublicationProbe> {
     const path = options.path ?? '/';
     const status = await new Promise<number | string>(done => {
       const req = httpRequest({
         socketPath,
         path,
-        headers: { host: 'localhost', 'user-agent': 'elowen-publication-readiness' },
+        headers: { host: options.host ?? 'localhost', 'user-agent': 'elowen-publication-readiness' },
         timeout: options.timeoutMs ?? REQUEST_TIMEOUT_MS,
       }, response => {
         // The body is never read: the status is the whole answer, and a publication may stream something
@@ -179,7 +191,7 @@ export class ProjectPublicationService {
     for (const site of this.deps.store.proxySitesForReconcile()) {
       const known = this.endpoints.get(site.id);
       if (known?.kind === 'socket') {
-        const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS });
+        const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS, host: this.hostOf(site.slug) });
         if (probe.answered) {
           if (probe.status !== null && probe.status < 500) this.settle(site);
           else this.fail(site, probe.detail);
@@ -191,7 +203,7 @@ export class ProjectPublicationService {
       if (Date.now() < due) continue;
       try {
         const binding = await this.establish(site);
-        const probe = await this.probe(binding.socketPath, { timeoutMs: PROBE_TIMEOUT_MS });
+        const probe = await this.probe(binding.socketPath, { timeoutMs: PROBE_TIMEOUT_MS, host: this.hostOf(site.slug) });
         if (!probe.answered) throw new Error(probe.detail);
         this.endpoints.set(site.id, { kind: 'socket', path: binding.socketPath });
         this.nextAttempt.delete(site.id);

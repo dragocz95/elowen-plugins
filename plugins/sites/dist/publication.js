@@ -105,6 +105,15 @@ export class ProjectPublicationService {
     adopt(siteId, socketPath) {
         this.endpoints.set(siteId, { kind: 'socket', path: socketPath });
     }
+    /** The Host a request to this Site carries, which is what the application behind it answers by.
+     *
+     *  A probe that presented `localhost` would be answered by whatever the application does with an unknown
+     *  host — often a default vhost, sometimes a refusal — so a publication could look healthy to the sweep
+     *  that runs every two seconds and broken to every visitor. The probe therefore looks like the request it
+     *  is standing in for. */
+    hostOf(slug) {
+        return this.deps.siteHost?.(slug) ?? 'localhost';
+    }
     /** One HTTP request through the publication transport — the same path a visitor's request takes. */
     async probe(socketPath, options = {}) {
         const path = options.path ?? '/';
@@ -112,7 +121,7 @@ export class ProjectPublicationService {
             const req = httpRequest({
                 socketPath,
                 path,
-                headers: { host: 'localhost', 'user-agent': 'elowen-publication-readiness' },
+                headers: { host: options.host ?? 'localhost', 'user-agent': 'elowen-publication-readiness' },
                 timeout: options.timeoutMs ?? REQUEST_TIMEOUT_MS,
             }, response => {
                 // The body is never read: the status is the whole answer, and a publication may stream something
@@ -138,7 +147,7 @@ export class ProjectPublicationService {
         for (const site of this.deps.store.proxySitesForReconcile()) {
             const known = this.endpoints.get(site.id);
             if (known?.kind === 'socket') {
-                const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS });
+                const probe = await this.probe(known.path, { timeoutMs: PROBE_TIMEOUT_MS, host: this.hostOf(site.slug) });
                 if (probe.answered) {
                     if (probe.status !== null && probe.status < 500)
                         this.settle(site);
@@ -153,7 +162,7 @@ export class ProjectPublicationService {
                 continue;
             try {
                 const binding = await this.establish(site);
-                const probe = await this.probe(binding.socketPath, { timeoutMs: PROBE_TIMEOUT_MS });
+                const probe = await this.probe(binding.socketPath, { timeoutMs: PROBE_TIMEOUT_MS, host: this.hostOf(site.slug) });
                 if (!probe.answered)
                     throw new Error(probe.detail);
                 this.endpoints.set(site.id, { kind: 'socket', path: binding.socketPath });

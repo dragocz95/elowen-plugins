@@ -6,9 +6,15 @@ import type { SitesStore, Site } from './store.js';
 export const RESERVED_PREFIX = '__elowen';
 
 /** Who is asking to open a site. Admin-ness is deliberately not carried here: it is re-derived from the
- *  live account stores by `mayOpen` on every decision, never trusted from the caller's snapshot. */
+ *  live account stores by `mayOpen` on every decision, never trusted from the caller's snapshot.
+ *
+ *  `capability` is the ONE exception, and it is not a caller's claim: the serving path sets it after it has
+ *  itself claimed a one-use capture grant, or verified the short-lived cookie that grant minted. Nothing
+ *  outside `serve.ts` can produce it, and it stands for "the site's own register asked for a picture of
+ *  this page", never for an account. */
 export interface Viewer {
   userId: number | null;
+  capability?: 'capture';
 }
 
 /** The live account/project facts an access decision needs. Passed in rather than read from a captured
@@ -17,7 +23,17 @@ export interface AccessDeps {
   accountExists(userId: number): boolean;
   isAdmin(userId: number): boolean;
   canAccessProject(userId: number, projectId: number): boolean;
+  /** Whether this instance allows pages to be readable by anyone. Read per decision rather than frozen at
+   *  load: an operator switching it off has to close the pages that are already public, or the switch only
+   *  governs the form it was changed in. */
+  allowPublicSites(): boolean;
 }
+
+/** Whether anybody at all may read this page. The instance switch is part of the answer, so a public page
+ *  whose instance stopped allowing public pages is served to exactly the readers a private one is, and is
+ *  no longer cached or indexed as though it were open. */
+export const publiclyReadable = (site: Site, deps: AccessDeps): boolean =>
+  site.visibility === 'public' && deps.allowPublicSites();
 
 /** May this viewer open this site RIGHT NOW.
  *
@@ -26,7 +42,11 @@ export interface AccessDeps {
  *  never sees — the Project was taken away, the account was deleted, the guest list was edited, an
  *  administrator was demoted. Anything cheaper than asking again is a stale answer with a long life. */
 export function mayOpen(site: Site, viewer: Viewer, store: SitesStore, deps: AccessDeps): boolean {
-  if (site.visibility === 'public') return true;
+  // A capture of the site's own register. The proof is the grant the serving path just claimed, not
+  // anything in the request: it is one-use, it is bound to this site and to the access generation it was
+  // minted under, and it lives for seconds. Nothing else reaches this branch.
+  if (viewer.capability === 'capture') return true;
+  if (publiclyReadable(site, deps)) return true;
   const { userId } = viewer;
   if (userId === null) return false;
   if (!deps.accountExists(userId)) return false;
@@ -59,14 +79,16 @@ const b64url = (input: Buffer): string => input.toString('base64url');
 const mac = (secret: string, body: string): Buffer =>
   createHmac('sha256', secret).update(body).digest();
 
-export function signSession(secret: string, payload: SessionPayload): string {
+/** Sign one JSON body. Every signed value this plugin hands out is this shape plus a payload, so the MAC
+ *  is written once and no issuer can accidentally invent a weaker one. */
+function seal(secret: string, payload: object): string {
   const body = b64url(Buffer.from(JSON.stringify(payload), 'utf8'));
   return `${body}.${b64url(mac(secret, body))}`;
 }
 
-/** Verify a site session cookie. Returns the payload only when the signature, the shape and the expiry
- *  all hold; every failure answers null so a caller cannot accidentally branch on the reason. */
-export function verifySession(secret: string, value: string | undefined, now: number): SessionPayload | null {
+/** Open a sealed body. Null for anything that is not ours: a missing value, a malformed one, a wrong
+ *  signature or an expired payload. The caller checks the fields; the shape is never guessed here. */
+function unseal(secret: string, value: string | undefined, now: number): Record<string, unknown> | null {
   if (!value) return null;
   const dot = value.indexOf('.');
   if (dot <= 0 || dot === value.length - 1) return null;
@@ -82,13 +104,59 @@ export function verifySession(secret: string, value: string | undefined, now: nu
     return null;
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
-  const { u, g, e } = parsed as Record<string, unknown>;
+  const record = parsed as Record<string, unknown>;
+  return Number.isSafeInteger(record.e) && (record.e as number) > now ? record : null;
+}
+
+export function signSession(secret: string, payload: SessionPayload): string {
+  return seal(secret, payload);
+}
+
+/** Verify a site session cookie. Returns the payload only when the signature, the shape and the expiry
+ *  all hold; every failure answers null so a caller cannot accidentally branch on the reason. */
+export function verifySession(secret: string, value: string | undefined, now: number): SessionPayload | null {
+  const parsed = unseal(secret, value, now);
+  if (!parsed) return null;
+  const { u, g, e } = parsed;
   if (!Number.isSafeInteger(u) || !Number.isSafeInteger(g) || !Number.isSafeInteger(e)) return null;
-  const payload = { u: u as number, g: g as number, e: e as number };
-  return payload.e > now ? payload : null;
+  return { u: u as number, g: g as number, e: e as number };
+}
+
+/** The header a capture of a page presents its one-use grant in.
+ *
+ *  A header rather than a query or a path: the grant is this plugin's own transport metadata, and every
+ *  `x-elowen-*` name is stripped from a request before it reaches the application inside a Project, so a
+ *  page can never read the token that authorised a picture of it. A grant in the address would also be
+ *  written into the throwaway browser's history and into the application's own access log. */
+export const CAPTURE_HEADER = 'x-elowen-site-capture';
+
+/** The session a capture grant is exchanged for.
+ *  A picture of a page is never one request: the document carries the grant, and every asset it then asks
+ *  for is a request of its own. So the grant is spent exactly once — on the first request that presents it
+ *  — and what that response sets is this: no account, only the site generation it was minted under, and a
+ *  lifetime of minutes. It authorises the rendering of a page and nothing else, and it is what keeps the
+ *  render anonymous downstream, because there is no account in it to forward. */
+export interface CaptureSessionPayload {
+  /** Access generation of the site this capture belongs to. */
+  g: number;
+  e: number;
+}
+
+export const signCaptureSession = (secret: string, payload: CaptureSessionPayload): string => seal(secret, payload);
+
+export function verifyCaptureSession(secret: string, value: string | undefined, now: number): CaptureSessionPayload | null {
+  const parsed = unseal(secret, value, now);
+  if (!parsed) return null;
+  const { g, e } = parsed;
+  if (!Number.isSafeInteger(g) || !Number.isSafeInteger(e)) return null;
+  return { g: g as number, e: e as number };
 }
 
 export const cookieName = (siteId: string): string => `elowen_site_${siteId.replace(/-/g, '')}`;
+
+/** The capture session's own cookie. A separate name rather than a marker inside the visitor's one, so
+ *  every reader says which of the two it is reading and no session can drift between them. */
+export const captureCookieName = (siteId: string): string => `elowen_shot_${siteId.replace(/-/g, '')}`;
 
 /** Parse a Cookie header into a map. Duplicate names keep the FIRST value, matching how a browser sends
  *  the most specific path first — a wider cookie cannot displace the site's own. */
