@@ -9,7 +9,7 @@ const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')
 describe('shared API v4 registry contract', () => {
   const versions = {
     cronjob: '0.4.7',
-    discord: '0.3.19',
+    discord: '0.3.20',
     telegram: '0.2.15',
     msteams: '0.7.1',
     whatsapp: '0.2.18',
