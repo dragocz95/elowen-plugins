@@ -7,6 +7,7 @@ import { DynamicProxyChainAdapter, EnforcingProxyManager, type HostResolver, typ
 import { browserDependencyReport, browserReadiness } from './readiness.js';
 import { BrowserService } from './service.js';
 import { SessionRegistry } from './session-registry.js';
+import { createSiteCaptureControl } from './site-capture.js';
 import { BrowserStore } from './store.js';
 import { registerBrowserTools } from './tools.js';
 import { VirtualDisplayPool } from './virtual-display.js';
@@ -80,6 +81,15 @@ export function register(ctx: PluginContext, deps: BrowserRegisterDeps = {}): vo
     storage: () => pool.storageStatus(),
     liveView: () => core !== null,
   };
+
+  // The capture control is intentionally built from the plugin's own config and data directory rather
+  // than from the session pool: it must not be able to reach an account's browser, and the registry only
+  // offers it to Sites, which derives its targets from its own gateway configuration.
+  ctx.registerControl('browserCapture', createSiteCaptureControl({
+    dataDir: () => ctx.dataDir(),
+    chromeExecutable: () => config().chromeExecutable,
+    logger: ctx.logger,
+  }) as unknown as Parameters<PluginContext['registerControl']>[1]);
 
   if (core && transport) transport.register(core);
   registerBrowserTools(ctx, registry);
