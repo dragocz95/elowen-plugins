@@ -248,10 +248,13 @@ export function createSiteHandler(deps) {
      *  proxied answer arrives without the security headers and with the application's own caching, so the
      *  one place that adds them back has to be the one place BOTH paths go through. Only the wording of a
      *  refusal differs, because the reader's next step differs. */
-    const proxyThroughIngress = async (site, req, rest, viewer, siteRoot, refusal) => {
+    const proxyThroughIngress = async (site, req, rest, viewer, 
+    // One request, one answer to "may anybody at all read this": the handler decides it once and passes it
+    // down, rather than every refusal and every header asking the same question again.
+    publiclyServed, siteRoot, refusal) => {
         const endpoint = deps.endpointFor(site.id);
         if (!endpoint || endpoint.kind !== 'socket') {
-            return ingressRefusal(publiclyReadable(site, deps.access), 503, 'Not running', refusal.notRunning);
+            return ingressRefusal(publiclyServed, 503, 'Not running', refusal.notRunning);
         }
         try {
             const proxied = await (deps.proxyProject ?? proxyToProject)(endpoint, req, rest, 
@@ -265,15 +268,15 @@ export function createSiteHandler(deps) {
                 ...proxied,
                 headers: {
                     ...proxied.headers,
-                    'cache-control': publiclyReadable(site, deps.access) ? 'public, max-age=0' : 'private, no-store',
-                    ...(publiclyReadable(site, deps.access) ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
+                    'cache-control': publiclyServed ? 'public, max-age=0' : 'private, no-store',
+                    ...(publiclyServed ? {} : { 'x-robots-tag': 'noindex, nofollow' }),
                 },
             };
         }
         catch (error) {
             if (!(error instanceof ProxyError))
                 throw error;
-            return ingressRefusal(publiclyReadable(site, deps.access), 502, 'Unavailable', refusal.noAnswer);
+            return ingressRefusal(publiclyServed, 502, 'Unavailable', refusal.noAnswer);
         }
     };
     return async (req) => {
@@ -310,6 +313,10 @@ export function createSiteHandler(deps) {
             return notFound();
         const granted = claimCapture(req, site, deps);
         const viewer = granted ? { userId: null, capability: 'capture' } : viewerFor(req, site, deps);
+        // Decided here, once, and used for the rest of the request: the instance switch behind it is read live,
+        // so asking twice could answer differently mid-request and hand one visitor a public cache header on a
+        // page the same visitor was just refused.
+        const publiclyServed = publiclyReadable(site, deps.access);
         if (!mayOpen(site, viewer, deps.store, deps.access)) {
             return bounceOrNotFound(req, site.slug, rest, config);
         }
@@ -333,7 +340,7 @@ export function createSiteHandler(deps) {
             // transport Sandbox keeps alive for it. Access, sessions and the preview origin are decided exactly
             // as for every other publication: this branch changes the TRANSPORT, never who may open the page.
             if (site.kind === 'proxy') {
-                return await proxyThroughIngress(site, req, rest, viewer, siteRoot, {
+                return await proxyThroughIngress(site, req, rest, viewer, publiclyServed, siteRoot, {
                     notRunning: 'The managed Project transport that serves this page is not available right now.',
                     noAnswer: 'The managed Project application did not answer.',
                 });
@@ -342,7 +349,7 @@ export function createSiteHandler(deps) {
                 return notFound();
             // A served file answers HEAD from its directory entry, so no stream is opened for one; the wrapper
             // covers the small documents serveFile returns when there is no file to serve.
-            return withoutHeadBody(serveFile(site, publiclyReadable(site, deps.access), deps.releaseDir(site.id, site.currentReleaseId), rest, req), req.method);
+            return withoutHeadBody(serveFile(site, publiclyServed, deps.releaseDir(site.id, site.currentReleaseId), rest, req), req.method);
         })();
         return granted ? withCaptureSession(answer, site, deps, config) : answer;
     };
