@@ -4,6 +4,7 @@ import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } fr
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { SitesPage } from '../plugins/sites/web-src/SitesPage';
 import { PREVIEW_POLL_MS, awaitingPreview, previewImageUrl } from '../plugins/sites/web-src/runtime';
+import { monogram } from '../plugins/sites/web-src/meta';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 
@@ -339,11 +340,18 @@ describe('the Sites workspace', () => {
     expect(within(card).getByText('dashboard-abc123.sites.example.com')).toBeVisible();
   });
 
+  /** jsdom never fetches an image, so the browser's own failure is dispatched rather than awaited. What is
+   *  under test is the plate's reaction to it, and that reaction has to be asserted on BOTH sides: "no
+   *  `<img>` in the DOM" is equally true of a plate that rendered nothing at all, so the monogram taking
+   *  the picture's place is the part that makes this a fallback rather than a blank band. */
   it('drops back to the monogram when the stored picture will not load', async () => {
     mount();
     const card = await screen.findByTestId('sites-register');
+    const plate = card.querySelector('[data-site-plate]') as HTMLElement;
+    expect(plate.textContent).not.toContain(monogram(site.title));
     fireEvent.error(card.querySelector('[data-site-picture]') as HTMLImageElement);
     await waitFor(() => expect(card.querySelector('[data-site-picture]')).toBeNull());
+    expect(plate.textContent).toContain(monogram(site.title));
     expect(within(card).getByText(site.title)).toBeVisible();
   });
 
