@@ -4,6 +4,15 @@
 
 - The browser plugin publishes a browserCapture control that renders one host-derived URL in a throwaway headless context with no account profile, no proxy lease, downloads denied and a name resolver holding only the target host.
 
+## sites 0.14.0 - 2026-09-14
+
+- Sites publishes one model: an address for an application inside an active managed Project, created with the port it listens on and published by verifying it through the Project's own transport. Nothing is copied, nothing is started, and a host Project is refused.
+- The file-publication copier is gone. Rows published under the retired model keep serving the files they already hold, keep their release ledger and can still be rolled back, but they can no longer be published: `SitePublish` refuses instead of reviving a copy path this release does not have.
+- The Sites register shows a picture of each published page, taken through the site's own published hostname with a one-use grant bound to the site and its access generation and spent by the first request that presents it. Rendering stays anonymous: no account is forwarded to the Project application and no capture counts as a visit.
+- One bounded picture per site, replaced atomically under a new version, renewed lazily while a register is open, after a publish and on a rate-limited manager request from the drawer. The picture has its own access-controlled endpoint, goes with the site on deletion, and a capture that fails leaves the previous one in place while the card states the caveat.
+- The proxy probe now presents the site's public Host rather than `localhost`, so an application that answers by Host is judged as a visitor would find it.
+- Turning public sites off now closes the pages that are already public, instead of only removing the option from the settings form, and a method a file release refuses is answered after access rather than before it.
+
 ## sites 0.13.0 - 2026-09-14
 
 - The Sites register is a responsive grid of cards led by an address plate, three across on a wide desktop and one on a phone, and the standalone Publication column is withdrawn in favour of a single badge on the card.
