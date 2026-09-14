@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.13.0 - 2026-09-14
+
+- The Sites register is a responsive grid of cards led by an address plate, three across on a wide desktop and one on a phone, and the standalone Publication column is withdrawn in favour of a single badge on the card.
+
 ## discord 0.3.20 - 2026-09-13
 
 - Strip Elowen conversation generations from Discord delivery targets.
