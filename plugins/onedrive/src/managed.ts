@@ -65,7 +65,10 @@ export class ManagedMirror {
   }
 
   async walk(options: { limit: number; skip?: readonly string[] }): Promise<{ entries: ManagedEntry[]; complete: boolean }> {
-    const result = await this.call({ kind: 'walk', path: this.path(''), limit: options.limit, skip: [...(options.skip ?? [])], maxDepth: 64 });
+    // One sentinel entry is the only way an unpaged walk can distinguish an exactly-full complete tree
+    // from one whose remaining paths were never examined. The guest contract admits 20,001 for the
+    // mirror's documented 20,000-path cap; the sentinel itself is never presented as mirrored content.
+    const result = await this.call({ kind: 'walk', path: this.path(''), limit: options.limit + 1, skip: [...(options.skip ?? [])], maxDepth: 64 });
     if (result.kind !== 'walk') throw new Error('Managed filesystem returned an invalid walk');
     const prefix = `${this.rootInfo.root.replace(/\/$/, '')}/`;
     const base = this.subpath ? `${prefix}${this.subpath.replace(/\/$/, '')}/` : prefix;
@@ -76,7 +79,7 @@ export class ManagedMirror {
       mtimeMs: entry.mtime,
       rel: entry.path.startsWith(base) ? entry.path.slice(base.length) : '',
     })).filter((entry) => entry.rel !== '') as (ManagedEntry & { rel: string })[];
-    return { entries, complete: !result.truncated };
+    return { entries: entries.slice(0, options.limit), complete: !result.truncated && entries.length <= options.limit };
   }
 
   async open(rel: string): Promise<{ size: number; version: string; read(offset: number, length: number): Promise<Uint8Array>; close(): Promise<void> }> {

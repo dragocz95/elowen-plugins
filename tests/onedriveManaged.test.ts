@@ -49,6 +49,7 @@ describe('OneDrive managed Project transport', () => {
         return { id: 'folder-1' };
       }),
       binary: vi.fn(),
+      request: vi.fn(),
     };
     const rootFor = vi.fn(() => { throw new Error('host project path was requested'); });
     const engine = new SyncEngine({
@@ -68,6 +69,32 @@ describe('OneDrive managed Project transport', () => {
       project: { kind: 'managed', projectId: 41 }, accountUserId: 7, expectedGeneration: 9, root: '/demo', startIfNeeded: false,
     }));
     expect(store.linkById(link.id)?.status).toBe('idle');
+  });
+
+  it('uses one sentinel entry without treating more than 20,000 visited paths as complete', async () => {
+    const entries = Array.from({ length: 20_001 }, (_, index) => ({
+      path: `/demo/f-${String(index).padStart(5, '0')}`,
+      kind: 'file' as const,
+      size: 1,
+      mtime: 1,
+    }));
+    let returned = entries.slice(0, 20_000);
+    const projectFiles = vi.fn(async ({ operation }: { operation: { kind: string; limit?: number } }) => {
+      if (operation.kind !== 'walk') throw new Error(`unexpected ${operation.kind}`);
+      if (operation.limit !== 20_001) throw new Error('invalid_limit: Invalid guest operation bound');
+      return { kind: 'walk' as const, root: '/demo', rootKind: 'directory' as const, entries: returned, truncated: false };
+    });
+    const transport = new ManagedMirror({ projectFiles } as never, { kind: 'managed', projectId: 41 }, 7,
+      { root: '/demo', generation: 9, state: 'running', workspaceId: null });
+
+    const exact = await transport.walk({ limit: 20_000 });
+    expect(exact.entries).toHaveLength(20_000);
+    expect(exact.complete).toBe(true);
+
+    returned = entries;
+    const over = await transport.walk({ limit: 20_000 });
+    expect(over.entries).toHaveLength(20_000);
+    expect(over.complete).toBe(false);
   });
 
   it('pipes the managed launch request into Git before waiting for its result', async () => {
