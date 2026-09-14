@@ -1,5 +1,9 @@
 # Changelog
 
+## browser 0.4.0 - 2026-09-14
+
+- The browser plugin publishes a browserCapture control that renders one host-derived URL in a throwaway headless context with no account profile, no proxy lease, downloads denied and a name resolver holding only the target host.
+
 ## sites 0.13.0 - 2026-09-14
 
 - The Sites register is a responsive grid of cards led by an address plate, three across on a wide desktop and one on a phone, and the standalone Publication column is withdrawn in favour of a single badge on the card.
