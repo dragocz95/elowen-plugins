@@ -687,4 +687,3 @@ describe('cron job creation POST', () => {
     expect((await app.request('/plugins/cronjob/jobs/m3/run', runBody('mr-7'))).status).toBe(202);
   });
 });
-
