@@ -383,8 +383,6 @@ export function expectedInstant(slotMs, hours, timezone) {
   return null;
 }
 
-export function emptyProjection() { return { occurrences: [], truncated: false, omittedByHours: [], candidates: 0 }; }
-
 // The wall-clock labels occurrences carry: the local date ("2026-10-25") and local time ("02:30")
 // as the configured zone renders them.
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -398,6 +396,23 @@ const localTimeLabel = (ms, timezone) => {
 };
 // The scheduler's own default tick, in ms: the precision the projection declares.
 export const DEFAULT_TICK_MS = 30_000;
+/** One wall-clock minute on ONE local date, resolved DST-truthfully: the instant whose fields
+ *  render exactly that wall clock, narrowed to the EARLIER instant when the repeated fall-back hour
+ *  carries it twice. Null when the wall clock does not exist that day (the spring gap) — the
+ *  scheduler's own dueSlot skips it too, so the projection must. */
+export function localSlotInstant(timezone, date, hour, minute) {
+  const slot = zonedTimeToMs(timezone, date.year, date.month, date.day, hour, minute);
+  const p = zonedParts(slot, timezone);
+  if (p.year !== date.year || p.month !== date.month || p.day !== date.day
+    || p.hour !== hour || p.minute !== minute) return null;
+  // The repeated fall hour: the same wall clock one real hour earlier is another instant with the
+  // SAME slot key, so the occurrence identity is unchanged either way; the earlier instant wins.
+  const before = zonedParts(slot - 3_600_000, timezone);
+  if (before.year === date.year && before.month === date.month && before.day === date.day
+    && before.hour === hour && before.minute === minute) return slot - 3_600_000;
+  return slot;
+}
+
 /** THE one bounded forward expansion. The scheduler answers "is this job due RIGHT NOW"; the
  *  calendar needs the forward view of the SAME parser, timezone rules, DST identity and
  *  active-hours gate, so this is the only occurrence representation. */
@@ -420,38 +435,47 @@ export function slotOccurrence(job, timezone, kind, slotMs, expectedMs, disposit
 
 /** Expand ONE stored job into its future occurrences between [opts.fromMs, opts.untilMs], inclusive.
  *
- *  Dispositions:
+ *  Dispositions (the plan's vocabulary):
  *   - 'onTime'          the future occurrence fires as scheduled;
  *   - 'deferredByHours' active hours defer the run to a later instant inside the same window;
  *   - 'catchUp'         a slot or interval the scheduler would claim on its next tick — at most ONE
- *                       such occurrence (the latest-only lookback replay the due logic performs);
+ *                       such occurrence (the latest-only lookback replay), never a backlog;
  *   - 'dueNow'          an interval whose duration elapsed NOW, or a one-shot whose time has come;
  *   - 'late'            a pending one-shot still stored well past its runAt.
  *
- *  `scheduledAt` never moves; expectedAt is the earliest claimable instant. Slots a scheduler already
- *  claimed (lastSlot) do not appear — this is forward-looking, not run history. */
+ *  `scheduledAt` never moves: it keeps the recurrence's own wall clock. `expectedAt` is the earliest
+ *  instant the scheduler could claim it; `tickMs` is declared once as the precision interval. Slots a
+ *  scheduler already claimed (lastSlot) do not appear — this is forward-looking, not run history.
+ *  `opts.maxOccurrences` stops the walk after that many occurrences (a next-occurrence query asks
+ *  for one; the calendar asks for a whole window), and `opts.budgetCap` bounds the candidate WORK
+ *  (dates walked plus minutes searched) — past it, `truncated` is TRUE and the rest is not built.
+ *  Returns { occurrences, truncated, omittedByHours, candidates }. */
 export function planOccurrences(job, opts = {}) {
   const timezone = opts.timezone ?? systemZone();
   const nowMs = opts.nowMs ?? Date.now();
   const tickMs = opts.tickMs ?? DEFAULT_TICK_MS;
   const lookbackMs = opts.lookbackMs ?? DEFAULT_CRON_LOOKBACK_MS;
+  const maxOccurrences = opts.maxOccurrences ?? Infinity;
+  const cap = opts.budgetCap ?? Infinity;
   const occurrences = [];
   const omittedByHours = new Map(); // localDate -> count of slots the active hours can never open for
+  let candidates = 0;
+  let truncated = false;
+  const spend = () => { candidates += 1; if (candidates > cap) truncated = true; };
   const omit = (slotMs) => {
     const key = localDateLabel(slotMs, timezone);
     omittedByHours.set(key, (omittedByHours.get(key) ?? 0) + 1);
   };
-  const done = () => ({ occurrences, truncated: false, omittedByHours: [...omittedByHours], candidates: 0 });
+  const done = () => ({ occurrences, truncated, omittedByHours: [...omittedByHours], candidates });
 
   if (typeof job?.id !== 'string' || job.id === '') return { occurrences, truncated: false, omittedByHours: [], candidates: 0 };
 
   // ── One-shot: runAt is the whole story; presence on disk IS "pending". ──
   if (typeof job.runAt === 'string') {
     const at = Date.parse(job.runAt);
-    if (!Number.isNaN(at)) {
-      const disposition = at >= nowMs ? 'onTime'
-        : (nowMs - at) <= tickMs ? 'dueNow' : 'late';
-      occurrences.push(slotOccurrence(job, timezone, 'oneShot', at, Math.max(at, nowMs), disposition));
+    if (!Number.isNaN(at) && at >= nowMs - lookbackMs) {
+      occurrences.push(slotOccurrence(job, timezone, 'oneShot', at, Math.max(at, nowMs), at >= nowMs ? 'onTime'
+        : (nowMs - at) <= tickMs ? 'dueNow' : 'late'));
     }
     return done();
   }
@@ -459,33 +483,33 @@ export function planOccurrences(job, opts = {}) {
   const sched = parseSchedule(job.schedule);
   if (!sched) return done();
 
-  // The catch-up window: a PAST slot is catchable only while strictly newer than the last run and
-  // inside the configured lookback. The scheduler replays at most ONE, latest only — the projection
-  // must never invent a backlog the due logic would never run.
+  // The catch-up floor: a PAST slot is catchable only while strictly newer than the last run AND
+  // inside the lookback window — the replays the scheduler's own due logic would still perform.
   const anchor = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
     ? Date.parse(job.lastRun) : 0;
   const floor = Math.max(anchor, nowMs - lookbackMs);
 
   if (sched.kind === 'interval') {
-    // An interval is a duration, and an overdue one is ONE cluster: due at the next tick inside
-    // active hours. After that claim, further instants anchor on the claim's own instant.
+    // An interval is a duration; an overdue one is ONE cluster due at the next tick inside active
+    // hours. After the claim the following instants anchor on THAT instant, never on the wall clock.
     if (nowMs - anchor >= sched.ms) {
       const missed = anchor + Math.floor((nowMs - anchor) / sched.ms) * sched.ms;
       const eligible = inHours(job.hours, nowMs, timezone);
       const claimed = eligible ? nowMs : expectedInstant(nowMs, job.hours, timezone);
       if (claimed === null) omit(missed);
       else occurrences.push(slotOccurrence(job, timezone, 'interval', missed, Math.max(claimed, nowMs), eligible ? 'dueNow' : 'deferredByHours'));
-      for (let t = (claimed ?? nowMs) + sched.ms; t <= opts.untilMs; t += sched.ms) {
+      for (let t = (claimed ?? nowMs) + sched.ms; t <= opts.untilMs && !truncated && occurrences.length < maxOccurrences; t += sched.ms) {
+        spend();
         const expected = inHours(job.hours, t, timezone) ? t : expectedInstant(t, job.hours, timezone);
         if (expected === null) continue;
         occurrences.push(slotOccurrence(job, timezone, 'interval', t, expected, expected === t ? 'onTime' : 'deferredByHours'));
       }
       return done();
     }
-    // Not overdue: future instants anchor on the current run state. An instant that falls inside the
-    // coming tick window is already claimable — the same catch the due logic would make at that tick.
+    // Not overdue: future instants keep anchoring on the CURRENT run state.
     const from = Math.max(opts.fromMs ?? nowMs, anchor);
-    for (let t = anchor + Math.ceil((from - anchor + 1) / sched.ms) * sched.ms; t <= opts.untilMs; t += sched.ms) {
+    for (let t = anchor + Math.ceil((from - anchor) / sched.ms) * sched.ms; t <= opts.untilMs && !truncated && occurrences.length < maxOccurrences; t += sched.ms) {
+      spend();
       const expected = inHours(job.hours, t, timezone) ? t : expectedInstant(t, job.hours, timezone);
       if (expected === null) { omit(t); continue; }
       if (t <= nowMs) occurrences.push(slotOccurrence(job, timezone, 'interval', t, Math.max(expected, nowMs), 'catchUp'));
@@ -500,22 +524,26 @@ export function planOccurrences(job, opts = {}) {
   const hourValues = [...(sched.kind === 'cron' ? sched.hour : [sched.hour])].sort((a, b) => a - b);
   let lastPast = null; // the LATEST unclaimed past slot; earlier ones are superseded and never shown
   for (const date of localDates(opts.fromMs ?? nowMs, opts.untilMs, timezone)) {
-    if (sched.kind === 'weekly' && date.weekday !== sched.day) continue;
+    if (truncated || occurrences.length >= maxOccurrences) break;
+    if (sched.kind === 'weekly' && date.weekday !== sched.day) { spend(); continue; }
     for (const hour of hourValues) {
       for (const minute of minuteValues) {
-        const resolved = resolveLocalDateTime(timezone,
-          `${date.year}-${pad2(date.month)}-${pad2(date.day)}`, `${pad2(hour)}:${pad2(minute)}`, 'earlier');
-        if (resolved.error === 'nonexistent') continue;      // a spring-gap time simply does not happen
-        const slot = resolved.ms;
-        if (slot < floor) continue;                          // already-run history, never returned
-        if (slot < nowMs) { lastPast = slot; continue; }     // remember the latest unclaimed past slot
+        if (truncated) break;
+        const slot = localSlotInstant(timezone, date, hour, minute);
+        spend();
+        if (slot === null) continue;                     // a spring-gap time simply never happens
+        if (job.lastSlot !== undefined && job.lastSlot === slotKey(slot, timezone)) continue; // already claimed: history
+        if (slot < floor) continue;                      // already-run history, never returned
+        if (slot < nowMs) { lastPast = slot; continue; } // remember the latest unclaimed past slot
         const when = inHours(job.hours, slot, timezone) ? slot : expectedInstant(slot, job.hours, timezone);
         if (when === null) { omit(slot); continue; }
         occurrences.push(slotOccurrence(job, timezone, 'slot', slot, when, when === slot ? 'onTime' : 'deferredByHours'));
+        if (occurrences.length >= maxOccurrences) break;
       }
+      if (occurrences.length >= maxOccurrences) break;
     }
   }
-  if (lastPast !== null) {
+  if (lastPast !== null && !truncated && occurrences.length < maxOccurrences) {
     const when = inHours(job.hours, nowMs, timezone) ? nowMs : expectedInstant(nowMs, job.hours, timezone);
     if (when === null) omit(lastPast);
     else occurrences.push(slotOccurrence(job, timezone, 'slot', lastPast, Math.max(when, nowMs), 'catchUp'));
