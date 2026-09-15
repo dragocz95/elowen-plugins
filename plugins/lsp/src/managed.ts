@@ -25,9 +25,10 @@ export class ManagedLspManager extends LspManager {
    *  instance that has already left the plugin's managed set — nobody would ever cancel it. */
   private stopped = false;
 
-  constructor(private readonly ctx: PluginContext, readonly project: Project, readonly actor: number, generation?: number) {
+  constructor(private readonly ctx: PluginContext, readonly project: Project, readonly actor: number, generation?: number, idleTtlMs?: number) {
     super({
       root: '/workspace',
+      idleTtlMs,
       projectRoot: async () => { await this.authority(); return '/workspace'; },
       readFile: async (path) => {
         const sandbox = await this.authority();
@@ -59,6 +60,14 @@ export class ManagedLspManager extends LspManager {
    *  lifetime, so it needs no watchdog of its own. */
   protected override watchdogProcessId(): number | null {
     return null;
+  }
+
+  /** The guest root is `/workspace`, which exists in the container and not in the daemon, so the host
+   *  probe would report every managed server as vanished and reclaim it on the next sweep. This manager
+   *  cannot see the guest filesystem; the execution lease and the generation bookkeeping in the plugin's
+   *  `managed` map already retire a server whose environment went away. */
+  protected override rootStillPresent(): boolean {
+    return true;
   }
 
   /** Whether the guest can actually run `command`. The host spawn answers this by resolving the binary

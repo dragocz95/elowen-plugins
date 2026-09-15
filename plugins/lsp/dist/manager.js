@@ -3,6 +3,12 @@ import { dirname, join } from 'node:path';
 import { LspClient, spawnStdioTransport } from './client.js';
 import { canonical, pathWithin } from './paths.js';
 import { commandExists, detectLanguage, listServers, serverForLanguage } from './servers.js';
+/** A warm cache is worth checking about once a minute, no more: the sweep walks at most `maxClients`
+ *  entries, and the TTL it enforces is an order of magnitude longer. */
+const IDLE_SWEEP_INTERVAL_MS = 60_000;
+/** The pool's idle-server lifetime. The plugin's `idleTtlMinutes` setting defaults to this, so the
+ *  manager stays usable on its own without a config layer to ask. */
+export const DEFAULT_IDLE_TTL_MS = 10 * 60_000;
 const PROJECT_MARKERS = [
     '.git', 'package.json', 'tsconfig.json', 'jsconfig.json', 'pyproject.toml', 'setup.py',
     'go.mod', 'Cargo.toml', 'CMakeLists.txt', 'compile_commands.json',
@@ -57,6 +63,11 @@ export class LspManager {
     settleMs;
     maxClients;
     maxRestarts;
+    idleTtlMs;
+    idleSweepIntervalMs;
+    /** The idle sweep's timer. Unref'd and cleared with the pool, so a warm cache never keeps a process
+     *  alive and a stopped plugin service cannot leave a ticker behind. */
+    sweepTimer = null;
     constructor(deps = {}) {
         this.spawnFn = deps.spawn ?? spawnStdioTransport;
         this.projectRoot = deps.projectRoot ?? projectRootForFile;
@@ -71,6 +82,11 @@ export class LspManager {
         this.settleMs = deps.settleMs ?? 1000;
         this.maxClients = Math.max(1, Math.floor(deps.maxClients ?? 8));
         this.maxRestarts = Math.max(1, Math.floor(deps.maxRestarts ?? 3));
+        // A missing setting means the default; anything else that is not a positive number means "never evict
+        // on age alone" rather than an accidentally instant sweep.
+        const idleTtlMs = deps.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
+        this.idleTtlMs = Number.isFinite(idleTtlMs) && idleTtlMs > 0 ? idleTtlMs : 0;
+        this.idleSweepIntervalMs = Math.max(1, Math.floor(deps.idleSweepIntervalMs ?? IDLE_SWEEP_INTERVAL_MS));
     }
     isEnabled() { return this.enabled; }
     setEnabled(on) {
@@ -134,6 +150,12 @@ export class LspManager {
      *  daemon's own pid is exactly right; a guest server does not, which is why this is overridable. */
     watchdogProcessId() {
         return process.pid;
+    }
+    /** Whether the project root a server was spawned against is still there — the sweep uses it to reclaim
+     *  a server whose worktree was deleted. Overridable for the same reason as {@link watchdogProcessId}:
+     *  a guest root lives in another namespace, where this process cannot see it and must not guess. */
+    rootStillPresent(root) {
+        return existsSync(root);
     }
     /** Type-check one file and return its diagnostics (or why it was skipped). Never throws — a spawn or
      *  server failure degrades to a `skipped`/empty result so it can't break the agent's edit loop. */
@@ -380,6 +402,7 @@ export class LspManager {
             // Map insertion order is the LRU queue. A hit becomes newest.
             this.clients.delete(key);
             this.clients.set(key, existing);
+            existing.lastUsedAt = Date.now();
             return existing;
         }
         if (existing)
@@ -405,10 +428,48 @@ export class LspManager {
         this.makeRoomForClient();
         const client = new LspClient(transport, root, undefined, this.watchdogProcessId());
         const entry = {
-            key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false, checkedPaths: new Set(),
+            key, command: spec.command, root, client, activeChecks: 0, retired: false, warmed: false,
+            checkedPaths: new Set(), lastUsedAt: Date.now(),
         };
         this.clients.set(key, entry);
+        this.ensureSweepRunning();
         return entry;
+    }
+    /** Start the idle sweep if the pool has anything for it to collect. It runs even when the TTL is off,
+     *  because a vanished project root is also what it reclaims. */
+    ensureSweepRunning() {
+        if (this.sweepTimer)
+            return;
+        this.sweepTimer = setInterval(() => { this.sweepIdleClients(); }, this.idleSweepIntervalMs);
+        this.sweepTimer.unref(); // a warm cache must never be the reason a daemon or runner stays up
+    }
+    stopSweep() {
+        if (!this.sweepTimer)
+            return;
+        clearInterval(this.sweepTimer);
+        this.sweepTimer = null;
+    }
+    /** Dispose warm servers the agent stopped using, and servers whose project root is gone.
+     *
+     *  The pool is keyed by (server, project root) and used to shrink only when a new key overflowed the
+     *  cap, so an agent that touched eight worktrees parked eight language servers — and a worktree deleted
+     *  out from under a live client left a server no LRU hit could ever reach again. Both go through
+     *  {@link retire}, the single disposal path: a client with a check in flight is never touched, an idle
+     *  one is detached and killed. Returns how many servers went away. */
+    sweepIdleClients(now = Date.now()) {
+        let evicted = 0;
+        for (const entry of [...this.clients.values()]) {
+            if (entry.activeChecks > 0)
+                continue;
+            const expired = this.idleTtlMs > 0 && now - entry.lastUsedAt >= this.idleTtlMs;
+            if (!expired && this.rootStillPresent(entry.root))
+                continue;
+            this.retire(entry, 'idle');
+            evicted++;
+        }
+        if (this.clients.size === 0)
+            this.stopSweep();
+        return evicted;
     }
     /** Evict the oldest reusable client which is not serving a diagnostics call. When every client is busy,
      *  allow a temporary cap overflow; release() trims it as soon as one client becomes idle. */
@@ -437,7 +498,8 @@ export class LspManager {
      *
      *  Only a `crash` counts against the restart budget, and only the first time this client is retired: a
      *  `quarantine` is a healthy but slow server whose verdict missed the window, and capping those would
-     *  leave a big project permanently unchecked. */
+     *  leave a big project permanently unchecked. An `idle` retirement is likewise a healthy server the
+     *  sweep reclaimed, so the next check simply pays the cold start. */
     retire(entry, cause) {
         if (cause === 'crash' && !entry.retired)
             this.restarts.set(entry.key, (this.restarts.get(entry.key) ?? 0) + 1);
@@ -451,6 +513,9 @@ export class LspManager {
     }
     release(entry) {
         entry.activeChecks = Math.max(0, entry.activeChecks - 1);
+        // Measured when the check FINISHES, so a server that spent the first cold-start window indexing is
+        // not aged out the moment the very first verdict lands.
+        entry.lastUsedAt = Date.now();
         if (entry.activeChecks === 0 && entry.retired)
             this.disposeRetired(entry);
         this.trimClients();
@@ -461,6 +526,7 @@ export class LspManager {
     }
     disposeAll() {
         this.epoch++;
+        this.stopSweep();
         const all = this.allClients();
         this.clients.clear();
         this.retiredClients.clear();

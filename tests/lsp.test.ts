@@ -14,8 +14,18 @@ import { lspToolCtx, registeredLspTools } from './helpers/lspHarness.js';
 
 describe('LSP plugin config boundary', () => {
   it('falls back as a whole when diagnosticsEnabled is malformed', () => {
-    expect(lspPluginConfig({ diagnosticsEnabled: 'yes' })).toEqual({ diagnosticsEnabled: true });
-    expect(lspPluginConfig({ diagnosticsEnabled: false })).toEqual({ diagnosticsEnabled: false });
+    expect(lspPluginConfig({ diagnosticsEnabled: 'yes' })).toEqual({ diagnosticsEnabled: true, idleTtlMinutes: 10 });
+    expect(lspPluginConfig({ diagnosticsEnabled: false })).toEqual({ diagnosticsEnabled: false, idleTtlMinutes: 10 });
+  });
+
+  it('degrades the whole slice when idleTtlMinutes is out of range', () => {
+    // The pre-existing whole-slice rule: an unusable value discards the slice rather than half-applying
+    // it, so a bad TTL also resets diagnostics to the default. The settings form clamps to min/max, so
+    // this is reachable only through a hand-edited config.
+    expect(lspPluginConfig({ diagnosticsEnabled: false, idleTtlMinutes: -5 })).toEqual({ diagnosticsEnabled: true, idleTtlMinutes: 10 });
+    expect(lspPluginConfig({ diagnosticsEnabled: false, idleTtlMinutes: '10m' })).toEqual({ diagnosticsEnabled: true, idleTtlMinutes: 10 });
+    expect(lspPluginConfig({ diagnosticsEnabled: false, idleTtlMinutes: 0 })).toEqual({ diagnosticsEnabled: false, idleTtlMinutes: 0 });
+    expect(lspPluginConfig({ diagnosticsEnabled: false, idleTtlMinutes: 30 }).idleTtlMinutes).toBe(30);
   });
 });
 

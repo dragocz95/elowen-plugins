@@ -50,6 +50,16 @@
       "type": "boolean",
       "default": true,
       "hint": "Type-check edits through language servers. Turning this off stops every running server; the tools stay listed and report that LSP is off. The `/lsp` command flips the same switch."
+    },
+    {
+      "key": "idleTtlMinutes",
+      "label": "Keep warm servers for",
+      "type": "number",
+      "min": 0,
+      "max": 240,
+      "step": 1,
+      "default": 10,
+      "hint": "How long a language server with no check in flight stays ready for the next one. Each warm server keeps its project index in memory, so this is memory against the ~15 second restart. 0 keeps servers until the pool fills or LSP is turned off; a server whose project directory was deleted is released either way."
     }
   ]
 }

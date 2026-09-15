@@ -31,7 +31,10 @@ export interface LspRegisterDeps {
 export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
   // Lazy: registration must not spawn anything, and a sub-agent runner loads this plugin too (it gets
   // the tools, never the services) — so the manager appears on the first tool call there.
-  const create = deps.createManager ?? (() => new LspManager());
+  // The idle-server lifetime comes from the same config slice as the toggle and is read when a manager is
+  // built: editing it hot-reloads the plugin, so a fresh manager cannot be shadowed by an old setting.
+  const idleTtlMs = (): number => lspPluginConfig(ctx.config).idleTtlMinutes * 60_000;
+  const create = deps.createManager ?? (() => new LspManager({ idleTtlMs: idleTtlMs() }));
   let manager: LspManager | null = null;
   const managed = new Map<string, ManagedLspManager>();
   // Single-flight per (project, actor): two concurrent tool calls on a cold first use would otherwise
@@ -61,7 +64,7 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
       }
       let selected = managed.get(key);
       if (!selected) {
-        selected = new ManagedLspManager(ctx, project, actor, state.generation);
+        selected = new ManagedLspManager(ctx, project, actor, state.generation, idleTtlMs());
         selected.setEnabled(lspPluginConfig(ctx.config).diagnosticsEnabled);
         managed.set(key, selected);
       }
