@@ -10,6 +10,7 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import { processRegistry } from 'elowen/dist/brain/processRegistry.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,7 +74,7 @@ describe('cronjob plugin', () => {
 
   it('the cron platform never exposes a `notify` method (the host broadcast would recurse into itself)', async () => {
     const dataRoot = freshDataRoot();
-    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log });
+    const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, pluginDb: pluginDbFor(dataRoot) });
     // BrainService.notify() calls every platform whose `notify` is a function; the cron adapter holds
     // the host's own notify sink, so exposing it under that name loops host → cron → host until the
     // stack blows — every cron echo then lands dozens of times on Discord.
@@ -84,7 +85,7 @@ describe('cronjob plugin', () => {
     const dataRoot = freshDataRoot();
     // A recurring job names the conversation it is organized under, so the host has to answer for one.
     const reg = await loadPlugins({
-      dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log,
+      dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, pluginDb: pluginDbFor(dataRoot),
       host: { stores: { conversationsRead: stubConversationDirectory() } } as never,
     });
     expect(reg.platforms.map((p) => p.name)).toEqual(['cron']);

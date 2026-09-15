@@ -118,61 +118,92 @@ interface CronOccurrence {
   guarded: boolean;
 }
 
-/** ONE job's whole day, as the board draws it — never one entry per run.
- *
- *  `remaining` is the server's exact count of runs the job still has on this date, so a row can say
- *  "720 runs left today" without anything having built 720 of anything. `moreTimes` names the few
- *  further wall clocks of a job with several fixed times; `truncated` means the server's per-job slot
- *  cap stopped the walk, so `remaining` is a floor rather than the total. */
-export interface CronDayRow {
-  jobId: string;
-  /** Where the row is read: `next` = a fixed time still ahead today, `recurring` = a rate or a status
-   *  (paused, or nothing left today), `oneShot` = a single pending wake-up. */
-  section: 'next' | 'recurring' | 'oneShot';
-  kind: 'interval' | 'daily' | 'weekly' | 'cron' | 'oneShot' | null;
-  /** The stored schedule string; null for a one-shot, which has no recurrence to name. */
-  schedule: string | null;
-  enabled: boolean;
-  remaining: number;
-  next: CronDayNext | null;
-  moreTimes: string[];
-  truncated: boolean;
-}
-
 /** Why an instant is what it is: on time, deferred by active hours, a replayed miss, due now, or late. */
-export type CronDisposition = 'onTime' | 'deferredByHours' | 'catchUp' | 'dueNow' | 'late';
-
-interface CronDayNext {
-  occurrenceId: string;
-  scheduledAt: string;
-  expectedAt: string;
-  /** The wall clock in the SCHEDULER's timezone, never the browser's. */
-  localTime: string;
-  disposition: CronDisposition;
-  guarded: boolean;
-}
-
-/** GET /plugins/cronjob/api/day — one local date, one row per visible job, bounded by construction. */
-export interface CronDayResponse {
-  generatedAt: string;
-  /** The scheduler's own today, in its own timezone — the browser never derives it. */
-  todayLocalDate: string;
-  /** The scheduler's own wall clock right now (`HH:mm`), so the day rail can place its "now" line
-   *  without the browser re-deriving the time in a timezone that is not its own. */
-  nowLocalTime: string;
-  /** The date this board describes; equal to `todayLocalDate` on the initial, parameterless load. */
-  localDate: string;
-  timezone: string;
-  precisionMs: number;
-  scheduler: { ready: boolean; runningJobId?: string; runningSince?: string };
-  jobs: CronJob[];
-  rows: CronDayRow[];
-  /** Some row's per-job slot cap was reached; its count is a floor. */
-  truncated: boolean;
-}
+type CronDisposition = 'onTime' | 'deferredByHours' | 'catchUp' | 'dueNow' | 'late';
 
 /** POST /plugins/cronjob/api/schedule-preview — validity and next occurrences of a DRAFT schedule,
  *  computed by the server so the browser never parses cron itself. */
+type CronRunOutcome = 'waiting' | 'running' | 'ok' | 'error' | 'skipped';
+
+export interface CronDayCard {
+  jobId: string;
+  kind: 'daily' | 'weekly' | 'cron' | 'oneShot';
+  localTime: string;
+  moreTimes: string[];
+  remaining: number;
+  enabled: boolean;
+  guarded: boolean;
+  disposition: CronDisposition;
+  state: CronRunOutcome | 'paused';
+}
+
+export interface CronWeekDay {
+  localDate: string;
+  cards: CronDayCard[];
+  dayTotal: number;
+  runs: { ok: number; error: number; skipped: number; running: number };
+}
+
+export interface CronIntervalRow {
+  jobId: string;
+  schedule: string;
+  intervalLabel: string;
+  enabled: boolean;
+  nextExpectedAt: string | null;
+  nextLocalTime: string | null;
+  remainingToday: number;
+  lastOutcome: CronRunOutcome | null;
+  lastRunAt: string | null;
+}
+
+export interface CronWeekResponse {
+  generatedAt: string;
+  todayLocalDate: string;
+  nowLocalTime: string;
+  timezone: string;
+  precisionMs: number;
+  scheduler: { ready: boolean; runningJobId?: string; runningSince?: string };
+  window: { startLocalDate: string; endLocalDateExclusive: string };
+  jobs: CronJob[];
+  days: CronWeekDay[];
+  intervals: CronIntervalRow[];
+  truncated: boolean;
+}
+
+export interface CronRunRow {
+  id: string;
+  jobId: string;
+  jobName: string;
+  ownerUserId: number | null;
+  owner?: CronJobOwner;
+  lifecycle: 'recurring' | 'oneShot';
+  schedule: string | null;
+  trigger: 'schedule' | 'catchUp' | 'manual';
+  localDate: string;
+  localTime: string;
+  timezone: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  outcome: CronRunOutcome;
+  skipReason?: string;
+  errorMessage?: string;
+  preview?: string;
+  previewTruncated: boolean;
+  sessionId?: string;
+  messageId?: string;
+  delivered: boolean;
+  model?: string;
+  tokensTotal?: number;
+  costUsd?: number;
+}
+
+export interface CronRunsResponse {
+  runs: CronRunRow[];
+  total: number;
+  nextCursor?: string;
+}
+
 export interface CronSchedulePreview {
   valid: boolean;
   kind?: 'interval' | 'daily' | 'weekly' | 'cron';
@@ -281,7 +312,7 @@ interface CalendarProps {
 
 // ---- hook shapes --------------------------------------------------------------------------------
 
-interface QueryResult<T> { data?: T; isLoading: boolean; isError: boolean; refetch(): void }
+interface QueryResult<T> { data?: T; error?: unknown; isLoading: boolean; isError: boolean; refetch(): void }
 interface MutationResult<TVars> {
   mutate(vars: TVars, cb?: { onSuccess?: () => void; onError?: (e: unknown) => void }): void;
   mutateAsync(vars: TVars): Promise<unknown>;
@@ -322,21 +353,18 @@ type AnyComponent = ComponentType<any>;
 
 interface CronComponents {
   Avatar: AnyComponent;
-  Badge: AnyComponent; Button: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
+  Badge: AnyComponent; Button: AnyComponent; IconButton: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   HelpTip: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;
   EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent;
-  /** The host's own grouped-row surface — its rounded, divided container and one row inside it. The
-   *  Recurring lane is built from these rather than from a hand-rolled card, because the host
-   *  publishes no Card primitive and a bundle drawing its own would stop matching every other list. */
   EntityList: AnyComponent; EntityRow: AnyComponent;
+  DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
+  RegisterSearch: AnyComponent; Pager: AnyComponent; ActionMenu: AnyComponent;
   Modal: ComponentType<ModalProps>; ModalBody: ComponentType<ModalBodyProps>; ModalFooter: ComponentType<ModalFooterProps>;
   PluginSection: AnyComponent;
-  /** The canonical page anatomy and toolbar (API 17's Calendar is the first REQUIRED one). */
-  ModuleHeader: AnyComponent; WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent;
+  ModuleHeader: AnyComponent; WorkspaceShell: AnyComponent; WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent;
   PageToolbar: AnyComponent; PageFilters: AnyComponent;
-  /** The canonical month/date grid — the host's real shadcn Calendar on react-day-picker. */
   Calendar: ComponentType<CalendarProps>;
   WorkspaceDetailRail: AnyComponent;
   SettingsGroup: AnyComponent;

@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 // `cronLookbackMs` decides how far back a 5-field cron job hunts for a run it missed while the daemon was
 // down. It is only observable as a job that DOES or DOES NOT fire after downtime, so that is what these
@@ -39,6 +40,7 @@ afterEach(() => {
 async function loadCron(dataRoot: string, config?: Record<string, unknown>): Promise<CronAdapterUnderTest> {
   const reg = await loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log,
+    pluginDb: pluginDbFor(dataRoot),
     timezone: () => 'UTC',
     config: config ? { cronjob: config } : undefined,
   });

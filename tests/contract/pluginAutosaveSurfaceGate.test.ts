@@ -15,6 +15,7 @@ type SurfaceContract = {
 const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/browser/web-src/BrowserAccount.tsx', mode: 'explicit-save', reason: 'session lifecycle and confirmed destructive profile cleanup actions' },
   { path: 'plugins/cronjob/web-src/JobDrawer.tsx', mode: 'canonical' },
+  { path: 'plugins/cronjob/web-src/AutomationPage.tsx', mode: 'explicit-save', reason: 'run-now and pause are immediate operational actions; JobDrawer owns canonical field autosave' },
   { path: 'plugins/cronjob/web-src/CreateJobDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit submit: an idempotent requestId guards the retry, not a debounced autosave' },
   { path: 'plugins/cronjob/web-src/fields.tsx', mode: 'explicit-save', reason: 'the schedule-preview POST is a bounded read of a draft, never a persistence write' },
   { path: 'plugins/msteams/web-src/TeamsWorkspace.tsx', mode: 'canonical' },

@@ -14,6 +14,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 let dirs: string[] = [];
 const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `elowen-${tag}-`)); dirs.push(p); return p; };
@@ -32,6 +33,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
   // The '/plugins/cronjob/jobs' surface is served by the REAL cronjob plugin (root mounts) now.
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,
+    pluginDb: pluginDbFor(dataRoot),
     host: {
       stores: {
         projects: new ProjectStore(db),

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { register } from '../plugins/cronjob/index.mjs';
+import { pluginDb } from './helpers/pluginDb.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const asText = (result) => result.content[0].text;
@@ -13,7 +14,9 @@ function loadPlugin(dataRoot) {
   const tools = [];
   const platforms = [];
   const session = { identity: null, sessionId: undefined, deliveryTarget: undefined, admin: false };
+  const db = pluginDb();
   const ctx = {
+    db: () => db,
     logger: log,
     config: {},
     dataDir: () => join(dataRoot, 'cronjob'),

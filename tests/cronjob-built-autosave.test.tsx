@@ -24,25 +24,26 @@ const job: CronJob = {
     disposition: 'onTime', guarded: false,
   },
 };
-const dayBody = {
+const weekBody = {
   generatedAt: '2026-09-15T05:00:00.000Z',
   todayLocalDate: '2026-09-15',
   nowLocalTime: '07:00',
-  localDate: '2026-09-15',
   timezone: 'Europe/Prague',
   precisionMs: 30_000,
   scheduler: { ready: true },
+  window: { startLocalDate: '2026-09-14', endLocalDateExclusive: '2026-09-21' },
   jobs: [job],
-  rows: [{
-    jobId: 'built-1', section: 'next', kind: 'daily', schedule: 'daily 06:00', enabled: true,
-    remaining: 1,
-    next: {
-      occurrenceId: 'built-1:slot:2026-09-15T06:00', scheduledAt: '2026-09-15T05:00:00.000Z',
-      expectedAt: '2026-09-15T05:00:00.000Z', localTime: '06:00', disposition: 'onTime', guarded: false,
-    },
-    moreTimes: [],
+  days: ['14', '15', '16', '17', '18', '19', '20'].map((day) => ({
+    localDate: `2026-09-${day}`,
+    cards: day === '15' ? [{
+      jobId: 'built-1', kind: 'daily', localTime: '06:00', moreTimes: [],
+      remaining: 1, enabled: true, guarded: false, disposition: 'onTime', state: 'waiting',
+    }] : [],
+    dayTotal: day === '15' ? 1 : 0,
+    moreCount: 0,
     truncated: false,
-  }],
+  })),
+  intervals: [],
   truncated: false,
 };
 
@@ -69,7 +70,7 @@ describe('committed cronjob bundle autosave', () => {
   it('registers the built entry and persists an edit through the host runtime', async () => {
     const writes: unknown[] = [];
     use(
-      http.get('/api/plugins/cronjob/api/day', () => HttpResponse.json(dayBody)),
+      http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json(weekBody)),
       http.get('/api/plugins/cronjob/api/conversations', () => HttpResponse.json({ status: 'available', conversations: [] })),
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job])),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {

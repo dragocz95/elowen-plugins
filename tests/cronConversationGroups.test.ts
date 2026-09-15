@@ -26,6 +26,7 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { PluginHostWiring } from 'elowen/dist/plugins/api.js';
 import { conversationDirectory, type FakeConversationRow } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const log = { info: () => {}, warn: () => {}, error: () => {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,6 +84,7 @@ function setupRoutes(
     : directory;
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log,
+    pluginDb: pluginDbFor(dataRoot),
     host: {
       stores: {
         usersRead: {
@@ -145,6 +147,7 @@ async function loadCron(opts: {
   const directory = conversationDirectory(opts.rows, { admins: opts.admins ?? [] });
   const reg = await loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot: opts.dataRoot, logger: log,
+    pluginDb: pluginDbFor(opts.dataRoot),
     host: {
       stores: {
         usersRead: {

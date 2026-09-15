@@ -17,6 +17,7 @@ import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
 import { openDb } from 'elowen/dist/store/db.js';
+import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { stubConversationDirectory } from './helpers/conversationDirectory.js';
@@ -38,6 +39,7 @@ function setup(opts: { config?: Record<string, Record<string, unknown>>; timezon
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot,
     config: opts.config, timezone: opts.timezone ?? (() => PRAGUE),
+    pluginDb: (plugin) => makePluginDb(db, plugin, { canMigrate: true }),
     host: { stores: { projects: new ProjectStore(db), userProjects: new UserProjectStore(db),
       usersRead: {
         list: () => users.list().map((user) => ({ id: user.id, username: user.username, name: user.name, avatar: user.avatar })),

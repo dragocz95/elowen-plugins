@@ -14,11 +14,12 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { executionRef, projectCheck } from './execution.mjs';
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runtimeFooter } from 'elowen-plugin-shared/format';
 import { readJsonSafe, writeJsonAtomic } from 'elowen-plugin-shared/atomicJson';
+import { openRunJournal } from './lib/runJournal.mjs';
 
 /** This plugin's own manifest name — the key an account's grant is stored under. */
 const PLUGIN_NAME = 'cronjob';
@@ -95,7 +96,7 @@ const clampConfig = (value, def, min, max) => Math.min(Math.max(Number(value) ||
 
 import {
   DEFAULT_CRON_LOOKBACK_MS, DEFAULT_TICK_MS,
-  systemZone, zonedTimeToMs,
+  systemZone, zonedTimeToMs, slotKey,
   parseOneShot, parseSchedule, hoursAreValid, dueSlot,
   resolveLocalDateTime, planOccurrences,
   sortOccurrences, summarizeJobDay, localDateLabel, localTimeLabel,
@@ -181,8 +182,9 @@ class CronAdapter {
   // multiplying every cron echo into dozens of Discord messages.
   // `timezone` is a LIVE getter, not a captured string: the operator can change the zone in Settings and
   // the very next tick must schedule against it, without a plugin reload.
-  constructor(store, deliveryStore, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true, projectRuntime) {
+  constructor(store, deliveryStore, journal, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true, projectRuntime) {
     this.projectRuntime = projectRuntime;
+    this.journal = journal;
     this.checkAbort = new AbortController();
     this.store = store; this.deliveryStore = deliveryStore; this.log = logger; this.deliver = deliver;
     // Re-asked at every fire, never captured: a job's shell guard is allowed by WHO owns it, and rights
@@ -227,6 +229,60 @@ class CronAdapter {
   disconnect() { this.stopped = true; this.checkAbort.abort(); clearInterval(this.timer); }
   async send() { /* cron has no outbound channel; results land in the job's conversation */ }
 
+  runClaim(job, { manual = false, slot, now, timezone, skipReason = null }) {
+    const parsed = typeof job.runAt === 'string' ? { kind: 'oneShot' } : parseSchedule(job.schedule);
+    const manualId = manual && typeof job.manualRequest?.id === 'string' ? job.manualRequest.id : null;
+    const scheduledMs = manual
+      ? null
+      : typeof job.runAt === 'string' && Number.isFinite(Date.parse(job.runAt))
+        ? Date.parse(job.runAt)
+        : parsed?.kind !== 'interval' && typeof slot === 'string'
+          ? (() => {
+            const [date, time] = slot.split('T');
+            const [year, month, day] = date.split('-').map(Number);
+            const [hour, minute] = time.split(':').map(Number);
+              return zonedTimeToMs(timezone, year, month, day, hour, minute);
+            })()
+          : null;
+    const wallMs = scheduledMs ?? now;
+    const localDate = localDateLabel(wallMs, timezone);
+    const localTime = localTimeLabel(wallMs, timezone);
+    const trigger = manual ? 'manual'
+      : parsed?.kind !== 'interval' && slot !== slotKey(now, timezone) ? 'catchUp'
+        : 'schedule';
+    const claimKey = manualId
+      ? `manual:${job.id}:${manualId}`
+      : parsed?.kind === 'interval'
+        ? `schedule:${job.id}:interval:${now}:${randomUUID()}`
+        : `schedule:${job.id}:${slot}`;
+    return this.journal.claim({
+      claimKey: `${claimKey}${skipReason ? `:skip:${skipReason}` : ''}`,
+      jobId: job.id,
+      jobName: job.name,
+      ownerUserId: typeof job.ownerUserId === 'number' ? job.ownerUserId : null,
+      lifecycle: job.runAt ? 'oneShot' : 'recurring',
+      schedule: job.runAt ? null : job.schedule,
+      trigger,
+      slotMs: parsed?.kind === 'interval' || manual ? null : scheduledMs,
+      localDate,
+      localTime,
+      timezone,
+      startedMs: now,
+    });
+  }
+
+  recordSkip(job, details, skipReason, message) {
+    const receipt = this.runClaim(job, { ...details, skipReason });
+    if (receipt.created) {
+      this.journal.close(receipt.id, {
+        outcome: 'skipped',
+        skipReason,
+        preview: message,
+        finishedMs: details.now,
+      });
+    }
+  }
+
   async tick() {
     // One tick at a time. Jobs run sequentially and each is a (slow) LLM turn, so a due-cluster — e.g. the
     // morning batch of daily reports — can exceed the 30s interval; without this guard the next interval
@@ -259,7 +315,9 @@ class CronAdapter {
       // in one pass — and its natural due slot waits rather than firing a second time.
       if (!manual && waitingManualIds.has(snapshot.id)) continue;
       // Cheap pre-filter on the snapshot — claiming re-reads the file, so only pay that for a due job.
-      if (!manual && dueSlot(snapshot, now, tz, this.cronLookbackMs) === null) continue;
+      const due = manual ? `manual:${snapshot.manualRequest.id}` : dueSlot(snapshot, now, tz, this.cronLookbackMs);
+      if (due === null) continue;
+      const runDetails = { manual, slot: due, now, timezone: tz };
       // WHOSE job this is. No owner = an instance job: admin powers, notification-channel delivery —
       // exactly the behaviour every job had before ownership existed.
       const owner = typeof snapshot.ownerUserId === 'number' ? snapshot.ownerUserId : null;
@@ -277,7 +335,9 @@ class CronAdapter {
       // was never created. Keeping every pre-run gate above the claim is what makes "skipped, never
       // deleted" true for one-shots as well as for recurring jobs.
       if (owner !== null && !this.ownerMaySchedule(owner)) {
-        this.store.patch(snapshot.id, { lastResult: '⏭️ skipped: the owner is no longer allowed to schedule jobs' });
+        const message = 'the owner is no longer allowed to schedule jobs';
+        this.store.patch(snapshot.id, { lastResult: `⏭️ skipped: ${message}` });
+        this.recordSkip(snapshot, runDetails, 'owner_not_allowed', message);
         this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its owner may no longer schedule jobs`);
         continue;
       }
@@ -290,7 +350,9 @@ class CronAdapter {
       // runs the job on its next slot. Above the claim like the gate before it — claiming a one-shot
       // DELETES it, so a gate below would consume the very wake-up it means to merely postpone.
       if (snapshot.model !== undefined && storedModel(snapshot) === null) {
-        this.store.patch(snapshot.id, { lastResult: '⏭️ skipped: the job names an incomplete model — set both a provider and a model' });
+        const message = 'the job names an incomplete model — set both a provider and a model';
+        this.store.patch(snapshot.id, { lastResult: `⏭️ skipped: ${message}` });
+        this.recordSkip(snapshot, runDetails, 'incomplete_model', message);
         this.log.warn(`cron job ${snapshot.id} (${snapshot.name}) skipped — its model selection names no complete provider/model pair`);
         continue;
       }
@@ -301,11 +363,17 @@ class CronAdapter {
           await this.projectRuntime.authorize(snapshot);
         }
       } catch (error) {
-        this.store.patch(snapshot.id, { lastResult: `skipped: ${error.message}` });
+        const message = error instanceof Error ? error.message : String(error);
+        this.store.patch(snapshot.id, { lastResult: `skipped: ${message}` });
+        this.recordSkip(snapshot, runDetails, 'project_unavailable', message);
         continue;
       }
       const job = manual ? this.claimManualRequest(snapshot, now, tz) : this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
+      const receipt = this.runClaim(snapshot, runDetails);
+      // A prior generation already journalled this exact durable claim. The jobs store and the unique
+      // claim key agree that it must not run or settle twice.
+      if (!receipt.created) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
       // exec, not a model call. The guard's output is fed into the turn so the brain acts on real data.
@@ -319,17 +387,25 @@ class CronAdapter {
         // (rather than deleting, or running the job without its guard) keeps a temporary demotion
         // recoverable and never turns a gated poll into an ungated one.
         if (job.projectRef?.kind !== 'managed' && !this.ownerIsAdmin(owner)) {
-          this.store.patch(job.id, { lastResult: '⏭️ skipped: a shell check may only run on an admin-owned job' });
+          const message = 'a shell check may only run on an admin-owned job';
+          this.store.patch(job.id, { lastResult: `⏭️ skipped: ${message}` });
+          this.journal.close(receipt.id, { outcome: 'skipped', skipReason: 'admin_only_check', preview: message });
           continue;
         }
         const res = await runCheck(job.check, this.log, this.checkTimeoutMs, job.projectRef?.projectId ? () => this.projectRuntime.check(job, this.checkTimeoutMs, this.checkAbort.signal) : undefined);
         if (res.skip) {
           this.store.patch(job.id, { lastResult: `⏭️ ${res.reason}` });
+          this.journal.close(receipt.id, {
+            outcome: 'skipped',
+            skipReason: String(res.reason).startsWith('check failed:') ? 'check_failed' : 'check_empty',
+            preview: res.reason,
+          });
           continue; // nothing new (or the guard errored) → skip the brain turn entirely
         }
         checkOutput = res.output;
       }
       if (this.stopped) break;
+      this.journal.start(receipt.id, Date.now());
       this.log.info(`running job ${job.id} (${job.name})`);
       // Publish what the calendar may state truthfully: WHICH job the adapter is running RIGHT NOW.
       // A pause/delete of that job after this point still says nothing about the claimed turn.
@@ -390,10 +466,27 @@ class CronAdapter {
         },
       };
       const onEvent = (e) => {
-        if (e?.type === 'idle') idle = e;
-        if (origin?.deliveryTarget !== undefined && e?.type === 'delivery') boundDelivery = true;
+        if (e?.type === 'session' && typeof e.sessionId === 'string') {
+          this.journal.note(receipt.id, { sessionId: e.sessionId });
+        }
+        if (e?.type === 'idle') {
+          idle = { ...(idle ?? {}), ...e };
+          this.journal.note(receipt.id, {
+            ...(typeof e.messageId === 'string' ? { messageId: e.messageId } : {}),
+            ...(typeof e.model === 'string' ? { model: e.model } : {}),
+            ...(Number.isSafeInteger(e.usage?.totalTokens) ? { tokensTotal: e.usage.totalTokens } : {}),
+            ...(Number.isFinite(e.usage?.cost) && e.usage.cost >= 0 ? { costUsd: e.usage.cost } : {}),
+          });
+        }
+        if (origin?.deliveryTarget !== undefined && e?.type === 'delivery') {
+          boundDelivery = true;
+          this.journal.note(receipt.id, { delivered: true, deliveryTarget: origin.deliveryTarget });
+        }
         if (origin !== undefined && origin.deliveryTarget === undefined && e?.type === 'session'
-          && (origin.sessionId === undefined || e.sessionId === origin.sessionId)) boundDelivery = true;
+          && (origin.sessionId === undefined || e.sessionId === origin.sessionId)) {
+          boundDelivery = true;
+          this.journal.note(receipt.id, { delivered: true });
+        }
         if (e?.type === 'tool' || e?.type === 'text' || e?.type === 'diff') sawWork = true;
       };
       // Bounded retry: a request-time failure — a transient relay/gateway/network blip that threw before
@@ -420,6 +513,16 @@ class CronAdapter {
       if (!job.runAt) this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
       this.runningJobId = null;
       const trimmed = String(reply ?? '').trim();
+      const failed = trimmed.startsWith('Error:');
+      this.journal.close(receipt.id, {
+        outcome: failed ? 'error' : 'ok',
+        preview: String(reply ?? ''),
+        ...(failed ? { errorMessage: trimmed.slice('Error:'.length).trim() || 'scheduled turn failed' } : {}),
+        ...(Number.isSafeInteger(idle?.durationMs) ? { durationMs: idle.durationMs } : {}),
+        ...(typeof idle?.completedAt === 'string' && Number.isFinite(Date.parse(idle.completedAt))
+          ? { finishedMs: Date.parse(idle.completedAt) }
+          : {}),
+      });
       // Origin-bound delivery: a successful result already landed in the originating conversation, so the
       // generic notification sink must not send it a second time. Direct platform origins are confirmed only
       // after adapter delivery; owner-chat bound sends keep their existing session confirmation. A failed
@@ -449,7 +552,9 @@ class CronAdapter {
         // (Discord splits on line boundaries), so a long report — e.g. a 60-item debtor list —
         // arrives complete across several messages instead of being clipped mid-list.
         const body = `${header}${String(reply)}${footer ? `\n\n${footer}` : ''}`;
-        await this.deliverOrQueue(job, body);
+        if (await this.deliverOrQueue(job, body)) {
+          this.journal.note(receipt.id, { delivered: true, deliveryTarget: job.notifyChannelId ?? null });
+        }
       }
     }
     } finally {
@@ -527,7 +632,7 @@ class CronAdapter {
       jobId: job.id, jobName: job.name, channelId: job.notifyChannelId, body, createdAt: new Date().toISOString(),
     };
     this.deliveryStore.add(entry);
-    await this.attemptDelivery(entry);
+    return this.attemptDelivery(entry);
   }
 
   /** Send one pending delivery, after claiming it so no other adapter generation sends the same result
@@ -536,13 +641,15 @@ class CronAdapter {
    *  {@link flushPendingDeliveries} — never silently dropped. */
   async attemptDelivery(entry) {
     const claimed = this.deliveryStore.claim(entry.id, this.deliveryOwner, Date.now());
-    if (!claimed) return; // another generation is delivering it right now
+    if (!claimed) return false; // another generation is delivering it right now
     try {
       await this.deliver(claimed.body, claimed.channelId);
       this.deliveryStore.remove(claimed.id);
+      return true;
     } catch (e) {
       this.deliveryStore.release(claimed.id, this.deliveryOwner);
       this.log.error(`cron delivery failed for job ${claimed.jobId} (${claimed.jobName}) — will retry next tick: ${e?.message ?? e}`);
+      return false;
     }
   }
 
@@ -699,6 +806,7 @@ export function register(ctx) {
   const store = new JobStore(join(ctx.dataDir(), 'jobs.json'), ctx.logger);
   const deliveryStore = new DeliveryStore(join(ctx.dataDir(), 'pending-deliveries.json'), ctx.logger);
   const receipts = new CreationReceiptStore(join(ctx.dataDir(), 'creation-receipts.json'), ctx.logger);
+  const journal = openRunJournal(ctx.db());
   receipts.pruneExpired(Date.now());
   /** Assigned before register() returns; API handlers run later and can queue work on this live generation. */
   let adapter = null;
@@ -776,6 +884,7 @@ export function register(ctx) {
     const jobs = store.all();
     const rest = jobs.filter((j) => ownerOf(j) !== userId);
     if (rest.length !== jobs.length) store.save(rest);
+    journal.removeUser(userId);
   });
 
   // The teardown above only runs when THIS plugin happens to be loaded at the moment the account is
@@ -788,6 +897,7 @@ export function register(ctx) {
     try { ids = new Set(ctx.host.stores().usersRead.list().map((u) => u.id)); }
     catch { return; }
     if (ids.size === 0) return;
+    journal.removeMissingUsers(ids);
     const jobs = store.all();
     const rest = jobs.filter((j) => ownerOf(j) === null || ids.has(ownerOf(j)));
     if (rest.length === jobs.length) return;
@@ -1662,6 +1772,230 @@ export function register(ctx) {
     },
   });
 
+  const shiftLocalDate = (localDate, amount) => {
+    const [year, month, day] = localDate.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day + amount)).toISOString().slice(0, 10);
+  };
+  const mondayOf = (localDate) => {
+    const [year, month, day] = localDate.split('-').map(Number);
+    const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    return shiftLocalDate(localDate, -((weekday + 6) % 7));
+  };
+  const localDayBounds = (localDate, timezone) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) return null;
+    const [year, month, day] = localDate.split('-').map(Number);
+    const start = zonedTimeToMs(timezone, year, month, day, 0, 0);
+    if (localDateLabel(start, timezone) !== localDate) return null;
+    const next = shiftLocalDate(localDate, 1).split('-').map(Number);
+    return { start, end: zonedTimeToMs(timezone, next[0], next[1], next[2], 0, 0) - 1 };
+  };
+  const ownerProfiles = () => {
+    try {
+      return new Map(ctx.host.stores().usersRead.list().map((user) => [user.id, {
+        id: user.id,
+        username: user.username,
+        name: String(user.name ?? '').trim() || user.username,
+        avatar: user.avatar || '',
+      }]));
+    } catch (error) {
+      ctx.logger.warn(`could not read cron owner profiles (${error instanceof Error ? error.message : error})`);
+      return new Map();
+    }
+  };
+  const withOwner = (job, owners) => {
+    const projected = publicJob(job);
+    const owner = ownerOf(job);
+    return owner !== null && owners.has(owner) ? { ...projected, owner: owners.get(owner) } : projected;
+  };
+  const intervalLabel = (schedule) => {
+    const parsed = parseSchedule(schedule);
+    if (parsed?.kind !== 'interval') return schedule;
+    if (parsed.ms % 3_600_000 === 0) {
+      const hours = parsed.ms / 3_600_000;
+      return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
+    }
+    const minutes = parsed.ms / 60_000;
+    return minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`;
+  };
+  const runActor = (req) => ({ userId: req.auth.userId, admin: req.auth.admin === true });
+
+  // A bounded calendar projection: fixed schedules produce at most one card per job/day and intervals
+  // produce exactly one table row, never hundreds of occurrences.
+  ctx.registerApiRoute({
+    path: 'week', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const timezone = ctx.timezone();
+      const nowMs = Date.now();
+      const todayLocalDate = localDateLabel(nowMs, timezone);
+      const daysCount = req.query.days === undefined ? 7 : Number(req.query.days);
+      if (daysCount !== 1 && daysCount !== 7) {
+        return jsonRes({ error: 'days must be 1 or 7', code: 'invalid_request', field: 'days' }, 400);
+      }
+      const startLocalDate = req.query.start === undefined
+        ? mondayOf(todayLocalDate)
+        : String(req.query.start);
+      if (!localDayBounds(startLocalDate, timezone)) {
+        return jsonRes({ error: 'start must be a real local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'start' }, 400);
+      }
+      let jobs;
+      try { jobs = readJobsStrict(); }
+      catch (error) {
+        ctx.logger.warn(`week calendar strict jobs read failed (${error instanceof Error ? error.message : error})`);
+        return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500);
+      }
+      const actor = runActor(req);
+      const visible = actorSeesJobs(actor, jobs);
+      const owners = ownerProfiles();
+      const endLocalDateExclusive = shiftLocalDate(startLocalDate, daysCount);
+      const latest = journal.latestByJobDays(actor, startLocalDate, endLocalDateExclusive);
+      const counts = journal.countsByDay(actor, startLocalDate, endLocalDateExclusive);
+      const days = [];
+      const intervals = [];
+      let truncated = false;
+
+      for (let offset = 0; offset < daysCount; offset += 1) {
+        const localDate = shiftLocalDate(startLocalDate, offset);
+        const bounds = localDayBounds(localDate, timezone);
+        const cards = [];
+        for (const job of visible) {
+          const parsed = typeof job.runAt === 'string' ? { kind: 'oneShot' } : parseSchedule(job.schedule);
+          if (!parsed || parsed.kind === 'interval') continue;
+          const projection = {
+            ...job,
+            enabled: true,
+            lastRun: undefined,
+            lastSlot: undefined,
+          };
+          const summary = summarizeJobDay(projection, {
+            timezone,
+            nowMs: bounds.start - 60_000,
+            tickMs: adapter?.tickMs ?? DEFAULT_TICK_MS,
+            lookbackMs: clampConfig(ctx.config?.cronLookbackMs, DEFAULT_CRON_LOOKBACK_MS, 3_600_000, 604_800_000),
+            dayStartMs: bounds.start,
+            dayEndMs: bounds.end,
+            maxTimes: 3,
+          });
+          if (summary.truncated) truncated = true;
+          if (summary.remaining === 0 || summary.head.length === 0) continue;
+          const [first, ...rest] = summary.head;
+          const receipt = latest.get(`${job.id}:${localDate}`);
+          cards.push({
+            jobId: job.id,
+            kind: parsed.kind,
+            localTime: first.localTime,
+            moreTimes: rest.slice(0, 3).map((entry) => entry.localTime),
+            remaining: summary.remaining,
+            enabled: job.enabled !== false,
+            guarded: typeof job.check === 'string' && job.check.trim() !== '',
+            disposition: first.disposition,
+            state: job.enabled === false ? 'paused' : receipt?.outcome ?? 'waiting',
+          });
+        }
+        cards.sort((a, b) => a.localTime.localeCompare(b.localTime) || a.jobId.localeCompare(b.jobId));
+        days.push({
+          localDate,
+          cards,
+          dayTotal: cards.length,
+          runs: counts.get(localDate) ?? { ok: 0, error: 0, skipped: 0, running: 0 },
+        });
+      }
+
+      const todayBounds = localDayBounds(todayLocalDate, timezone);
+      for (const job of visible) {
+        const parsed = parseSchedule(job.schedule);
+        if (job.runAt || parsed?.kind !== 'interval') continue;
+        const summary = job.enabled === false
+          ? { remaining: 0, head: [], truncated: false }
+          : summarizeJobDay(job, {
+              ...liveEngineInputs({ timezone, nowMs }),
+              dayStartMs: todayBounds.start,
+              dayEndMs: todayBounds.end,
+              maxTimes: 0,
+            });
+        const next = publicJob(job).nextOccurrence;
+        const receipt = latest.get(`${job.id}:${todayLocalDate}`);
+        intervals.push({
+          jobId: job.id,
+          schedule: job.schedule,
+          intervalLabel: intervalLabel(job.schedule),
+          enabled: job.enabled !== false,
+          nextExpectedAt: next?.expectedAt ?? null,
+          nextLocalTime: next?.localTime ?? null,
+          remainingToday: summary.remaining,
+          lastOutcome: receipt?.outcome ?? null,
+          lastRunAt: receipt?.startedAt ?? null,
+        });
+      }
+      intervals.sort((a, b) => a.jobId.localeCompare(b.jobId));
+      return jsonRes({
+        generatedAt: new Date(nowMs).toISOString(),
+        todayLocalDate,
+        nowLocalTime: localTimeLabel(nowMs, timezone),
+        timezone,
+        precisionMs: adapter?.tickMs ?? DEFAULT_TICK_MS,
+        scheduler: adapter?.status() ?? { ready: false },
+        window: { startLocalDate, endLocalDateExclusive },
+        jobs: visible.map((job) => withOwner(job, owners)),
+        days,
+        intervals,
+        truncated,
+      });
+    },
+  });
+
+  // One indexed, ACL-scoped run register serves both selected-day keyset pagination and History pager.
+  ctx.registerApiRoute({
+    path: 'runs', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const segments = req.path === '' ? [] : req.path.split('/');
+      const actor = runActor(req);
+      if (segments.length === 1) {
+        const row = journal.get(actor, decodeURIComponent(segments[0]));
+        if (!row) return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+        const owner = row.ownerUserId === null ? undefined : ownerProfiles().get(row.ownerUserId);
+        return jsonRes(owner ? { ...row, owner } : row);
+      }
+      if (segments.length !== 0) return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+      for (const field of ['date', 'from', 'to']) {
+        if (req.query[field] !== undefined && !localDayBounds(String(req.query[field]), ctx.timezone())) {
+          return jsonRes({ error: `${field} must be a real local calendar date YYYY-MM-DD`, code: 'invalid_request', field }, 400);
+        }
+      }
+      if (req.query.outcome !== undefined && !['waiting', 'running', 'ok', 'error', 'skipped'].includes(String(req.query.outcome))) {
+        return jsonRes({ error: 'invalid outcome', code: 'invalid_request', field: 'outcome' }, 400);
+      }
+      if (req.query.owner !== undefined && !['all', 'mine', 'instance'].includes(String(req.query.owner))) {
+        return jsonRes({ error: 'invalid owner filter', code: 'invalid_request', field: 'owner' }, 400);
+      }
+      const query = {
+        ...(req.query.date !== undefined ? { date: String(req.query.date) } : {}),
+        ...(req.query.from !== undefined ? { from: String(req.query.from) } : {}),
+        ...(req.query.to !== undefined ? { to: String(req.query.to) } : {}),
+        ...(req.query.outcome !== undefined ? { outcome: String(req.query.outcome) } : {}),
+        ...(req.query.owner !== undefined && req.query.owner !== 'all' ? { owner: String(req.query.owner) } : {}),
+        ...(req.query.jobId !== undefined ? { jobId: String(req.query.jobId) } : {}),
+        ...(req.query.q !== undefined ? { q: String(req.query.q).slice(0, 200) } : {}),
+        ...(req.query.cursor !== undefined ? { cursor: String(req.query.cursor) } : {}),
+        limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100),
+        offset: Math.max(Number(req.query.offset) || 0, 0),
+      };
+      try {
+        const result = journal.list(actor, query);
+        const owners = ownerProfiles();
+        return jsonRes({
+          ...result,
+          runs: result.runs.map((row) => {
+            const owner = row.ownerUserId === null ? undefined : owners.get(row.ownerUserId);
+            return owner ? { ...row, owner } : row;
+          }),
+        });
+      } catch (error) {
+        return jsonRes({ error: error instanceof Error ? error.message : String(error), code: 'invalid_request', field: 'cursor' }, 400);
+      }
+    },
+  });
+
+  // Legacy day endpoint retained for one compatibility release; all shipped UI uses the bounded week route.
   // ── The day board: ONE local date, ONE strict read, ONE row per job ────────────────────────────
   // This endpoint answers what a person can actually read: what each job does on one day. It never
   // expands a schedule into its runs — a polling job is hundreds of runs a day and a real instance has
@@ -2134,7 +2468,7 @@ export function register(ctx) {
     },
   });
 
-  adapter = new CronAdapter(store, deliveryStore, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule, {
+  adapter = new CronAdapter(store, deliveryStore, journal, ctx.logger, ctx.notify, ctx.config, () => ctx.timezone(), ownerIsAdmin, ownerMaySchedule, {
     authorize: async (job) => {
       const project = executionRef(job.projectRef);
       if (project.kind === 'host') {
@@ -2152,6 +2486,8 @@ export function register(ctx) {
     },
     check: (job, timeoutMs, signal) => projectCheck(ctx, job, timeoutMs, undefined, signal),
   });
+  journal.reconcile({ nowMs: Date.now(), tickMs: adapter.tickMs });
+  journal.prune(Date.now());
   ctx.registerPlatform(adapter);
   // The skill that teaches the model to USE those tools ships with them, the way the task domain's
   // does. Kept in the skills plugin it would keep describing CronAdd on an instance where this plugin

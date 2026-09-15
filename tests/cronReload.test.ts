@@ -6,6 +6,8 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
+import { openRunJournal } from '../plugins/cronjob/lib/runJournal.mjs';
 
 // A plugin reload (stopAll + startAll) replaces the cron adapter while a tick may still be parked on a
 // slow brain turn. The torn-down generation and its replacement share one jobs.json and one delivery
@@ -16,7 +18,14 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
 
 interface CronAdapterUnderTest {
-  listen(fn: (src: SessionSource, text: string) => Promise<string | undefined>): void;
+  listen(fn: (src: SessionSource, text: string, onEvent?: (event: {
+    type: string;
+    sessionId?: string;
+    messageId?: string;
+    model?: string;
+    usage?: { totalTokens?: number; cost?: number };
+    completedAt?: string;
+  }) => void) => Promise<string | undefined>): void;
   tick(): Promise<void>;
   disconnect(): void;
 }
@@ -27,7 +36,7 @@ afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true
 
 async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify });
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify, pluginDb: pluginDbFor(dataRoot) });
   return reg.platforms[0] as unknown as CronAdapterUnderTest;
 }
 
@@ -66,7 +75,18 @@ describe('cron scheduler across a plugin reload', () => {
     ]));
     const adapter = await loadCron(dataRoot, async () => {});
     const calls: string[] = [];
-    adapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
+    adapter.listen(async (src: SessionSource, _text, onEvent) => {
+      calls.push(src.channelId);
+      onEvent?.({ type: 'session', sessionId: 'brain-manual' });
+      onEvent?.({
+        type: 'idle',
+        messageId: 'assistant-manual-exact',
+        model: 'openai/gpt-test',
+        usage: { totalTokens: 42, cost: 0.01 },
+        completedAt: new Date().toISOString(),
+      });
+      return 'manual result';
+    });
 
     // The tick consumes the OLDEST durable manual request before the natural due work; the request is
     // cleared from the job, the dedupe token survives, and the future natural slot stays armed.
@@ -78,6 +98,20 @@ describe('cron scheduler across a plugin reload', () => {
     expect(stored.lastResult).toBe('manual result');
     expect(stored.manualRequest).toBeUndefined();
     expect(stored.lastManualRequestId).toBe('m1'); // a retried run request finds its answer here
+    const [receipt] = openRunJournal(pluginDbFor(dataRoot)('cronjob'))
+      .list({ userId: null, admin: true }, { limit: 10 }).runs;
+    expect(receipt).toMatchObject({
+      jobId: 'manual',
+      trigger: 'manual',
+      outcome: 'ok',
+      sessionId: 'brain-manual',
+      messageId: 'assistant-manual-exact',
+      model: 'openai/gpt-test',
+      tokensTotal: 42,
+      costUsd: 0.01,
+      delivered: true,
+      preview: 'manual result',
+    });
   });
 
   // The manual request lives in jobs.json, so it survives a reload: a request written by the old

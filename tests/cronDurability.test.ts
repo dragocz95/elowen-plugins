@@ -10,6 +10,7 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
@@ -32,6 +33,7 @@ function fakeLogger() { return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>, logger = fakeLogger()) {
   const reg = await loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify,
+    pluginDb: pluginDbFor(dataRoot),
     host: { stores: { conversationsRead: stubConversationDirectory() } } as never,
   });
   return { reg, adapter: reg.platforms[0] as unknown as CronAdapterUnderTest, logger };
