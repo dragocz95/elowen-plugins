@@ -2289,3 +2289,76 @@ export function PluginSection({ surface, title, description, icon, action, actio
     </PluginPageFrame>
   );
 }
+
+/** The canonical month/date grid (API 17): react-day-picker's rendered DOM stands in because the
+ *  plugin bundles use ITS semantics — a `grid` role, weekdays as `gridcell`s with names, and day
+ *  buttons selected state. Rendering is data-driven rather than an exact port: the plugin suites
+ *  assert on behavior (selection, role names), not on the library's own class names. */
+export function Calendar({ selected, onSelect, month, onMonthChange, components, showOutsideDays: _outside, className, 'aria-label': ariaLabel }: {
+  selected?: Date; onSelect?: (day: Date) => void; month?: Date; onMonthChange?: (month: Date) => void;
+  components?: Record<string, (p: { date: Date; displayMonth: Date }) => React.ReactNode>;
+  showOutsideDays?: boolean;
+  className?: string; 'aria-label'?: string;
+}) {
+  void _outside;
+  const view = month ?? new Date();
+  const last = new Date(view.getFullYear(), view.getMonth() + 1, 0);
+  const cells: Date[] = [];
+  for (let day = 1; day <= last.getDate(); day += 1) cells.push(new Date(view.getFullYear(), view.getMonth(), day));
+  const monthTitle = view.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const step = (delta: number) => {
+    if (!onMonthChange) return;
+    const next = new Date(view.getFullYear(), view.getMonth() + delta, 1);
+    onMonthChange(next);
+  };
+  const isSame = (a: Date | undefined, b: Date) => a !== undefined && a.toDateString() === b.toDateString();
+  return (
+    <div
+      className={className}
+      aria-label={ariaLabel}
+      data-testid="calendar-grid"
+      data-month={monthLabel(view)}
+    >
+      <button type="button" aria-label="Previous month" onClick={() => step(-1)} />
+      <span data-testid="calendar-month-title">{monthLabel(view)}</span>
+      <button type="button" aria-label="Next month" onClick={() => step(1)} />
+      <div role="grid">
+        <div role="row">
+          {/* Seven weekday headers, localized, structural first: what the grid SAYS carries the info. */}
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((weekday) => (
+            <div role="columnheader" key={weekday}>{weekday}</div>
+          ))}
+        </div>
+        {chunkSeven(cells).map((week) => (
+          <div role="row" key={week[0].toISOString()}>
+            {week.map((day) => {
+              const rendered = components?.DayContent?.({ date: day, displayMonth: view }) ?? null;
+              return (
+                <div role="gridcell" key={day.toISOString()}>
+                  <button
+                    type="button"
+                    aria-selected={isSame(selected, day) || undefined}
+                    aria-pressed={isSame(selected, day) || undefined}
+                    onClick={() => onSelect?.(day)}
+                  >
+                    {day.getDate()}
+                    {rendered}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const monthLabel = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const monthTitleUnused = undefined;
+void monthTitleUnused;
+const chunkSeven = (list: Date[]): Date[][] => {
+  const pages: Date[][] = [];
+  for (let i = 0; i < list.length; i += 7) pages.push(list.slice(i, i + 7));
+  return pages;
+};

@@ -85,6 +85,8 @@ export function ensurePluginUiRuntime(): void {
       LinkedAccountRow: C.LinkedAccountRow, SummaryChip: C.SummaryChip,
       BackendPicker: C.BackendPicker, ProviderPicker: C.ProviderPicker, ModelCatalogField: C.ModelCatalogField,
       ChoiceField: C.ChoiceField, ProviderLogo: C.ProviderLogo,
+      // API 17's canonical month/date grid — real in core, ahead of this repo's pinned elowen.
+      Calendar: C.Calendar,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,
     },
     // The data hooks keep the react-query cache in the HOST, so a plugin panel and the app share one
