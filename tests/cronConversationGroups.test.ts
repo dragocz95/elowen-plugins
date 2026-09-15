@@ -257,7 +257,7 @@ describe('cron HTTP save — the organizational association', () => {
   });
 
   it('revalidates the association when the job changes hands', async () => {
-    const { app, dataRoot, adminTok, admin, amy, bob } = setupRoutes();
+    const { app, dataRoot, adminTok, admin, amy } = setupRoutes();
     seedJobs(dataRoot, [
       storedJob({ id: 'j1', ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' }),
       storedJob({ id: 'wi', conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' }),

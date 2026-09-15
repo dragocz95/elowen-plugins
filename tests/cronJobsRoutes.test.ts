@@ -590,3 +590,101 @@ describe('cron jobs routes', () => {
 // their plugins. What they proved about the CORE — that a declared root mount of a DISABLED plugin
 // answers 503 rather than a bare 404 — is proved above by the cronjob routes, which take the identical
 // path through pluginApi.
+
+// The web's first-class creation flow: an explicit POST with a browser-minted requestId, filed where
+// its ownership implies, with the SERVER resolving a one-shot's local wall clock.
+const postJob = (t: string, body: unknown) => ({ method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+describe('cron job creation POST', () => {
+  it('creates a filed recurring job (201) with revision 1 and requires it to name filing', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const ok_body = { requestId: 'r-1', lifecycle: 'recurring', scope: 'personal', name: 'digest', schedule: 'daily 06:00', prompt: 'Summarize the day.', conversationSessionId: STUB_CONVERSATION_ID };
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, ok_body));
+    expect(res.status).toBe(201);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual(expect.objectContaining({ ok: true, revision: 1 }));
+    expect((body.job as Record<string, unknown>).id).toBeTruthy();
+    expect(onDisk(dataRoot)[0]).toMatchObject({
+      name: 'digest', schedule: 'daily 06:00',
+      conversationKey: `ns-${STUB_CONVERSATION_ID}`, revision: 1,
+    });
+    const noFiling = { ...ok_body, requestId: 'r-2', conversationSessionId: undefined };
+    const res2 = await app.request('/plugins/cronjob/jobs', postJob(adminTok, noFiling));
+    expect(res2.status).toBe(400);
+    expect((await res2.json() as Record<string, unknown>).field).toBe('conversationSessionId');
+  });
+
+  it('creates a one-shot from a local wall clock server-side, and rejects filing on it', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const before = Date.now();
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-2', lifecycle: 'oneShot', scope: 'personal', name: 'wakeup',
+      prompt: 'check the deploy', localRunAt: { date: '2099-01-02', time: '10:30' },
+    }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as Record<string, unknown>;
+    expect((body.job as Record<string, unknown>).lifecycle).toBe('oneShot');
+    const stored = onDisk(dataRoot)[0] as Record<string, unknown>;
+    expect(stored.runAt).toBeTruthy();
+    expect(Number.isNaN(Date.parse(String(stored.runAt)))).toBe(false);
+    expect(Date.now()).toBeGreaterThanOrEqual(before);
+    // A filing conversation is NEVER accepted on a one-shot.
+    const res2 = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-3', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2099-01-02', time: '10:00' }, conversationSessionId: STUB_CONVERSATION_ID,
+    }));
+    expect(res2.status).toBe(400);
+    expect(((await res2.json()) as Record<string, unknown>).code).toBe('invalid_request');
+  });
+
+  it('replays a retried requestId idempotently and conflicts on a different payload', async () => {
+    const { app, adminTok } = setup();
+    const body = { requestId: 'rr', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p', localRunAt: { date: '2099-01-02', time: '10:00' } };
+    const first = await app.request('/plugins/cronjob/jobs', postJob(adminTok, body));
+    expect(first.status).toBe(201);
+    const created = await first.json() as Record<string, unknown>;
+    const replay = await app.request('/plugins/cronjob/jobs', postJob(adminTok, { ...body }));
+    expect(replay.status).toBe(200);
+    expect(((await replay.json()) as Record<string, unknown>)).toEqual(expect.objectContaining({
+      ok: true, idempotentReplay: true, jobId: ((created as Record<string, unknown>).job as Record<string, unknown>).id,
+    }));
+    const conflict = await app.request('/plugins/cronjob/jobs', postJob(adminTok, { ...body, name: 'different' }));
+    expect(conflict.status).toBe(409);
+    expect(((await conflict.json()) as Record<string, unknown>).code).toBe('idempotency_conflict');
+  });
+
+  it('a one-shot whose local time does not exist in the timezone refuses nonexistent_local_time', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-gap', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2026-03-29', time: '02:30' },
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual(expect.objectContaining({ code: 'nonexistent_local_time', field: 'localRunAt' }));
+    expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(false);
+  });
+
+  it('a queued or answered manual run replays idempotently and a different id conflicts', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [{ ...job({ id: 'm1', schedule: 'daily 23:59' }), lastRun: new Date().toISOString() }]);
+    const runBody = (id: string) => ({ method: 'POST', headers: { authorization: `Bearer ${adminTok}`, 'content-type': 'application/json' }, body: JSON.stringify({ requestId: id }) });
+    // The harness runs WITHOUT a brain handler, so a NEW request cannot queue: it reads 503.
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-1'))).status).toBe(503);
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('manualRequest');
+    // A queued durable request answers idempotently for its OWN requestId — even while the scheduler
+    // is down — and a different one conflicts.
+    const previouslyQueued = [{ ...job({ id: 'm2', schedule: 'daily 23:59' }), manualRequest: { id: 'mr-9', requestedAt: new Date().toISOString() } }];
+    seed(dataRoot, [
+      { ...job({ id: 'm1', schedule: 'daily 23:59' }), lastRun: new Date().toISOString(), manualRequest: { id: 'mr-1', requestedAt: new Date().toISOString() } },
+      ...previouslyQueued,
+    ]);
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-1'))).status).toBe(202);
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-2'))).status).toBe(409);
+    // An ANSWERED requestId never runs twice, whatever the queue state now.
+    const answered = [{ ...job({ id: 'm3', schedule: 'daily 23:59' }), lastManualRequestId: 'mr-7' }];
+    seed(dataRoot, [...previouslyQueued, ...answered]);
+    expect((await app.request('/plugins/cronjob/jobs/m3/run', runBody('mr-7'))).status).toBe(202);
+  });
+});
+
