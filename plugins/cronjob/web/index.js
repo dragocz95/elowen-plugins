@@ -1307,13 +1307,13 @@ function CalendarPage({ surface }) {
     );
   };
   const todayToolbar = /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2 pb-2", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: ChevronLeft, "aria-label": s.calPrevMonth, minHdg: 44, onClick: () => stepMonth(-1) }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: ChevronLeft, "aria-label": s.calPrevMonth, className: "size-11 sm:size-9", onClick: () => stepMonth(-1) }),
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "text-sm font-medium text-foreground tabular-nums", children: [
       monthState.year,
       "-",
       String(monthState.month).padStart(2, "0")
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: ChevronRight, "aria-label": s.calNextMonth, minHdg: 44, onClick: () => stepMonth(1) }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: ChevronRight, "aria-label": s.calNextMonth, className: "size-11 sm:size-9", onClick: () => stepMonth(1) }),
     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", onClick: goToday, children: s.calToday }),
     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       C.Modal,

@@ -40,6 +40,10 @@
   .inline-flex {
     display: inline-flex;
   }
+  .size-11 {
+    width: calc(var(--spacing, 0.25rem) * 11);
+    height: calc(var(--spacing, 0.25rem) * 11);
+  }
   .h-9 {
     height: calc(var(--spacing, 0.25rem) * 9);
   }
@@ -254,6 +258,10 @@
   @media (width >= 40rem) {
     .sm\:col-span-2 {
       grid-column: span 2 / span 2;
+    }
+    .sm\:size-9 {
+      width: calc(var(--spacing, 0.25rem) * 9);
+      height: calc(var(--spacing, 0.25rem) * 9);
     }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));

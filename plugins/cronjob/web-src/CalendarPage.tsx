@@ -153,9 +153,9 @@ export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
   // and scope select. On coarse pointer or narrow width the surface falls back to agenda.
   const todayToolbar = (
     <div className="flex min-w-0 flex-wrap items-center gap-2 pb-2">
-      <C.Button variant="ghost" icon={ChevronLeft} aria-label={s.calPrevMonth} minHdg={44} onClick={() => stepMonth(-1)} />
+      <C.Button variant="ghost" icon={ChevronLeft} aria-label={s.calPrevMonth} className="size-11 sm:size-9" onClick={() => stepMonth(-1)} />
       <span className="text-sm font-medium text-foreground tabular-nums">{monthState.year}-{String(monthState.month).padStart(2, '0')}</span>
-      <C.Button variant="ghost" icon={ChevronRight} aria-label={s.calNextMonth} minHdg={44} onClick={() => stepMonth(1)} />
+      <C.Button variant="ghost" icon={ChevronRight} aria-label={s.calNextMonth} className="size-11 sm:size-9" onClick={() => stepMonth(1)} />
       <C.Button variant="outline" onClick={goToday}>{s.calToday}</C.Button>
       <C.Modal
         open={openingDatePane === 'month'}
