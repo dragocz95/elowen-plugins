@@ -274,7 +274,25 @@
       "colState": "Stav",
       "colModel": "Model",
       "colSchedule": "Interval",
-      "colNext": "Příští spuštění"
+      "colNext": "Příští spuštění",
+      "dayShowLess": "Zobrazit méně",
+      "dayAddTask": "Naplánovat úlohu na {date}",
+      "showResult": "Zobrazit výsledek",
+      "runNoneForDay": "Pro tuto úlohu není k danému dni zaznamenán žádný běh.",
+      "presetLabel": "Rychlý start",
+      "presetHint": "Vyberte výchozí bod; všechna pole zůstanou upravitelná.",
+      "presetDigest": "Denní přehled",
+      "presetDigestName": "denni-prehled",
+      "presetDigestPrompt": "Připravte krátký přehled dne: co je naplánováno, co čeká na rozhodnutí a čemu je potřeba věnovat pozornost.",
+      "presetInbox": "Kontrola pošty",
+      "presetInboxName": "kontrola-posty",
+      "presetInboxPrompt": "Zkontrolujte nové zprávy a uveďte jen to, co vyžaduje odpověď nebo rozhodnutí.",
+      "presetWeekly": "Týdenní souhrn",
+      "presetWeeklyName": "tydenni-souhrn",
+      "presetWeeklyPrompt": "Shrňte uplynulý týden: co bylo dokončeno, co zůstává otevřené a co je naplánováno na další týden.",
+      "presetReminder": "Připomínka",
+      "presetReminderName": "pripominka",
+      "presetReminderPrompt": "Připomeňte mi níže uvedený úkol a uveďte, v jakém je stavu."
     }
   }
 }

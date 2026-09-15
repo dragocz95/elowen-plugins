@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": "1",
   "requiresCore": "0.28.46",
   "requiresSharedApi": 4,
@@ -389,7 +389,25 @@
       "colState": "Status",
       "colModel": "Model",
       "colSchedule": "Interval",
-      "colNext": "Next run"
+      "colNext": "Next run",
+      "dayShowLess": "Show less",
+      "dayAddTask": "Schedule a task on {date}",
+      "showResult": "Show result",
+      "runNoneForDay": "No run was recorded for this job on that day.",
+      "presetLabel": "Quick start",
+      "presetHint": "Pick a starting point; every field stays editable.",
+      "presetDigest": "Daily digest",
+      "presetDigestName": "daily-digest",
+      "presetDigestPrompt": "Prepare a short digest of the day: what is scheduled, what is waiting for a decision and anything that needs attention.",
+      "presetInbox": "Inbox check",
+      "presetInboxName": "inbox-check",
+      "presetInboxPrompt": "Check for new messages and report only what requires an answer or a decision.",
+      "presetWeekly": "Weekly summary",
+      "presetWeeklyName": "weekly-summary",
+      "presetWeeklyPrompt": "Summarise the past week: what was finished, what is still open and what is planned for the coming week.",
+      "presetReminder": "Reminder",
+      "presetReminderName": "reminder",
+      "presetReminderPrompt": "Remind me about the task below and tell me what its current state is."
     }
   }
 }

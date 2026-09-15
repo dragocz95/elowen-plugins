@@ -43,7 +43,9 @@ export function AutomationPage() {
   const [kind, setKind] = useState<'all' | 'fixed' | 'interval' | 'oneShot'>('all');
   const [outcome, setOutcome] = useState<'all' | 'ok' | 'error' | 'skipped'>('all');
   const [range, setRange] = useState<'today' | '7' | '30'>('7');
-  const [opening, setOpening] = useState<'oneShot' | 'recurring' | null>(null);
+  /** What the create dialog is being opened FOR: which lifecycle, and — when the calendar itself asked —
+   *  on which day, so a click on a cell arrives in the dialog as that cell's date. */
+  const [opening, setOpening] = useState<{ lifecycle: 'oneShot' | 'recurring'; date?: string } | null>(null);
   const [openJobId, setOpenJobId] = useState<string | null>(jobParam());
   const [missingLink, setMissingLink] = useState(false);
 
@@ -159,8 +161,8 @@ export function AutomationPage() {
       trigger={<span className="inline-flex items-center gap-2"><Plus size={15} aria-hidden />{s.newTask || 'New task'}</span>}
       triggerClassName="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
       items={[
-        { id: 'recurring', label: s.createRecurring, icon: Repeat, onSelect: () => setOpening('recurring') },
-        { id: 'oneShot', label: s.createOneShot, icon: CalendarClock, onSelect: () => setOpening('oneShot') },
+        { id: 'recurring', label: s.createRecurring, icon: Repeat, onSelect: () => setOpening({ lifecycle: 'recurring' }) },
+        { id: 'oneShot', label: s.createOneShot, icon: CalendarClock, onSelect: () => setOpening({ lifecycle: 'oneShot' }) },
       ]}
       testId="cron-new-task-menu"
     />
@@ -214,6 +216,7 @@ export function AutomationPage() {
             onOpenJob={openJob}
             onRun={(job) => void runJob(job)}
             onToggle={toggleJob}
+            onAddAt={(date) => setOpening({ lifecycle: 'oneShot', date })}
           />
         ) : (
           <HistoryTab
@@ -230,7 +233,8 @@ export function AutomationPage() {
       </C.WorkspaceShell>
       {opening ? (
         <CreateJobDialog
-          lifecycle={opening}
+          lifecycle={opening.lifecycle}
+          {...(opening.date ? { initialDate: opening.date } : {})}
           myId={me.data?.user?.id ?? null}
           isAdmin={me.data?.user?.is_admin === true}
           onClose={() => setOpening(null)}

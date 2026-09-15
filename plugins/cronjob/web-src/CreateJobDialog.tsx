@@ -6,8 +6,11 @@ import { runtime, apiErrorCode, type CronJob, type CronJobCreateBody, type Brain
  *  (local date + time, resolved by the server) and a recurring job (schedule + required filing). The
  *  `requestId` is generated once per attempt and RETAINED, so a retried submit replays the same job
  *  instead of creating a duplicate one. */
-export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }: {
+export function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose, onCreated }: {
   lifecycle: 'oneShot' | 'recurring';
+  /** Local calendar date (YYYY-MM-DD) the dialog opens on, when it was opened from a calendar cell. The
+   *  time stays empty: the day is what the click said, the hour is still the reader's to choose. */
+  initialDate?: string;
   myId: number | null;
   isAdmin: boolean;
   onClose: () => void;
@@ -24,7 +27,7 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [schedule, setSchedule] = useState('every 1h');
-  const [localRun, setLocalRun] = useState({ date: '', time: '' });
+  const [localRun, setLocalRun] = useState({ date: initialDate ?? '', time: '' });
   const [conversationSessionId, setConversationSessionId] = useState('');
   const [hours, setHours] = useState<string | undefined>(undefined);
   const [enabled, setEnabled] = useState(true);
@@ -40,6 +43,24 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
 
 
   const oneShot = lifecycle === 'oneShot';
+  /** Click-through starting points. Each one fills the two fields that otherwise have to be typed — the
+   *  job's name and its prompt — and, for a recurring job, the cadence that goes with it. Everything
+   *  stays editable afterwards: a preset is a first draft, not a template the job is bound to. */
+  const presets: { id: string; label: string; name: string; prompt: string; schedule: string }[] = [
+    { id: 'digest', label: s.presetDigest, name: s.presetDigestName, prompt: s.presetDigestPrompt, schedule: 'daily 08:00' },
+    { id: 'inbox', label: s.presetInbox, name: s.presetInboxName, prompt: s.presetInboxPrompt, schedule: 'every 1h' },
+    { id: 'weekly', label: s.presetWeekly, name: s.presetWeeklyName, prompt: s.presetWeeklyPrompt, schedule: 'weekly mon 09:00' },
+    { id: 'reminder', label: s.presetReminder, name: s.presetReminderName, prompt: s.presetReminderPrompt, schedule: 'daily 18:00' },
+  ];
+  const applyPreset = (preset: { name: string; prompt: string; schedule: string }) => {
+    setName(preset.name);
+    setPrompt(preset.prompt);
+    if (!oneShot) setSchedule(preset.schedule);
+    else if (!localRun.time) setLocalRun((cur) => ({ ...cur, time: preset.schedule.slice(-5) }));
+  };
+  /** The hours a wake-up is actually asked for. Typing 09:00 into a time field is three interactions; this
+   *  is one, and the field stays there for anything else. */
+  const QUICK_TIMES = ['07:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
   const filedReady = !oneShot && conversationSessionId.trim() !== '';
   const ready = name.trim() !== '' && prompt.trim() !== '' && (oneShot ? localRun.date !== '' && localRun.time !== '' && /^([01]\d|2[0-3]):[0-5]\d$/.test(localRun.time) : filedReady) && (schedule.trim() !== '');
 
@@ -94,6 +115,24 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
     >
       <C.ModalBody>
         <div className="flex min-w-0 flex-col gap-3" data-testid="cron-create-form">
+          <C.Field label={s.presetLabel} hint={s.presetHint}>
+            <div className="flex flex-wrap gap-2" data-testid="cron-create-presets">
+              {presets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyPreset(preset)}
+                  className={`min-h-9 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:min-h-[var(--touch-target)] ${
+                    name === preset.name && prompt === preset.prompt
+                      ? 'border-primary bg-primary/10 text-foreground'
+                      : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </C.Field>
           <C.Field label={s.name}>
             <C.Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder={oneShot ? 'verify-deploy' : 'morning-digest'} />
           </C.Field>
@@ -108,6 +147,22 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
                 <C.Field label={s.time}>
                   <C.Input type="time" step={60} value={localRun.time} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocalRun((cur) => ({ ...cur, time: e.target.value }))} aria-label={s.time} />
                 </C.Field>
+              </div>
+              <div className="flex flex-wrap gap-2" data-testid="cron-create-quick-times">
+                {QUICK_TIMES.map((time) => (
+                  <button
+                    key={time}
+                    type="button"
+                    onClick={() => setLocalRun((cur) => ({ ...cur, time }))}
+                    className={`min-h-9 rounded-full border px-3 font-mono text-xs tabular-nums transition-colors pointer-coarse:min-h-[var(--touch-target)] ${
+                      localRun.time === time
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    }`}
+                  >
+                    {time}
+                  </button>
+                ))}
               </div>
               <p className="text-xs text-muted-foreground">{s.hoursTimeZone}</p>
             </>
