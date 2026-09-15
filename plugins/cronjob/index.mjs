@@ -98,7 +98,7 @@ import {
   systemZone, zonedParts, zonedTimeToMs,
   parseOneShot, parseSchedule, hoursAreValid, dueSlot,
   resolveLocalDateTime, planOccurrences,
-  sortOccurrences, paginateAgenda, summarizeDays,
+  sortOccurrences, paginateAgenda, summarizeDays, localDateLabel,
   CALENDAR_MAX_SAMPLES_PER_DAY, CALENDAR_LIMIT_AGENDA_DEFAULT,
   CALENDAR_AGENDA_MAX_OCCURRENCES, CALENDAR_CANDIDATE_BUDGET,
 } from './schedule.mjs';
@@ -1276,6 +1276,32 @@ export function register(ctx) {
     },
   });
 
+  /** Project authorization for a CREATE/EDIT draft: an execution target resolved, and a managed
+   *  environment provisioned when it changes. Returns null when the draft may store, or the wire answer. */
+  const authorizeProjectEdit = async (job, prevRow, req) => {
+    try {
+      const ref = executionRef(job.projectRef);
+      if (!ref) return null;
+      job.projectRef = ref;
+      const changed = JSON.stringify(ref) !== JSON.stringify(prevRow?.projectRef) || ownerOf(job) !== ownerOf(prevRow ?? {});
+      if (!changed) return null;
+      if (ref.projectId === undefined) {
+        if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job', code: 'forbidden' }, 403);
+      } else {
+        if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+        const project = ctx.host.stores().projects.get(ref.projectId);
+        if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target', code: 'invalid_request' }, 400);
+        if (ref.kind === 'managed') {
+          if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope', code: 'invalid_request' }, 400);
+          const provider = ctx.control('sandbox');
+          if (!provider) return jsonRes({ error: 'project environment unavailable', code: 'scheduler_unavailable' }, 503);
+          await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
+        } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+      }
+      return null;
+    } catch { return jsonRes({ error: 'project execution target unavailable or forbidden', code: 'forbidden' }, 403); }
+  };
+
   // Upsert ONE job, leaving every other job on disk exactly as it is.
   ctx.registerApiRoute({
     rootMount: '/plugins/cronjob/jobs', path: '', method: 'PUT', access: 'user',
@@ -1360,28 +1386,10 @@ export function register(ctx) {
         if (prevIsOneShot && job.runAt === undefined) job.runAt = prev0.runAt;
       }
       if (job.projectRef === undefined && prev0?.projectRef !== undefined) job.projectRef = prev0.projectRef;
-      try {
-        const ref = executionRef(job.projectRef);
-        if (ref) {
-          job.projectRef = ref;
-          const changed = JSON.stringify(ref) !== JSON.stringify(prev0?.projectRef) || ownerOf(job) !== ownerOf(prev0 ?? {});
-          if (changed) {
-            if (ref.projectId === undefined) {
-              if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job', code: 'forbidden' }, 403);
-            } else {
-              if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
-              const project = ctx.host.stores().projects.get(ref.projectId);
-              if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target', code: 'invalid_request' }, 400);
-              if (ref.kind === 'managed') {
-                if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope', code: 'invalid_request' }, 400);
-                const provider = ctx.control('sandbox');
-                if (!provider) return jsonRes({ error: 'project environment unavailable', code: 'scheduler_unavailable' }, 503);
-                await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
-              } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
-            }
-          }
-        }
-      } catch { return jsonRes({ error: 'project execution target unavailable or forbidden', code: 'forbidden' }, 403); }
+      // The execution target rule is ONE helper, shared with create: a second inline copy here is a
+      // second place the managed/host authorization could drift.
+      const projectAuth = await authorizeProjectEdit(job, prev0 ?? null, req);
+      if (projectAuth) return projectAuth;
       // ── THE final read-check-write: no await runs between this strict read and the save. ──
       let jobs;
       try { jobs = readJobsStrict(); }
@@ -1448,32 +1456,6 @@ export function register(ctx) {
       return jsonRes({ ok: true, job: publicJob(saved), revision: saved.revision });
     },
   });
-
-  /** Project authorization for a CREATE/EDIT draft: an execution target resolved, and a managed
-   *  environment provisioned when it changes. Returns null when the draft may store, or the wire answer. */
-  const authorizeProjectEdit = async (job, prevRow, req) => {
-    try {
-      const ref = executionRef(job.projectRef);
-      if (!ref) return null;
-      job.projectRef = ref;
-      const changed = JSON.stringify(ref) !== JSON.stringify(prevRow?.projectRef) || ownerOf(job) !== ownerOf(prevRow ?? {});
-      if (!changed) return null;
-      if (ref.projectId === undefined) {
-        if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job', code: 'forbidden' }, 403);
-      } else {
-        if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
-        const project = ctx.host.stores().projects.get(ref.projectId);
-        if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target', code: 'invalid_request' }, 400);
-        if (ref.kind === 'managed') {
-          if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope', code: 'invalid_request' }, 400);
-          const provider = ctx.control('sandbox');
-          if (!provider) return jsonRes({ error: 'project environment unavailable', code: 'scheduler_unavailable' }, 503);
-          await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
-        } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
-      }
-      return null;
-    } catch { return jsonRes({ error: 'project execution target unavailable or forbidden', code: 'forbidden' }, 403); }
-  };
 
   /** THE create route body: shape and scope first, then the lifecycle draft, the per-account ceilings
    *  and the project authorization — and, ONLY AFTER all of that, the idempotency receipt is written
@@ -1547,15 +1529,33 @@ export function register(ctx) {
     else draft = buildRecurringJob(body, { owner, actorUserId: actor.userId, enabled: body.enabled });
     if (draft.error) return jsonRes({ error: draft.error, code: draft.code, ...(draft.field ? { field: draft.field } : {}) }, 400);
     if (draft.association?.error) return jsonRes({ error: draft.association.error, code: 'invalid_request', field: 'conversationSessionId' }, 400);
-    const denied = creationError(draft.job, readJobsStrict());
+    let ceilingRows;
+    try { ceilingRows = readJobsStrict(); }
+    catch { return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500); }
+    const denied = creationError(draft.job, ceilingRows);
     if (denied) return jsonRes({ error: denied.error, code: denied.code, ...(denied.field ? { field: denied.field } : {}) }, 400);
     const projectAuth = await authorizeProjectEdit(draft.job, null, req);
     if (projectAuth) return projectAuth;
-    const jobs = readJobsStrict();
+    // ── THE final read-write: the awaited project authorization ran against the read above, so the
+    //    row is appended to a list read AFTER it, with no await in between. ──
+    let jobs;
+    try { jobs = readJobsStrict(); }
+    catch { return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500); }
     jobs.push(draft.job);
     store.save(jobs);
     // Written AFTER the row: an HTTP retry with this requestId replays the content hash instead of
     // creating a second job. An invalid body never burns a requestId on a receipt.
+    //
+    // THE ONE WINDOW THIS LEAVES: the row and its receipt are two atomic JSON files, so a crash
+    // between these two writes loses the receipt while keeping the job. The order is the choice, not
+    // an oversight — it makes that crash produce a VISIBLE duplicate on a retry rather than a reply
+    // claiming a creation that never landed. Writing the receipt first would invert it: a receipt
+    // whose row is absent is indistinguishable from a one-shot that already fired and deleted itself
+    // (the `!prior` replay below), so the retry would answer "created" for a job that does not exist
+    // and never will. Closing the window properly needs the two files to commit together — a
+    // transaction this plugin deliberately does not have, because its persistence is atomic JSON that
+    // an older plugin version must still be able to read. `cronJobsRoutes.test.ts` pins both the
+    // ordering and the resulting behaviour.
     receipts.put(receiptKey, { jobId: draft.job.id, payloadHash: fingerprint, createdAt: new Date().toISOString() }, Date.now());
     return jsonRes({ ok: true, job: publicJob(draft.job), revision: 1 }, 201);
   };
@@ -1773,6 +1773,9 @@ export function register(ctx) {
       const schedulerStatus = adapter?.status() ?? { ready: false };
       const response = {
         generatedAt: new Date(nowMs).toISOString(),
+        // The scheduler's OWN wall-clock today: a viewer in another browser zone adopts this once,
+        // never derives it, and never re-syncs on later refetches.
+        todayLocalDate: localDateLabel(nowMs, timezone),
         timezone,
         precisionMs: live.tickMs,
         snapshot,
@@ -1852,7 +1855,14 @@ export function register(ctx) {
       }
       const planned = planOccurrences(
         { id: 'preview', schedule: body.schedule, hours: body.hours },
-        { timezone, nowMs, fromMs, untilMs: fromMs + 366 * 86_400_000, tickMs: DEFAULT_TICK_MS, lookbackMs: DEFAULT_CRON_LOOKBACK_MS },
+        {
+          timezone, nowMs, fromMs, untilMs: fromMs + 366 * 86_400_000,
+          tickMs: DEFAULT_TICK_MS, lookbackMs: DEFAULT_CRON_LOOKBACK_MS,
+          // A draft preview asks for a handful of dates, so the walk stops at the count it was asked
+          // for (plus the one catch-up entry that sorts ahead of them) instead of expanding a year of
+          // a one-minute interval to throw it away.
+          maxOccurrences: count + 1, budgetCap: CALENDAR_CANDIDATE_BUDGET,
+        },
       ).occurrences;
       return jsonRes({
         valid: true,

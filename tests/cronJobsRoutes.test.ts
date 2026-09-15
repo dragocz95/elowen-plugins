@@ -665,6 +665,45 @@ describe('cron job creation POST', () => {
     expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(false);
   });
 
+  it('refuses to create over a jobs file it could not read, with jobs_unreadable rather than a bare 500', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    writeFileSync(join(dataRoot, 'cronjob', 'jobs.json'), '{ truncated');
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-unreadable', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2099-01-02', time: '10:00' },
+    }));
+    expect(res.status).toBe(500);
+    expect((await res.json() as Record<string, unknown>).code).toBe('jobs_unreadable');
+    // And the unreadable file is left exactly as it was — never written over.
+    expect(readFileSync(join(dataRoot, 'cronjob', 'jobs.json'), 'utf-8')).toBe('{ truncated');
+  });
+
+  it('writes the row BEFORE its receipt, so a crash between them duplicates visibly instead of lying', async () => {
+    // The row and its idempotency receipt are two atomic JSON files and there is no transaction that
+    // commits both. The ORDER is the design choice, and this pins it: after a create, the row exists
+    // and the receipt names it. Losing the receipt (the crash window) makes a retry create a SECOND
+    // job — a visible duplicate. The inverse order would answer "created" for a job that never
+    // landed, because a receipt without a row is indistinguishable from a fired one-shot that
+    // deleted itself.
+    const { app, dataRoot, adminTok } = setup();
+    const body = {
+      requestId: 'r-window', lifecycle: 'oneShot', scope: 'personal',
+      name: 'w', prompt: 'p', localRunAt: { date: '2099-01-02', time: '10:00' },
+    };
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(201);
+    const receiptsPath = join(dataRoot, 'cronjob', 'creation-receipts.json');
+    const receipts = JSON.parse(readFileSync(receiptsPath, 'utf-8')) as Record<string, { jobId: string }>;
+    expect(Object.values(receipts).map((r) => r.jobId)).toEqual([(onDisk(dataRoot)[0] as { id: string }).id]);
+    // With the receipt intact the retry replays; this is the path that normally protects the caller.
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(200);
+    expect(onDisk(dataRoot)).toHaveLength(1);
+    // The documented limit, stated as behaviour: a receipt lost to a crash costs a duplicate row.
+    rmSync(receiptsPath, { force: true });
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(201);
+    expect(onDisk(dataRoot)).toHaveLength(2);
+  });
+
   it('a queued or answered manual run replays idempotently and a different id conflicts', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [{ ...job({ id: 'm1', schedule: 'daily 23:59' }), lastRun: new Date().toISOString() }]);

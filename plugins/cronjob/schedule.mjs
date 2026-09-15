@@ -383,7 +383,7 @@ function expectedInstant(slotMs, hours, timezone) {
 // The wall-clock labels occurrences carry: the local date ("2026-10-25") and local time ("02:30")
 // as the configured zone renders them.
 const pad2 = (n) => String(n).padStart(2, '0');
-const localDateLabel = (ms, timezone) => {
+export const localDateLabel = (ms, timezone) => {
   const p = zonedParts(ms, timezone);
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
 };
@@ -483,39 +483,45 @@ export function planOccurrences(job, opts = {}) {
 
   // The catch-up floor: a PAST slot is catchable only while strictly newer than the last run AND
   // inside the lookback window — the replays the scheduler's own due logic would still perform.
-  const anchor = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
+  let anchor = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
     ? Date.parse(job.lastRun) : 0;
   const floor = Math.max(anchor, nowMs - lookbackMs);
+  // The window's own start. A caller that names none plans from NOW, which is what every
+  // next-occurrence query wants.
+  const fromMs = opts.fromMs ?? nowMs;
 
   if (sched.kind === 'interval') {
-    // An interval is a duration, not a wall clock. Its occurrences anchor on the CURRENT run state:
-    // the first instant the job is already due appears ONCE, at the very next tick inside active
-    // hours (the same claim an isDue tick would make) — never a backlog — and further instants step
-    // the duration forward through the window.
-    if (anchor <= 0) anchor = Math.min(fromMs, nowMs); // an unarmed legacy row is armed from NOW
-    let emittedPast = false;
-    let k = Math.ceil((Math.max(opts.fromMs ?? fromMs, anchor) - anchor) / sched.ms);
-    do {
+    // An interval is a duration, not a wall clock, and `dueSlot` claims it when `now - lastRun >= ms`.
+    // This branch is that same rule read forwards: AT MOST ONE already-elapsed claim (never a
+    // backlog), then the duration stepping forward through the window.
+    //
+    // A row with no `lastRun` is what the scheduler reads as `last = 0`, i.e. due at the very next
+    // tick. Anchoring it one whole duration back says exactly that, and keeps every later instant on
+    // the same grid the claim will establish.
+    if (anchor <= 0) anchor = nowMs - sched.ms;
+    const elapsed = nowMs - anchor >= sched.ms;
+    if (elapsed && fromMs <= nowMs && nowMs <= opts.untilMs) {
+      spend();
+      // The claim's own slot is the LATEST elapsed instant; an older one is superseded, exactly as the
+      // scheduler supersedes it by claiming only once.
+      const instant = anchor + Math.floor((nowMs - anchor) / sched.ms) * sched.ms;
+      const open = inHours(job.hours, nowMs, timezone);
+      const expected = open ? nowMs : expectedInstant(nowMs, job.hours, timezone);
+      if (expected === null) omit(instant);
+      else occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, open ? 'catchUp' : 'deferredByHours'));
+    }
+    // Forward: every instant strictly after now that the window contains. `ceil` puts the first one at
+    // or after the window start, so a window opening next month never reports an instant before it.
+    let k = Math.max(1, Math.ceil((Math.max(fromMs, nowMs + 1) - anchor) / sched.ms));
+    while (!truncated && occurrences.length < maxOccurrences) {
       spend();
       const instant = anchor + k * sched.ms;
       if (instant > opts.untilMs) break;
-      const expected = inHours(job.hours, instant, timezone)
-        ? Math.max(instant, nowMs > instant ? nowMs : instant, nowMs)
-        : expectedInstant(Math.max(instant, nowMs), job.hours, timezone);
-      if (expected === null) { omit(instant); k += 1; continue; }
-      // The catch/claim window: the FIRST overdue instant is ONE catchUp entry at the next tick;
-      // everything after the claim anchors further forward.
-      if (instant <= nowMs) {
-        if (!emittedPast) {
-          emittedPast = true;
-          occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, inHours(job.hours, nowMs, timezone) ? 'catchUp' : 'deferredByHours'));
-        }
-      } else {
-        occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, expected === instant ? 'onTime' : 'deferredByHours'));
-      }
-      if (occurrences.length >= maxOccurrences || truncated) break;
+      const expected = inHours(job.hours, instant, timezone) ? instant : expectedInstant(instant, job.hours, timezone);
+      if (expected === null) omit(instant);
+      else occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, expected === instant ? 'onTime' : 'deferredByHours'));
       k += 1;
-    } while (k > 0);
+    }
     return done();
   }
 
@@ -524,7 +530,7 @@ export function planOccurrences(job, opts = {}) {
   const minuteValues = [...(sched.kind === 'cron' ? sched.minute : [sched.minute])].sort((a, b) => a - b);
   const hourValues = [...(sched.kind === 'cron' ? sched.hour : [sched.hour])].sort((a, b) => a - b);
   let lastPast = null; // the LATEST unclaimed past slot; earlier ones are superseded and never shown
-  for (const date of localDates(opts.fromMs ?? nowMs, opts.untilMs, timezone)) {
+  for (const date of localDates(fromMs, opts.untilMs, timezone)) {
     if (truncated || occurrences.length >= maxOccurrences) break;
     if (sched.kind === 'weekly' && date.weekday !== sched.day) { spend(); continue; }
     for (const hour of hourValues) {
@@ -600,10 +606,14 @@ const tomorrowLocal = (date) => {
 };
 
 /** Day summaries for a month/agenda window: one row per local date from `startLocal` for `days`
- *  dates, each with a truthful total, up to `samples` sorted occurrences, the overflow count, the
- *  per-day count of slots the active hours could never open for, the day's own truncation flag
- *  (true whenever the row was cut by the expansion budget or shows fewer samples than it holds)
- *  and the window's own truncated flag the caller threads through. */
+ *  dates, each with a truthful total, up to `samples` sorted occurrences, the overflow count and the
+ *  per-day count of slots the active hours could never open for.
+ *
+ *  `truncated` on a row means ONE thing: the expansion budget ran out while building this window, so
+ *  the row's own `total` may be short of what the schedule really holds. It is NOT the "this day has
+ *  more than it shows" signal — that is `overflow`, which is exact. A row therefore carries the
+ *  window's budget verdict, because an exhausted budget stops the walk for the whole window and no
+ *  single date can claim to have escaped it. */
 export function summarizeDays(occurrences, { startLocal, days, samples = CALENDAR_MAX_SAMPLES_PER_DAY, omittedByHours = [], truncated = false }) {
   const detected = new Map();
   for (const { date, count } of omittedByHours) detected.set(date, (detected.get(date) ?? 0) + count);
@@ -623,7 +633,7 @@ export function summarizeDays(occurrences, { startLocal, days, samples = CALENDA
       samples: day.slice(0, samples),
       overflow: Math.max(day.length - samples, 0),
       omittedByHours: detected.get(cursor) ?? 0,
-      truncated: truncated || (occurrences.length > 0 && day.length > samples + 8),
+      truncated,
     });
     cursor = tomorrowLocal(cursor);
   }

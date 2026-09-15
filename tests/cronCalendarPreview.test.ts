@@ -135,6 +135,52 @@ describe('the cronjob calendar endpoint', () => {
     expect(new Set(page1.map((o) => o.id)).has(page2[0]!.id)).toBe(false);
   });
 
+  it('expands an interval job that has never run, and reads it the way dueSlot does', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    // No `lastRun`: the scheduler's own rule (`now - last >= ms`, with last = 0) claims it at the very
+    // next tick, so the projection owes exactly ONE catch-up plus the duration stepping forward.
+    seed(dataRoot, [{ id: 'unarmed', name: 'pulse', schedule: 'every 1h', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' }]);
+    const res = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=1&detail=agenda`, auth(adminTok));
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const page = body.occurrences as { id: string; disposition: string }[];
+    expect(page.length).toBeGreaterThan(1);
+    expect(page.filter((o) => o.disposition === 'catchUp' || o.disposition === 'dueNow')).toHaveLength(1);
+    // Interval identity is the real INSTANT, never a wall slot: a repeated DST hour is two runs.
+    expect(page.every((o) => o.id.startsWith('unarmed:instant:'))).toBe(true);
+    expect(new Set(page.map((o) => o.id)).size).toBe(page.length);
+  });
+
+  it('previews a plain interval draft instead of failing the whole route', async () => {
+    const { app, adminTok } = setup();
+    const res = await app.request(`/plugins/cronjob/api/schedule-preview`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${adminTok}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ schedule: 'every 1h', count: 3 }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual(expect.objectContaining({ valid: true, kind: 'interval' }));
+    expect((body.occurrences as unknown[]).length).toBe(3);
+  });
+
+  it('a day denser than its samples reports EXACT overflow and is not called truncated', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    // Twelve slots on one date — four times the three a cell shows, and far inside the expansion
+    // budget. `overflow` is the exact remainder; `truncated` is reserved for a budget that ran out.
+    seed(dataRoot, [{
+      id: 'dense', name: 'every other hour', schedule: '0 */2 * * *', prompt: 'p',
+      createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T22:00:00.000Z',
+    }]);
+    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-16&days=1&detail=summary`, auth(adminTok))).json() as Record<string, unknown>;
+    const days = rows.days as { total: number; samples: unknown[]; overflow: number; truncated: boolean }[];
+    expect(days[0]!.total).toBe(12);
+    expect(days[0]!.samples).toHaveLength(3);
+    expect(days[0]!.overflow).toBe(9);
+    expect(days[0]!.truncated).toBe(false);
+    expect(rows.truncated).toBe(false);
+  });
+
   it('an agenda cursor built against a CHANGED snapshot conflicts 409 instead of appending', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [{ id: 'a', name: 'a', schedule: 'daily 07:00', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T05:00:00.000Z' }]);
