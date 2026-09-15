@@ -827,26 +827,24 @@ export function register(ctx) {
       ...(typeof deliveryTarget === 'string' ? { originDeliveryTarget: deliveryTarget } : {}),
     };
   };
-  /** The jobs a tool call may see or address: the caller's own, plus the INSTANCE ones when they are an
-   *  admin — never another person's.
+  /** WHO may see or address a job, in ONE helper every surface shares — the chat tools and every
+   *  HTTP route can never disagree: a personal job belongs to its OWNER alone; an instance job belongs
+   *  to an administrator; an admin sees their own personal jobs plus the instance ones, never another
+   *  account's. Unknown and foreign ids read exactly like `not_found`, so an id cannot probe identity.
    *
-   *  Ownership is compared only when there IS a caller: an instance job's owner is also null, so
-   *  `ownerOf(j) === callerId()` would hand every instance job to any turn without an account — and a
-   *  sub-agent is exactly that, since a delegated identity carries no `elowenUserId` (identity.ts) while
-   *  still inheriting its parent's plugin grant. One delegation hop from a granted colleague would
-   *  otherwise expose the operator's job names, schedules and last results, and let them be deleted by id.
-   *
-   *  It used to return EVERY job to an admin session. That reads fine on the web Automation page but not
-   *  in a chat, and a private chat is an admin session too: asking "what have I got scheduled?" in a DM
-   *  answered with other people's job names, schedules and last results, and let them be removed by id.
-   *  An admin still manages instance jobs from here — those are genuinely theirs — but a colleague's
-   *  personal reminder is not. The web routes are unaffected; they gate on `req.auth.admin` instead. */
-  const visibleJobs = (jobs) => {
-    const me = callerId();
-    const admin = ctx.isAdminSession();
-    if (me === null) return admin ? jobs.filter((j) => ownerOf(j) === null) : [];
-    return jobs.filter((j) => ownerOf(j) === me || (admin && ownerOf(j) === null));
+   *  An actor without an account behind it (a delegated turn) sees only instance jobs, and only when
+   *  its session is an admin session — a delegated identity carries no `elowenUserId` while still
+   *  inheriting its parent's plugin grant. */
+  const canAddressJob = (actor, job) => {
+    const owner = ownerOf(job);
+    if (actor.userId === null) return owner === null && actor.admin === true;
+    return owner === actor.userId || (actor.admin === true && owner === null);
   };
+  const actorSeesJobs = (actor, jobs) => jobs.filter((j) => canAddressJob(actor, j));
+  /** The call-snapshot an actor carries in this plugin: the turn's account (when it has one) and
+   *  whether that session holds administrator access. */
+  const toolActor = () => ({ userId: callerId(), admin: ctx.isAdminSession() });
+  const visibleJobs = (jobs) => actorSeesJobs(toolActor(), jobs);
 
   // ── The organizational conversation a recurring job is filed under ──────────────────────────────
   // Filing, and nothing else. It never decides where a job runs, whose rights it runs with, which model
@@ -1018,15 +1016,66 @@ export function register(ctx) {
    *  read reported as `conversation: null` would tell the reader their conversation had been deleted and
    *  ask them to refile a job whose filing is very probably still good — a wrong answer, where the honest
    *  one is that nothing is known right now. */
+  /** ONE strict read supplies the live engine inputs every projection answers with: the configured
+   *  timezone, the scheduler's own tick and lookback, and the generation instant. */
+  const liveEngineInputs = (overrides = {}) => ({
+    timezone: overrides.timezone ?? ctx.timezone(),
+    nowMs: overrides.nowMs ?? Date.now(),
+    tickMs: overrides.tickMs ?? adapter?.tickMs ?? DEFAULT_TICK_MS,
+    lookbackMs: overrides.lookbackMs ?? clampConfig(ctx.config?.cronLookbackMs, DEFAULT_CRON_LOOKBACK_MS, 3_600_000, 604_800_000),
+  });
+
+  /** The SERVER-derived next occurrence in the plan's CronNextOccurrence shape; null when disabled or
+   *  when the schedule produces nothing next. A pending one-shot past its time keeps its scheduledAt
+   *  and reports the current server time as expectedAt. */
+  const nextOccurrenceFor = (job) => {
+    if (job.enabled === false) return null;
+    const live = liveEngineInputs();
+    const planned = planOccurrences(job, { ...live, fromMs: live.nowMs, untilMs: live.nowMs + 366 * 86_400_000, maxOccurrences: 1 });
+    const next = sortOccurrences(planned.occurrences)[0];
+    if (!next) return null;
+    return {
+      occurrenceId: next.id,
+      scheduledAt: next.scheduledAt,
+      expectedAt: next.expectedAt,
+      localDate: next.localDate,
+      localTime: next.localTime,
+      timezone: next.timezone,
+      disposition: next.disposition,
+      precisionMs: live.tickMs,
+      guarded: next.guarded,
+    };
+  };
+  /** A job must sit at least five seconds ahead of NOW when its run time is written (the same lower
+   *  bound ScheduleWakeup enforces) — anything nearer would fire before the writer even learns the id. */
+  const ONESHOT_MIN_AHEAD_MS = 5_000;
+
+  /** The client-facing shape of a stored job. The immutable key never leaves the daemon, and a live
+   *  association is projected as the conversation's CURRENT id plus display metadata; an unavailable
+   *  one keeps its stored id beside an explicit null, so the editor can say so and offer a reassignment
+   *  instead of quietly showing nothing.
+   *
+   *  Answer variants are the plan's additive projection on top of the historical fields: a derived,
+   *  read-only lifecycle (oneShot iff runAt is present — there is no second field to disagree with
+   *  it), the revision a client needs for CAS, the server-computed next occurrence and manual queue
+   *  state. Field status stays exactly as before: "gone" and "could not be read" are separate answers. */
   const publicJob = (job) => {
     const { conversationKey: _key, ...base } = job;
-    const rest = { ...base, runLocation: publicRunLocation(job) };
+    const lifecycle = job.runAt !== undefined && job.runAt !== null ? 'oneShot' : 'recurring';
+    const projected = {
+      ...base,
+      runLocation: publicRunLocation(job),
+      lifecycle,
+      revision: Number.isSafeInteger(job.revision) && job.revision >= 0 ? job.revision : 0,
+      nextOccurrence: nextOccurrenceFor(job),
+      manualQueued: !!job.manualRequest,
+    };
     const assoc = jobAssociation(job);
-    if (assoc.state === 'unset') return rest;
-    if (assoc.state === 'unknown') return { ...rest, conversation: null, conversationUnresolved: true };
-    if (assoc.state !== 'linked') return { ...rest, conversation: null };
+    if (assoc.state === 'unset') return projected;
+    if (assoc.state === 'unknown') return { ...projected, conversation: null, conversationUnresolved: true };
+    if (assoc.state !== 'linked') return { ...projected, conversation: null };
     return {
-      ...rest,
+      ...projected,
       conversationSessionId: assoc.target.id,
       conversation: {
         id: assoc.target.id,
@@ -1041,13 +1090,16 @@ export function register(ctx) {
   ctx.registerApiRoute({
     rootMount: '/plugins/cronjob/jobs', path: '', method: 'GET', access: 'user',
     handler: async (req) => {
-      if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
+      if (req.path !== '') return jsonRes({ error: 'not found', code: 'not_found' }, 404);
       let jobs;
       try { jobs = readJobsStrict(); }
-      catch { return jsonRes([]); } // a read-only view may show an unreadable file as empty; a write may not
-      // Filter FIRST, then enrich only the rows this caller may see. The host's PluginUserView is already a
-      // safe projection; copy its four display fields explicitly so future additions cannot widen this API.
-      const visible = req.auth.admin ? jobs : jobs.filter((j) => ownerOf(j) === req.auth.userId);
+      catch (error) {
+        ctx.logger.warn(`strict jobs read failed (${error instanceof Error ? error.message : error})`);
+        return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500);
+      }
+      // Filter FIRST, then enrich only the rows this caller may see. The actor boundary is the ONE
+      // visibility helper every route shares; the host's own PluginUserView stays display-only.
+      const visible = actorSeesJobs({ userId: req.auth.userId, admin: req.auth.admin === true }, jobs);
       let owners = new Map();
       try {
         owners = new Map(ctx.host.stores().usersRead.list().map((user) => [user.id, {
@@ -1086,35 +1138,105 @@ export function register(ctx) {
       // optional fields. Normalize before validation so an untouched row can round-trip through the UI.
       for (const key of ['check', 'hours', 'notifyChannelId']) if (job[key] === '') delete job[key];
 
+      // The write's ONE read-check-write rule lives at the BOTTOM of this handler: every step that may
+      // await (a project environment provisioning) runs against the PROVISIONAL snapshot — the final
+      // strict read below happens after, so the save can never write over a job the scheduler stamped
+      // or another client added during the awaited steps.
+      let jobs0;
+      try { jobs0 = readJobsStrict(); }
+      catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it', code: 'jobs_unreadable' }, 500); }
+      const prev0 = jobs0.find((j) => j.id === job.id);
+      // Ownership is decided by the SERVER, never by the body. A non-admin owns only his own job and
+      // cannot address what is not his; an admin writes their own personal jobs plus the instance ones;
+      // an unknown or foreign id reads exactly like one that does not exist (same 404, no probing).
+      // Authorization runs BEFORE any conflict payload below, and that ordering is the security
+      // property: the conflict payload carries the whole previous job.
+      const authorize = (prevRow) => {
+        if (!req.auth.admin) {
+          if (req.auth.userId === null) return jsonRes({ error: 'forbidden', code: 'forbidden' }, 403);
+          if (prevRow && !canAddressJob({ userId: req.auth.userId, admin: false }, prevRow)) {
+            return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+          }
+          job.ownerUserId = req.auth.userId;
+          return null;
+        }
+        if (job.ownerUserId === undefined) {
+          // An admin's edit keeps whoever owns the job; a job he creates is an INSTANCE job, exactly as
+          // every job was before ownership existed. An instance job carries NO owner key at all, so a
+          // jobs.json written before ownership existed round-trips unchanged.
+          const inherited = prevRow ? ownerOf(prevRow) : null;
+          if (inherited !== null) job.ownerUserId = inherited;
+          else delete job.ownerUserId;
+        } else if (job.ownerUserId === null) {
+          delete job.ownerUserId;
+        }
+        if (prevRow && !canAddressJob({ userId: req.auth.userId, admin: true }, prevRow)) {
+          return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+        }
+        return null;
+      };
+      const authed = authorize(prev0);
+      if (authed) return authed;
+      // A one-shot's local time is resolved by the SERVER in the runtime timezone — the browser never
+      // converts a wall clock into an instant. `localRunAt` is optional on an edit and always wins over
+      // a stale `runAt` a client echoes back.
+      if (body.localRunAt !== undefined) {
+        if (prev0 === undefined || prev0.runAt === undefined) {
+          return jsonRes({ error: 'only a one-shot job accepts a localRunAt', code: 'invalid_request', field: 'localRunAt' }, 400);
+        }
+        const resolved = resolveLocalDateTime(ctx.timezone(), body.localRunAt.date, body.localRunAt.time, body.localRunAt.disambiguation ?? 'earlier');
+        if (resolved.error === 'nonexistent') {
+          return jsonRes({ error: 'that wall-clock time does not exist in the runtime timezone — it is skipped by the spring DST change', code: 'nonexistent_local_time', field: 'localRunAt' }, 400);
+        }
+        if (resolved.error) {
+          return jsonRes({ error: 'localRunAt must be a valid local date and time', code: 'invalid_request', field: 'localRunAt' }, 400);
+        }
+        job.runAt = new Date(resolved.ms).toISOString();
+      }
+      // A row keeps its LIFECYCLE: recurring to one-shot and back is delete/recreate, never a save.
+      if (prev0 !== undefined) {
+        const prevIsOneShot = prev0.runAt !== undefined;
+        if (!prevIsOneShot && job.runAt !== undefined) {
+          return jsonRes({ error: 'a job keeps its lifecycle; delete and recreate it to change kind', code: 'invalid_request', field: 'lifecycle' }, 400);
+        }
+        // A one-shot keeps its stored instant when the client sends neither a new runAt nor a localRunAt.
+        if (prevIsOneShot && job.runAt === undefined) job.runAt = prev0.runAt;
+      }
+      if (job.projectRef === undefined && prev0?.projectRef !== undefined) job.projectRef = prev0.projectRef;
+      try {
+        const ref = executionRef(job.projectRef);
+        if (ref) {
+          job.projectRef = ref;
+          const changed = JSON.stringify(ref) !== JSON.stringify(prev0?.projectRef) || ownerOf(job) !== ownerOf(prev0 ?? {});
+          if (changed) {
+            if (ref.projectId === undefined) {
+              if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job', code: 'forbidden' }, 403);
+            } else {
+              if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+              const project = ctx.host.stores().projects.get(ref.projectId);
+              if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target', code: 'invalid_request' }, 400);
+              if (ref.kind === 'managed') {
+                if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope', code: 'invalid_request' }, 400);
+                const provider = ctx.control('sandbox');
+                if (!provider) return jsonRes({ error: 'project environment unavailable', code: 'scheduler_unavailable' }, 503);
+                await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
+              } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+            }
+          }
+        }
+      } catch { return jsonRes({ error: 'project execution target unavailable or forbidden', code: 'forbidden' }, 403); }
+      // ── THE final read-check-write: no await runs between this strict read and the save. ──
       let jobs;
       try { jobs = readJobsStrict(); }
-      catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
+      catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it', code: 'jobs_unreadable' }, 500); }
       const prev = jobs.find((j) => j.id === job.id);
-      // Ownership is decided by the SERVER, never by the body: a non-admin always writes his own job, and
-      // may not reach one that is not his (nor learn it exists — the refusal is the same either way).
-      //
-      // Authorization runs BEFORE the revision-conflict answer below, and that ordering is the security
-      // property, not tidiness: the conflict payload carries the whole previous job — its prompt, schedule
-      // and last result — so answering it first told anyone who could guess a job id what somebody else
-      // had scheduled, and the refusal that followed came too late to matter.
-      if (!req.auth.admin) {
-        if (req.auth.userId === null) return jsonRes({ error: 'forbidden' }, 403);
-        if (prev && ownerOf(prev) !== req.auth.userId) return jsonRes({ error: 'forbidden' }, 403);
-        job.ownerUserId = req.auth.userId;
-      } else if (job.ownerUserId === undefined) {
-        // An admin's edit keeps whoever owns the job; a job he creates is an INSTANCE job, exactly as
-        // every job was before ownership existed. An instance job carries NO owner key at all, so a
-        // jobs.json written before ownership existed round-trips unchanged.
-        const inherited = prev ? ownerOf(prev) : null;
-        if (inherited !== null) job.ownerUserId = inherited;
-        else delete job.ownerUserId;
-      } else if (job.ownerUserId === null) {
-        delete job.ownerUserId;
-      }
+      const authedNow = authorize(prev);
+      if (authedNow) return authedNow;
       if (prev && expectedRevision !== undefined && expectedRevision !== prev.revision) {
         return jsonRes({
           error: 'job changed on the server; reload it before saving',
           conflict: true,
+          code: 'revision_conflict',
           current: publicJob(prev),
         }, 409);
       }
@@ -1122,41 +1244,19 @@ export function register(ctx) {
         return jsonRes({
           error: 'job changed on the server; reload it before saving',
           conflict: true,
+          code: 'revision_conflict',
           current: null,
         }, 409);
       }
-      if (job.projectRef === undefined && prev?.projectRef !== undefined) job.projectRef = prev.projectRef;
-      try {
-        const ref = executionRef(job.projectRef);
-        if (ref) {
-          job.projectRef = ref;
-          const changed = JSON.stringify(ref) !== JSON.stringify(prev?.projectRef) || ownerOf(job) !== ownerOf(prev ?? {});
-          if (changed) {
-            if (ref.projectId === undefined) {
-              if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job' }, 403);
-            } else {
-              if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden' }, 403);
-              const project = ctx.host.stores().projects.get(ref.projectId);
-              if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target' }, 400);
-              if (ref.kind === 'managed') {
-                if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope' }, 400);
-                const provider = ctx.control('sandbox');
-                if (!provider) return jsonRes({ error: 'project environment unavailable' }, 503);
-                await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
-              } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden' }, 403);
-            }
-          }
-        }
-      } catch { return jsonRes({ error: 'project execution target unavailable or forbidden' }, 403); }
       const error = cronJobError(job) ?? (ownerOf(job) !== null ? ownedJobError(job, jobs) : null);
-      if (error) return jsonRes({ error }, 400);
+      if (error) return jsonRes({ error, code: 'invalid_request' }, 400);
       // Organization only: this decides which conversation the job is FILED under and touches nothing the
       // scheduler reads. Omission preserves whatever is on disk, including an unavailable target.
       const association = associationEdit({
         prev, wanted: job.conversationSessionId, owner: ownerOf(job),
         actorUserId: req.auth.userId, oneShot: !!job.runAt,
       });
-      if (association.error) return jsonRes({ error: association.error }, 400);
+      if (association.error) return jsonRes({ error: association.error, code: 'invalid_request' }, 400);
       const edit = {};
       for (const k of CRON_FIELDS) if (job[k] !== undefined) edit[k] = job[k];
       const runtime = {};
@@ -1192,27 +1292,7 @@ export function register(ctx) {
     },
   });
 
-  // Run one recurring job NOW without rewriting its schedule. The model turn is deliberately detached
-  // from the HTTP request — it may take minutes — while the accepted response lets the page close the
-  // click immediately and observe progress through lastRun/lastResult.
-  ctx.registerApiRoute({
-    rootMount: '/plugins/cronjob/jobs', path: '', method: 'POST', access: 'user',
-    handler: async (req) => {
-      const segs = req.path === '' ? [] : req.path.split('/');
-      if (segs.length !== 2 || segs[1] !== 'run') return jsonRes({ error: 'not found' }, 404);
-      const id = decodeURIComponent(segs[0]);
-      const jobs = store.all();
-      const target = jobs.find((job) => job.id === id);
-      if (!target) return jsonRes({ error: 'job not found' }, 404);
-      if (!req.auth.admin && (req.auth.userId === null || ownerOf(target) !== req.auth.userId)) {
-        return jsonRes({ error: 'forbidden' }, 403);
-      }
-      if (target.runAt) return jsonRes({ error: 'a one-shot wake-up cannot be run manually' }, 400);
-      const queued = adapter?.queueRunNow(id) ?? { error: 'scheduler is not ready', status: 503 };
-      return queued.error ? jsonRes({ error: queued.error }, queued.status) : jsonRes({ ok: true }, queued.status);
-    },
-  });
-
+POSTROUTE_SLOT
   // Idempotent: deleting a job that is already gone is a success, not a 404. A client racing its own
   // in-flight save (or another tab) must be able to say "this job should not exist" without having to
   // know whether it currently does.
@@ -1226,12 +1306,29 @@ export function register(ctx) {
       catch { return jsonRes({ error: 'jobs file is unreadable — refusing to write over it' }, 500); }
       const id = decodeURIComponent(segs[0]);
       const target = jobs.find((j) => j.id === id);
-      // Deleting is idempotent (a job already gone is a success), but deleting SOMEONE ELSE'S never is.
-      // The `userId === null` clause is not redundant with the comparison below: an INSTANCE job also has
-      // no owner, so an unidentified caller would otherwise match one and delete it (the PUT route refuses
-      // the same caller, so accepting the delete would leave onboarding able to destroy but not create).
-      if (!req.auth.admin && req.auth.userId === null) return jsonRes({ error: 'forbidden' }, 403);
-      if (target && !req.auth.admin && ownerOf(target) !== req.auth.userId) return jsonRes({ error: 'forbidden' }, 403);
+      // Deleting is idempotent (a job already gone is a success), but deleting SOMEONE ELSE'S reads as
+      // `not_found` — the same answer an absent row gives — so an id never learns what exists for
+      // someone else. The `userId === null` clause is not redundant: an INSTANCE job also has no owner,
+      // so an unidentified caller would otherwise match one and delete it (the PUT route refuses the
+      // same caller, so accepting the delete would leave onboarding able to destroy but not create).
+      if (!req.auth.admin && req.auth.userId === null) return jsonRes({ error: 'forbidden', code: 'forbidden' }, 403);
+      if (target && !canAddressJob({ userId: req.auth.userId, admin: req.auth.admin === true }, target)) {
+        return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+      }
+      // Optional CAS: an `If-Match` header names a revision — the same CAS the PUT carries. A mismatch
+      // answers with the CURRENT authorized projection, never a deletion.
+      const ifMatchRaw = req.headers
+        ? (typeof req.headers.get === 'function' ? req.headers.get('if-match') : req.headers['if-match'])
+        : undefined;
+      if (ifMatchRaw !== undefined) {
+        const wanted = Number(String(ifMatchRaw).trim().replaceAll('"', ''));
+        if (!Number.isSafeInteger(wanted) || wanted < 0) {
+          return jsonRes({ error: 'If-Match must name a job revision', code: 'invalid_request', field: 'If-Match' }, 400);
+        }
+        if (target && (Number.isSafeInteger(target.revision) ? target.revision : 0) !== wanted) {
+          return jsonRes({ error: 'job changed on the server; reload it before deleting', conflict: true, code: 'revision_conflict', current: publicJob(target) }, 409);
+        }
+      }
       const rest = jobs.filter((j) => j.id !== id);
       if (rest.length !== jobs.length) store.save(rest);
       return jsonRes({ ok: true });
