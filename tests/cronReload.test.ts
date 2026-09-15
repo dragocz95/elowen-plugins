@@ -6,6 +6,8 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
+import { openRunJournal } from '../plugins/cronjob/lib/runJournal.mjs';
 
 // A plugin reload (stopAll + startAll) replaces the cron adapter while a tick may still be parked on a
 // slow brain turn. The torn-down generation and its replacement share one jobs.json and one delivery
@@ -16,19 +18,31 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
 
 interface CronAdapterUnderTest {
-  listen(fn: (src: SessionSource, text: string) => Promise<string | undefined>): void;
+  listen(fn: (src: SessionSource, text: string, onEvent?: (event: {
+    type: string;
+    sessionId?: string;
+    messageId?: string;
+    model?: string;
+    usage?: { totalTokens?: number; cost?: number };
+    completedAt?: string;
+  }) => void) => Promise<string | undefined>): void;
+  connect(): Promise<void>;
   tick(): Promise<void>;
-  queueRunNow(id: string): { ok?: boolean; error?: string; status: number };
+  runClaim(job: Record<string, unknown>, details: { manual?: boolean; slot: string; now: number; timezone: string; skipReason?: string | null }): { id: string; created: boolean };
   disconnect(): void;
 }
 
 let dirs: string[] = [];
 function freshDataRoot(): string { const p = mkdtempSync(join(tmpdir(), 'elowen-pdata-')); dirs.push(p); return p; }
-afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
+afterEach(() => {
+  vi.useRealTimers();
+  for (const p of dirs) rmSync(p, { recursive: true, force: true });
+  dirs = [];
+});
 
 async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify });
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify, pluginDb: pluginDbFor(dataRoot), delegatedTurnsOutOfProcess: () => false });
   return reg.platforms[0] as unknown as CronAdapterUnderTest;
 }
 
@@ -57,25 +71,108 @@ function parkingHandler(tag: string, calls: string[]) {
 }
 
 describe('cron scheduler across a plugin reload', () => {
-  it('runs a recurring job immediately without rewriting its future schedule', async () => {
+  it('uses one deterministic journal claim for the same interval slot across generations', async () => {
+    const dataRoot = freshDataRoot();
+    const oldAdapter = await loadCron(dataRoot, async () => {});
+    const newAdapter = await loadCron(dataRoot, async () => {});
+    const now = Date.parse('2026-09-15T17:27:15.000Z');
+    const job = {
+      id: 'poll', name: 'poll', schedule: 'every 5m', prompt: 'poll',
+      createdAt: new Date(now - 60_000).toISOString(),
+    };
+    const details = { slot: '2026-09-15T19:27', now, timezone: 'Europe/Prague' };
+
+    const first = oldAdapter.runClaim(job, details);
+    expect(first.created).toBe(true);
+    expect(newAdapter.runClaim(job, details)).toEqual({ id: first.id, created: false });
+  });
+
+  it('schedules daily journal retention and disposes both timers with the adapter', async () => {
+    vi.useFakeTimers();
+    const dataRoot = freshDataRoot();
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const adapter = await loadCron(dataRoot, async () => {});
+    await adapter.connect();
+
+    expect(interval.mock.calls.map((call) => call[1])).toContain(24 * 60 * 60_000);
+    expect(vi.getTimerCount()).toBe(2);
+    adapter.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+    interval.mockRestore();
+  });
+
+  it('runs a durable manual request immediately without rewriting its future schedule', async () => {
     const dataRoot = freshDataRoot();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
     const createdAt = new Date().toISOString();
     writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify([
-      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt },
+      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt,
+        manualRequest: { id: 'm1', requestedAt: new Date().toISOString() } },
     ]));
     const adapter = await loadCron(dataRoot, async () => {});
     const calls: string[] = [];
-    adapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
-
-    expect(adapter.queueRunNow('manual')).toEqual({ ok: true, status: 202 });
-    await vi.waitFor(() => expect(calls).toEqual(['job-manual']));
-    await vi.waitFor(() => {
-      const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
-      expect(stored.schedule).toBe('daily 23:59');
-      expect(stored.lastSlot).toBeUndefined(); // the future natural slot remains armed
-      expect(stored.lastResult).toBe('manual result');
+    adapter.listen(async (src: SessionSource, _text, onEvent) => {
+      calls.push(src.channelId);
+      onEvent?.({ type: 'session', sessionId: 'brain-manual' });
+      onEvent?.({
+        type: 'idle',
+        messageId: 'assistant-manual-exact',
+        model: 'openai/gpt-test',
+        usage: { totalTokens: 42, cost: 0.01 },
+        completedAt: new Date().toISOString(),
+      });
+      return 'manual result';
     });
+
+    // The tick consumes the OLDEST durable manual request before the natural due work; the request is
+    // cleared from the job, the dedupe token survives, and the future natural slot stays armed.
+    await adapter.tick();
+    expect(calls).toEqual(['job-manual']);
+    const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
+    expect(stored.schedule).toBe('daily 23:59');
+    expect(stored.lastSlot).toBeUndefined(); // the future natural slot remains armed
+    expect(stored.lastResult).toBe('manual result');
+    expect(stored.manualRequest).toBeUndefined();
+    expect(stored.lastManualRequestId).toBe('m1'); // a retried run request finds its answer here
+    const [receipt] = openRunJournal(pluginDbFor(dataRoot)('cronjob'))
+      .list({ userId: null, admin: true }, { limit: 10 }).runs;
+    expect(receipt).toMatchObject({
+      jobId: 'manual',
+      trigger: 'manual',
+      outcome: 'ok',
+      sessionId: 'brain-manual',
+      messageId: 'assistant-manual-exact',
+      model: 'openai/gpt-test',
+      tokensTotal: 42,
+      costUsd: 0.01,
+      delivered: true,
+      preview: 'manual result',
+    });
+  });
+
+  // The manual request lives in jobs.json, so it survives a reload: a request written by the old
+  // generation is claimed and run by the new one exactly once.
+  it('a durable manual run request survives an adapter reload and is claimed exactly once', async () => {
+    const dataRoot = freshDataRoot();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    const createdAt = new Date().toISOString();
+    writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify([
+      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt,
+        manualRequest: { id: 'm2', requestedAt: new Date().toISOString() } },
+    ]));
+    const oldAdapter = await loadCron(dataRoot, async () => {});
+    oldAdapter.disconnect(); // the host replaces this generation before any of its work ran
+
+    const calls: string[] = [];
+    const newAdapter = await loadCron(dataRoot, async () => {});
+    newAdapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
+    await newAdapter.tick();
+    await newAdapter.tick(); // a second tick may NOT run the same manual request again
+
+    expect(calls).toEqual(['job-manual']);
+    const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
+    expect(stored.lastManualRequestId).toBe('m2');
+    expect(stored.lastResult).toBe('manual result');
   });
 
   it('an adapter torn down mid-tick hands the remaining jobs over instead of running them itself', async () => {

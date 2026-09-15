@@ -9,6 +9,7 @@ import { runWithPolicy } from 'elowen/dist/plugins/policyContext.js';
 import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,7 +40,7 @@ interface CronAdapterUnderTest {
 }
 
 async function loadCron(dataRoot: string, notify?: (text: string, channelId?: string) => Promise<void>, config?: Record<string, unknown>) {
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, notify, config: config ? { cronjob: config } : undefined });
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, notify, pluginDb: pluginDbFor(dataRoot), config: config ? { cronjob: config } : undefined });
   return { reg, adapter: reg.platforms[0] as unknown as CronAdapterUnderTest };
 }
 

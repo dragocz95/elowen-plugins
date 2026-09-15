@@ -111,9 +111,9 @@ const EXPECTED_CAPABILITIES = {
   // control instead of the host filesystem; core approved codebase as a Sandbox consumer in the same
   // change. Without it the index cannot see a managed project's files at all.
   codebase: { reads: ['embeddings', 'controls'], network: true },
-  // `controls` resolves the environment provider a scheduled project run executes in; the schedule names
-  // the project explicitly and cannot widen to another one.
-  cronjob: { reads: ['controls', 'stores'] },
+  // `controls` resolves the environment provider a scheduled project run executes in; `stores`
+  // re-authorizes owners and `db` holds the plugin-owned run journal and retention aggregates.
+  cronjob: { reads: ['controls', 'db', 'stores'] },
   // `controls` routes managed reads, writes and uploads through the guest boundary instead of the host
   // filesystem; `project-files` remains the host-project path.
   editor: { reads: ['controls', 'project-files', 'stores'] },

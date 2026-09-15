@@ -10,6 +10,7 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource, PluginHostWiring } from 'elowen/dist/plugins/api.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,6 +47,7 @@ const hostWith = (admins: number[], scheduling: { denied?: number[]; accounts?: 
 async function loadCron(dataRoot: string, opts: { admins?: number[]; notify?: (t: string, c?: string) => Promise<void>; host?: PluginHostWiring | null } = {}) {
   const reg = await loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, notify: opts.notify,
+    pluginDb: pluginDbFor(dataRoot),
     host: opts.host === null ? undefined : opts.host ?? hostWith(opts.admins ?? []),
   });
   return { reg, adapter: reg.platforms[0] as unknown as CronAdapterUnderTest };

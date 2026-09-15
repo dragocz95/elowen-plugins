@@ -20,7 +20,7 @@
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: [],
+  components: ['Calendar'],
   hooks: [],
   utils: [],
 };
@@ -29,4 +29,4 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
 
 /** The plugin UI API version targeted by the stand-in, shipped by core 0.28.42. */
-export const AHEAD_OF_RELEASE_API_VERSION = 16;
+export const AHEAD_OF_RELEASE_API_VERSION = 17;

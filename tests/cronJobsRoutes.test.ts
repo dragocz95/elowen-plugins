@@ -14,6 +14,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import { PluginRegistryProvider } from 'elowen/dist/plugins/pluginsProvider.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 let dirs: string[] = [];
 const tmpDir = (tag: string): string => { const p = mkdtempSync(join(tmpdir(), `elowen-${tag}-`)); dirs.push(p); return p; };
@@ -32,6 +33,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
   // The '/plugins/cronjob/jobs' surface is served by the REAL cronjob plugin (root mounts) now.
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,
+    pluginDb: pluginDbFor(dataRoot),
     host: {
       stores: {
         projects: new ProjectStore(db),
@@ -121,12 +123,15 @@ describe('cron jobs routes', () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it('GET returns [] for a corrupted jobs file', async () => {
+  // A read that cannot be answered must never read as "you have nothing scheduled" — an empty list
+  // IS a claim, and a wrong one. The strict read answers a machine-readable failure instead.
+  it('GET answers 500 jobs_unreadable for a corrupted jobs file, never a success-shaped empty', async () => {
     const { app, dataRoot, adminTok } = setup();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
     writeFileSync(join(dataRoot, 'cronjob', 'jobs.json'), '{not json');
     const res = await app.request('/plugins/cronjob/jobs', auth(adminTok));
-    expect(await res.json()).toEqual([]);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ code: 'jobs_unreadable' });
   });
 
   // jobs.json is shared with the scheduler and the brain's CronAdd tool. A client that could hand over
@@ -144,18 +149,24 @@ describe('cron jobs routes', () => {
   // sends the reader to the schedule's editor when they were looking for the transcript. The run location
   // is derived from the one place that decides it, so the listing and the scheduler cannot disagree.
   it('GET says where each job runs, beside the conversation it is filed under', async () => {
-    const { app, dataRoot, adminTok, amy } = setup();
+    const { app, dataRoot, adminTok, amy, amyTok, users } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
     seed(dataRoot, [
       job({ id: 'shared', name: 'instance digest' }),
       job({ id: 'owned', name: 'her digest', ownerUserId: amy.id }),
       job({ id: 'channelled', name: 'to a room', ownerUserId: amy.id, notifyChannelId: 'destination:discord:100' }),
     ]);
-    const rows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as {
+    // The admin reads the instance jobs; the owner reads her own.
+    const sharedRows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as {
       id: string; runLocation: { kind: string; sessionId?: string; channelId?: string };
     }[];
-    const byId = new Map(rows.map((row) => [row.id, row.runLocation]));
-    // An instance job, and any job carrying an explicit channel, runs in its own cron channel.
-    expect(byId.get('shared')).toEqual({ kind: 'channel', channelId: 'job-shared' });
+    expect(sharedRows.map((row) => row.id)).toEqual(['shared']); // instance only; hers stay private
+    expect(sharedRows[0]!.runLocation).toEqual({ kind: 'channel', channelId: 'job-shared' });
+
+    const herRows = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as {
+      id: string; runLocation: { kind: string; sessionId?: string; channelId?: string };
+    }[];
+    const byId = new Map(herRows.map((row) => [row.id, row.runLocation]));
     expect(byId.get('channelled')).toEqual({ kind: 'channel', channelId: 'job-channelled' });
     // Every other owned recurring job runs in a conversation of its own, named after the job.
     expect(byId.get('owned')).toEqual({ kind: 'dedicated', sessionId: `brain-${amy.id}-job-owned` });
@@ -200,12 +211,32 @@ describe('cron jobs routes', () => {
     const back = await app.request('/plugins/cronjob/jobs', auth(adminTok));
     // The conversation the job is filed under is projected for the client as it stands TODAY; the
     // immutable key it is stored by never leaves the daemon. Where the job RUNS is projected beside it,
-    // and both instance jobs here run in a cron channel of their own.
-    expect(await back.json()).toEqual(stripped.map((j) => ({
+    // and both instance jobs here run in a cron channel of their own. The plan's additive projection
+    // rides beside all of it: derived lifecycle, revision, the server-derived next occurrence and
+    // the durable manual queue state.
+    const rows = await back.json() as Record<string, unknown>[];
+    expect(rows.map((row) => ({
+      ...row,
+      // A server-derived next occurrence depends on the scheduler's clock; assert its SHAPE per row.
+      nextOccurrence: undefined,
+    }))).toEqual(stripped.map((j) => ({
       ...j,
+      lifecycle: j.runAt !== undefined ? 'oneShot' : 'recurring',
+      manualQueued: false,
       conversation: conversationView(),
       runLocation: { kind: 'channel', channelId: `job-${j.id}` },
     })));
+    // The recurring row is PAUSED here, so its next occurrence is (truthfully) null until it is
+    // re-enabled; the pending one-shot shows a late wake-up with its original runAt intact.
+    expect(rows[0]!.nextOccurrence).toBeNull();
+    expect(rows[1]!.nextOccurrence).toEqual(expect.objectContaining({
+      occurrenceId: 'j2:once',
+      scheduledAt: '2026-07-02T18:00:00.000Z',
+      timezone: expect.any(String),
+      disposition: expect.stringMatching(/^(dueNow|late)$/),
+      precisionMs: expect.any(Number),
+      guarded: false,
+    }));
     // The plugin's scheduler reads this exact file every tick — verify it landed on disk.
     expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(true);
     expect(onDisk(dataRoot)).toEqual(stripped.map((j) => ({ ...j, conversationKey: `ns-${STUB_CONVERSATION_ID}` })));
@@ -377,16 +408,20 @@ describe('cron jobs routes', () => {
     expect(mine.map((j) => j.id)).toEqual(['mine']);
     expect(mine[0]!.ownerUserId).toBe(amy.id);
 
-    // The admin sees both, and an instance job carries no owner at all.
+    // An admin sees OWN personal jobs plus the instance ones — never another account's. A foreign
+    // personal job reads the same as an absent one on GET, update, delete and run.
     const all = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; ownerUserId?: number | null }[];
-    expect(all.map((j) => j.id).sort()).toEqual(['mine', 'shared']);
+    expect(all.map((j) => j.id)).toEqual(['shared']);
     expect(all.find((j) => j.id === 'shared')).not.toHaveProperty('ownerUserId');
 
-    // She may not reach the instance job — neither to edit nor to delete it.
-    expect((await save(app, amyTok, job({ id: 'shared', name: 'hijacked' }))).status).toBe(403);
-    expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(403);
+    // She may not reach the instance job — neither to edit nor to delete it; the refusal is 404, the
+    // same answer an id that does not exist gives.
+    expect((await save(app, amyTok, job({ id: 'shared', name: 'hijacked' }))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(404);
     const still = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; name: string }[];
     expect(still.find((j) => j.id === 'shared')?.name).toBe('instance job');
+    expect((await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as { id: string }[]).map((j) => j.id)).toEqual(['mine']);
   });
 
   it('gates manual runs by ownership and refuses one-shot wake-ups', async () => {
@@ -396,12 +431,14 @@ describe('cron jobs routes', () => {
     expect((await save(app, amyTok, job({ id: 'mine' }))).status).toBe(200);
     expect((await save(app, amyTok, job({ id: 'wake', schedule: 'in 20m', runAt: '2026-09-01T12:00:00.000Z' }))).status).toBe(200);
 
-    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(403);
-    expect((await app.request('/plugins/cronjob/jobs/missing/run', post(adminTok))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(404);
+    expect((await (await app.request('/plugins/cronjob/jobs/shared/run', post(adminTok))).text()).includes('run_already_queued')).toBe(false);
     expect((await app.request('/plugins/cronjob/jobs/wake/run', post(amyTok))).status).toBe(400);
     // This API-only harness does not connect a brain handler; reaching 503 proves the authorized request
     // reached the live adapter instead of being refused by ownership or route parsing.
     expect((await app.request('/plugins/cronjob/jobs/mine/run', post(amyTok))).status).toBe(503);
+    const second = await app.request('/plugins/cronjob/jobs/mine/run', post(amyTok));
+    expect(((await second.json()) as { code?: string }).code).toBe('scheduler_unavailable');
   });
 
   it('enriches visible owned jobs with a safe display profile and never persists that view metadata', async () => {
@@ -411,11 +448,10 @@ describe('cron jobs routes', () => {
       .run('Amy Adams', 'amy-secret@example.test', 'amy.png', amy.id);
     expect((await save(app, amyTok, job({ id: 'mine', name: 'Amy job' }))).status).toBe(200);
 
+    // An admin no longer sees another account's personal rows — the profile projection only ever
+    // rides on the caller's OWN job.
     const adminRows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as Record<string, unknown>[];
-    expect(adminRows).toEqual([expect.objectContaining({
-      id: 'mine', ownerUserId: amy.id,
-      owner: { id: amy.id, username: 'amy', name: 'Amy Adams', avatar: 'amy.png' },
-    })]);
+    expect(adminRows).toEqual([]);
     expect(JSON.stringify(adminRows)).not.toContain('amy-secret@example.test');
 
     const mineRows = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as Record<string, unknown>[];
@@ -556,3 +592,139 @@ describe('cron jobs routes', () => {
 // their plugins. What they proved about the CORE — that a declared root mount of a DISABLED plugin
 // answers 503 rather than a bare 404 — is proved above by the cronjob routes, which take the identical
 // path through pluginApi.
+
+// The web's first-class creation flow: an explicit POST with a browser-minted requestId, filed where
+// its ownership implies, with the SERVER resolving a one-shot's local wall clock.
+const postJob = (t: string, body: unknown) => ({ method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+describe('cron job creation POST', () => {
+  it('creates a filed recurring job (201) with revision 1 and requires it to name filing', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const ok_body = { requestId: 'r-1', lifecycle: 'recurring', scope: 'personal', name: 'digest', schedule: 'daily 06:00', prompt: 'Summarize the day.', conversationSessionId: STUB_CONVERSATION_ID };
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, ok_body));
+    expect(res.status).toBe(201);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual(expect.objectContaining({ ok: true, revision: 1 }));
+    expect((body.job as Record<string, unknown>).id).toBeTruthy();
+    expect(onDisk(dataRoot)[0]).toMatchObject({
+      name: 'digest', schedule: 'daily 06:00',
+      conversationKey: `ns-${STUB_CONVERSATION_ID}`, revision: 1,
+    });
+    const noFiling = { ...ok_body, requestId: 'r-2', conversationSessionId: undefined };
+    const res2 = await app.request('/plugins/cronjob/jobs', postJob(adminTok, noFiling));
+    expect(res2.status).toBe(400);
+    expect((await res2.json() as Record<string, unknown>).field).toBe('conversationSessionId');
+  });
+
+  it('creates a one-shot from a local wall clock server-side, and rejects filing on it', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const before = Date.now();
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-2', lifecycle: 'oneShot', scope: 'personal', name: 'wakeup',
+      prompt: 'check the deploy', localRunAt: { date: '2099-01-02', time: '10:30' },
+    }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as Record<string, unknown>;
+    expect((body.job as Record<string, unknown>).lifecycle).toBe('oneShot');
+    const stored = onDisk(dataRoot)[0] as Record<string, unknown>;
+    expect(stored.runAt).toBeTruthy();
+    expect(Number.isNaN(Date.parse(String(stored.runAt)))).toBe(false);
+    expect(Date.now()).toBeGreaterThanOrEqual(before);
+    // A filing conversation is NEVER accepted on a one-shot.
+    const res2 = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-3', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2099-01-02', time: '10:00' }, conversationSessionId: STUB_CONVERSATION_ID,
+    }));
+    expect(res2.status).toBe(400);
+    expect(((await res2.json()) as Record<string, unknown>).code).toBe('invalid_request');
+  });
+
+  it('replays a retried requestId idempotently and conflicts on a different payload', async () => {
+    const { app, adminTok } = setup();
+    const body = { requestId: 'rr', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p', localRunAt: { date: '2099-01-02', time: '10:00' } };
+    const first = await app.request('/plugins/cronjob/jobs', postJob(adminTok, body));
+    expect(first.status).toBe(201);
+    const created = await first.json() as Record<string, unknown>;
+    const replay = await app.request('/plugins/cronjob/jobs', postJob(adminTok, { ...body }));
+    expect(replay.status).toBe(200);
+    expect(((await replay.json()) as Record<string, unknown>)).toEqual(expect.objectContaining({
+      ok: true, idempotentReplay: true, jobId: ((created as Record<string, unknown>).job as Record<string, unknown>).id,
+    }));
+    const conflict = await app.request('/plugins/cronjob/jobs', postJob(adminTok, { ...body, name: 'different' }));
+    expect(conflict.status).toBe(409);
+    expect(((await conflict.json()) as Record<string, unknown>).code).toBe('idempotency_conflict');
+  });
+
+  it('a one-shot whose local time does not exist in the timezone refuses nonexistent_local_time', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-gap', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2026-03-29', time: '02:30' },
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual(expect.objectContaining({ code: 'nonexistent_local_time', field: 'localRunAt' }));
+    expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(false);
+  });
+
+  it('refuses to create over a jobs file it could not read, with jobs_unreadable rather than a bare 500', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    writeFileSync(join(dataRoot, 'cronjob', 'jobs.json'), '{ truncated');
+    const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
+      requestId: 'r-unreadable', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
+      localRunAt: { date: '2099-01-02', time: '10:00' },
+    }));
+    expect(res.status).toBe(500);
+    expect((await res.json() as Record<string, unknown>).code).toBe('jobs_unreadable');
+    // And the unreadable file is left exactly as it was — never written over.
+    expect(readFileSync(join(dataRoot, 'cronjob', 'jobs.json'), 'utf-8')).toBe('{ truncated');
+  });
+
+  it('writes the row BEFORE its receipt, so a crash between them duplicates visibly instead of lying', async () => {
+    // The row and its idempotency receipt are two atomic JSON files and there is no transaction that
+    // commits both. The ORDER is the design choice, and this pins it: after a create, the row exists
+    // and the receipt names it. Losing the receipt (the crash window) makes a retry create a SECOND
+    // job — a visible duplicate. The inverse order would answer "created" for a job that never
+    // landed, because a receipt without a row is indistinguishable from a fired one-shot that
+    // deleted itself.
+    const { app, dataRoot, adminTok } = setup();
+    const body = {
+      requestId: 'r-window', lifecycle: 'oneShot', scope: 'personal',
+      name: 'w', prompt: 'p', localRunAt: { date: '2099-01-02', time: '10:00' },
+    };
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(201);
+    const receiptsPath = join(dataRoot, 'cronjob', 'creation-receipts.json');
+    const receipts = JSON.parse(readFileSync(receiptsPath, 'utf-8')) as Record<string, { jobId: string }>;
+    expect(Object.values(receipts).map((r) => r.jobId)).toEqual([(onDisk(dataRoot)[0] as { id: string }).id]);
+    // With the receipt intact the retry replays; this is the path that normally protects the caller.
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(200);
+    expect(onDisk(dataRoot)).toHaveLength(1);
+    // The documented limit, stated as behaviour: a receipt lost to a crash costs a duplicate row.
+    rmSync(receiptsPath, { force: true });
+    expect((await app.request('/plugins/cronjob/jobs', postJob(adminTok, body))).status).toBe(201);
+    expect(onDisk(dataRoot)).toHaveLength(2);
+  });
+
+  it('a queued or answered manual run replays idempotently and a different id conflicts', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [{ ...job({ id: 'm1', schedule: 'daily 23:59' }), lastRun: new Date().toISOString() }]);
+    const runBody = (id: string) => ({ method: 'POST', headers: { authorization: `Bearer ${adminTok}`, 'content-type': 'application/json' }, body: JSON.stringify({ requestId: id }) });
+    // The harness runs WITHOUT a brain handler, so a NEW request cannot queue: it reads 503.
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-1'))).status).toBe(503);
+    expect(onDisk(dataRoot)[0]).not.toHaveProperty('manualRequest');
+    // A queued durable request answers idempotently for its OWN requestId — even while the scheduler
+    // is down — and a different one conflicts.
+    const previouslyQueued = [{ ...job({ id: 'm2', schedule: 'daily 23:59' }), manualRequest: { id: 'mr-9', requestedAt: new Date().toISOString() } }];
+    seed(dataRoot, [
+      { ...job({ id: 'm1', schedule: 'daily 23:59' }), lastRun: new Date().toISOString(), manualRequest: { id: 'mr-1', requestedAt: new Date().toISOString() } },
+      ...previouslyQueued,
+    ]);
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-1'))).status).toBe(202);
+    expect((await app.request('/plugins/cronjob/jobs/m1/run', runBody('mr-2'))).status).toBe(409);
+    // An ANSWERED requestId never runs twice, whatever the queue state now.
+    const answered = [{ ...job({ id: 'm3', schedule: 'daily 23:59' }), lastManualRequestId: 'mr-7' }];
+    seed(dataRoot, [...previouslyQueued, ...answered]);
+    expect((await app.request('/plugins/cronjob/jobs/m3/run', runBody('mr-7'))).status).toBe(202);
+  });
+});

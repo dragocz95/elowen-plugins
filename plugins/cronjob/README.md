@@ -8,14 +8,14 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.4.7` |
-| Requires core | `0.28.35` |
+| Version | `0.5.0` |
+| Requires core | `0.28.46` |
 | Requires shared API | `4` |
 | User-grantable | Yes |
 
 ## Tools
 
-`CronAdd` creates a recurring job or a one-shot wake-up, `CronList` shows the scheduled jobs with their state, `CronRemove` deletes one, `CronConversations` lists the conversations a recurring job can be filed under and `ScheduleWakeup` sets a single future wake-up for the agent itself.
+`CronAdd` creates a recurring job (a one-shot is `ScheduleWakeup`'s job), `CronList` shows the scheduled jobs with their state, `CronRemove` deletes one, `CronConversations` lists the conversations a recurring job can be filed under and `ScheduleWakeup` sets a single future wake-up for the agent itself.
 
 ## Configuration
 

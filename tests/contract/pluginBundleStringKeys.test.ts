@@ -44,7 +44,7 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
     ],
   },
   {
-    file: 'cronjob/web-src/JobsSettings.tsx',
+    file: 'cronjob/web-src/fields.tsx',
     keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],
   },
   // KanbanBoard renders one column per entry of its COLUMNS table and reads `s[col.labelKey]`.

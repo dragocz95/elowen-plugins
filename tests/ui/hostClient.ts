@@ -9,7 +9,11 @@
 const BASE = '/api';
 
 export class ElowenApiError extends Error {
-  constructor(message: string, public status: number, public code?: string) {
+  /** `details` carries the PARSED error body, exactly as the host's own client does. `code` is the
+   *  daemon's human `error` line; the machine-readable `code`/`conflict`/`current` a bundle branches
+   *  on live inside `details`, and a stand-in that dropped them would make every one of those
+   *  branches untestable while looking green. */
+  constructor(message: string, public status: number, public code?: string, public details?: Record<string, unknown>) {
     super(message);
     this.name = 'ElowenApiError';
   }
@@ -28,7 +32,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let body: Record<string, unknown> | undefined;
     try { body = (await res.json()) as Record<string, unknown>; } catch { /* no JSON body */ }
-    throw new ElowenApiError(`elowen ${res.status} on ${path}`, res.status, typeof body?.error === 'string' ? body.error : undefined);
+    throw new ElowenApiError(`elowen ${res.status} on ${path}`, res.status, typeof body?.error === 'string' ? body.error : undefined, body);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
@@ -211,7 +215,7 @@ export async function api(path: string, init?: RequestInit): Promise<unknown> {
   if (!res.ok) {
     let body: Record<string, unknown> | undefined;
     try { body = (await res.json()) as Record<string, unknown>; } catch { /* non-JSON body */ }
-    throw new ElowenApiError(`api ${res.status} on ${path}`, res.status, typeof body?.error === 'string' ? body.error : undefined);
+    throw new ElowenApiError(`api ${res.status} on ${path}`, res.status, typeof body?.error === 'string' ? body.error : undefined, body);
   }
   return res.status === 204 ? undefined : res.json();
 }

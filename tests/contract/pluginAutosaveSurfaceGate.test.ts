@@ -14,7 +14,10 @@ type SurfaceContract = {
  * actions, credentials, uploads, source files and atomic multi-step forms remain explicit by design. */
 const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/browser/web-src/BrowserAccount.tsx', mode: 'explicit-save', reason: 'session lifecycle and confirmed destructive profile cleanup actions' },
-  { path: 'plugins/cronjob/web-src/JobsSettings.tsx', mode: 'canonical' },
+  { path: 'plugins/cronjob/web-src/JobDrawer.tsx', mode: 'canonical' },
+  { path: 'plugins/cronjob/web-src/AutomationPage.tsx', mode: 'explicit-save', reason: 'run-now and pause are immediate operational actions; JobDrawer owns canonical field autosave' },
+  { path: 'plugins/cronjob/web-src/CreateJobDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit submit: an idempotent requestId guards the retry, not a debounced autosave' },
+  { path: 'plugins/cronjob/web-src/fields.tsx', mode: 'explicit-save', reason: 'the schedule-preview POST is a bounded read of a draft, never a persistence write' },
   { path: 'plugins/msteams/web-src/TeamsWorkspace.tsx', mode: 'canonical' },
   { path: 'plugins/editor/web-src/editor/ProjectEditor.tsx', mode: 'explicit-save', reason: 'source-file checkpoints and uploads' },
   { path: 'plugins/editor/web-src/editor/fileData.ts', mode: 'explicit-save', reason: 'root-scoped file and tree writes: a create, rename, copy or delete of a source file is a deliberate action, and a debounced one would act on a path the user is still typing' },
@@ -54,7 +57,7 @@ const declared = SURFACES.map(({ path }) => path).sort();
 // The canonical Teams config hook is a host hook call rather than a local mutationFn, so it is intentionally
 // included in the inventory even though the write-signal scan below cannot discover it from implementation text.
 const expectedCanonical = new Set([
-  'plugins/cronjob/web-src/JobsSettings.tsx',
+  'plugins/cronjob/web-src/JobDrawer.tsx',
   'plugins/msteams/web-src/TeamsWorkspace.tsx',
 ]);
 
@@ -66,7 +69,7 @@ describe('server-backed plugin edit persistence gate', () => {
   it('requires every write-bearing surface to be declared', () => {
     expect(discoveredWrites.filter((path) => !declared.includes(path))).toEqual([]);
     expect(discoveredWrites).toEqual(expect.arrayContaining([
-      'plugins/cronjob/web-src/JobsSettings.tsx',
+      'plugins/cronjob/web-src/JobDrawer.tsx',
       'plugins/editor/web-src/editor/ProjectEditor.tsx',
     ]));
   });

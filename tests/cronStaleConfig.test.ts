@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
+import { pluginDbFor } from './helpers/pluginDb.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,7 +23,7 @@ function freshDataRoot(): string { const p = mkdtempSync(join(tmpdir(), 'elowen-
 afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
 
 async function loadCron(dataRoot: string, config?: Record<string, unknown>) {
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, config: config ? { cronjob: config } : undefined });
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger: log, pluginDb: pluginDbFor(dataRoot), config: config ? { cronjob: config } : undefined });
   return reg.platforms[0] as unknown as CronAdapterUnderTest;
 }
 

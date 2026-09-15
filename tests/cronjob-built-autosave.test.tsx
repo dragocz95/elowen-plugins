@@ -14,10 +14,41 @@ ensurePluginUiRuntime();
 type BundleRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'>;
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const bundlePath = resolve(new URL('../plugins/cronjob/web/index.js', import.meta.url).pathname);
-const job: CronJob = { id: 'built-1', name: 'digest', schedule: 'daily 06:00', prompt: 'do it', enabled: true };
+const job: CronJob = {
+  id: 'built-1', name: 'digest', schedule: 'daily 06:00', prompt: 'do it', enabled: true,
+  lifecycle: 'recurring', revision: 0,
+  nextOccurrence: {
+    occurrenceId: 'built-1:slot:2026-09-15T06:00',
+    scheduledAt: '2026-09-15T05:00:00.000Z', expectedAt: '2026-09-15T05:00:00.000Z',
+    localDate: '2026-09-15', localTime: '06:00', timezone: 'Europe/Prague',
+    disposition: 'onTime', guarded: false,
+  },
+};
+const weekBody = {
+  generatedAt: '2026-09-15T05:00:00.000Z',
+  todayLocalDate: '2026-09-15',
+  nowLocalTime: '07:00',
+  timezone: 'Europe/Prague',
+  precisionMs: 30_000,
+  scheduler: { ready: true },
+  window: { startLocalDate: '2026-09-14', endLocalDateExclusive: '2026-09-21' },
+  jobs: [job],
+  days: ['14', '15', '16', '17', '18', '19', '20'].map((day) => ({
+    localDate: `2026-09-${day}`,
+    cards: day === '15' ? [{
+      jobId: 'built-1', kind: 'daily', localTime: '06:00', moreTimes: [],
+      remaining: 1, enabled: true, guarded: false, disposition: 'onTime', state: 'waiting',
+    }] : [],
+    dayTotal: day === '15' ? 1 : 0,
+    moreCount: 0,
+    truncated: false,
+  })),
+  intervals: [],
+  truncated: false,
+};
 
 setDefaults(
-  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'cronjob', url: '/plugins/cronjob/web/index.js', apiVersion: 12, nav: [], settings: [], strings }])),
+  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'cronjob', url: '/plugins/cronjob/web/index.js', apiVersion: 17, nav: [], settings: [], strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 7, username: 'filip', is_admin: true } })),
   http.get('/api/plugins/destinations', () => HttpResponse.json([])),
   http.get('/api/brain/models', () => HttpResponse.json([])),
@@ -39,6 +70,8 @@ describe('committed cronjob bundle autosave', () => {
   it('registers the built entry and persists an edit through the host runtime', async () => {
     const writes: unknown[] = [];
     use(
+      http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json(weekBody)),
+      http.get('/api/plugins/cronjob/api/conversations', () => HttpResponse.json({ status: 'available', conversations: [] })),
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job])),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {
         writes.push(await request.json());
