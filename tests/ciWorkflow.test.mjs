@@ -13,8 +13,8 @@ test('CI workflow parses and runs every registry gate before drift checks', () =
 
   assert.equal(job.defaults.run['working-directory'], 'registry');
   assert.equal(job.env.ELOWEN_CORE_ROOT, '${{ github.workspace }}/core');
-  assert.equal(job.env.ELOWEN_CORE_VERSION, '0.28.46');
-  assert.equal(job.env.ELOWEN_CORE_REF, 'b15e7790609c353a5eaca97f7bc455f2842428f9');
+  assert.equal(job.env.ELOWEN_CORE_VERSION, '0.28.47');
+  assert.equal(job.env.ELOWEN_CORE_REF, '6f47e4dce582bc59c54406cc74bf048163fe5b9f');
   const coreCheckout = job.steps.find((step) => step.with?.repository === 'dragocz95/elowen');
   assert.equal(coreCheckout.with.ref, '${{ env.ELOWEN_CORE_REF }}');
   assert.equal(coreCheckout.with.path, 'core');

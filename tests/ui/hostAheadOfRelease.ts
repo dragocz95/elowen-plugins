@@ -3,8 +3,8 @@
  *  Both parity guards (tests/hostRuntimeParity.test.ts, tests/hostDictionaryParity.test.ts) hold the
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
- *  change that has not been released yet. Core 0.28.42 ships API 16, the host-owned `ProjectIcon`
- *  primitive and the pager's rows-per-page copy, so as of that release NOTHING is exempt: both lists
+ *  change that has not been released yet. Core 0.28.47 ships API 17, the host-owned `Calendar`
+ *  primitive and the current project copy, so as of that release NOTHING is exempt: both lists
  *  below are empty and every name a stand-in carries has to exist in the installed package.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
@@ -20,7 +20,7 @@
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: ['Calendar'],
+  components: [],
   hooks: [],
   utils: [],
 };
@@ -28,5 +28,5 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
 export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
 
-/** The plugin UI API version targeted by the stand-in, shipped by core 0.28.42. */
+/** The plugin UI API version targeted by the stand-in, shipped by core 0.28.47. */
 export const AHEAD_OF_RELEASE_API_VERSION = 17;

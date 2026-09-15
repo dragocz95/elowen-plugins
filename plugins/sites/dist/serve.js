@@ -248,7 +248,7 @@ export function createSiteHandler(deps) {
      *  proxied answer arrives without the security headers and with the application's own caching, so the
      *  one place that adds them back has to be the one place BOTH paths go through. Only the wording of a
      *  refusal differs, because the reader's next step differs. */
-    const proxyThroughIngress = async (site, req, rest, viewer,
+    const proxyThroughIngress = async (site, req, rest, viewer, 
     // One request, one answer to "may anybody at all read this": the handler decides it once and passes it
     // down, rather than every refusal and every header asking the same question again.
     publiclyServed, siteRoot, refusal) => {
@@ -257,7 +257,7 @@ export function createSiteHandler(deps) {
             return ingressRefusal(publiclyServed, 503, 'Not running', refusal.notRunning);
         }
         try {
-            const proxied = await (deps.proxyProject ?? proxyToProject)(endpoint, req, rest,
+            const proxied = await (deps.proxyProject ?? proxyToProject)(endpoint, req, rest, 
             // A capture renders what an anonymous visitor gets. The grant proves the right to be SERVED here;
             // it is not an account, and forwarding one to the application would put a person's identity into a
             // picture taken for a register.

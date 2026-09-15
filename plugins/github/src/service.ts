@@ -670,29 +670,22 @@ export class GitHubService {
       return { workspace: { workspaceId: workspace?.id ?? `project:${projectId}`, path, branch, baseRef: workspace?.baseRef ?? base.defaultBranch }, mapping, base, head, projectRef: selected };
     }
     if (!sessionId) throw new GitHubPluginError('session_required', 400, 'Select the conversation whose active workspace should be published.');
-    const sandbox = this.ctx.control('sandbox');
-    if (!sandbox) throw new GitHubPluginError('sandbox_unavailable', 503, 'Sandbox is required to publish a branch.');
-    const workspace = sandbox.activeWorkspace({ sessionId, projectId } as never);
-    if (!workspace) throw new GitHubPluginError('active_workspace_required', 409, 'Select an active Sandbox workspace for this conversation and project.');
-    // Core 0.28.29 exposes `workspaceId`; the registry's minimum-compatible core type still called the
-    // same field `id`. Normalize at this one ABI boundary instead of casting the whole control result —
-    // either runtime shape works while old registry node_modules can still typecheck the release.
-    const compatible = workspace as typeof workspace & { workspaceId?: string; id?: string };
-    const workspaceId = compatible.workspaceId ?? compatible.id;
-    if (!workspaceId) throw new GitHubPluginError('active_workspace_required', 409, 'The active Sandbox workspace has no identity.');
-    const normalizedWorkspace = {
-      workspaceId,
-      path: workspace.path,
-      branch: workspace.branch,
-      baseRef: workspace.baseRef,
-    };
+    // Host projects have no Sandbox workspace registry. The selected project's canonical checkout is the
+    // active workspace, and the host Git seam supplies its branch, upstream and current commit in one read.
+    const snapshot = await this.ctx.host.git().projectSnapshot(project.path);
+    const status = snapshot.status;
+    if (!snapshot.isRepo || !status || !status.branch || !/^[a-f0-9]{40}$/i.test(status.head)) {
+      throw new GitHubPluginError('active_workspace_required', 409, 'Select a committed project workspace before publishing.');
+    }
     const mapping = this.requireMapping(userId, projectId);
-    const [head, base] = await Promise.all([
-      this.ctx.host.git().projectHead(normalizedWorkspace.path),
-      this.withToken(userId, (token) => this.client.repository(token, mapping.baseOwner, mapping.baseName)),
-    ]);
-    if (!head) throw new GitHubPluginError('publish_requires_commit', 409, 'Commit at least one change before publishing the branch.');
-    return { workspace: normalizedWorkspace, mapping, base, head };
+    const base = await this.withToken(userId, (token) => this.client.repository(token, mapping.baseOwner, mapping.baseName));
+    const workspace = {
+      workspaceId: `project:${projectId}`,
+      path: project.path,
+      branch: status.branch,
+      baseRef: status.upstream ?? base.defaultBranch,
+    };
+    return { workspace, mapping, base, head: status.head };
   }
 
   private async validatedMappings(userId: number, token: string): Promise<{ original: ProjectMapping; validated: ProjectMapping }[]> {

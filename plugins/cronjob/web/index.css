@@ -551,14 +551,6 @@
         background-color: var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent));
       }
     }
-    .hover\:bg-accent\/60:hover {
-      background-color: color-mix(in srgb, color-mix(in srgb, var(--color-foreground) 10%, transparent) 60%, transparent);
-    }
-    @supports (color: color-mix(in lab, red, red)) {
-      .hover\:bg-accent\/60:hover {
-        background-color: color-mix(in oklab, var(--color-accent, color-mix(in srgb, var(--color-foreground) 10%, transparent)) 60%, transparent);
-      }
-    }
     .hover\:bg-primary\/90:hover {
       background-color: color-mix(in srgb, #ff5236 90%, transparent);
     }

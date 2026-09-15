@@ -739,7 +739,7 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
                         selectOffset(1);
                       }
                     },
-                    className: "flex w-full flex-col items-center gap-0.5 px-2 py-2.5 transition-colors hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
+                    className: "flex w-full flex-col items-center gap-0.5 px-2 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
                     children: [
                       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `text-[10px] font-medium uppercase tracking-[0.08em] ${selected ? "text-foreground" : "text-muted-foreground"}`, children: weekdayLabel(day.localDate, locale) }),
                       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
@@ -805,7 +805,7 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
                         onAddAt(day.localDate);
                       },
                       "aria-label": (s.dayAddTask || "Schedule a task on {date}").replace("{date}", shortDay(day.localDate, locale)),
-                      className: "group/add flex min-h-8 flex-1 items-start justify-center rounded-md pt-1 text-muted-foreground/0 transition-colors hover:bg-accent/60 hover:text-muted-foreground focus-visible:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-muted-foreground/60",
+                      className: "group/add flex min-h-8 flex-1 items-start justify-center rounded-md pt-1 text-muted-foreground/0 transition-colors hover:bg-accent hover:text-muted-foreground focus-visible:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-muted-foreground/60",
                       children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Plus, { size: 14, "aria-hidden": true })
                     }
                   )
