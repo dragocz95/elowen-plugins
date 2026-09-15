@@ -5,7 +5,7 @@
  *  is a local structural CONTRACT, not a source import — the bundle must not compile against `web/`
  *  (it builds standalone via elowen-plugin-ui-kit).
  */
-import type { ComponentType, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
@@ -118,18 +118,23 @@ export interface CronOccurrence {
   guarded: boolean;
 }
 
-interface CronCalendarDay {
+export interface CronCalendarDay {
   date: string;
   total: number;
   samples: CronOccurrence[];
   overflow: number;
   omittedByHours: number;
+  /** The window's expansion budget ran out, so this row's `total` may be short of the real schedule.
+   *  It is NOT "this day holds more than it shows" — that is `overflow`, which is exact. */
+  truncated?: boolean;
 }
 
 /** GET /plugins/cronjob/api/calendar. `snapshot` hashes every visible scheduling/runtime field plus the
  *  engine inputs; the agenda's cursor rides on it and a changed snapshot conflicts out (409). */
 export interface CronCalendarResponse {
   generatedAt: string;
+  /** The scheduler's own today, in its own timezone — the browser never derives it. */
+  todayLocalDate?: string;
   timezone: string;
   precisionMs: number;
   snapshot: string;
@@ -219,11 +224,61 @@ interface ManageSelectionModalProps {
   saving?: boolean;
 }
 
+/** The host `Modal`, `ModalBody` and `ModalFooter` as the host really declares them. Typed rather
+ *  than left as "any component" for one reason: the host Modal is MOUNTED WHEN OPEN — it has no
+ *  `open` prop and no `onOpenChange`. A call site that passed one would render a permanently open
+ *  dialog while looking perfectly reasonable, which is exactly the failure this narrowing prevents.
+ *  Dismissal is blocked with `closeDisabled`, never by withholding `onClose`. */
+interface ModalProps {
+  title: string;
+  onClose(): void;
+  children: ReactNode;
+  size?: 'lg' | 'xl' | 'md' | 'sm';
+  presentation?: 'auto' | 'center' | 'drawer' | 'sheet' | 'fullscreen';
+  intent?: 'edit' | 'inspect';
+  /** Blocks header, Escape and backdrop dismissal while an owned async submit is in flight. */
+  closeDisabled?: boolean;
+  closeLabel?: string;
+  description?: string;
+  'data-testid'?: string;
+}
+interface ModalBodyProps { children: ReactNode; gap?: 4 | 5 | 6 }
+interface ModalFooterProps { children?: ReactNode; status?: ReactNode }
+
+/** react-day-picker v9's day identity, as the host Calendar hands it to a custom day component. */
+interface CalendarDay {
+  date: Date;
+  displayMonth: Date;
+  outside?: boolean;
+  isoDate?: string;
+}
+
+/** The v9 modifiers a day carries. `focused` is the one a custom day button MUST honour: the library
+ *  moves keyboard focus by marking a day focused and expecting the button to take it. */
+interface CalendarDayModifiers {
+  focused?: boolean;
+  selected?: boolean;
+  today?: boolean;
+  outside?: boolean;
+  disabled?: boolean;
+  hidden?: boolean;
+  [modifier: string]: boolean | undefined;
+}
+
+/** What `components.DayButton` receives: the day, its modifiers, and every ordinary button prop the
+ *  library computed (className, tabIndex, aria-label, the whole keyboard/pointer handler set, and the
+ *  formatted day number as children). All of it has to reach the rendered `<button>`. */
+export type CalendarDayButtonProps = {
+  day: CalendarDay;
+  modifiers: CalendarDayModifiers;
+} & ButtonHTMLAttributes<HTMLButtonElement>;
+
 /** react-day-picker v9 props the calendar flows use, named structurally. The host Calendar IS a
- *  DayPicker — the shapes below mirror the v9 surface this bundle drives, nothing narrower. */
+ *  DayPicker — the shapes below mirror the v9 surface this bundle drives, nothing narrower. v9 has no
+ *  `DayContent`: the day cell's own interactive element is what a caller replaces. */
 interface CalendarProps {
   mode?: 'single' | 'multiple' | 'range';
-  /** RFC3339 Date objects only: the month grid is a browser-local VIEW of server-provided local dates. */
+  /** A browser-local Date built at LOCAL midnight from a server local-date label — see `parseDate`. */
   selected?: Date;
   onSelect?: (day: Date | undefined) => void;
   month?: Date;
@@ -232,8 +287,8 @@ interface CalendarProps {
   className?: string;
   classNames?: Record<string, string>;
   'aria-label'?: string;
-  /** Custom day rendering: the ledger inside each day cell. */
-  components?: Record<string, unknown>;
+  /** Custom day rendering: the ledger inside each day cell's button. */
+  components?: { DayButton?: ComponentType<CalendarDayButtonProps> };
 }
 
 // ---- hook shapes --------------------------------------------------------------------------------
@@ -284,7 +339,7 @@ interface CronComponents {
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;
   EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent;
-  Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
+  Modal: ComponentType<ModalProps>; ModalBody: ComponentType<ModalBodyProps>; ModalFooter: ComponentType<ModalFooterProps>;
   PluginSection: AnyComponent;
   /** The canonical page anatomy and toolbar (API 17's Calendar is the first REQUIRED one). */
   ModuleHeader: AnyComponent; WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent;
@@ -312,23 +367,41 @@ export function runtime(): CronRuntime {
   return rt;
 }
 
-/** The API may answer a mutation with a structured error body (`error`, `code`, `conflict`, `current`).
- *  The host's apiErrorMessage renders the human part; these readers pull the machine parts. */
-export const apiErrorCode = (error: unknown): string | undefined => {
+/** The API answers a refusal with a structured body (`error`, `code`, `conflict`, `current`).
+ *
+ *  WHERE THAT BODY LIVES matters: the host rejects with an `ElowenApiError` whose `code` is the
+ *  daemon's HUMAN `error` line (that is what `utils.apiErrorMessage` renders) and whose `details` is
+ *  the parsed body. The machine-readable `code`/`conflict`/`current` are therefore inside `details`,
+ *  and reading them off the error itself finds the human sentence instead — every branch that
+ *  compares against `revision_conflict` or `run_already_queued` would simply never be taken.
+ *
+ *  The plain-body form is still accepted, because a caller may hand these a decoded body directly. */
+const errorBody = (error: unknown): Record<string, unknown> | undefined => {
   if (typeof error !== 'object' || error === null) return undefined;
-  const code = (error as { code?: unknown }).code;
+  const details = (error as { details?: unknown }).details;
+  if (details && typeof details === 'object' && !Array.isArray(details)) return details as Record<string, unknown>;
+  return error as Record<string, unknown>;
+};
+export const apiErrorCode = (error: unknown): string | undefined => {
+  const code = errorBody(error)?.code;
   return typeof code === 'string' ? code : undefined;
 };
-export const apiErrorConflict = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null && !!(error as { conflict?: unknown }).conflict;
+export const apiErrorConflict = (error: unknown): boolean => !!errorBody(error)?.conflict;
 export const apiErrorCurrent = (error: unknown): CronJob | undefined => {
-  if (typeof error !== 'object' || error === null) return undefined;
-  const current = (error as { current?: unknown }).current;
+  const current = errorBody(error)?.current;
   return current && typeof current === 'object' && typeof (current as CronJob).id === 'string' ? current as CronJob : undefined;
 };
 
-/** The YYYY-MM-DD label a local Date carries — the calendar month grid works on BROWSER dates, while
- *  occurrences carry the server's timezone labels. This is for the grid, never for a stored field. */
+/** The YYYY-MM-DD label a Date carries, read on the BROWSER's own fields.
+ *
+ *  Its counterpart is `parseDate` in CalendarPage, which builds the Date at LOCAL midnight. The pair
+ *  has to agree on which fields it uses: a Date built at UTC midnight and read back through local
+ *  getters lands on the previous day everywhere west of UTC. react-day-picker is local-time too, so
+ *  local construction plus local reading is the one consistent pair.
+ *
+ *  These labels only drive the month grid. Every label that MEANS something — an occurrence's day,
+ *  the window a query asks for, the scheduler's own today — is derived by the server in the
+ *  scheduler's timezone and travels as a string. */
 export const localDateLabel = (day: Date): string =>
   `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
 

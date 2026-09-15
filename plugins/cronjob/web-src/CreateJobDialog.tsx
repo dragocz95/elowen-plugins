@@ -28,7 +28,9 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
   const [conversationSessionId, setConversationSessionId] = useState('');
   const [hours, setHours] = useState<string | undefined>(undefined);
   const [enabled, setEnabled] = useState(true);
-  const [scope, setScope] = useState<'instance' | 'mine'>(isAdmin ? 'instance' : 'mine');
+  /** Personal by default, for an administrator too: an instance job is powered by the instance and
+   *  delivered to its channel, so it is a deliberate choice rather than what a distracted admin gets. */
+  const [scope, setScope] = useState<'instance' | 'mine'>('mine');
   const [projectRef] = useState<CronJob['projectRef']>(undefined);
   const [model, setModel] = useState<CronJob['model']>(undefined);
   const [notifyChannelId] = useState<string | undefined>(undefined);
@@ -82,12 +84,13 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
   };
 
   return (
+    // The host Modal is MOUNTED WHEN OPEN: there is no `open`/`onOpenChange` pair, and dismissal is
+    // blocked with `closeDisabled` rather than by withholding `onClose` — Escape calls it either way.
     <C.Modal
-      open
-      onClose={submitting ? undefined : onClose}
+      onClose={onClose}
+      closeDisabled={submitting}
       title={oneShot ? s.createOneShotTitle : s.createRecurringTitle}
       closeLabel={s.close}
-      onOpenChange={(open: boolean) => { if (!open && !submitting) onClose(); }}
     >
       <C.ModalBody>
         <div className="flex min-w-0 flex-col gap-3" data-testid="cron-create-form">
@@ -212,7 +215,9 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
         >
           {oneShot ? s.createOneShotSubmit : s.createRecurringSubmit}
         </C.Button>
-        {!oneShot && !filedReady ? <p className="text-xs text-muted-foreground">{s.conversationRequired}</p> : null}
+        {/* Why the submit is refused is said ONCE, by the filing field itself (ConversationField prints
+            `conversationRequired` under its summary). Repeating it here put the same sentence twice in
+            one dialog. */}
       </C.ModalFooter>
     </C.Modal>
   );

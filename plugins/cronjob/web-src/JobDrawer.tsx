@@ -34,7 +34,7 @@ const localRunOf = (job: CronJob): { date: string; time: string } => {
   return { date: serverLabel?.date ?? '', time: serverLabel?.time ?? '' };
 };
 
-export function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRemoved, onRefresh }: {
+export function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRemoved, onRefresh, onRunQueued }: {
   job: CronJob;
   /** The signed-in account, so "mine" narrows the owner switch to a real id. */
   myId: number | null;
@@ -46,6 +46,9 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
   onClose: () => void;
   onRemoved: (id: string) => void;
   onRefresh: () => void;
+  /** The server ACCEPTED a durable manual run (202, including an idempotent replay of one already
+   *  queued). The page watches the queue closely until the tick claims it; nothing else does. */
+  onRunQueued?: () => void;
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('cronjob');
@@ -125,9 +128,10 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
         body: JSON.stringify({ requestId: crypto.randomUUID(), expectedRevision: job.revision ?? 0 }),
       });
       toast(s.runQueued, 'ok');
+      onRunQueued?.();
       onRefresh();
     } catch (error) {
-      if (apiErrorCode(error) === 'run_already_queued') toast(s.runQueued, 'ok');
+      if (apiErrorCode(error) === 'run_already_queued') { toast(s.runQueued, 'ok'); onRunQueued?.(); }
       else toast(`${s.runError} — ${utils.apiErrorMessage(error)}`, 'error');
     } finally {
       setRunPending(false);

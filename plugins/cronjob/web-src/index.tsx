@@ -15,7 +15,7 @@ import { CalendarPage } from './CalendarPage';
 import { registerCronUi } from './runtime';
 
 function CronJobApp({ surface }: { surface: 'page' | 'deck' }) {
-  if (surface === 'page') return <CalendarPage surface="page" />;
+  if (surface === 'page') return <CalendarPage />;
   return <DeckAgenda />;
 }
 
@@ -43,6 +43,9 @@ function DeckAgenda() {
   });
   const jobs = summary.data?.jobs ?? [];
   const agendaOccurrences = (summary.data?.days ?? []).flatMap((d) => d.samples);
+  // A one-shot deletes itself when it fires, so the row behind an open drawer can vanish between the
+  // click and the next refetch. The drawer is mounted on the FOUND record or not at all.
+  const openJob = openJobId !== null ? jobs.find((job) => job.id === openJobId) : undefined;
 
   return (
     <>
@@ -76,9 +79,9 @@ function DeckAgenda() {
           onCreated={() => setOpening(null)}
         />
       ) : null}
-      {openJobId !== null && summary.data ? (
+      {openJob ? (
         <JobDrawer
-          job={jobs.find((job) => job.id === openJobId)!}
+          job={openJob}
           myId={myId}
           adminFields={isAdmin}
           destinations={destinations.data ?? []}

@@ -2290,13 +2290,19 @@ export function PluginSection({ surface, title, description, icon, action, actio
   );
 }
 
-/** The canonical month/date grid (API 17): react-day-picker's rendered DOM stands in because the
- *  plugin bundles use ITS semantics — a `grid` role, weekdays as `gridcell`s with names, and day
- *  buttons selected state. Rendering is data-driven rather than an exact port: the plugin suites
- *  assert on behavior (selection, role names), not on the library's own class names. */
+/** The canonical month/date grid (API 17): react-day-picker v9's rendered DOM stands in because the
+ *  plugin bundles use ITS semantics — a `grid` role, a `gridcell` per date, and one day BUTTON per
+ *  cell whose props the library computes.
+ *
+ *  The fidelity that matters here is the custom-component seam. v9 has NO `DayContent`: a caller
+ *  replaces `components.DayButton`, and the library hands that component `day`, `modifiers` and the
+ *  complete button prop set (type, className, tabIndex, the accessible name, the click/focus/keyboard
+ *  handlers) plus the formatted day number as children. A stand-in that passed anything less would let
+ *  a plugin ship an override that drops them and still look green here. Rendering is data-driven
+ *  rather than an exact port: the plugin suites assert behavior, not the library's class names. */
 export function Calendar({ selected, onSelect, month, onMonthChange, components, showOutsideDays: _outside, className, 'aria-label': ariaLabel }: {
   selected?: Date; onSelect?: (day: Date) => void; month?: Date; onMonthChange?: (month: Date) => void;
-  components?: Record<string, (p: { date: Date; displayMonth: Date }) => React.ReactNode>;
+  components?: { DayButton?: React.ComponentType<CalendarDayButtonProps> };
   showOutsideDays?: boolean;
   className?: string; 'aria-label'?: string;
 }) {
@@ -2305,17 +2311,17 @@ export function Calendar({ selected, onSelect, month, onMonthChange, components,
   const last = new Date(view.getFullYear(), view.getMonth() + 1, 0);
   const cells: Date[] = [];
   for (let day = 1; day <= last.getDate(); day += 1) cells.push(new Date(view.getFullYear(), view.getMonth(), day));
-  const monthTitle = view.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const step = (delta: number) => {
     if (!onMonthChange) return;
-    const next = new Date(view.getFullYear(), view.getMonth() + delta, 1);
-    onMonthChange(next);
+    onMonthChange(new Date(view.getFullYear(), view.getMonth() + delta, 1));
   };
   const isSame = (a: Date | undefined, b: Date) => a !== undefined && a.toDateString() === b.toDateString();
+  const DayButton = components?.DayButton ?? DefaultDayButton;
   return (
     <div
       className={className}
       aria-label={ariaLabel}
+      data-slot="calendar"
       data-testid="calendar-grid"
       data-month={monthLabel(view)}
     >
@@ -2331,19 +2337,21 @@ export function Calendar({ selected, onSelect, month, onMonthChange, components,
         </div>
         {chunkSeven(cells).map((week) => (
           <div role="row" key={week[0].toISOString()}>
-            {week.map((day) => {
-              const rendered = components?.DayContent?.({ date: day, displayMonth: view }) ?? null;
+            {week.map((date) => {
+              const modifiers = { selected: isSame(selected, date), today: isSame(new Date(), date), focused: false, outside: false, disabled: false, hidden: false };
               return (
-                <div role="gridcell" key={day.toISOString()}>
-                  <button
+                <div role="gridcell" key={date.toISOString()} data-day={dayIso(date)}>
+                  <DayButton
                     type="button"
-                    aria-selected={isSame(selected, day) || undefined}
-                    aria-pressed={isSame(selected, day) || undefined}
-                    onClick={() => onSelect?.(day)}
+                    day={{ date, displayMonth: view, outside: false, isoDate: dayIso(date) }}
+                    modifiers={modifiers}
+                    tabIndex={isSame(selected, date) ? 0 : -1}
+                    aria-selected={modifiers.selected || undefined}
+                    aria-label={longDate(date)}
+                    onClick={() => onSelect?.(date)}
                   >
-                    {day.getDate()}
-                    {rendered}
-                  </button>
+                    {date.getDate()}
+                  </DayButton>
                 </div>
               );
             })}
@@ -2354,9 +2362,28 @@ export function Calendar({ selected, onSelect, month, onMonthChange, components,
   );
 }
 
+/** The library's own default: it forwards every button prop and takes DOM focus when the grid marks
+ *  the day focused. A custom DayButton that drops either breaks keyboard navigation. */
+function DefaultDayButton({ day: _day, modifiers, ...buttonProps }: CalendarDayButtonProps) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (modifiers.focused) ref.current?.focus(); }, [modifiers.focused]);
+  void _day;
+  return <button ref={ref} {...buttonProps} />;
+}
+
+interface CalendarDayModifiers {
+  focused?: boolean; selected?: boolean; today?: boolean; outside?: boolean; disabled?: boolean; hidden?: boolean;
+  [modifier: string]: boolean | undefined;
+}
+export type CalendarDayButtonProps = {
+  day: { date: Date; displayMonth: Date; outside?: boolean; isoDate?: string };
+  modifiers: CalendarDayModifiers;
+} & ButtonHTMLAttributes<HTMLButtonElement>;
+
 const monthLabel = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-const monthTitleUnused = undefined;
-void monthTitleUnused;
+const dayIso = (date: Date): string => `${monthLabel(date)}-${String(date.getDate()).padStart(2, '0')}`;
+const longDate = (date: Date): string =>
+  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 const chunkSeven = (list: Date[]): Date[][] => {
   const pages: Date[][] = [];
   for (let i = 0; i < list.length; i += 7) pages.push(list.slice(i, i + 7));
