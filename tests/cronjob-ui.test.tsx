@@ -6,6 +6,9 @@
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import { describe, it, expect, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import manifest from '../plugins/cronjob/elowen-plugin.json' with { type: 'json' };
 import {
   parseActiveHours, parseBuilderSchedule, renderActiveHours, renderBuilderSchedule,
@@ -82,10 +85,19 @@ describe('the calendar wire helpers', () => {
     expect(apiErrorCurrent({ current: { id: 'j1' } })?.id).toBe('j1');
   });
 
-  it('narrowed to the runtime the host installs: Calendar present, table manager gone from the sources', () => {
+  it('narrowed to the runtime the host installs: Calendar present, browser cron validation not used', () => {
     const components = runtime().components;
     expect(typeof components.Calendar).toBe('function');
-    expect(runtime().utils).not.toHaveProperty('isValidSchedule');
+    // Validity is the server's (schedule-preview); the compat helper stays for released bundles only.
+    const sources = [
+      resolve(dirname(fileURLToPath(import.meta.url)), '../plugins/cronjob/web-src/CalendarPage.tsx'),
+      resolve(dirname(fileURLToPath(import.meta.url)), '../plugins/cronjob/web-src/fields.tsx'),
+      resolve(dirname(fileURLToPath(import.meta.url)), '../plugins/cronjob/web-src/JobDrawer.tsx'),
+      resolve(dirname(fileURLToPath(import.meta.url)), '../plugins/cronjob/web-src/CreateJobDialog.tsx'),
+    ];
+    for (const source of sources) {
+      expect(readFileSync(source, 'utf-8').includes('isValidSchedule'), basename(source)).toBe(false);
+    }
   });
 
   it('formats the browser-local label a day grid cell needs, nothing more', () => {

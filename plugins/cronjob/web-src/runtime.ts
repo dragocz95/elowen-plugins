@@ -5,7 +5,7 @@
  *  is a local structural CONTRACT, not a source import — the bundle must not compile against `web/`
  *  (it builds standalone via elowen-plugin-ui-kit).
  */
-import type { ComponentType, CSSProperties, ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
@@ -278,7 +278,7 @@ interface CronHooks {
   /** The host's own React Query hooks, against the HOST's one QueryClient — importing the library here
    *  would open a second cache. Used for this plugin's own routes, which have no dedicated host hook. */
   useQuery<T>(options: Record<string, unknown>): QueryResult<T>;
-  useMutation<TData, TVars>(options: Record<string, unknown>): MutationResult<TVars>;
+  useMutation<TVars>(options: Record<string, unknown>): MutationResult<TVars>;
   useQueryClient(): { invalidateQueries(options: Record<string, unknown>): Promise<void> };
   useMobile(): boolean;
 }

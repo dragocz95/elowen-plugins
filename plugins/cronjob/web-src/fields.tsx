@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Hash, MessageSquare, MessagesSquare, X } from 'lucide-react';
 import {
-  runtime, type BrainModelOption, type CronConversation, type CronConversationOption,
+  runtime, type CronConversation, type CronConversationOption,
   type CronConversationsResponse, type CronSchedulePreview, type NotificationDestinationOption, type ManageSelectionItem,
 } from './runtime';
 import {

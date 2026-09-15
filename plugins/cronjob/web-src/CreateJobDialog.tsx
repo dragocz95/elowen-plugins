@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { ActiveHoursField, ConversationField, ScheduleField } from './fields';
-import { runtime, apiErrorCode, type CronJob, type CronJobCreateBody, type NotificationDestinationOption, type BrainModelOption } from './runtime';
+import { runtime, apiErrorCode, type CronJob, type CronJobCreateBody, type BrainModelOption } from './runtime';
 
 /** ONE explicit creation request — never an autosaved incomplete row. Both lifecycles: a one-shot
  *  (local date + time, resolved by the server) and a recurring job (schedule + required filing). The
@@ -16,7 +16,7 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('cronjob');
   const { toast } = hooks.useToast();
-  const destinations = hooks.useNotificationDestinations();
+
   const models = hooks.useBrainModels();
   /** Generated once per submit attempt. An HTTP retry of the same submit must replay the job the
    *  server already stored, never create a second — even a one-shot that already deleted itself. */
@@ -29,13 +29,13 @@ export function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }
   const [hours, setHours] = useState<string | undefined>(undefined);
   const [enabled, setEnabled] = useState(true);
   const [scope, setScope] = useState<'instance' | 'mine'>(isAdmin ? 'instance' : 'mine');
-  const [projectRef, setProjectRef] = useState<CronJob['projectRef']>(undefined);
+  const [projectRef] = useState<CronJob['projectRef']>(undefined);
   const [model, setModel] = useState<CronJob['model']>(undefined);
-  const [notifyChannelId, setNotifyChannelId] = useState<string | undefined>(undefined);
+  const [notifyChannelId] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
-  const [check, setCheck] = useState<string | undefined>(undefined);
+  const check = undefined;
   const [plain, setPlain] = useState<boolean | undefined>(undefined);
-  const [useProjectPicker, setUseProjectPicker] = useState(false);
+
 
   const oneShot = lifecycle === 'oneShot';
   const filedReady = !oneShot && conversationSessionId.trim() !== '';

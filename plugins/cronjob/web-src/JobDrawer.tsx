@@ -70,12 +70,7 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
   const everSaved = useRef(true);
 
   const ownerOf = (j: CronJob): number | null => (adminFields ? j.ownerUserId ?? null : myId);
-  const ownerConflict = (j: CronJob): boolean => {
-    const filed = job.conversation;
-    if (!filed || j.conversationSessionId !== job.conversationSessionId) return false;
-    const owner = ownerOf(j);
-    return owner !== null && filed.ownerUserId !== owner;
-  };
+
   const isSavable = (j: CronJob): boolean => j.name.trim() !== '' && j.prompt.trim() !== '';
 
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {

@@ -2,11 +2,11 @@
  *  agenda, and every recurrence, local-time, DST, active-hours and catch-up answer comes from the
  *  server engine the scheduler ticks with — never from a browser copy of the grammar. */
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AgendaView } from './AgendaView';
 import { CreateJobDialog } from './CreateJobDialog';
 import { JobDrawer } from './JobDrawer';
-import { runtime, localDateLabel, type CronCalendarResponse, type CronJob } from './runtime';
+import { runtime, localDateLabel, type CronCalendarResponse } from './runtime';
 
 export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
   const deck = surface === 'deck';
@@ -33,6 +33,8 @@ export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
   const [missingLink, setMissingLink] = useState<string | null>(null);
   // A run-now still queued: 2s refetches for at most two minutes, then the 30s scheduler cadence.
   const [runUntil, setRunUntil] = useState<number | null>(null);
+  // Mobile keeps one date pane: agenda first, the month picker inside a single host Modal.
+  const [openingDatePane, setOpeningDatePane] = useState<'month' | null>(null);
 
   const queryClient = hooks.useQueryClient();
   const invalidate = () => { void queryClient.invalidateQueries({ queryKey: ['cron-calendar'] }); };
@@ -147,6 +149,61 @@ export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
     );
   };
 
+  // One toolbar: month stepping and Today for the grid, the two creation actions, search
+  // and scope select. On coarse pointer or narrow width the surface falls back to agenda.
+  const todayToolbar = (
+    <div className="flex min-w-0 flex-wrap items-center gap-2 pb-2">
+      <C.Button variant="ghost" icon={ChevronLeft} aria-label={s.calPrevMonth} minHdg={44} onClick={() => stepMonth(-1)} />
+      <span className="text-sm font-medium text-foreground tabular-nums">{monthState.year}-{String(monthState.month).padStart(2, '0')}</span>
+      <C.Button variant="ghost" icon={ChevronRight} aria-label={s.calNextMonth} minHdg={44} onClick={() => stepMonth(1)} />
+      <C.Button variant="outline" onClick={goToday}>{s.calToday}</C.Button>
+      <C.Modal
+        open={openingDatePane === 'month'}
+        title={s.calMonthLabel}
+        onClose={() => setOpeningDatePane(null)}
+        closeLabel={t.common.close}
+      >
+        <C.ModalBody>
+          {openingDatePane === 'month' ? (
+            <C.Calendar
+              aria-label={s.calMonthLabel}
+              mode="single"
+              month={parseDate(monthStart)}
+              onMonthChange={(next: Date) => setMonthState(monthKey(localDateLabel(next)))}
+              selected={selected ? parseDate(selected) : undefined}
+              onSelect={(day: Date | undefined) => { setOpeningDatePane(null); if (day) { setSelected(localDateLabel(day)); setView('agenda'); } }}
+            />
+          ) : null}
+        </C.ModalBody>
+      </C.Modal>
+      {mobile ? (
+        <C.Button variant="outline" onClick={() => setOpeningDatePane('month')}>{s.calDatePicker}</C.Button>
+      ) : null}
+      <C.Segmented
+        value={view}
+        onChange={(next: string) => { setView(next as 'month' | 'agenda'); if (next === 'agenda') setSelected(null); }}
+        options={[
+          { value: 'month', label: s.calMonthLabel },
+          { value: 'agenda', label: s.calAgendaHeading },
+        ]}
+        aria-label={s.calViewTitle}
+      />
+      <C.Input value={query} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)} placeholder={s.searchPlaceholder} aria-label={s.searchPlaceholder} className="min-w-40 max-w-64" />
+      {isAdmin ? (
+        <C.Segmented
+          value={scope}
+          onChange={(next: string) => setScope(next as 'all' | 'mine' | 'instance')}
+          options={[
+            { value: 'all', label: s.filterAll },
+            { value: 'mine', label: s.filterMine },
+            { value: 'instance', label: s.filterInstance },
+          ]}
+          aria-label={s.ownerColumn}
+        />
+      ) : null}
+    </div>
+  );
+
   const oneShotButton = (
     <C.Button variant="accent" onClick={() => setOpening('oneShot')} disabled={opening !== null}>
       {s.createOneShot}
@@ -177,6 +234,7 @@ export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
     />
   ) : (
     <div className="flex min-w-0 flex-col gap-3" aria-busy={summary.isLoading} data-testid="cron-calendar-body">
+      {todayToolbar}
       {missingLink ? (
         <div role="status" className="flex flex-col gap-0.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
           <span className="font-medium text-destructive">{s.linkUnavailable}</span>
@@ -189,7 +247,10 @@ export function CalendarPage({ surface }: { surface: 'page' | 'deck' }) {
           <span className="block text-muted-foreground">{s.calTruncatedHint}</span>
         </div>
       ) : null}
-      {selected !== null ? (
+      {openingDatePane !== null ? (
+        <CreateJobDialog lifecycle="oneShot" myId={myId} isAdmin={isAdmin} onClose={() => setOpeningDatePane(null)} onCreated={(created) => { setOpeningDatePane(null); invalidate(); selectJob(created.id); }} />
+      ) : null}
+      {selected !== null && !mobile ? (
         <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_22rem] xl:gap-5">
           <div className="min-w-0" data-testid="cron-month-grid">
             <C.Calendar
