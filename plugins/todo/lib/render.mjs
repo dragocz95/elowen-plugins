@@ -135,7 +135,7 @@ function stepLabel(task) {
  *  turn it described — so a 60-call turn works against a snapshot taken before its first tool call. This is
  *  the short form re-read at a cadence INSIDE the turn, and it is deliberately NOT a second copy of the
  *  list: the full `<task_context>` is already in the history, and everything sent here is re-sent frozen on
- *  every later request of the turn.
+ *  every later request until the conversation is compacted.
  *
  *  Two lines at most, carrying only what a stale snapshot cannot know: which task the list still claims is
  *  running and for how long — that elapsed figure is the sense of time a long turn has never had — the
@@ -143,12 +143,12 @@ function stepLabel(task) {
  *  once-per-turn reminder it distinguishes the two anomalies that mean the list has stopped matching the
  *  work: nothing marked in_progress, and several.
  *
- *  `info` is the seam's payload (`{ toolCalls }`), accepted so a future branch can use it; it is not
- *  printed, because core already attributes the block with `<step_context tool_calls="N">` and repeating
- *  that number spends frozen bytes. Returns `''` when there is nothing worth saying — no list, or a list
- *  whose every task is completed — and an empty answer is what makes the seam contribute no block at all,
- *  which is how a delegated child with no task list stays silent. */
-export function renderStepReminder(tasks, info, now = Date.now()) {
+ *  The seam's `{ toolCalls }` payload is deliberately not taken: core already attributes the block with
+ *  `<step_context tool_calls="N">`, so repeating the number would only spend frozen bytes. Returns `''`
+ *  when there is nothing worth saying — no list, or a list whose every task is completed — and an empty
+ *  answer is what makes the seam contribute no block at all, which is how a delegated child with no task
+ *  list stays silent. */
+export function renderStepReminder(tasks, now = Date.now()) {
   const unownedRunning = tasks.filter((task) => task.status === 'in_progress' && !task.owner);
   const running = tasks.filter((task) => task.status === 'in_progress');
   const unfinished = tasks.filter((task) => task.status !== 'completed');
@@ -162,12 +162,12 @@ export function renderStepReminder(tasks, info, now = Date.now()) {
     const blocked = unfinished.filter((task) => unresolvedBlockers(task, tasks).length > 0).length;
     lines.push(`Unfinished tasks exist but none is in_progress (${counts}${blocked ? `, ${blocked} blocked` : ''}). Mark the work you are doing in_progress or update stale task state.`);
   } else {
+    // This branch only runs with something in `running`, so the fallback always lands on a task. Only the
+    // elapsed figure is conditional: a task marked in_progress by hand carries no startedAt.
     const longest = running
       .filter((task) => task.startedAt != null)
       .sort((a, b) => a.startedAt - b.startedAt)[0] ?? running[0];
-    const elapsed = longest && longest.startedAt != null
-      ? ` for ${formatCoarseElapsed(now - longest.startedAt)}`
-      : '';
+    const elapsed = longest.startedAt != null ? ` for ${formatCoarseElapsed(now - longest.startedAt)}` : '';
     lines.push(`#${longest.id} ${stepLabel(longest)} is in_progress${elapsed}; ${counts}.`);
     lines.push('Reconcile the list with the work you have actually done before continuing.');
   }

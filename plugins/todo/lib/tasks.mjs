@@ -796,7 +796,7 @@ export function registerTaskMode(ctx, db) {
   // throw inside `register()`, and the loader swallows that as "plugin skipped" — the whole task list would
   // disappear over one missing reminder. This is a real caller, not a hypothetical.
   if (typeof ctx.registerStepContext === 'function') {
-    ctx.registerStepContext((info) => {
+    ctx.registerStepContext(() => {
       try {
         // Resolved synchronously, before anything can await: this provider runs inside PI's `context`
         // hook, where the turn's AsyncLocalStorage scope is live on entry and unreliable after a
@@ -806,7 +806,7 @@ export function registerTaskMode(ctx, db) {
         // one) and no `syncCard`: the panel belongs to mutations, `ctx.emitCard` is turn-bound, and this
         // sits on the request path of a turn that is working.
         if (!key) return '';
-        return renderStepReminder(store.list(key), info);
+        return renderStepReminder(store.list(key));
       } catch (error) {
         safeError(ctx, error);
         return '';

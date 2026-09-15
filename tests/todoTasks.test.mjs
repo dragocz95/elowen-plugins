@@ -61,7 +61,7 @@ function harness(t, options = {}) {
     turnContext: () => turnContext?.() ?? '',
     turnContextOptions: () => turnContextOptions,
     stepContext: () => stepContext,
-    stepReminder: (info = { toolCalls: 20 }) => stepContext?.(info) ?? '',
+    stepReminder: () => stepContext?.() ?? '',
     setSession: (value) => { sessionId = value; },
     tool: (name) => {
       const found = tools.find((tool) => tool.name === name);
@@ -376,7 +376,7 @@ test('step reminder names the running task, its elapsed time and the counts, in 
   await update.execute('3', { taskId: '3', status: 'completed' });
 
   now += 25 * 60_000;
-  const reminder = h.stepReminder({ toolCalls: 43 });
+  const reminder = h.stepReminder();
   const lines = reminder.split('\n');
   // Two lines, and the elapsed figure is the whole reason this seam exists: a turn whose prompt was
   // composed an hour ago never learned that its own in_progress marker is now 25 minutes old.
@@ -384,15 +384,15 @@ test('step reminder names the running task, its elapsed time and the counts, in 
   assert.match(lines[0], /^#1 Writing the seam is in_progress for 25m; 2 unfinished, 1 completed\./);
   assert.match(lines[1], /^Reconcile the list with the work you have actually done before continuing\.$/);
   // A reminder, never a second copy of the list: every byte of it is re-sent, frozen, on each later
-  // request of the turn, so the list itself stays where it already arrived — in `<task_context>`.
+  // request until a compaction, so the list itself stays where it already arrived — in `<task_context>`.
   assert.doesNotMatch(reminder, /<task_context>|<description>|<task_instructions>|the injection point/);
   assert.ok(reminder.length < 300, `reminder must stay short, was ${reminder.length} bytes`);
-  // Core states the position itself (`<step_context tool_calls="N">`), so the plugin does not repeat it.
-  assert.doesNotMatch(reminder, /43/);
+  // Well inside core's own clamp, which would otherwise cut the second line off.
+  assert.ok(Buffer.byteLength(reminder) < 1024);
 
   // Coarse, and frozen with the render: an already-sent reminder is never re-rendered.
   now += 6 * 60_000;
-  assert.match(h.stepReminder({ toolCalls: 60 }), /in_progress for 30m/);
+  assert.match(h.stepReminder(), /in_progress for 30m/);
 });
 
 test('step reminder distinguishes the same anomalies the per-turn reminder does', async (t) => {
@@ -494,11 +494,11 @@ const plainTask = (overrides = {}) => ({
 });
 
 test('renderStepReminder is a pure function over the list it is handed', () => {
-  assert.equal(renderStepReminder([], { toolCalls: 20 }, 1_000), '');
-  assert.equal(renderStepReminder([plainTask({ status: 'completed' })], { toolCalls: 20 }, 1_000), '');
+  assert.equal(renderStepReminder([], 1_000), '');
+  assert.equal(renderStepReminder([plainTask({ status: 'completed' })], 1_000), '');
 
   // An in_progress task with no startedAt still reports itself instead of printing "for undefined".
-  const unstarted = renderStepReminder([plainTask({ status: 'in_progress' })], { toolCalls: 20 }, 1_000);
+  const unstarted = renderStepReminder([plainTask({ status: 'in_progress' })], 1_000);
   assert.match(unstarted, /^#1 Ship it is in_progress; 1 unfinished, 0 completed\./);
   assert.doesNotMatch(unstarted, /undefined|NaN|private detail/);
 
@@ -506,7 +506,6 @@ test('renderStepReminder is a pure function over the list it is handed', () => {
   // later request of the turn, so the label is bounded.
   const long = renderStepReminder(
     [plainTask({ status: 'in_progress', startedAt: 0, subject: 'x'.repeat(200) })],
-    { toolCalls: 20 },
     25 * 60_000,
   );
   assert.ok(long.split('\n')[0].length < 130, `truncated line expected, got ${long.split('\n')[0].length}`);
@@ -518,7 +517,7 @@ test('renderStepReminder is a pure function over the list it is handed', () => {
   const owned = renderStepReminder([
     plainTask({ id: '1', status: 'in_progress', owner: 'Luna', startedAt: 0 }),
     plainTask({ id: '2', status: 'in_progress', owner: 'Iris', startedAt: 0 }),
-  ], { toolCalls: 20 }, 25 * 60_000);
+  ], 25 * 60_000);
   assert.doesNotMatch(owned, /Several tasks are in_progress/);
   assert.match(owned, /^#1 Ship it is in_progress for 25m; 2 unfinished, 0 completed\./m);
 });
