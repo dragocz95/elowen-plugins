@@ -28,12 +28,12 @@
     },
     {
       "name": "cronjob",
-      "version": "0.4.7",
+      "version": "0.5.0",
       "description": "Scheduler: recurring prompts, one-shot wake-ups and shell collectors that wake the agent on a schedule, with a jobs screen in Settings.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "1",
-      "requiresCore": "0.28.35",
+      "requiresCore": "0.28.43",
       "provides": {
         "tools": 5,
         "apiRoutes": 2,
