@@ -1948,6 +1948,9 @@ export function register(ctx) {
           intervalLabel: intervalLabel(job.schedule),
           enabled: job.enabled !== false,
           nextExpectedAt: next?.expectedAt ?? null,
+          // The DAY of the next fire travels with its time. Active hours can defer an interval job past
+          // midnight, and a bare "05:00" then reads as if it were still due today.
+          nextLocalDate: next?.localDate ?? null,
           nextLocalTime: next?.localTime ?? null,
           remainingToday: summary.remaining,
           lastOutcome: receipt?.outcome ?? null,

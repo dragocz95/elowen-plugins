@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
-import { runtime, type CronDayCard, type CronIntervalRow, type CronJob, type CronRunRow, type CronWeekDay } from './runtime';
+import { ArrowRight, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { runtime, type CronIntervalRow, type CronJob, type CronRunRow, type CronWeekDay } from './runtime';
 
 const parseDate = (label: string): Date => {
   const [year, month, day] = label.split('-').map(Number);
@@ -17,7 +17,7 @@ const status = (outcome: CronRunRow['outcome'], s: Record<string, string>): stri
 const tone = (outcome: CronRunRow['outcome']): string =>
   outcome === 'ok' ? 'success' : outcome === 'error' ? 'danger' : outcome === 'running' ? 'accent' : 'muted';
 
-type WaitingRow = { key: string; job: CronJob; time: string; source: CronDayCard | CronIntervalRow };
+type WaitingRow = { key: string; job: CronJob; time: string };
 
 export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, hasMore, onLoadMore, selectedJobId, onSelectJob, onOpenRun, onOpenJob, onPreviousDay, onNextDay, mobile = false }: {
   day: CronWeekDay;
@@ -41,15 +41,14 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
   const { locale } = hooks.useTranslation();
   const waiting: WaitingRow[] = day.cards
     .filter((card) => card.state === 'waiting' || card.state === 'paused')
-    .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime, source: card }))
+    .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime }))
     .filter((row) => row.job)
     .sort((a, b) => a.time.localeCompare(b.time));
   /** An interval job is not an occurrence OF this day: one of them fires hundreds of times, on every day of
    *  the week alike. It is listed once, as a compact footer, so the day's own timeline stays a timeline —
    *  it used to be a full register table under the calendar, repeating what this panel already said. The
-   *  next fire is only meaningful for today, so the time is shown only there. */
+   *  next fire has its own calendar day, so the time is shown only when that day IS this one. */
   const ongoing = intervals.filter((row) => jobs.has(row.jobId));
-  const isToday = day.localDate === todayLocalDate;
   const selectedJob = selectedJobId ? jobs.get(selectedJobId) : undefined;
   const plannedCount = day.dayTotal + intervals.filter((row) => row.enabled).length;
   const countCopy = plannedCount === 1
@@ -72,7 +71,9 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
         </div>
       </header>
       <div className="border-t border-border/60 pt-3">
-        {loading && runs.length === 0 ? <C.LoadingState variant="list" /> : runs.length === 0 && waiting.length === 0 ? (
+        {/* "Nothing is scheduled" has to account for the strip below as well, or the panel contradicts
+            itself on a day whose only work is an interval job. */}
+        {loading && runs.length === 0 ? <C.LoadingState variant="list" /> : runs.length === 0 && waiting.length === 0 && ongoing.length === 0 ? (
           <C.EmptyState
             title={s.dayNothing || 'Nothing ran or is scheduled for this day'}
             description={day.localDate < todayLocalDate ? (s.dayBeforeHistory || 'Run history is recorded from this upgrade onward.') : undefined}
@@ -118,17 +119,23 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
           <div className="flex flex-wrap gap-1.5">
             {ongoing.map((row) => {
               const job = jobs.get(row.jobId)!;
+              const nextHere = row.nextLocalTime && row.nextLocalDate === day.localDate ? row.nextLocalTime : null;
+              const state = row.enabled ? '' : ` · ${s.paused}`;
               return (
                 <button
                   key={row.jobId}
                   type="button"
                   onClick={() => { onSelectJob(row.jobId); onOpenJob(row.jobId); }}
                   className={`flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? 'text-foreground' : 'text-muted-foreground opacity-70'}`}
-                  aria-label={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}
+                  aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${row.intervalLabel}${nextHere ? ` · ${s.nextRun || 'Next run'} ${nextHere}` : ''}${state}`}
                 >
                   <span className="truncate">{job.name}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{row.intervalLabel}</span>
-                  {isToday && row.nextLocalTime ? <span className="font-mono text-[11px] tabular-nums text-muted-foreground">→ {row.nextLocalTime}</span> : null}
+                  {nextHere ? (
+                    <span className="flex items-center gap-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      <ArrowRight size={11} aria-hidden />{nextHere}
+                    </span>
+                  ) : null}
                   {row.enabled ? null : <span className="text-[11px]">{s.paused}</span>}
                 </button>
               );

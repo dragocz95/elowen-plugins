@@ -272,8 +272,6 @@
       "colDuration": "Trvanie",
       "colState": "Stav",
       "colModel": "Model",
-      "colSchedule": "Interval",
-      "colNext": "Nasledujúce spustenie",
       "dayShowLess": "Zobraziť menej",
       "dayAddTask": "Naplánovať úlohu na {date}",
       "showResult": "Zobraziť výsledok",
@@ -291,7 +289,8 @@
       "presetWeeklyPrompt": "Zhrňte uplynulý týždeň: čo bolo dokončené, čo zostáva otvorené a čo je naplánované na ďalší týždeň.",
       "presetReminder": "Pripomienka",
       "presetReminderName": "pripomienka",
-      "presetReminderPrompt": "Pripomeňte mi nižšie uvedenú úlohu a uveďte, v akom je stave."
+      "presetReminderPrompt": "Pripomeňte mi nižšie uvedenú úlohu a uveďte, v akom je stave.",
+      "runLoadError": "Beh sa nepodarilo načítať"
     }
   }
 }

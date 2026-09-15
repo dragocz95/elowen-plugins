@@ -387,8 +387,6 @@
       "colDuration": "Duration",
       "colState": "Status",
       "colModel": "Model",
-      "colSchedule": "Interval",
-      "colNext": "Next run",
       "dayShowLess": "Show less",
       "dayAddTask": "Schedule a task on {date}",
       "showResult": "Show result",
@@ -406,7 +404,8 @@
       "presetWeeklyPrompt": "Summarise the past week: what was finished, what is still open and what is planned for the coming week.",
       "presetReminder": "Reminder",
       "presetReminderName": "reminder",
-      "presetReminderPrompt": "Remind me about the task below and tell me what its current state is."
+      "presetReminderPrompt": "Remind me about the task below and tell me what its current state is.",
+      "runLoadError": "The run could not be loaded"
     }
   }
 }

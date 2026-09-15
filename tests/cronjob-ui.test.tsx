@@ -62,7 +62,7 @@ const weekBody = (): CronWeekResponse => ({
   window: { startLocalDate: dates[0]!, endLocalDateExclusive: '2026-09-21' },
   jobs: [recurring, oneShot, poll],
   days: dates.map(day),
-  intervals: [{ jobId: poll.id, schedule: 'every 2m', intervalLabel: 'every 2m', enabled: true, nextExpectedAt: '2026-09-15T08:22:00.000Z', nextLocalTime: '10:22', remainingToday: 720, lastOutcome: null, lastRunAt: null }],
+  intervals: [{ jobId: poll.id, schedule: 'every 2m', intervalLabel: 'every 2m', enabled: true, nextExpectedAt: '2026-09-15T08:22:00.000Z', nextLocalDate: TODAY, nextLocalTime: '10:22', remainingToday: 720, lastOutcome: null, lastRunAt: null }],
   truncated: false,
 });
 
@@ -150,7 +150,10 @@ describe('automation week calendar', () => {
   it('uses the canonical workbench with a bounded seven-day grid and no month control', async () => {
     renderPage();
     const grid = await screen.findByTestId('cron-week-grid');
-    expect(within(grid).getAllByRole('columnheader')).toHaveLength(7);
+    // Seven labelled day regions, not a `role="grid"`: the columns hold a variable number of entries and
+    // none of them is a cell of a shared row.
+    expect(within(grid).getAllByRole('region')).toHaveLength(7);
+    expect(within(grid).queryAllByRole('grid')).toHaveLength(0);
     expect(screen.getByText(strings.tabCalendar)).toBeInTheDocument();
     expect(screen.getByText(strings.tabHistory)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: strings.calToday })).toBeInTheDocument();
@@ -172,18 +175,30 @@ describe('automation week calendar', () => {
     expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
     const strip = screen.getByTestId('cron-intervals-strip');
     expect(within(strip).getByText('every 2m')).toBeInTheDocument();
+    // Today: the next fire is this day's, so it IS shown. The companion test below proves it disappears
+    // on another day — without this half, dropping the time entirely would keep both tests green.
+    expect(within(strip).getByText('10:22')).toBeInTheDocument();
     expect(screen.getByTestId('cron-day-panel')).toContainElement(strip);
     expect(screen.getByTestId('cron-week-grid')).not.toContainElement(strip);
   });
 
-  it('keeps interval jobs listed on a day that is not today, without a next-fire time', async () => {
+  it('keeps interval jobs listed on a day whose next fire is elsewhere, without its time', async () => {
     renderPage();
     const grid = await screen.findByTestId('cron-week-grid');
-    const thursday = within(grid).getAllByRole('columnheader')[3]!;
-    fireEvent.click(within(thursday).getByRole('button'));
+    fireEvent.click(within(within(grid).getAllByRole('region')[3]!).getAllByRole('button')[0]!);
     const strip = await screen.findByTestId('cron-intervals-strip');
     expect(within(strip).getByText('Inbox poll')).toBeInTheDocument();
-    expect(within(strip).queryByText(/10:22/)).toBeNull();
+    expect(within(strip).queryByText('10:22')).toBeNull();
+  });
+
+  it('never says a day is empty while it lists a recurring job', async () => {
+    use(http.get('/api/plugins/cronjob/api/runs', () => HttpResponse.json({ runs: [], nextCursor: null, total: 0, limit: 50 })));
+    renderPage();
+    const grid = await screen.findByTestId('cron-week-grid');
+    fireEvent.click(within(within(grid).getAllByRole('region')[3]!).getAllByRole('button')[0]!);
+    const panel = await screen.findByTestId('cron-day-panel');
+    expect(await within(panel).findByTestId('cron-intervals-strip')).toBeInTheDocument();
+    expect(within(panel).queryByText(strings.dayNothing)).toBeNull();
   });
 
   it('opens the selected day panel with durable run receipts', async () => {
@@ -267,13 +282,16 @@ describe('automation week calendar', () => {
   it('caps a day column at three entries and folds the rest behind one expander', async () => {
     const many = (): CronWeekResponse => {
       const body = weekBody();
+      // One card per job per day, which is what the server can emit: reusing a job id across cards made
+      // React reuse one row's element for another's and printed duplicate-key warnings.
       const extras = ['08:00', '09:00', '10:00', '11:00', '12:00'].map((localTime, index) => ({
-        jobId: index % 2 === 0 ? recurring.id : oneShot.id,
+        jobId: `job-extra-${index}`,
         kind: 'daily' as const, localTime, remaining: 1, moreTimes: [],
         enabled: true, state: 'ok' as const, guarded: false, disposition: 'onTime' as const,
       }));
       return {
         ...body,
+        jobs: [...body.jobs, ...extras.map((card) => ({ ...recurring, id: card.jobId, name: `Extra ${card.localTime}` }))],
         days: body.days.map((entry) => entry.localDate === TODAY
           ? { ...entry, cards: extras, dayTotal: extras.length }
           : entry),
@@ -292,21 +310,47 @@ describe('automation week calendar', () => {
     expect(within(grid).queryByText('11:00')).toBeNull();
   });
 
-  it('opens the run receipt of the day the card belongs to from its own menu', async () => {
+  it('opens the receipt of the occurrence the menu belongs to, not the selected day or the newest run', async () => {
+    const OTHER = '2026-09-16';
+    // A card on a day that is NOT the selected one, for a job that fires twice that day. Both halves matter:
+    // with the selected day the request would carry TODAY, and with `limit: 1` the 20:00 receipt would win.
+    const twoFires = (): CronWeekResponse => {
+      const body = weekBody();
+      return {
+        ...body,
+        days: body.days.map((entry) => entry.localDate === TODAY
+          ? { ...entry, cards: [], dayTotal: 0 }
+          : entry.localDate === OTHER
+          ? {
+            ...entry,
+            cards: [{ jobId: recurring.id, kind: 'daily' as const, localTime: '07:30', remaining: 2, moreTimes: ['20:00'], enabled: true, state: 'ok' as const, guarded: false, disposition: 'onTime' as const }],
+            dayTotal: 1,
+          }
+          : entry),
+      };
+    };
+    const morning = { ...run, id: 'run-morning', localDate: OTHER, localTime: '07:30', preview: 'Morning receipt' };
+    const evening = { ...run, id: 'run-evening', localDate: OTHER, localTime: '20:00', preview: 'Evening receipt' };
     const asked: { date: string | null; jobId: string | null }[] = [];
-    use(http.get('/api/plugins/cronjob/api/runs', ({ url }) => {
-      if (url.searchParams.has('jobId')) {
-        asked.push({ date: url.searchParams.get('date'), jobId: url.searchParams.get('jobId') });
-        return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 1 });
-      }
-      return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 50 });
-    }));
+    use(
+      http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json(twoFires())),
+      http.get('/api/plugins/cronjob/api/runs', ({ url }) => {
+        if (url.searchParams.has('jobId')) {
+          asked.push({ date: url.searchParams.get('date'), jobId: url.searchParams.get('jobId') });
+          return HttpResponse.json({ runs: [evening, morning], nextCursor: null, total: 2, limit: 50 });
+        }
+        return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 50 });
+      }),
+      http.get('/api/plugins/cronjob/api/runs/:id', ({ params }) =>
+        HttpResponse.json(params.id === 'run-morning' ? morning : evening)),
+    );
     renderPage();
     const card = await screen.findByTestId('cron-card-job-daily');
     fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
     fireEvent.click(await screen.findByText(strings.showResult));
-    expect(await screen.findByText('Short retained preview')).toBeInTheDocument();
-    expect(asked).toEqual([{ date: TODAY, jobId: recurring.id }]);
+    expect(await screen.findByText('Morning receipt')).toBeInTheDocument();
+    expect(screen.queryByText('Evening receipt')).toBeNull();
+    expect(asked).toEqual([{ date: OTHER, jobId: recurring.id }]);
   });
 
   it('creates from the calendar: a free cell opens a one-shot already dated to that day', async () => {
