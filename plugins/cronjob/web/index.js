@@ -190,6 +190,15 @@ var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/file-text.js
+var FileText = createLucideIcon("FileText", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  ["path", { d: "M10 9H8", key: "b1mrlr" }],
+  ["path", { d: "M16 13H8", key: "t4e002" }],
+  ["path", { d: "M16 17H8", key: "z1uh3a" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/hash.js
 var Hash = createLucideIcon("Hash", [
   ["line", { x1: "4", x2: "20", y1: "9", y2: "9", key: "4lhtct" }],
@@ -289,11 +298,13 @@ function registerCronUi(registration) {
 
 // plugins/cronjob/web-src/DayCard.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-var stateTone = (state) => {
-  if (state === "ok") return "border-l-emerald-500";
-  if (state === "error") return "border-l-destructive";
-  if (state === "running") return "border-l-primary";
-  return "border-l-muted-foreground/50";
+var dotTone = (state) => {
+  if (state === "running") return "animate-pulse bg-primary";
+  if (state === "ok") return "bg-emerald-500";
+  if (state === "error") return "bg-destructive";
+  if (state === "skipped") return "bg-muted-foreground/40";
+  if (state === "paused") return "border border-muted-foreground/60 bg-transparent";
+  return "border border-muted-foreground/60 bg-transparent";
 };
 var stateLabel = (state, s) => ({
   waiting: s.runWaiting || "Waiting",
@@ -303,15 +314,51 @@ var stateLabel = (state, s) => ({
   skipped: s.runSkipped || "Skipped",
   paused: s.paused || "Paused"
 })[state];
-function DayCard({ card, job, compact = false, onOpen, onRun, onToggle }) {
+var hasReceipt = (state) => state === "ok" || state === "error" || state === "skipped" || state === "running";
+function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggle, onShowResult }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const owner = job.owner?.name || job.owner?.username || s.ownerSystem || "System";
   const hidden = Math.max(0, card.remaining - 1 - card.moreTimes.length);
+  const paused = card.state === "paused";
+  const items = [
+    ...onShowResult && hasReceipt(card.state) ? [{ id: "result", label: s.showResult || "Show result", icon: FileText, onSelect: () => onShowResult(job, localDate) }] : [],
+    { id: "run", label: s.runNow || "Run now", icon: Play, disabled: job.lifecycle === "oneShot", onSelect: () => onRun(job) },
+    { id: "toggle", label: job.enabled === false ? s.pauseLabelOn || "Enable" : s.pauseLabel || "Pause", icon: job.enabled === false ? Clock3 : Pause, onSelect: () => onToggle(job) },
+    { id: "edit", label: s.edit || "Edit", icon: Pencil, onSelect: () => onOpen(job.id) }
+  ];
+  if (compact) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "group/card relative min-w-0", "data-testid": `cron-card-${card.jobId}`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => onOpen(card.jobId),
+          className: `flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? "opacity-55" : ""} ${card.state === "error" ? "bg-destructive/[0.07]" : ""}`,
+          "aria-label": (s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name),
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-1.5 shrink-0 rounded-full ${dotTone(card.state)}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground", children: card.localTime }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-foreground", children: job.name }),
+            card.remaining > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground", children: [
+              "+",
+              card.remaining - 1
+            ] }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "sr-only", children: [
+              owner,
+              " \xB7 ",
+              stateLabel(card.state, s)
+            ] })
+          ]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
+    ] });
+  }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
     "div",
     {
-      className: `relative min-w-0 rounded-md border border-border bg-card shadow-[var(--shadow-card)] ${stateTone(card.state)} border-l-[3px]`,
+      className: `relative min-w-0 rounded-lg border border-border/80 bg-card ${paused ? "opacity-70" : ""}`,
       "data-testid": `cron-card-${card.jobId}`,
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
@@ -319,42 +366,33 @@ function DayCard({ card, job, compact = false, onOpen, onRun, onToggle }) {
           {
             type: "button",
             onClick: () => onOpen(card.jobId),
-            className: "flex min-h-[44px] w-full min-w-0 flex-col gap-1 px-3 py-2 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
+            className: "flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
             "aria-label": (s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name),
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 shrink-0 rounded-full ${card.state === "running" ? "animate-pulse bg-primary" : card.state === "ok" ? "bg-emerald-500" : card.state === "error" ? "bg-destructive" : "bg-muted-foreground/60"}` }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-xs font-medium tabular-nums text-foreground", children: card.localTime }),
-                card.remaining > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-[10px] text-muted-foreground", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex w-14 shrink-0 items-center gap-1.5", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 shrink-0 rounded-full ${dotTone(card.state)}` }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-xs font-medium tabular-nums text-foreground", children: card.localTime })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm font-medium text-foreground", children: job.name }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: owner })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground", children: [
+                card.remaining > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
                   "+",
                   card.remaining - 1
                 ] }) : null,
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: stateLabel(card.state, s) })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm font-medium text-foreground", children: job.name }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: owner, src: job.owner?.avatar || void 0, size: 20 }),
-                !compact ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: owner }) : null,
-                hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ml-auto", children: [
+                hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
                   "+",
                   hidden
-                ] }) : null
-              ] })
+                ] }) : null,
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: owner, src: job.owner?.avatar || void 0, size: 20 })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: stateLabel(card.state, s) })
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute right-1 top-1", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.ActionMenu,
-          {
-            variant: "kebab",
-            label: s.actions || "Actions",
-            items: [
-              { id: "run", label: s.runNow || "Run now", icon: Play, disabled: job.lifecycle === "oneShot", onSelect: () => onRun(job) },
-              { id: "toggle", label: job.enabled === false ? s.pauseLabelOn || "Enable" : s.pauseLabel || "Pause", icon: job.enabled === false ? Clock3 : Pause, onSelect: () => onToggle(job) },
-              { id: "edit", label: s.edit || "Edit", icon: Pencil, onSelect: () => onOpen(job.id) }
-            ]
-          }
-        ) })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute right-1 top-1/2 -translate-y-1/2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
       ]
     }
   );
@@ -669,16 +707,19 @@ function RunResultModal({ run: initial, job, onClose, onOpenJob, onRun }) {
 // plugins/cronjob/web-src/WeekGrid.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
-var MAX_CARDS_PER_DAY = 6;
+var MAX_CARDS_PER_DAY = 3;
 var parseDate2 = (label) => {
   const [year, month, day] = label.split("-").map(Number);
   return new Date(year, month - 1, day);
 };
+var weekdayLabel = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short" }).format(parseDate2(label));
+var dayNumber = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { day: "numeric" }).format(parseDate2(label));
 var shortDay = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short", day: "numeric", month: "numeric" }).format(parseDate2(label));
-function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, onRun, onToggle }) {
-  const { components: C, hooks } = runtime();
+function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOpenJob, onRun, onToggle, onShowResult, onAddAt }) {
+  const { hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { locale } = hooks.useTranslation();
+  const [expandedDate, setExpandedDate] = (0, import_react4.useState)(null);
   const selectOffset = (offset) => {
     const index = days.findIndex((day) => day.localDate === selectedDate);
     const next = days[Math.min(Math.max(index + offset, 0), days.length - 1)];
@@ -689,18 +730,20 @@ function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, onRun, on
     {
       role: "grid",
       "aria-label": s.tabCalendar || "Calendar",
-      className: "grid min-w-0 grid-cols-7 overflow-hidden rounded-lg border border-border/80 bg-document",
+      className: "grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-border/80 bg-document",
       "data-testid": "cron-week-grid",
       children: days.map((day) => {
         const selected = day.localDate === selectedDate;
-        const shown = day.cards.slice(0, MAX_CARDS_PER_DAY);
+        const today = day.localDate === todayLocalDate;
+        const expanded = expandedDate === day.localDate;
+        const shown = expanded ? day.cards : day.cards.slice(0, MAX_CARDS_PER_DAY);
+        const folded = day.dayTotal - shown.length;
         return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
           "div",
           {
-            className: `min-w-0 border-l border-border/60 first:border-l-0 ${selected ? "bg-primary/[0.035]" : ""}`,
-            onClick: () => onSelectDate(day.localDate),
+            className: `flex min-w-0 flex-col border-l border-border/50 first:border-l-0 ${selected ? "bg-primary/[0.03]" : ""}`,
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "columnheader", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { role: "columnheader", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
                 "button",
                 {
                   type: "button",
@@ -716,11 +759,20 @@ function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, onRun, on
                       selectOffset(1);
                     }
                   },
-                  className: `min-h-[44px] w-full border-t-2 px-2 py-2 text-center text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${selected ? "border-t-primary bg-primary/10 text-primary" : "border-t-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground"}`,
-                  children: shortDay(day.localDate, locale)
+                  className: "flex w-full flex-col items-center gap-0.5 px-2 py-2.5 transition-colors hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: `text-[10px] font-medium uppercase tracking-[0.08em] ${selected ? "text-foreground" : "text-muted-foreground"}`, children: weekdayLabel(day.localDate, locale) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                      "span",
+                      {
+                        className: `flex size-7 items-center justify-center rounded-full text-sm font-semibold tabular-nums transition-colors ${today ? "bg-primary text-primary-foreground" : selected ? "bg-accent text-accent-foreground" : "text-foreground"}`,
+                        children: dayNumber(day.localDate, locale)
+                      }
+                    )
+                  ]
                 }
               ) }),
-              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-h-[22rem] min-w-0 flex-col gap-1.5 border-t border-border/60 p-1.5", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-h-[13rem] min-w-0 flex-1 flex-col gap-0.5 border-t border-border/50 p-1", children: [
                 shown.map((card) => {
                   const job = jobs.get(card.jobId);
                   return job ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
@@ -728,24 +780,52 @@ function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, onRun, on
                     {
                       card,
                       job,
+                      localDate: day.localDate,
                       compact: true,
                       onOpen: onOpenJob,
                       onRun,
-                      onToggle
+                      onToggle,
+                      onShowResult
                     },
                     card.jobId
                   ) : null;
                 }),
-                day.dayTotal > MAX_CARDS_PER_DAY ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-                  C.Button,
+                folded > 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                  "button",
                   {
-                    variant: "ghost",
-                    size: "sm",
-                    className: "min-h-[44px] w-full pointer-coarse:min-h-[var(--touch-target)]",
-                    onClick: () => onSelectDate(day.localDate),
-                    children: (s.dayMoreCards || "+{n} more").replace("{n}", String(day.dayTotal - MAX_CARDS_PER_DAY))
+                    type: "button",
+                    className: "mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
+                    "data-testid": `cron-day-more-${day.localDate}`,
+                    onClick: () => {
+                      setExpandedDate(day.localDate);
+                      onSelectDate(day.localDate);
+                    },
+                    children: (s.dayMoreCards || "+{n} more").replace("{n}", String(folded))
                   }
-                ) : null
+                ) : null,
+                expanded && day.dayTotal > MAX_CARDS_PER_DAY ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: "mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
+                    onClick: () => setExpandedDate(null),
+                    children: s.dayShowLess || "Show less"
+                  }
+                ) : null,
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    "data-testid": `cron-day-add-${day.localDate}`,
+                    onClick: () => {
+                      onSelectDate(day.localDate);
+                      onAddAt(day.localDate);
+                    },
+                    "aria-label": (s.dayAddTask || "Schedule a task on {date}").replace("{date}", shortDay(day.localDate, locale)),
+                    className: "group/add flex min-h-8 flex-1 items-start justify-center rounded-md pt-1 text-muted-foreground/0 transition-colors hover:bg-accent/60 hover:text-muted-foreground focus-visible:text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-muted-foreground/60",
+                    children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Plus, { size: 14, "aria-hidden": true })
+                  }
+                )
               ] })
             ]
           },
@@ -755,7 +835,7 @@ function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, onRun, on
     }
   );
 }
-function MobileDayStrip({ days, selectedDate, onSelectDate }) {
+function MobileDayStrip({ days, selectedDate, todayLocalDate, onSelectDate }) {
   const { hooks } = runtime();
   const { locale } = hooks.useTranslation();
   const selectedRef = (0, import_react4.useRef)(null);
@@ -764,15 +844,28 @@ function MobileDayStrip({ days, selectedDate, onSelectDate }) {
   }, [selectedDate]);
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex snap-x gap-2 overflow-x-auto pb-2", "data-testid": "cron-day-strip", children: days.map((day) => {
     const selected = day.localDate === selectedDate;
-    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+    const today = day.localDate === todayLocalDate;
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
       "button",
       {
         ref: selected ? selectedRef : void 0,
         type: "button",
         "aria-current": selected ? "date" : void 0,
         onClick: () => onSelectDate(day.localDate),
-        className: `min-h-[44px] min-w-[4.5rem] snap-center rounded-md border px-2 py-2 text-xs font-medium pointer-coarse:min-h-[var(--touch-target)] ${selected ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground"}`,
-        children: shortDay(day.localDate, locale)
+        className: `flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? "border-primary/60 bg-primary/10" : "border-border/70 bg-card"}`,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "sr-only", children: shortDay(day.localDate, locale) }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { "aria-hidden": true, className: `text-[10px] font-medium uppercase tracking-[0.08em] ${selected ? "text-primary" : "text-muted-foreground"}`, children: weekdayLabel(day.localDate, locale) }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+            "span",
+            {
+              "aria-hidden": true,
+              className: `flex size-6 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${today ? "bg-primary text-primary-foreground" : selected ? "text-primary" : "text-foreground"}`,
+              children: dayNumber(day.localDate, locale)
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { "aria-hidden": true, className: `size-1 rounded-full ${day.dayTotal > 0 ? "bg-muted-foreground/60" : "bg-transparent"}` })
+        ]
       },
       day.localDate
     );
@@ -847,14 +940,21 @@ var weekUrl = (start, days = 7) => {
   const suffix = query.toString();
   return `/plugins/cronjob/api/week${suffix ? `?${suffix}` : ""}`;
 };
-function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onSelectedDate, onData, onWindowShift, onOpenJob, onRun, onToggle }) {
+function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onSelectedDate, onData, onWindowShift, onOpenJob, onRun, onToggle, onAddAt }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { t } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const me = hooks.useMe();
   const mobile = hooks.useMobile();
   const [selectedJobId, setSelectedJobId] = (0, import_react6.useState)(null);
   const [openRun, setOpenRun] = (0, import_react6.useState)(null);
+  const showResult = (0, import_react6.useCallback)(async (job, localDate) => {
+    const response = await runtime().api(runsUrl({ date: localDate, jobId: job.id, limit: 1 }));
+    const run = response.runs[0];
+    if (run) setOpenRun(run);
+    else toast(s.runNoneForDay || "No run was recorded for this job on that day.", "ok");
+  }, [s.runNoneForDay, toast]);
   const week = hooks.useQuery({
     queryKey: ["cron-week", start],
     queryFn: () => runtime().api(weekUrl(start)),
@@ -905,7 +1005,7 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
   };
   const showWeek = view === "week" && !mobile;
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex min-w-0 flex-col gap-6", "aria-busy": week.isLoading, "data-testid": "cron-calendar-tab", children: [
-    mobile ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(MobileDayStrip, { days: filtered.days, selectedDate: selectedDay.localDate, onSelectDate: onSelectedDate }) : null,
+    mobile ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(MobileDayStrip, { days: filtered.days, selectedDate: selectedDay.localDate, todayLocalDate: data.todayLocalDate, onSelectDate: onSelectedDate }) : null,
     showWeek ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex min-w-0 flex-col gap-6", children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
@@ -914,13 +1014,16 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
             days: filtered.days,
             jobs: filtered.jobs,
             selectedDate: selectedDay.localDate,
+            todayLocalDate: data.todayLocalDate,
             onSelectDate: (date) => {
               onSelectedDate(date);
               setSelectedJobId(null);
             },
             onOpenJob,
             onRun,
-            onToggle
+            onToggle,
+            onShowResult: (job, date) => void showResult(job, date),
+            onAddAt
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(IntervalsTable, { rows: filtered.intervals, jobs: filtered.jobs, onOpen: onOpenJob, onRun })
@@ -946,10 +1049,25 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
       ) })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "flex min-w-0 flex-col gap-3", "data-testid": "cron-day-cards", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { className: "text-lg font-semibold", children: s.viewDay || "Day" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex items-center justify-between gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { className: "text-lg font-semibold", children: s.viewDay || "Day" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.Button, { variant: "ghost", icon: Plus, onClick: () => onAddAt(selectedDay.localDate), "data-testid": "cron-day-add-selected", children: s.addJob || "Add job" })
+        ] }),
         selectedDay.cards.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.EmptyState, { title: s.dayNothing || "No fixed-time jobs", icon: CalendarDays }) : selectedDay.cards.map((card) => {
           const job = filtered.jobs.get(card.jobId);
-          return job ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(DayCard, { card, job, onOpen: onOpenJob, onRun, onToggle }, card.jobId) : null;
+          return job ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+            DayCard,
+            {
+              card,
+              job,
+              localDate: selectedDay.localDate,
+              onOpen: onOpenJob,
+              onRun,
+              onToggle,
+              onShowResult: (target, date) => void showResult(target, date)
+            },
+            card.jobId
+          ) : null;
         }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(IntervalsTable, { rows: filtered.intervals, jobs: filtered.jobs, onOpen: onOpenJob, onRun })
       ] }),
@@ -1357,7 +1475,7 @@ function ActiveHoursField({ value, onChange }) {
 
 // plugins/cronjob/web-src/CreateJobDialog.tsx
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
-function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }) {
+function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose, onCreated }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { toast } = hooks.useToast();
@@ -1366,7 +1484,7 @@ function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }) {
   const [name, setName] = (0, import_react8.useState)("");
   const [prompt, setPrompt] = (0, import_react8.useState)("");
   const [schedule, setSchedule] = (0, import_react8.useState)("every 1h");
-  const [localRun, setLocalRun] = (0, import_react8.useState)({ date: "", time: "" });
+  const [localRun, setLocalRun] = (0, import_react8.useState)({ date: initialDate ?? "", time: "" });
   const [conversationSessionId, setConversationSessionId] = (0, import_react8.useState)("");
   const [hours, setHours] = (0, import_react8.useState)(void 0);
   const [enabled, setEnabled] = (0, import_react8.useState)(true);
@@ -1378,6 +1496,19 @@ function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }) {
   const check = void 0;
   const [plain, setPlain] = (0, import_react8.useState)(void 0);
   const oneShot = lifecycle === "oneShot";
+  const presets = [
+    { id: "digest", label: s.presetDigest, name: s.presetDigestName, prompt: s.presetDigestPrompt, schedule: "daily 08:00" },
+    { id: "inbox", label: s.presetInbox, name: s.presetInboxName, prompt: s.presetInboxPrompt, schedule: "every 1h" },
+    { id: "weekly", label: s.presetWeekly, name: s.presetWeeklyName, prompt: s.presetWeeklyPrompt, schedule: "weekly mon 09:00" },
+    { id: "reminder", label: s.presetReminder, name: s.presetReminderName, prompt: s.presetReminderPrompt, schedule: "daily 18:00" }
+  ];
+  const applyPreset = (preset) => {
+    setName(preset.name);
+    setPrompt(preset.prompt);
+    if (!oneShot) setSchedule(preset.schedule);
+    else if (!localRun.time) setLocalRun((cur) => ({ ...cur, time: preset.schedule.slice(-5) }));
+  };
+  const QUICK_TIMES = ["07:00", "09:00", "12:00", "15:00", "18:00", "21:00"];
   const filedReady = !oneShot && conversationSessionId.trim() !== "";
   const ready = name.trim() !== "" && prompt.trim() !== "" && (oneShot ? localRun.date !== "" && localRun.time !== "" && /^([01]\d|2[0-3]):[0-5]\d$/.test(localRun.time) : filedReady) && schedule.trim() !== "";
   const submit = async () => {
@@ -1430,12 +1561,32 @@ function CreateJobDialog({ lifecycle, myId, isAdmin, onClose, onCreated }) {
         closeLabel: s.close,
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ModalBody, { children: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", "data-testid": "cron-create-form", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Field, { label: s.presetLabel, hint: s.presetHint, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "flex flex-wrap gap-2", "data-testid": "cron-create-presets", children: presets.map((preset) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+              "button",
+              {
+                type: "button",
+                onClick: () => applyPreset(preset),
+                className: `min-h-9 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:min-h-[var(--touch-target)] ${name === preset.name && prompt === preset.prompt ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"}`,
+                children: preset.label
+              },
+              preset.id
+            )) }) }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Field, { label: s.name, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Input, { value: name, onChange: (e) => setName(e.target.value), placeholder: oneShot ? "verify-deploy" : "morning-digest" }) }),
             oneShot ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Field, { label: s.date, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Input, { type: "date", value: localRun.date, onChange: (e) => setLocalRun((cur) => ({ ...cur, date: e.target.value })), "aria-label": s.date }) }),
                 /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Field, { label: s.time, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Input, { type: "time", step: 60, value: localRun.time, onChange: (e) => setLocalRun((cur) => ({ ...cur, time: e.target.value })), "aria-label": s.time }) })
               ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "flex flex-wrap gap-2", "data-testid": "cron-create-quick-times", children: QUICK_TIMES.map((time) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => setLocalRun((cur) => ({ ...cur, time })),
+                  className: `min-h-9 rounded-full border px-3 font-mono text-xs tabular-nums transition-colors pointer-coarse:min-h-[var(--touch-target)] ${localRun.time === time ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"}`,
+                  children: time
+                },
+                time
+              )) }),
               /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: "text-xs text-muted-foreground", children: s.hoursTimeZone })
             ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ScheduleField, { schedule, onChange: setSchedule }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Field, { label: s.prompt, hint: s.helpCreatePrompt, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("textarea", { value: prompt, onChange: (e) => setPrompt(e.target.value), rows: 4, className: "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-ring" }) }),
@@ -2121,8 +2272,8 @@ function AutomationPage() {
       ] }),
       triggerClassName: "inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
       items: [
-        { id: "recurring", label: s.createRecurring, icon: Repeat, onSelect: () => setOpening("recurring") },
-        { id: "oneShot", label: s.createOneShot, icon: CalendarClock, onSelect: () => setOpening("oneShot") }
+        { id: "recurring", label: s.createRecurring, icon: Repeat, onSelect: () => setOpening({ lifecycle: "recurring" }) },
+        { id: "oneShot", label: s.createOneShot, icon: CalendarClock, onSelect: () => setOpening({ lifecycle: "oneShot" }) }
       ],
       testId: "cron-new-task-menu"
     }
@@ -2172,7 +2323,8 @@ function AutomationPage() {
               onWindowShift: shiftWindow,
               onOpenJob: openJob,
               onRun: (job) => void runJob(job),
-              onToggle: toggleJob
+              onToggle: toggleJob,
+              onAddAt: (date) => setOpening({ lifecycle: "oneShot", date })
             }
           ) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
             HistoryTab,
@@ -2193,7 +2345,8 @@ function AutomationPage() {
     opening ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       CreateJobDialog,
       {
-        lifecycle: opening,
+        lifecycle: opening.lifecycle,
+        ...opening.date ? { initialDate: opening.date } : {},
         myId: me.data?.user?.id ?? null,
         isAdmin: me.data?.user?.is_admin === true,
         onClose: () => setOpening(null),
