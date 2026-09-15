@@ -470,10 +470,11 @@ export function planOccurrences(job, opts = {}) {
 
   if (typeof job?.id !== 'string' || job.id === '') return { occurrences, truncated: false, omittedByHours: [], candidates: 0 };
 
-  // ── One-shot: runAt is the whole story; presence on disk IS "pending". ──
+  // ── One-shot: runAt is the whole story; presence on disk IS "pending" (a claimed one-shot deletes
+  //    itself before the long turn, so a stored row past runAt is a real late wake-up — not history). ──
   if (typeof job.runAt === 'string') {
     const at = Date.parse(job.runAt);
-    if (!Number.isNaN(at) && at >= nowMs - lookbackMs) {
+    if (!Number.isNaN(at)) {
       occurrences.push(slotOccurrence(job, timezone, 'oneShot', at, Math.max(at, nowMs), at >= nowMs ? 'onTime'
         : (nowMs - at) <= tickMs ? 'dueNow' : 'late'));
     }

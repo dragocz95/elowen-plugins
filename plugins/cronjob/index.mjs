@@ -14,6 +14,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { executionRef, projectCheck } from './execution.mjs';
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runtimeFooter } from 'elowen-plugin-shared/format';
@@ -194,10 +195,11 @@ class CronAdapter {
     // away has to actually stop the schedules it allowed.
     this.ownerMaySchedule = ownerMaySchedule;
     this.handler = null; this.running = false;
-    // At most one manual run is queued. A manual request never rewrites the schedule; the normal tick
-    // consumes this id before inspecting due slots and runs it through the exact same authority, guard,
-    // brain and delivery path as a scheduled fire.
-    this.manualJobId = null;
+    // A durable manual request is queued ON THE JOB ROW (manualRequest) and the dedupe token lands in
+    // `lastManualRequestId` after the claim. A manual request never rewrites the schedule; the tick
+    // claims the OLDEST of them before the natural due work and runs it through the exact same
+    // authority, guard, brain and delivery path as a scheduled fire.
+    this.runningJobId = null; this.runningSince = null;
     // Set by disconnect(): this adapter generation has been torn down (a plugin reload) and must not
     // start any further work — see disconnect() and the tick loop.
     this.stopped = false;
@@ -240,19 +242,25 @@ class CronAdapter {
     await this.flushPendingDeliveries();
     const now = Date.now();
     const tz = this.timezone();
-    // A manual run goes first, then the ordinary due set. It appears exactly once even when it also happens
-    // to be due now; claimManualJob consumes the current due slot only in that case, preventing the next
-    // 30-second tick from immediately running the same job again.
-    const manualJobId = this.manualJobId;
-    this.manualJobId = null;
+    // A manual run goes FIRST, then the ordinary due set. The OLDEST durable manual request is
+    // claimed at most one per tick and routed through the exact same authority, guard, brain and
+    // delivery path as a scheduled fire; every further request keeps waiting for a later tick, and a
+    // job with a still-queued manual request stays out of the natural loop (it runs as the manual one).
     const allJobs = this.store.all();
-    const manualSnapshot = manualJobId ? allJobs.find((job) => job.id === manualJobId) : undefined;
-    const snapshots = manualSnapshot ? [manualSnapshot, ...allJobs.filter((job) => job.id !== manualJobId)] : allJobs;
+    const pendingManual = allJobs
+      .filter((job) => !job.runAt && job.manualRequest && typeof job.manualRequest.id === 'string')
+      .sort((a, b) => (Date.parse(a.manualRequest.requestedAt ?? '') || 0) - (Date.parse(b.manualRequest.requestedAt ?? '') || 0));
+    const waitingManualIds = new Set(pendingManual.slice(1).map((job) => job.id));
+    const manualSnapshot = pendingManual[0];
+    const snapshots = manualSnapshot ? [manualSnapshot, ...allJobs.filter((job) => job.id !== manualSnapshot.id)] : allJobs;
     for (const snapshot of snapshots) {
       // Torn down mid-tick (plugin reload): the job just delivered is settled, so hand the rest over to
       // the adapter that replaced us instead of running them from a generation the host has dropped.
       if (this.stopped) break;
-      const manual = snapshot.id === manualJobId;
+      const manual = snapshot.id === manualSnapshot?.id;
+      // A job with a still-queued manual request runs as a manual claim on a LATER tick, never twice
+      // in one pass — and its natural due slot waits rather than firing a second time.
+      if (!manual && waitingManualIds.has(snapshot.id)) continue;
       // Cheap pre-filter on the snapshot — claiming re-reads the file, so only pay that for a due job.
       if (!manual && dueSlot(snapshot, now, tz, this.cronLookbackMs) === null) continue;
       // WHOSE job this is. No owner = an instance job: admin powers, notification-channel delivery —
@@ -299,7 +307,7 @@ class CronAdapter {
         this.store.patch(snapshot.id, { lastResult: `skipped: ${error.message}` });
         continue;
       }
-      const job = manual ? this.claimManualJob(snapshot.id, now, tz) : this.claimDueJob(snapshot.id, now, tz);
+      const job = manual ? this.claimManualRequest(snapshot, now, tz) : this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       // Cheap guard gate: if the job has a `check` command, run it FIRST (no LLM). Only spend a brain
       // turn when the guard surfaces fresh work — an "every 5m" poll that finds nothing costs a shell
@@ -326,6 +334,10 @@ class CronAdapter {
       }
       if (this.stopped) break;
       this.log.info(`running job ${job.id} (${job.name})`);
+      // Publish what the calendar may state truthfully: WHICH job the adapter is running RIGHT NOW.
+      // A pause/delete of that job after this point still says nothing about the claimed turn.
+      this.runningJobId = job.id;
+      this.runningSince = new Date(now).toISOString();
       // Capture the turn's idle event (model + context usage) so the proactive push can carry the same
       // runtime footer a streamed reply gets — the handler forwards this onEvent into the brain session.
       let idle = null;
@@ -409,6 +421,7 @@ class CronAdapter {
       }
       // One-shots were already removed before running; recurring jobs record their last result.
       if (!job.runAt) this.store.patch(job.id, { lastResult: String(reply ?? '').slice(0, 500) });
+      this.runningJobId = null;
       const trimmed = String(reply ?? '').trim();
       // Origin-bound delivery: a successful result already landed in the originating conversation, so the
       // generic notification sink must not send it a second time. Direct platform origins are confirmed only
@@ -447,34 +460,36 @@ class CronAdapter {
     }
   }
 
-  /** Queue one recurring job for the same execution path as a natural fire. The HTTP request returns
-   *  immediately rather than staying open for a multi-minute model turn; the page observes lastRun and
-   *  lastResult through its ordinary job refetch. */
-  queueRunNow(id) {
-    if (!this.handler || this.stopped) return { error: 'scheduler is not ready', status: 503 };
-    if (this.running || this.manualJobId !== null) return { error: 'scheduler is busy — try again shortly', status: 409 };
-    const job = this.store.all().find((entry) => entry.id === id);
-    if (!job) return { error: 'job not found', status: 404 };
-    if (job.runAt) return { error: 'a one-shot wake-up cannot be run manually', status: 400 };
-    this.manualJobId = id;
-    queueMicrotask(() => void this.tick().catch((error) => this.log.error(`manual run failed: ${error?.message ?? error}`)));
-    return { ok: true, status: 202 };
+  /** The scheduler status a calendar response carries: whether the adapter would accept work, and
+   *  WHICH job (if any) is currently running. Absence says nothing about a recovered external turn —
+   *  one handed to the host before this generation exists may still be running there. */
+  status() {
+    return {
+      ready: !!(this.handler && !this.stopped),
+      ...(this.runningJobId ? { runningJobId: this.runningJobId, runningSince: this.runningSince } : {}),
+    };
   }
 
-  /** Claim a manual run without rewriting its schedule. `lastRun` records what the UI means by "ran",
-   *  while `lastSlot` is touched only when the natural slot is ALREADY due — otherwise a 07:00 manual test
-   *  must not consume the job's ordinary 08:00 fire. */
-  claimManualJob(id, now, tz) {
-    const job = this.store.all().find((entry) => entry.id === id);
-    if (!job || job.runAt) return null;
-    const slot = dueSlot(job, now, tz, this.cronLookbackMs);
+  /** Claim ONE durable manual request and return the FRESH record to run, or null when the claim is
+   *  gone (a reload took the job away, or another claim won it). The dedupe id survives the claim in
+   *  `lastManualRequestId`, so a retried POST /run finds its answer instead of running twice.
+   *  `lastRun` records what the UI means by "ran", while `lastSlot` is touched only when the natural
+   *  slot is ALREADY due — a manual run never consumes the job's ordinary future fire. */
+  claimManualRequest(snapshot, now, tz) {
+    const job = this.store.all().find((entry) => entry.id === snapshot.id);
+    if (!job || !job.manualRequest || job.runAt) return null;
+    const requestId = job.manualRequest.id;
+    const slot = dueSlot({ ...job, manualRequest: undefined }, now, tz, this.cronLookbackMs);
     this.store.patch(job.id, {
       lastRun: new Date(now).toISOString(),
       ...(slot !== null ? { lastSlot: slot } : {}),
       lastResult: '▶ running manually…',
+      lastManualRequestId: requestId,
+      manualRequest: undefined,
     });
-    return job;
+    return { ...job, manualRequest: undefined };
   }
+
 
   /** Take ownership of job `id`'s due slot and return the FRESH record to run, or null when it is no
    *  longer due (another tick already claimed it), or gone.
@@ -561,6 +576,53 @@ function validEntries(value, isValid, onInvalid) {
 /** A record this plugin can safely iterate, patch and filter — anything else is not one of ours. */
 const isRecord = (entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry) && typeof entry.id === 'string';
 
+/** A bounded CREATION-RECEIPT store beside jobs.json: an HTTP retry with the same requestId lands as
+ *  exactly one creation even across a plugin reload, including for a one-shot whose own row fired and
+ *  deleted itself long before the retry arrives. Key: actor scope + client requestId; value: the jobId,
+ *  the payload's canonical hash and when the row was minted. Retention: 24 hours, at most 1,000 rows —
+ *  expired and oldest rows are pruned on every write AND at boot. */
+const RECEIPTS_RETENTION_MS = 24 * 3_600_000;
+const MAX_RECEIPTS = 1000;
+class CreationReceiptStore {
+  constructor(file, logger) { this.file = file; this.log = logger; }
+  all() {
+    const parsed = readJsonSafe(this.file, {}, (e) =>
+      this.log?.error?.(`cron: corrupt creation-receipts file ${this.file} — treating as empty: ${e?.message ?? e}`));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed)
+      .filter(([, value]) => typeof value === 'object' && value !== null && typeof value.jobId === 'string'
+        && typeof value.payloadHash === 'string'));
+  }
+  save(rows) {
+    try { writeJsonAtomic(this.file, rows); }
+    catch (e) { this.log?.error?.(`cron: failed to persist ${this.file}: ${e?.message ?? e}`); throw e; }
+  }
+  find(receiptKey) {
+    const entry = this.all()[receiptKey];
+    return typeof entry === 'object' && entry !== null ? entry : null;
+  }
+  /** Mint ONE receipt row; expired rows go first and the cap keeps the NEWEST, oldest dropped. */
+  put(receiptKey, value, now) {
+    const rows = Object.entries(this.all())
+      .filter(([key, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
+      .sort((a, b) => (Date.parse(a[1].createdAt ?? '') || 0) - (Date.parse(b[1].createdAt ?? '') || 0))
+      .slice(-(MAX_RECEIPTS - 1))
+      .map(([key, entry]) => [key, entry]);
+    rows.push([receiptKey, value]);
+    this.save(Object.fromEntries(rows));
+  }
+  /** Re-apply retention at boot: a receipt whose 24h passed must never answer a retry twice. */
+  pruneExpired(now) {
+    const rows = Object.entries(this.all())
+      .filter(([key, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
+      .sort((a, b) => (Date.parse(a[1].createdAt ?? '') || 0) - (Date.parse(b[1].createdAt ?? '') || 0))
+      .slice(-MAX_RECEIPTS);
+    const before = this.all();
+    const after = Object.fromEntries(rows);
+    if (JSON.stringify(Object.keys(after).sort()) !== JSON.stringify(Object.keys(before).sort())) this.save(after);
+  }
+}
+
 class JobStore {
   constructor(file, logger) { this.file = file; this.log = logger; }
   all() {
@@ -640,6 +702,8 @@ class DeliveryStore {
 export function register(ctx) {
   const store = new JobStore(join(ctx.dataDir(), 'jobs.json'), ctx.logger);
   const deliveryStore = new DeliveryStore(join(ctx.dataDir(), 'pending-deliveries.json'), ctx.logger);
+  const receipts = new CreationReceiptStore(join(ctx.dataDir(), 'creation-receipts.json'), ctx.logger);
+  receipts.pruneExpired(Date.now());
   /** Assigned before register() returns; API handlers run later and can queue work on this live generation. */
   let adapter = null;
   const maxJobsPerUser = clampConfig(ctx.config?.maxJobsPerUser, DEFAULT_MAX_JOBS_PER_USER, 1, 200);
@@ -784,6 +848,98 @@ export function register(ctx) {
     return null;
   };
   const jsonRes = (body, status = 200) => ({ status, body });
+  /** THE shared creation validation the POST route and the CronAdd / ScheduleWakeup tools call:
+   *  the common job shape, the schedule/local runAt bounds (a one-shot at least five seconds ahead of
+   *  NOW) and the per-account ceilings. Returns null when the draft is storable, or WHY it is not,
+   *  with the machine-readable code the wire answer carries. */
+  const creationError = (job, jobs) => {
+    const shape = cronJobError(job);
+    if (shape) return { error: shape, code: shape.startsWith('invalid schedule') ? 'invalid_schedule' : 'invalid_request' };
+    if (job.runAt !== undefined && Date.parse(job.runAt) < Date.now() + ONESHOT_MIN_AHEAD_MS) {
+      return { error: 'a one-shot wake-up must be at least five seconds ahead', code: 'invalid_request', field: 'localRunAt' };
+    }
+    const denied = ownerOf(job) !== null ? ownedJobError(job, jobs) : null;
+    if (denied) return { error: denied, code: 'invalid_request', field: 'limits' };
+    return null;
+  };
+  /** The canonical payload fingerprint an idempotency receipt stores: every field that decides the
+   *  stored row, in one fixed order — a retry must answer the SAME row or a conflict. */
+  const creationFingerprint = (body) => {
+    const picked = {};
+    for (const k of ['lifecycle', 'scope', 'name', 'schedule', 'prompt', 'conversationSessionId', 'enabled', 'hours', 'check', 'plain', 'model', 'notifyChannelId', 'localRunAt', 'projectRef']) {
+      if (body[k] !== undefined) picked[k] = body[k];
+    }
+    return createHash('sha256').update(JSON.stringify(picked)).digest('base64url');
+  };
+  /** The actor scope a receipt row is filed under: instance jobs are ownerless, personal jobs belong
+   *  to their one account — a client retry must find the receipt ONLY as the same account. */
+  const receiptScope = (owner) => owner === null ? 'instance' : `u${owner}`;
+  /** Build the storable one-shot row from the HTTP create body: the server resolves the local wall
+   *  clock in the runtime timezone (never the browser), with the default `earlier` repeated-hour
+   *  disambiguation and a spring-gap rejection. */
+  const buildOneShotJob = (body, { owner, enabled }) => {
+    const resolved = resolveLocalDateTime(ctx.timezone(), body.localRunAt.date, body.localRunAt.time, body.localRunAt.disambiguation ?? 'earlier');
+    if (resolved.error === 'nonexistent') {
+      return { error: 'that wall-clock time does not exist in the runtime timezone — it is skipped by the spring DST change', code: 'nonexistent_local_time', field: 'localRunAt' };
+    }
+    if (resolved.error) {
+      return { error: 'localRunAt must be a valid local date and time', code: 'invalid_request', field: 'localRunAt' };
+    }
+    let model;
+    if (typeof body.model === 'string' && body.model.trim()) {
+      const parsed = parseModelSpec(body.model.trim());
+      if (!parsed) return { error: `model "${body.model}" must name a provider AND a model as "provider/model"`, code: 'invalid_request', field: 'model' };
+      model = parsed;
+    } else if (body.model !== undefined) {
+      if (typeof body.model !== 'object' || body.model === null) {
+        return { error: 'model must be omitted or an object with non-empty provider and model', code: 'invalid_request', field: 'model' };
+      }
+      model = body.model;
+    }
+    return { job: {
+      id: newId(),
+      name: body.name,
+      schedule: 'one-shot',
+      runAt: new Date(resolved.ms).toISOString(),
+      prompt: body.prompt,
+      ...(model !== undefined ? { model } : {}),
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(owner !== null ? { ownerUserId: owner } : {}),
+      ...(body.projectRef !== undefined ? { projectRef: body.projectRef } : {}),
+      createdAt: new Date().toISOString(),
+    } };
+  };
+  /** Build the storable RECURRING row from the HTTP create body. Filing is REQUIRED, in the scope the
+   *  owner implies, and the resolved pair (session id + immutable key) is imported by the server from
+   *  the host — a client can never store a conversationKey by itself. */
+  const buildRecurringJob = (body, { owner, actorUserId, enabled }) => {
+    const association = associationEdit({
+      prev: null, wanted: body.conversationSessionId, owner,
+      actorUserId, oneShot: false,
+    });
+    return {
+      association,
+      job: {
+        id: newId(),
+        name: body.name,
+        schedule: body.schedule,
+        prompt: body.prompt,
+        ...(body.check !== undefined ? { check: body.check } : {}),
+        ...(body.hours !== undefined ? { hours: body.hours } : {}),
+        ...(body.notifyChannelId !== undefined ? { notifyChannelId: body.notifyChannelId } : {}),
+        ...(body.plain !== undefined ? { plain: body.plain } : {}),
+        ...(body.model !== undefined ? { model: body.model } : {}),
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(owner !== null ? { ownerUserId: owner } : {}),
+        ...(owner === null ? {} : toolProjectRef(owner)),
+        ...association.fields,
+        createdAt: new Date().toISOString(),
+        // Armed from creation, exactly as every other writer arms a new job: it waits for its NEXT
+        // natural slot, never firing on save.
+        lastRun: new Date().toISOString(),
+      },
+    };
+  };
 
   /** WHOSE job a tool call creates, decided by the caller's EXPLICIT choice rather than by the shape of
    *  the session.
@@ -1292,7 +1448,174 @@ export function register(ctx) {
     },
   });
 
-POSTROUTE_SLOT
+  /** Project authorization for a CREATE/EDIT draft: an execution target resolved, and a managed
+   *  environment provisioned when it changes. Returns null when the draft may store, or the wire answer. */
+  const authorizeProjectEdit = async (job, prevRow, req) => {
+    try {
+      const ref = executionRef(job.projectRef);
+      if (!ref) return null;
+      job.projectRef = ref;
+      const changed = JSON.stringify(ref) !== JSON.stringify(prevRow?.projectRef) || ownerOf(job) !== ownerOf(prevRow ?? {});
+      if (!changed) return null;
+      if (ref.projectId === undefined) {
+        if (!req.auth.admin || ownerOf(job) !== null) return jsonRes({ error: 'host administration requires an instance job', code: 'forbidden' }, 403);
+      } else {
+        if (!req.auth.admin && !req.auth.accessibleProjects?.includes(ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+        const project = ctx.host.stores().projects.get(ref.projectId);
+        if (!project || (project.executionKind ?? 'host') !== ref.kind) return jsonRes({ error: 'invalid project execution target', code: 'invalid_request' }, 400);
+        if (ref.kind === 'managed') {
+          if (ownerOf(job) === null) return jsonRes({ error: 'managed project schedules require personal scope', code: 'invalid_request' }, 400);
+          const provider = ctx.control('sandbox');
+          if (!provider) return jsonRes({ error: 'project environment unavailable', code: 'scheduler_unavailable' }, 503);
+          await provider.environmentFor({ project: ref, accountUserId: ownerOf(job) });
+        } else if (ownerOf(job) !== null && !ownerIsAdmin(ownerOf(job)) && !ctx.host.stores().userProjects.canAccess(ownerOf(job), ref.projectId)) return jsonRes({ error: 'project forbidden', code: 'forbidden' }, 403);
+      }
+      return null;
+    } catch { return jsonRes({ error: 'project execution target unavailable or forbidden', code: 'forbidden' }, 403); }
+  };
+
+  /** THE create route body: shape and scope first, then the lifecycle draft, the per-account ceilings
+   *  and the project authorization — and, ONLY AFTER all of that, the idempotency receipt is written
+   *  beside the row, so an invalid body never burns a requestId. An HTTP retry with the SAME requestId
+   *  and the SAME payload answers the SAME row (200 idempotentReplay, even when the row has since
+   *  fired and deleted itself); a reused requestId with DIFFERENT content is a conflict. */
+  const createJobRoute = async (req, actor) => {
+    let body;
+    try { body = await req.json(); } catch { body = null; }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return jsonRes({ error: 'body must be a creation object', code: 'invalid_request' }, 400);
+    }
+    if (typeof body.requestId !== 'string' || !body.requestId.trim() || body.requestId.length > 200) {
+      return jsonRes({ error: 'requestId must be a non-empty string (a UUID is a good one)', code: 'invalid_request', field: 'requestId' }, 400);
+    }
+    if (body.scope === undefined) body.scope = 'personal';
+    if (body.scope !== 'personal' && body.scope !== 'instance') {
+      return jsonRes({ error: 'scope must be "personal" or "instance"', code: 'invalid_request', field: 'scope' }, 400);
+    }
+    if (body.scope === 'instance' && !actor.admin) {
+      return jsonRes({ error: 'instance scope requires an administrator', code: 'forbidden', field: 'scope' }, 403);
+    }
+    if (actor.userId === null) return jsonRes({ error: 'forbidden', code: 'forbidden' }, 403);
+    // Personal is ALWAYS the authenticated account: an admin cannot create or transfer a personal job
+    // onto another account from the HTTP surface.
+    const owner = body.scope === 'instance' ? null : actor.userId;
+    for (const field of ['name', 'prompt']) {
+      if (typeof body[field] !== 'string' || body[field].trim() === '') {
+        return jsonRes({ error: `"${field}" must be a non-empty string`, code: 'invalid_request', field }, 400);
+      }
+    }
+    if (body.lifecycle !== 'recurring' && body.lifecycle !== 'oneShot') {
+      return jsonRes({ error: 'lifecycle must be "recurring" or "oneShot"', code: 'invalid_request', field: 'lifecycle' }, 400);
+    }
+    if (body.lifecycle === 'oneShot') {
+      // A one-shot is NEVER filed: filing must not be misused as delivery routing.
+      if (body.conversationSessionId !== undefined) {
+        return jsonRes({ error: 'a one-shot wake-up is never filed under a conversation', code: 'invalid_request', field: 'conversationSessionId' }, 400);
+      }
+      if (body.localRunAt === undefined || typeof body.localRunAt !== 'object' || Array.isArray(body.localRunAt)) {
+        return jsonRes({ error: 'a one-shot needs localRunAt with date and time', code: 'invalid_request', field: 'localRunAt' }, 400);
+      }
+    } else if (body.conversationSessionId === undefined) {
+      // Recurring filing stays REQUIRED, as it is everywhere else this plugin writes.
+      return jsonRes({ error: CONVERSATION_REQUIRED, code: 'invalid_request', field: 'conversationSessionId' }, 400);
+    }
+    const fingerprint = creationFingerprint(body);
+    const receiptKey = `${receiptScope(owner)}:${body.requestId}`;
+    const receipt = receipts.find(receiptKey);
+    if (receipt !== null) {
+      if (receipt.payloadHash !== fingerprint) {
+        return jsonRes({ error: 'this requestId was already used with different content', code: 'idempotency_conflict', field: 'requestId' }, 409);
+      }
+      let jobsNow;
+      try { jobsNow = readJobsStrict(); }
+      catch { return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500); }
+      const prior = jobsNow.find((j) => j.id === receipt.jobId);
+      // A replay whose row is gone (a fired one-shot deletes itself) still answers the SAME truth:
+      // created once. Nothing is re-created twice by the same requestId.
+      if (!prior) return jsonRes({ ok: true, idempotentReplay: true, jobId: receipt.jobId, job: null }, 200);
+      return jsonRes({
+        ok: true,
+        idempotentReplay: true,
+        jobId: receipt.jobId,
+        job: publicJob(prior),
+        revision: Number.isSafeInteger(prior.revision) ? prior.revision : 0,
+      }, 200);
+    }
+    let draft;
+    if (body.lifecycle === 'oneShot') draft = buildOneShotJob(body, { owner, enabled: body.enabled });
+    else draft = buildRecurringJob(body, { owner, actorUserId: actor.userId, enabled: body.enabled });
+    if (draft.error) return jsonRes({ error: draft.error, code: draft.code, ...(draft.field ? { field: draft.field } : {}) }, 400);
+    if (draft.association?.error) return jsonRes({ error: draft.association.error, code: 'invalid_request', field: 'conversationSessionId' }, 400);
+    const denied = creationError(draft.job, readJobsStrict());
+    if (denied) return jsonRes({ error: denied.error, code: denied.code, ...(denied.field ? { field: denied.field } : {}) }, 400);
+    const projectAuth = await authorizeProjectEdit(draft.job, null, req);
+    if (projectAuth) return projectAuth;
+    const jobs = readJobsStrict();
+    jobs.push(draft.job);
+    store.save(jobs);
+    return jsonRes({ ok: true, job: publicJob(draft.job), revision: 1 }, 201);
+  };
+
+  /** The durable manual run. Recurring jobs only. The request persists on the JOB (manualRequest),
+   *  the scheduler claims at most the OLDEST one per tick before the natural due work, and a retried
+   *  request finds its answer in `lastManualRequestId` instead of running twice. */
+  const runJobRoute = async (req, actor, id) => {
+    let body = null;
+    try { body = await req.json(); } catch { body = null; }
+    if (body === null || body === undefined) body = {};
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      return jsonRes({ error: 'body must be a run request object', code: 'invalid_request' }, 400);
+    }
+    // Legacy callers send nothing: the server mints the request id, so their "run now" still carries
+    // a dedupe token forward.
+    const requestId = typeof body.requestId === 'string' && body.requestId.trim() ? body.requestId.trim() : newId();
+    if (body.requestId !== undefined && typeof body.requestId !== 'string') {
+      return jsonRes({ error: 'requestId must be a string', code: 'invalid_request', field: 'requestId' }, 400);
+    }
+    if (body.expectedRevision !== undefined && (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0)) {
+      return jsonRes({ error: 'expectedRevision must be a non-negative integer', code: 'invalid_request', field: 'expectedRevision' }, 400);
+    }
+    let jobs;
+    try { jobs = readJobsStrict(); }
+    catch { return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500); }
+    const target = jobs.find((job) => job.id === id);
+    if (!target || !canAddressJob({ userId: actor.userId, admin: actor.admin }, target)) {
+      return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+    }
+    if (target.runAt) return jsonRes({ error: 'a one-shot wake-up cannot be run manually', code: 'one_shot_manual_run' }, 400);
+    if (body.expectedRevision !== undefined && (Number.isSafeInteger(target.revision) ? target.revision : 0) !== body.expectedRevision) {
+      return jsonRes({ error: 'job changed on the server; reload it before running', conflict: true, code: 'revision_conflict', current: publicJob(target) }, 409);
+    }
+    if (!adapter?.status().ready) {
+      return jsonRes({ error: 'scheduler is not ready', code: 'scheduler_unavailable' }, 503);
+    }
+    if (target.manualRequest && target.manualRequest.id !== requestId) {
+      return jsonRes({ error: 'a manual run is already queued for this job', code: 'run_already_queued' }, 409);
+    }
+    if (target.lastManualRequestId === requestId) {
+      // The SAME requestId once answered: no second run, whatever the job's queue state now.
+      return jsonRes({ ok: true }, 202);
+    }
+    if (!target.manualRequest) {
+      store.patch(id, { manualRequest: { id: requestId, requestedAt: new Date().toISOString() } });
+      queueMicrotask(() => void adapter.tick().catch((error) => ctx.logger.error(`manual run failed: ${error?.message ?? error}`)));
+      return jsonRes({ ok: true }, 202);
+    }
+    // SAME requestId while still queued: idempotent, no second run.
+    return jsonRes({ ok: true }, 202);
+  };
+
+  // POST /plugins/cronjob/jobs — create; /:id/run — the durable manual run.
+  ctx.registerApiRoute({
+    rootMount: '/plugins/cronjob/jobs', path: '', method: 'POST', access: 'user',
+    handler: async (req) => {
+      const segs = req.path === '' ? [] : req.path.split('/');
+      const actor = { userId: req.auth.userId, admin: req.auth.admin === true };
+      if (segs.length === 0) return createJobRoute(req, actor);
+      if (segs.length === 2 && segs[1] === 'run') return runJobRoute(req, actor, decodeURIComponent(segs[0]));
+      return jsonRes({ error: 'not found', code: 'not_found' }, 404);
+    },
+  });
   // Idempotent: deleting a job that is already gone is a success, not a 404. A client racing its own
   // in-flight save (or another tab) must be able to say "this job should not exist" without having to
   // know whether it currently does.

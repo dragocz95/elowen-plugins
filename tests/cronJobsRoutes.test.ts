@@ -121,12 +121,15 @@ describe('cron jobs routes', () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it('GET returns [] for a corrupted jobs file', async () => {
+  // A read that cannot be answered must never read as "you have nothing scheduled" — an empty list
+  // IS a claim, and a wrong one. The strict read answers a machine-readable failure instead.
+  it('GET answers 500 jobs_unreadable for a corrupted jobs file, never a success-shaped empty', async () => {
     const { app, dataRoot, adminTok } = setup();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
     writeFileSync(join(dataRoot, 'cronjob', 'jobs.json'), '{not json');
     const res = await app.request('/plugins/cronjob/jobs', auth(adminTok));
-    expect(await res.json()).toEqual([]);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ code: 'jobs_unreadable' });
   });
 
   // jobs.json is shared with the scheduler and the brain's CronAdd tool. A client that could hand over
@@ -144,18 +147,24 @@ describe('cron jobs routes', () => {
   // sends the reader to the schedule's editor when they were looking for the transcript. The run location
   // is derived from the one place that decides it, so the listing and the scheduler cannot disagree.
   it('GET says where each job runs, beside the conversation it is filed under', async () => {
-    const { app, dataRoot, adminTok, amy } = setup();
+    const { app, dataRoot, adminTok, amy, amyTok, users } = setup();
+    users.setGrantedPlugins(amy.id, ['cronjob']);
     seed(dataRoot, [
       job({ id: 'shared', name: 'instance digest' }),
       job({ id: 'owned', name: 'her digest', ownerUserId: amy.id }),
       job({ id: 'channelled', name: 'to a room', ownerUserId: amy.id, notifyChannelId: 'destination:discord:100' }),
     ]);
-    const rows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as {
+    // The admin reads the instance jobs; the owner reads her own.
+    const sharedRows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as {
       id: string; runLocation: { kind: string; sessionId?: string; channelId?: string };
     }[];
-    const byId = new Map(rows.map((row) => [row.id, row.runLocation]));
-    // An instance job, and any job carrying an explicit channel, runs in its own cron channel.
-    expect(byId.get('shared')).toEqual({ kind: 'channel', channelId: 'job-shared' });
+    expect(sharedRows.map((row) => row.id)).toEqual(['shared']); // instance only; hers stay private
+    expect(sharedRows[0]!.runLocation).toEqual({ kind: 'channel', channelId: 'job-shared' });
+
+    const herRows = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as {
+      id: string; runLocation: { kind: string; sessionId?: string; channelId?: string };
+    }[];
+    const byId = new Map(herRows.map((row) => [row.id, row.runLocation]));
     expect(byId.get('channelled')).toEqual({ kind: 'channel', channelId: 'job-channelled' });
     // Every other owned recurring job runs in a conversation of its own, named after the job.
     expect(byId.get('owned')).toEqual({ kind: 'dedicated', sessionId: `brain-${amy.id}-job-owned` });
@@ -200,12 +209,32 @@ describe('cron jobs routes', () => {
     const back = await app.request('/plugins/cronjob/jobs', auth(adminTok));
     // The conversation the job is filed under is projected for the client as it stands TODAY; the
     // immutable key it is stored by never leaves the daemon. Where the job RUNS is projected beside it,
-    // and both instance jobs here run in a cron channel of their own.
-    expect(await back.json()).toEqual(stripped.map((j) => ({
+    // and both instance jobs here run in a cron channel of their own. The plan's additive projection
+    // rides beside all of it: derived lifecycle, revision, the server-derived next occurrence and
+    // the durable manual queue state.
+    const rows = await back.json() as Record<string, unknown>[];
+    expect(rows.map((row) => ({
+      ...row,
+      // A server-derived next occurrence depends on the scheduler's clock; assert its SHAPE per row.
+      nextOccurrence: undefined,
+    }))).toEqual(stripped.map((j) => ({
       ...j,
+      lifecycle: j.runAt !== undefined ? 'oneShot' : 'recurring',
+      manualQueued: false,
       conversation: conversationView(),
       runLocation: { kind: 'channel', channelId: `job-${j.id}` },
     })));
+    // The recurring row is PAUSED here, so its next occurrence is (truthfully) null until it is
+    // re-enabled; the pending one-shot shows a late wake-up with its original runAt intact.
+    expect(rows[0]!.nextOccurrence).toBeNull();
+    expect(rows[1]!.nextOccurrence).toEqual(expect.objectContaining({
+      occurrenceId: 'j2:once',
+      scheduledAt: '2026-07-02T18:00:00.000Z',
+      timezone: expect.any(String),
+      disposition: expect.stringMatching(/^(dueNow|late)$/),
+      precisionMs: expect.any(Number),
+      guarded: false,
+    }));
     // The plugin's scheduler reads this exact file every tick — verify it landed on disk.
     expect(existsSync(join(dataRoot, 'cronjob', 'jobs.json'))).toBe(true);
     expect(onDisk(dataRoot)).toEqual(stripped.map((j) => ({ ...j, conversationKey: `ns-${STUB_CONVERSATION_ID}` })));
@@ -377,16 +406,20 @@ describe('cron jobs routes', () => {
     expect(mine.map((j) => j.id)).toEqual(['mine']);
     expect(mine[0]!.ownerUserId).toBe(amy.id);
 
-    // The admin sees both, and an instance job carries no owner at all.
+    // An admin sees OWN personal jobs plus the instance ones — never another account's. A foreign
+    // personal job reads the same as an absent one on GET, update, delete and run.
     const all = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; ownerUserId?: number | null }[];
-    expect(all.map((j) => j.id).sort()).toEqual(['mine', 'shared']);
+    expect(all.map((j) => j.id)).toEqual(['shared']);
     expect(all.find((j) => j.id === 'shared')).not.toHaveProperty('ownerUserId');
 
-    // She may not reach the instance job — neither to edit nor to delete it.
-    expect((await save(app, amyTok, job({ id: 'shared', name: 'hijacked' }))).status).toBe(403);
-    expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(403);
+    // She may not reach the instance job — neither to edit nor to delete it; the refusal is 404, the
+    // same answer an id that does not exist gives.
+    expect((await save(app, amyTok, job({ id: 'shared', name: 'hijacked' }))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared', del(amyTok))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(404);
     const still = (await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json()) as { id: string; name: string }[];
     expect(still.find((j) => j.id === 'shared')?.name).toBe('instance job');
+    expect((await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as { id: string }[]).map((j) => j.id)).toEqual(['mine']);
   });
 
   it('gates manual runs by ownership and refuses one-shot wake-ups', async () => {
@@ -396,12 +429,14 @@ describe('cron jobs routes', () => {
     expect((await save(app, amyTok, job({ id: 'mine' }))).status).toBe(200);
     expect((await save(app, amyTok, job({ id: 'wake', schedule: 'in 20m', runAt: '2026-09-01T12:00:00.000Z' }))).status).toBe(200);
 
-    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(403);
-    expect((await app.request('/plugins/cronjob/jobs/missing/run', post(adminTok))).status).toBe(404);
+    expect((await app.request('/plugins/cronjob/jobs/shared/run', post(amyTok))).status).toBe(404);
+    expect((await (await app.request('/plugins/cronjob/jobs/shared/run', post(adminTok))).text()).includes('run_already_queued')).toBe(false);
     expect((await app.request('/plugins/cronjob/jobs/wake/run', post(amyTok))).status).toBe(400);
     // This API-only harness does not connect a brain handler; reaching 503 proves the authorized request
     // reached the live adapter instead of being refused by ownership or route parsing.
     expect((await app.request('/plugins/cronjob/jobs/mine/run', post(amyTok))).status).toBe(503);
+    const second = await app.request('/plugins/cronjob/jobs/mine/run', post(amyTok));
+    expect(((await second.json()) as { code?: string }).code).toBe('scheduler_unavailable');
   });
 
   it('enriches visible owned jobs with a safe display profile and never persists that view metadata', async () => {
@@ -411,11 +446,10 @@ describe('cron jobs routes', () => {
       .run('Amy Adams', 'amy-secret@example.test', 'amy.png', amy.id);
     expect((await save(app, amyTok, job({ id: 'mine', name: 'Amy job' }))).status).toBe(200);
 
+    // An admin no longer sees another account's personal rows — the profile projection only ever
+    // rides on the caller's OWN job.
     const adminRows = await (await app.request('/plugins/cronjob/jobs', auth(adminTok))).json() as Record<string, unknown>[];
-    expect(adminRows).toEqual([expect.objectContaining({
-      id: 'mine', ownerUserId: amy.id,
-      owner: { id: amy.id, username: 'amy', name: 'Amy Adams', avatar: 'amy.png' },
-    })]);
+    expect(adminRows).toEqual([]);
     expect(JSON.stringify(adminRows)).not.toContain('amy-secret@example.test');
 
     const mineRows = await (await app.request('/plugins/cronjob/jobs', auth(amyTok))).json() as Record<string, unknown>[];

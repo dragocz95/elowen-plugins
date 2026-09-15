@@ -257,17 +257,27 @@ describe('cron HTTP save — the organizational association', () => {
   });
 
   it('revalidates the association when the job changes hands', async () => {
-    const { app, dataRoot, adminTok, amy, bob } = setupRoutes();
-    const job = storedJob({ ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' });
-    seedJobs(dataRoot, [job]);
-    // Carrying Amy's conversation onto Bob's job would file his automation under her chat.
-    const refused = await save(app, adminTok, { ...editable(job), ownerUserId: bob.id });
-    expect(refused.status).toBe(400);
-    expect(onDisk(dataRoot)[0]).toMatchObject({ ownerUserId: amy.id, conversationKey: 'ns-amy-1' });
+    const { app, dataRoot, adminTok, admin, amy, bob } = setupRoutes();
+    seedJobs(dataRoot, [
+      storedJob({ id: 'j1', ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' }),
+      storedJob({ id: 'wi', conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' }),
+    ]);
+    // Ownership changes are admin-limited to instance <-> their own personal job. A foreign personal
+    // job reads exactly like one that does not exist.
+    const foreign = await save(app, adminTok, { ...editable({ id: 'j1', ownerUserId: amy.id, conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1' }) });
+    expect(foreign.status).toBe(404);
+    expect(onDisk(dataRoot)[0]).toMatchObject({ id: 'j1', ownerUserId: amy.id });
 
-    const accepted = await save(app, adminTok, { ...editable(job), ownerUserId: bob.id, conversationSessionId: 'brain-bob' });
+    // Taking an instance job over moves the FILING with it, and a filed conversation of somebody
+    // else's does not survive that hand-over: the save is refused, not silently refiled.
+    const instanceJob = editable(onDisk(dataRoot)[1]);
+    const refused = await save(app, adminTok, { ...instanceJob, ownerUserId: admin.id });
+    expect(refused.status).toBe(400);
+    expect(onDisk(dataRoot)[0]).toMatchObject({ conversationKey: 'ns-amy-1' });
+
+    const accepted = await save(app, adminTok, { ...onDisk(dataRoot)[1], ownerUserId: admin.id, conversationSessionId: 'brain-admin' });
     expect(accepted.status).toBe(200);
-    expect(onDisk(dataRoot)[0]).toMatchObject({ ownerUserId: bob.id, conversationSessionId: 'brain-bob', conversationKey: 'ns-bob-1' });
+    expect(onDisk(dataRoot)[1]).toMatchObject({ ownerUserId: admin.id, conversationSessionId: 'brain-admin', conversationKey: 'ns-admin-1' });
   });
 
   it('lets a legacy job without any association go on being edited', async () => {
@@ -333,16 +343,16 @@ describe('cron HTTP save — the organizational association', () => {
     expect(goneListed[0]).not.toHaveProperty('conversationUnresolved');
   });
 
-  // The conflict payload carries the whole previous job — prompt, schedule, last result. Answering it
-  // before the ownership check told anyone with a job id what somebody else had scheduled.
-  it('answers a foreign job with 403 before any revision-conflict payload', async () => {
+  // A foreign personal job reads exactly like one that does not exist — 404, with no payload that
+  // would carry another account's prompt, schedule or last result.
+  it('answers a foreign personal job with 404 and never a conflict payload', async () => {
     const { app, dataRoot, bobTok, amy } = setupRoutes();
     seedJobs(dataRoot, [storedJob({
       ownerUserId: amy.id, prompt: 'Amy private plan.', revision: 7,
       conversationSessionId: 'brain-amy', conversationKey: 'ns-amy-1',
     })]);
     const res = await save(app, bobTok, { id: 'j1', name: 'x', schedule: 'daily 06:00', prompt: 'p', expectedRevision: 2 });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const body = await res.text();
     expect(body).not.toContain('Amy private plan.');
     expect(body).not.toContain('conflict');

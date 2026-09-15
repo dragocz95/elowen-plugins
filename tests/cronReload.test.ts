@@ -18,7 +18,6 @@ const pluginsDir = join(repoRoot, 'plugins');
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string) => Promise<string | undefined>): void;
   tick(): Promise<void>;
-  queueRunNow(id: string): { ok?: boolean; error?: string; status: number };
   disconnect(): void;
 }
 
@@ -57,25 +56,53 @@ function parkingHandler(tag: string, calls: string[]) {
 }
 
 describe('cron scheduler across a plugin reload', () => {
-  it('runs a recurring job immediately without rewriting its future schedule', async () => {
+  it('runs a durable manual request immediately without rewriting its future schedule', async () => {
     const dataRoot = freshDataRoot();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
     const createdAt = new Date().toISOString();
     writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify([
-      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt },
+      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt,
+        manualRequest: { id: 'm1', requestedAt: new Date().toISOString() } },
     ]));
     const adapter = await loadCron(dataRoot, async () => {});
     const calls: string[] = [];
     adapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
 
-    expect(adapter.queueRunNow('manual')).toEqual({ ok: true, status: 202 });
-    await vi.waitFor(() => expect(calls).toEqual(['job-manual']));
-    await vi.waitFor(() => {
-      const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
-      expect(stored.schedule).toBe('daily 23:59');
-      expect(stored.lastSlot).toBeUndefined(); // the future natural slot remains armed
-      expect(stored.lastResult).toBe('manual result');
-    });
+    // The tick consumes the OLDEST durable manual request before the natural due work; the request is
+    // cleared from the job, the dedupe token survives, and the future natural slot stays armed.
+    await adapter.tick();
+    expect(calls).toEqual(['job-manual']);
+    const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
+    expect(stored.schedule).toBe('daily 23:59');
+    expect(stored.lastSlot).toBeUndefined(); // the future natural slot remains armed
+    expect(stored.lastResult).toBe('manual result');
+    expect(stored.manualRequest).toBeUndefined();
+    expect(stored.lastManualRequestId).toBe('m1'); // a retried run request finds its answer here
+  });
+
+  // The manual request lives in jobs.json, so it survives a reload: a request written by the old
+  // generation is claimed and run by the new one exactly once.
+  it('a durable manual run request survives an adapter reload and is claimed exactly once', async () => {
+    const dataRoot = freshDataRoot();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    const createdAt = new Date().toISOString();
+    writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify([
+      { id: 'manual', name: 'manual report', schedule: 'daily 23:59', prompt: 'do it', createdAt, lastRun: createdAt,
+        manualRequest: { id: 'm2', requestedAt: new Date().toISOString() } },
+    ]));
+    const oldAdapter = await loadCron(dataRoot, async () => {});
+    oldAdapter.disconnect(); // the host replaces this generation before any of its work ran
+
+    const calls: string[] = [];
+    const newAdapter = await loadCron(dataRoot, async () => {});
+    newAdapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
+    await newAdapter.tick();
+    await newAdapter.tick(); // a second tick may NOT run the same manual request again
+
+    expect(calls).toEqual(['job-manual']);
+    const [stored] = JSON.parse(readFileSync(join(dataRoot, 'cronjob/jobs.json'), 'utf-8')) as Record<string, unknown>[];
+    expect(stored.lastManualRequestId).toBe('m2');
+    expect(stored.lastResult).toBe('manual result');
   });
 
   it('an adapter torn down mid-tick hands the remaining jobs over instead of running them itself', async () => {
