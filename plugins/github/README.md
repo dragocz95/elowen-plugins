@@ -1,6 +1,6 @@
 # github
 
-Links each Elowen account to its own GitHub identity through device authentication, maps accessible Projects to repositories and lets the agent publish Sandbox branches, inspect and create pull requests, submit reviews, read checks and merge after an explicit confirmation.
+Account-scoped GitHub CLI device authentication for repository mappings, Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.
 
 ## Install
 
@@ -8,19 +8,18 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.1.15` |
-| Requires core | `0.28.35` |
+| Version | `0.1.16` |
+| Requires core | `0.28.42` |
 | Requires shared API | `not declared` |
-| User-grantable | No |
 
 ## Tools
 
-`GithubConnectionStatus`, `GithubRepositoryStatus`, `GithubListPullRequests`, `GithubGetPullRequest` and `GithubPullRequestChecks` report connection health, repository mappings and pull request state. `GithubPublishBranch`, `GithubCreatePullRequest`, `GithubSubmitReview` and `GithubMergePullRequest` change remote state and each require interactive confirmation before they act.
+GithubConnectionStatus, GithubRepositoryStatus, GithubListPullRequests, GithubGetPullRequest, GithubPullRequestChecks, GithubPublishBranch, GithubCreatePullRequest, GithubSubmitReview, GithubMergePullRequest.
 
 ## Configuration
 
-The operator schema declares no settings fields. Each account may set a default merge method, `mergeMethod`, in the personal GitHub settings, and the plugin provides a `github` control.
+No settings fields declared.
 
 ## Documentation
 
-See the "Code Tools" page of the Elowen user manual (`docs/site/39-code-tools.md` in the Elowen repository).
+See the [github page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).

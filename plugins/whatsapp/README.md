@@ -1,6 +1,6 @@
 # whatsapp
 
-Runs a WhatsApp bot over a paired phone that answers from Elowen in direct and group chats, with text commands, a numbered per-chat model menu, live progress traces, status reactions and sender policies that map senders to access.
+WhatsApp bot that answers from Elowen AI in direct and group chats, with text commands, model selection, live progress and sender policies. It also provides group management and sending tools.
 
 ## Install
 
@@ -8,19 +8,18 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.2.17` |
+| Version | `0.2.18` |
 | Requires core | `0.28.11` |
 | Requires shared API | `4` |
-| User-grantable | No |
 
 ## Tools
 
-`WhatsappSend` sends a message to any chat, `WhatsappGroupList` and `WhatsappGroupInfo` list and inspect groups, and `WhatsappGroupCreate`, `WhatsappGroupAdd` and `WhatsappGroupRemove` create groups and manage their members.
+WhatsappSend, WhatsappGroupList, WhatsappGroupInfo, WhatsappGroupCreate, WhatsappGroupAdd, WhatsappGroupRemove.
 
 ## Configuration
 
-No field is required. The 16 optional settings cover pairing by phone number, allowed groups and the notification chat, reply behavior and the live progress trace, vision and media limits, the open-question timeout and the sender policies that admit senders. No field is a secret; pairing happens by QR code or pairing code from the plugin's Settings screen.
+phoneNumber, groupIds, notifyChat, respondWithoutMention, streaming, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, visionModel, maxImageBytes, maxImages, maxUploadImages, askTimeoutMs, senderPolicies.
 
 ## Documentation
 
-See the "Chat Platform Plugins" page of the Elowen user manual (`docs/site/37-chat-platform-plugins.md` in the Elowen repository).
+See the [whatsapp page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).

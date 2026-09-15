@@ -1,6 +1,6 @@
 # skills
 
-Loads markdown skills from disk and exposes the complete live skill catalog to the Elowen brain. The Skills page shows personal, instance, bundled and plugin-contributed skills; administrators can narrow plugin skill availability per account.
+Load markdown skills from disk and expose them to the Elowen brain.
 
 ## Install
 
@@ -15,12 +15,12 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 ## Tools
 
-`ListSkills` shows the skills available in the session and `SkillLoad` loads one into the conversation. `CreateSkill` and `DeleteSkill` add and remove reusable instructions.
+SkillLoad, CreateSkill, ListSkills, DeleteSkill.
 
 ## Configuration
 
-The manifest declares no settings fields. Personal and instance skill files retain their name, description, body and manual-only flag. Plugin-contributed skills are read-only artifacts; an administrator may select an account and set an explicit disabled override. Absence of an override means enabled, while plugin disablement and user grants still take precedence.
+No settings fields declared.
 
 ## Documentation
 
-See the "Skills Plugin" page of the Elowen user manual (`docs/site/45-skills-plugin.md` in the Elowen repository).
+See the [skills page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/45-skills-plugin.md).
