@@ -94,15 +94,13 @@ const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slic
 const clampConfig = (value, def, min, max) => Math.min(Math.max(Number(value) || def, min), max);
 
 import {
-  DEFAULT_CRON_LOOKBACK_MS, DEFAULT_TICK_MS, WEEKDAYS, MONTHS,
-  systemZone, formatters, formatterFor,
-  zonedParts, zonedTimeToMs, slotKey,
-  parseCronField, parseCron, parseSchedule, cronMatches, lastCronOccurrence,
-  inHours, hoursAreValid, dueSlot, isDue, parseOneShot,
-  resolveLocalDateTime, planOccurrences, slotOccurrence,
-  localDates, expectedInstant, sortOccurrences, sortKeyOf, paginateAgenda, summarizeDays,
-  CALENDAR_MAX_SUMMARY_DAYS, CALENDAR_MAX_AGENDA_DAYS, CALENDAR_MAX_SAMPLES_PER_DAY,
-  CALENDAR_LIMIT_AGENDA_DEFAULT, CALENDAR_AGENDA_MAX_OCCURRENCES, CALENDAR_CANDIDATE_BUDGET,
+  DEFAULT_CRON_LOOKBACK_MS, DEFAULT_TICK_MS,
+  systemZone, zonedParts, zonedTimeToMs,
+  parseOneShot, parseSchedule, hoursAreValid, dueSlot,
+  resolveLocalDateTime, planOccurrences,
+  sortOccurrences, paginateAgenda, summarizeDays,
+  CALENDAR_MAX_SAMPLES_PER_DAY, CALENDAR_LIMIT_AGENDA_DEFAULT,
+  CALENDAR_AGENDA_MAX_OCCURRENCES, CALENDAR_CANDIDATE_BUDGET,
 } from './schedule.mjs';
 // The engine moved to schedule.mjs so the scheduler and every preview endpoint share one compiled
 // schedule representation; these names keep their exports here so existing imports stay working.
@@ -604,17 +602,16 @@ class CreationReceiptStore {
   /** Mint ONE receipt row; expired rows go first and the cap keeps the NEWEST, oldest dropped. */
   put(receiptKey, value, now) {
     const rows = Object.entries(this.all())
-      .filter(([key, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
+      .filter(([, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
       .sort((a, b) => (Date.parse(a[1].createdAt ?? '') || 0) - (Date.parse(b[1].createdAt ?? '') || 0))
-      .slice(-(MAX_RECEIPTS - 1))
-      .map(([key, entry]) => [key, entry]);
+      .slice(-(MAX_RECEIPTS - 1));
     rows.push([receiptKey, value]);
     this.save(Object.fromEntries(rows));
   }
   /** Re-apply retention at boot: a receipt whose 24h passed must never answer a retry twice. */
   pruneExpired(now) {
     const rows = Object.entries(this.all())
-      .filter(([key, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
+      .filter(([, entry]) => (Date.parse(entry.createdAt ?? '') || 0) > now - RECEIPTS_RETENTION_MS)
       .sort((a, b) => (Date.parse(a[1].createdAt ?? '') || 0) - (Date.parse(b[1].createdAt ?? '') || 0))
       .slice(-MAX_RECEIPTS);
     const before = this.all();
@@ -907,6 +904,8 @@ export function register(ctx) {
       ...(owner !== null ? { ownerUserId: owner } : {}),
       ...(body.projectRef !== undefined ? { projectRef: body.projectRef } : {}),
       createdAt: new Date().toISOString(),
+      // Optimistic concurrency starts with creation itself: a one-shot's first PUT races on 1.
+      revision: 1,
     } };
   };
   /** Build the storable RECURRING row from the HTTP create body. Filing is REQUIRED, in the scope the
@@ -937,6 +936,8 @@ export function register(ctx) {
         // Armed from creation, exactly as every other writer arms a new job: it waits for its NEXT
         // natural slot, never firing on save.
         lastRun: new Date().toISOString(),
+        // Optimistic concurrency begins at creation, so the very first edit already has a base.
+        revision: 1,
       },
     };
   };
@@ -1553,6 +1554,9 @@ export function register(ctx) {
     const jobs = readJobsStrict();
     jobs.push(draft.job);
     store.save(jobs);
+    // Written AFTER the row: an HTTP retry with this requestId replays the content hash instead of
+    // creating a second job. An invalid body never burns a requestId on a receipt.
+    receipts.put(receiptKey, { jobId: draft.job.id, payloadHash: fingerprint, createdAt: new Date().toISOString() }, Date.now());
     return jsonRes({ ok: true, job: publicJob(draft.job), revision: 1 }, 201);
   };
 
@@ -1586,22 +1590,23 @@ export function register(ctx) {
     if (body.expectedRevision !== undefined && (Number.isSafeInteger(target.revision) ? target.revision : 0) !== body.expectedRevision) {
       return jsonRes({ error: 'job changed on the server; reload it before running', conflict: true, code: 'revision_conflict', current: publicJob(target) }, 409);
     }
-    if (!adapter?.status().ready) {
-      return jsonRes({ error: 'scheduler is not ready', code: 'scheduler_unavailable' }, 503);
-    }
     if (target.manualRequest && target.manualRequest.id !== requestId) {
       return jsonRes({ error: 'a manual run is already queued for this job', code: 'run_already_queued' }, 409);
     }
     if (target.lastManualRequestId === requestId) {
-      // The SAME requestId once answered: no second run, whatever the job's queue state now.
+      // The SAME requestId once answered: no second run, whatever the job's queue state now. A retry
+      // reads its own PAST, not the scheduler's present availability.
       return jsonRes({ ok: true }, 202);
     }
-    if (!target.manualRequest) {
-      store.patch(id, { manualRequest: { id: requestId, requestedAt: new Date().toISOString() } });
-      queueMicrotask(() => void adapter.tick().catch((error) => ctx.logger.error(`manual run failed: ${error?.message ?? error}`)));
+    if (target.manualRequest) {
+      // SAME requestId while still queued: idempotent, no second run.
       return jsonRes({ ok: true }, 202);
     }
-    // SAME requestId while still queued: idempotent, no second run.
+    if (!adapter?.status().ready) {
+      return jsonRes({ error: 'scheduler is not ready', code: 'scheduler_unavailable' }, 503);
+    }
+    store.patch(id, { manualRequest: { id: requestId, requestedAt: new Date().toISOString() } });
+    queueMicrotask(() => void adapter.tick().catch((error) => ctx.logger.error(`manual run failed: ${error?.message ?? error}`)));
     return jsonRes({ ok: true }, 202);
   };
 
@@ -1658,6 +1663,206 @@ export function register(ctx) {
     },
   });
 
+  // ── The calendar: one window, ONE strict read, server-expanded occurrences ──────────────────────
+  // The month summary and the paginated agenda answer from the SAME engine the scheduler runs: the
+  // same parser, timezone rules, DST identity, active hours and catch-up. The snapshot, an opaque
+  // hash of everything visible in the window plus the engine inputs, carries the agenda's cursor —
+  // a snapshot the caller has not seen conflicts out (409) instead of mixing schedule states.
+  const encodeCursor = (snapshot, sortKey) => Buffer.from(JSON.stringify({ snapshot, sortKey }), 'utf-8').toString('base64url');
+  const decodeCursor = (cursor) => {
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+      return typeof parsed?.snapshot === 'string' && typeof parsed?.sortKey === 'string' ? parsed : null;
+    } catch { return null; }
+  };
+  ctx.registerApiRoute({
+    path: 'calendar', method: 'GET', access: 'user',
+    handler: async (req) => {
+      const timezone = ctx.timezone();
+      const nowMs = Date.now();
+      const live = liveEngineInputs({ timezone, nowMs });
+      const detail = req.query.detail === 'agenda' ? 'agenda' : 'summary';
+      const scope = req.query.scope === undefined ? 'all' : String(req.query.scope);
+      if (!['all', 'personal', 'instance'].includes(scope)) {
+        return jsonRes({ error: 'scope must be all, personal or instance', code: 'invalid_request', field: 'scope' }, 400);
+      }
+      if (scope === 'instance' && req.auth.admin !== true) {
+        return jsonRes({ error: 'instance scope requires an administrator', code: 'forbidden', field: 'scope' }, 403);
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start ?? '')) === false) {
+        return jsonRes({ error: 'start must be a local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'start' }, 400);
+      }
+      const [sy, smo, sd] = String(req.query.start).split('-').map(Number);
+      const startInstant = zonedTimeToMs(timezone, sy, smo, sd, 0, 0);
+      const startParts = zonedParts(startInstant, timezone);
+      const maxDays = detail === 'agenda' ? 7 : 42;
+      let days = req.query.days === undefined ? 7 : Number(req.query.days);
+      if (!Number.isSafeInteger(days) || days < 1 || days > maxDays) {
+        return jsonRes({ error: `days must be an integer between 1 and ${maxDays} for detail=${detail}`, code: 'invalid_request', field: 'days' }, 400);
+      }
+      let limit;
+      if (detail === 'agenda') {
+        limit = req.query.limit === undefined ? CALENDAR_LIMIT_AGENDA_DEFAULT : Number(req.query.limit);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > CALENDAR_AGENDA_MAX_OCCURRENCES) {
+          return jsonRes({ error: `limit must be an integer between 1 and ${CALENDAR_AGENDA_MAX_OCCURRENCES}`, code: 'invalid_request', field: 'limit' }, 400);
+        }
+      }
+      // One strict read of the jobs file: unreadable answers jobs_unreadable, never an empty list.
+      let jobs;
+      try { jobs = readJobsStrict(); }
+      catch (error) {
+        ctx.logger.warn(`calendar strict jobs read failed (${error instanceof Error ? error.message : error})`);
+        return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500);
+      }
+      const actor = { userId: req.auth.userId, admin: req.auth.admin === true };
+      const actorJobs = actorSeesJobs(actor, jobs);
+      let visible = scope === 'personal' ? actorJobs.filter((j) => ownerOf(j) === actor.userId) : actorJobs;
+      if (scope === 'instance') visible = visible.filter((j) => ownerOf(j) === null);
+      // The snapshot: every visible scheduling/runtime field, plus the engine inputs the occurrences
+      // are expanded with. A change in ANY of it makes old cursors conflict, never silently mix.
+      const snapshotPayload = JSON.stringify({
+        v: 1,
+        timezone,
+        tickMs: live.tickMs,
+        lookbackMs: live.lookbackMs,
+        jobs: visible.map((j) => ({
+          id: j.id, name: j.name, revision: j.revision ?? 0,
+          schedule: j.schedule, runAt: j.runAt, hours: j.hours, enabled: j.enabled,
+          check: j.check, plain: j.plain, model: j.model, notifyChannelId: j.notifyChannelId,
+          ownerUserId: j.ownerUserId ?? null, conversationSessionId: j.conversationSessionId ?? null,
+          projectRef: j.projectRef ?? null, createdAt: j.createdAt,
+          lastRun: j.lastRun, lastSlot: j.lastSlot, lastResult: j.lastResult,
+          manualRequest: j.manualRequest ?? null, lastManualRequestId: j.lastManualRequestId ?? null,
+        })),
+      });
+      const snapshot = createHash('sha256').update(snapshotPayload).digest('base64url');
+      // The window: days local dates from start, ending at the exclusive midnight after the last one.
+      let lastLocal = { ...startParts };
+      {
+        let y = startParts.year; let mo = startParts.month; let d = startParts.day;
+        for (let i = 0; i < days; i += 1) {
+          d += 1;
+          if (d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) { d = 1; mo += 1; if (mo > 12) { mo = 1; y += 1; } }
+        }
+        lastLocal = { year: y, month: mo, day: d };
+      }
+      const untilMs = zonedTimeToMs(timezone, lastLocal.year, lastLocal.month, lastLocal.day, 0, 0) - 1;
+      // Expand every visible enabled job forward, under ONE hard candidate budget per request.
+      const occurrences = [];
+      const omittedByDate = new Map();
+      let truncated = false;
+      for (const job of visible) {
+        if (job.enabled === false) continue; // paused jobs: no occurrences, but listed in jobs
+        const planned = planOccurrences(job, {
+          ...live, fromMs: startInstant, untilMs,
+          budgetCap: CALENDAR_CANDIDATE_BUDGET,
+        });
+        if (planned.truncated) truncated = true;
+        for (const [date, count] of planned.omittedByHours) {
+          omittedByDate.set(date, (omittedByDate.get(date) ?? 0) + count);
+        }
+        occurrences.push(...planned.occurrences);
+        if (occurrences.length > CALENDAR_CANDIDATE_BUDGET) {
+          occurrences.length = CALENDAR_CANDIDATE_BUDGET;
+          truncated = true;
+          break;
+        }
+      }
+      const sortedOccurrences = sortOccurrences(occurrences);
+      const projectedJobs = visible.map((job) => publicJob(job));
+      const schedulerStatus = adapter?.status() ?? { ready: false };
+      const response = {
+        generatedAt: new Date(nowMs).toISOString(),
+        timezone,
+        precisionMs: live.tickMs,
+        snapshot,
+        window: {
+          startLocalDate: String(req.query.start),
+          endLocalDateExclusive: `${lastLocal.year}-${String(lastLocal.month).padStart(2, '0')}-${String(lastLocal.day).padStart(2, '0')}`,
+          startAt: new Date(startInstant).toISOString(),
+          endAt: new Date(untilMs + 1).toISOString(),
+        },
+        scheduler: schedulerStatus,
+        jobs: projectedJobs,
+      };
+      if (detail === 'summary') {
+        response.days = summarizeDays(sortedOccurrences, {
+          startLocal: String(req.query.start), days,
+          samples: CALENDAR_MAX_SAMPLES_PER_DAY,
+          omittedByHours: [...omittedByDate].map(([date, count]) => ({ date, count })),
+          truncated,
+        });
+      } else {
+        const cursor = req.query.cursor === undefined ? undefined : decodeCursor(String(req.query.cursor));
+        if (req.query.cursor !== undefined && cursor === null) {
+          return jsonRes({ error: 'the cursor is not readable', code: 'invalid_request', field: 'cursor' }, 400);
+        }
+        if (cursor !== null && req.query.snapshot !== undefined && String(req.query.snapshot) !== cursor.snapshot) {
+          return jsonRes({ error: 'the schedule changed; restart the agenda from its first page', code: 'snapshot_changed' }, 409);
+        }
+        if (req.query.cursor !== undefined && cursor !== null && cursor.snapshot !== snapshot) {
+          return jsonRes({ error: 'the schedule changed; restart the agenda from its first page', code: 'snapshot_changed' }, 409);
+        }
+        const page = paginateAgenda(sortedOccurrences, { limit, afterKey: cursor?.sortKey });
+        const payload = { occurrences: page.occurrences };
+        if (page.nextKey !== undefined) payload.nextCursor = encodeCursor(snapshot, page.nextKey);
+        Object.assign(response, payload);
+      }
+      response.truncated = truncated;
+      return jsonRes(response);
+    },
+  });
+
+  // ── The schedule draft preview: VALIDITY and next occurrences come from the server ──────────────
+  // The browser never parses cron to validate or expand a draft; this route answers from the same
+  // engine the scheduler runs, honoring lookback semantics only where the preview is future-facing.
+  ctx.registerApiRoute({
+    path: 'schedule-preview', method: 'POST', access: 'user',
+    handler: async (req) => {
+      let body;
+      try { body = await req.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return jsonRes({ error: 'body must be a preview request', code: 'invalid_request' }, 400);
+      }
+      if (typeof body.schedule !== 'string') {
+        return jsonRes({ error: 'schedule must be a string', code: 'invalid_request', field: 'schedule' }, 400);
+      }
+      const count = body.count === undefined ? 5 : Number(body.count);
+      if (!Number.isSafeInteger(count) || count < 1 || count > 10) {
+        return jsonRes({ error: 'count must be an integer between 1 and 10', code: 'invalid_request', field: 'count' }, 400);
+      }
+      const timezone = ctx.timezone();
+      const hoursValid = hoursAreValid(body.hours);
+      const nowMs = Date.now();
+      let fromMs = nowMs;
+      if (body.fromLocalDate !== undefined) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(body.fromLocalDate)) === false) {
+          return jsonRes({ error: 'fromLocalDate must be a local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'fromLocalDate' }, 400);
+        }
+        const [fy, fmo, fd] = String(body.fromLocalDate).split('-').map(Number);
+        fromMs = zonedTimeToMs(timezone, fy, fmo, fd, 0, 0);
+      }
+      const sched = parseSchedule(body.schedule);
+      if (!sched) {
+        return jsonRes({
+          valid: false, timezone, hoursValid, occurrences: [],
+          error: 'invalid schedule — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00" or a 5-field cron expression',
+          code: 'invalid_schedule',
+        }, 200);
+      }
+      const planned = planOccurrences(
+        { id: 'preview', schedule: body.schedule, hours: body.hours },
+        { timezone, nowMs, fromMs, untilMs: fromMs + 366 * 86_400_000, tickMs: DEFAULT_TICK_MS, lookbackMs: DEFAULT_CRON_LOOKBACK_MS },
+      ).occurrences;
+      return jsonRes({
+        valid: true,
+        kind: sched.kind,
+        timezone,
+        hoursValid,
+        occurrences: sortOccurrences(planned).slice(0, count),
+      });
+    },
+  });
   // The conversation picker the jobs editor fills its "organized under" field from. Authenticated, and
   // scoped by the HOST: this route only states WHOSE conversations it asks for, and the host refuses a
   // scope the caller may not have. Metadata only — never messages, and never the immutable key.
@@ -1747,8 +1952,10 @@ export function register(ctx) {
         // lastRun starts at creation time so a fresh job waits for its NEXT natural slot — a
         // "daily 06:00" created at 15:00 must not fire immediately.
         const job = { id, ...toolProjectRef(owner), name: p.name, schedule: p.schedule, prompt: p.prompt, check: p.check, hours: p.hours, notifyChannelId: p.notifyChannelId, plain: p.plain, model, enabled: p.enabled, ...(owner !== null ? { ownerUserId: owner } : {}), ...origin, conversationSessionId: target.id, conversationKey: target.key, createdAt: new Date().toISOString(), lastRun: new Date().toISOString() };
-        const denied = owner !== null ? ownedJobError(job, jobs) : null;
-        if (denied) return ok(`Error: ${denied}.`);
+        // The SHARED creation validation the web POST route runs — the same same shape, schedule
+        // bounds and per-account ceilings. The tool answers in its own voice; the rule is one.
+        const denied = creationError(job, jobs);
+        if (denied) return ok(`Error: ${denied.error}.`);
         jobs.push(job);
         store.save(jobs);
         const lands = owner === null
@@ -1796,8 +2003,9 @@ export function register(ctx) {
         const uid = ctx.currentIdentity()?.elowenUserId;
         const origin = uid != null ? conversationOrigin(uid) : undefined;
         const job = { id, ...toolProjectRef(owner), name: p.name, schedule: p.when, prompt: p.prompt, runAt: new Date(runAt).toISOString(), ...(owner !== null ? { ownerUserId: owner } : {}), createdAt: new Date().toISOString(), ...origin };
-        const denied = owner !== null ? ownedJobError(job, jobs) : null;
-        if (denied) return ok(`Error: ${denied}.`);
+        // The shared creation validation, including the five-second lower bound a one-shot must clear.
+        const denied = creationError(job, jobs);
+        if (denied) return ok(`Error: ${denied.error}.`);
         jobs.push(job);
         store.save(jobs);
         return ok(`Wake-up "${p.name}" set for ${new Date(runAt).toISOString()} — id ${id}.${origin ? ' It will reply in this conversation.' : ''}`);
@@ -1929,8 +2137,9 @@ export function register(ctx) {
       for (const job of readJobsStrict()) {
         if (!isRecord(job) || job.runAt) continue; // a one-shot wake-up is not a branch anyone navigates to
         const owner = ownerOf(job);
-        // The same visibility rule the HTTP listing applies, re-applied here rather than assumed.
-        if (!requesterIsAdmin && owner !== requesterUserId) continue;
+        // The same visibility rule every route and tool applies — own personal plus admin-visible
+        // instance jobs — read from ONE helper rather than re-derived here.
+        if (!canAddressJob({ userId: requesterUserId, admin: requesterIsAdmin === true }, job)) continue;
         const assoc = jobAssociation(job);
         if (assoc.state !== 'linked' || !authorized.has(assoc.target.id)) continue;
         // WHERE THE JOB RUNS, beside where it is filed, so a reader following the row lands in the
