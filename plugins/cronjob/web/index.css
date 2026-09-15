@@ -126,6 +126,9 @@
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .grid-cols-7 {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
   .grid-cols-\[3\.5rem_0\.5rem_minmax\(0\,1fr\)_auto\] {
     grid-template-columns: 3.5rem 0.5rem minmax(0,1fr) auto;
   }
@@ -471,17 +474,6 @@
     }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  @media (width >= 48rem) {
-    .md\:grid {
-      display: grid;
-    }
-    .md\:hidden {
-      display: none;
-    }
-    .md\:grid-cols-7 {
-      grid-template-columns: repeat(7, minmax(0, 1fr));
     }
   }
   @media (width >= 64rem) {

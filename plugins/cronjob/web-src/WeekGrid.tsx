@@ -31,7 +31,7 @@ export function WeekGrid({ days, jobs, selectedDate, onSelectDate, onOpenJob, on
     <div
       role="grid"
       aria-label={s.tabCalendar || 'Calendar'}
-      className="hidden min-w-0 overflow-hidden rounded-lg border border-border/80 bg-document md:grid md:grid-cols-7"
+      className="grid min-w-0 grid-cols-7 overflow-hidden rounded-lg border border-border/80 bg-document"
       data-testid="cron-week-grid"
     >
       {days.map((day) => {
@@ -100,7 +100,7 @@ export function MobileDayStrip({ days, selectedDate, onSelectDate }: {
   const selectedRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { selectedRef.current?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, [selectedDate]);
   return (
-    <div className="flex snap-x gap-2 overflow-x-auto pb-2 md:hidden" data-testid="cron-day-strip">
+    <div className="flex snap-x gap-2 overflow-x-auto pb-2" data-testid="cron-day-strip">
       {days.map((day) => {
         const selected = day.localDate === selectedDate;
         return (

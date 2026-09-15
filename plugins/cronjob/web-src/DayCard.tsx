@@ -48,21 +48,22 @@ export function DayCard({ card, job, compact = false, onOpen, onRun, onToggle }:
         </span>
         <span className="truncate text-sm font-medium text-foreground">{job.name}</span>
         <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-          <C.Avatar name={owner} src={job.owner?.avatar || undefined} size="xs" />
+          <C.Avatar name={owner} src={job.owner?.avatar || undefined} size={20} />
           {!compact ? <span className="truncate">{owner}</span> : null}
           {hidden > 0 ? <span className="ml-auto">+{hidden}</span> : null}
         </span>
       </button>
-      <C.ActionMenu
-        variant="kebab"
-        label={s.actions || 'Actions'}
-        className="absolute right-1 top-1"
-        items={[
-          { id: 'run', label: s.runNow || 'Run now', icon: Play, disabled: job.lifecycle === 'oneShot', onSelect: () => onRun(job) },
-          { id: 'toggle', label: job.enabled === false ? (s.pauseLabelOn || 'Enable') : (s.pauseLabel || 'Pause'), icon: job.enabled === false ? Clock3 : Pause, onSelect: () => onToggle(job) },
-          { id: 'edit', label: s.edit || 'Edit', icon: Pencil, onSelect: () => onOpen(job.id) },
-        ]}
-      />
+      <div className="absolute right-1 top-1">
+        <C.ActionMenu
+          variant="kebab"
+          label={s.actions || 'Actions'}
+          items={[
+            { id: 'run', label: s.runNow || 'Run now', icon: Play, disabled: job.lifecycle === 'oneShot', onSelect: () => onRun(job) },
+            { id: 'toggle', label: job.enabled === false ? (s.pauseLabelOn || 'Enable') : (s.pauseLabel || 'Pause'), icon: job.enabled === false ? Clock3 : Pause, onSelect: () => onToggle(job) },
+            { id: 'edit', label: s.edit || 'Edit', icon: Pencil, onSelect: () => onOpen(job.id) },
+          ]}
+        />
+      </div>
     </div>
   );
 }

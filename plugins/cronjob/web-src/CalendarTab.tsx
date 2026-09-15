@@ -40,7 +40,6 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
   const { t } = hooks.useTranslation();
   const me = hooks.useMe();
   const mobile = hooks.useMobile();
-  const [intervalQuery, setIntervalQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [openRun, setOpenRun] = useState<CronRunRow | null>(null);
   const week = hooks.useQuery<CronWeekResponse>({
@@ -164,8 +163,6 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
       <IntervalsTable
         rows={filtered.intervals}
         jobs={filtered.jobs}
-        query={intervalQuery}
-        onQueryChange={setIntervalQuery}
         onOpen={onOpenJob}
         onRun={onRun}
       />
