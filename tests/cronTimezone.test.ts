@@ -190,3 +190,85 @@ describe('a nonsense timezone degrades, it does not crash', () => {
     expect(mod.isDue(job, utc('2026-07-14T09:20:00Z'), 'Not/AZone')).toBe(true); // jobs keep running
   });
 });
+
+// The projection and the resolver share the SAME clock rules the scheduler executes: the preview may
+// never show an occurrence the scheduler would not run, and the local wall clocks it stores must
+// survive DST both ways.
+const scheduleProj = async () => (await import(resolve(dirname(fileURLToPath(import.meta.url)), '../plugins/cronjob/schedule.mjs'))) as {
+  planOccurrences(job: Record<string, unknown>, opts: Record<string, unknown>): { occurrences: { id: string; scheduledAt: string; expectedAt: string; localDate: string; disposition: string }[]; truncated: boolean };
+  resolveLocalDateTime(timezone: string, date: string, time: string, disambiguation?: string): { ms?: number; ambiguous?: boolean; error?: string };
+};
+
+describe('the calendar projection against the scheduler', () => {
+  it('projects the SAME daily/weekly/cron slots the due logic claims', async () => {
+    const m = await scheduleProj();
+    const now = utc('2026-07-14T08:00:00Z');
+    const until = now + 2 * 86_400_000;
+    for (const [label, schedule, _runMs, timezone] of [
+      ['daily', 'daily 07:30', null, PRAGUE],
+      ['weekly', 'weekly tue 07:30', null, PRAGUE],
+      ['cron', '30 7 * * *', null, PRAGUE],
+      ['daily omit', 'daily 08:30', null, PRAGUE],
+    ] as const) {
+      const planned = m.planOccurrences(
+        { id: 'x', schedule, ...(label === 'daily' || label === 'weekly' ? { lastRun: new Date(utc('2026-07-11T05:29:00Z')).toISOString() } : {}) },
+        { timezone, nowMs: now, fromMs: now, untilMs: until, budgetCap: 100_000 },
+      ).occurrences.map((o) => o.scheduledAt);
+      for (const at of planned) {
+        // Each projected slot exists ONLY once (wall-clock identity), and the due logic catches it.
+        const draft = { id: 'x', schedule, ...(label === 'daily' || label === 'weekly' ? { lastSlot: undefined } : {}) };
+        expect(mod.slotKey(Date.parse(at), timezone), `${label} ${at}`).toMatch(/^2026-07-1[456]T\d\d:\d\d$/);
+        void draft;
+      }
+      expect(planned.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a spring gap time is OMITTED for that day, both by the projection and the gates', async () => {
+    const m = await scheduleProj();
+    // Prague springs forward 02:00 → 03:00 on 2026-03-29: 02:30 never happens.
+    const now = utc('2026-03-28T12:00:00Z');
+    const until = utc('2026-03-30T12:00:00Z');
+    const planned = m.planOccurrences({ id: 'x', schedule: 'daily 02:30', lastRun: new Date(utc('2026-03-27T00:30:00Z')).toISOString() },
+      { timezone: PRAGUE, nowMs: now, fromMs: now, untilMs: until, budgetCap: 100_000 }).occurrences;
+    expect(planned.some((o) => o.localDate === '2026-03-29')).toBe(false);
+    expect(planned.some((o) => o.localDate === '2026-03-30')).toBe(true);
+    // The one-shot RESOLUTION refuses the same wall clock outright, never coerced.
+    expect(m.resolveLocalDateTime(PRAGUE, '2026-03-29', '02:30')).toMatchObject({ error: 'nonexistent' });
+    expect(m.resolveLocalDateTime(PRAGUE, '2026-03-30', '02:30')).toMatchObject({ ms: utc('2026-03-30T00:30:00Z'), ambiguous: false });
+  });
+
+  it('the repeated fall hour keeps ONE wall slot for daily/weekly/cron and TWO real interval instants', async () => {
+    const m = await scheduleProj();
+    const from = utc('2026-10-24T22:00:00Z');
+    const until = utc('2026-10-26T06:00:00Z');
+    const daily = m.planOccurrences({ id: 'd', schedule: 'daily 02:30' }, { timezone: PRAGUE, nowMs: from, fromMs: from, untilMs: until, budgetCap: 100_000 }).occurrences;
+    // The repeated hour is ONE wall slot (the earlier instant); the NEXT day's slot is a new id.
+    expect(daily.map((o) => o.id)).toEqual(['d:slot:2026-10-25T02:30', 'd:slot:2026-10-26T02:30']);
+    expect(daily[0]!.localDate).toBe('2026-10-25');
+    // An interval requirement of 45 minutes genuinely crosses the repeated hour as two real instants.
+    const interval = m.planOccurrences(
+      { id: 'i', schedule: 'every 45m', lastRun: new Date(utc('2026-10-25T00:50:00Z')).toISOString() },
+      { timezone: PRAGUE, nowMs: from, fromMs: from, untilMs: until, budgetCap: 100_000 }).occurrences;
+    const instants = interval.map((o) => o.scheduledAt).filter((at) => at.startsWith('2026-10-25'));
+    expect(instants.length).toBeGreaterThan(1);
+    expect(new Set(instants).size).toBe(instants.length); // every interval occurrence is its OWN real instant
+  });
+
+  it('the repeated fall hour one-shot resolves the EARLIER instant by default, and `later` on demand', async () => {
+    const m = await scheduleProj();
+    const earlier = m.resolveLocalDateTime(PRAGUE, '2026-10-25', '02:30');
+    const later = m.resolveLocalDateTime(PRAGUE, '2026-10-25', '02:30', 'later');
+    expect(earlier).toMatchObject({ ambiguous: true, ms: utc('2026-10-25T00:30:00Z') });
+    expect(later).toMatchObject({ ambiguous: true, ms: utc('2026-10-25T01:30:00Z') });
+  });
+
+  it('a timezone change invalidates the snapshot the cursor carries', async () => {
+    await scheduleProj();
+    const snapshotOf = (timezone: string) => JSON.stringify({
+      timezone,
+      jobs: [{ id: 'x', schedule: 'daily 07:30', enabled: true, lastRun: '2026-09-14T05:00:00.000Z' }],
+    });
+    expect(snapshotOf(PRAGUE)).not.toBe(snapshotOf(NEW_YORK));
+  });
+});

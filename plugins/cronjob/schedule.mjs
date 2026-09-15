@@ -15,8 +15,8 @@ export const systemZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
 // Constructing a DateTimeFormat is FAR more expensive than using one, and the catch-up scan below can ask
 // for up to a day of minutes per job per tick. Build one formatter per zone and keep it.
-export const formatters = new Map();
-export const formatterFor = (timezone) => {
+const formatters = new Map();
+const formatterFor = (timezone) => {
   let fmt = formatters.get(timezone);
   if (!fmt) {
     const options = {
@@ -76,7 +76,6 @@ export function slotKey(ms, timezone) {
 
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-export { WEEKDAYS, MONTHS };
 
 // How far back a cron schedule may catch up after downtime. The human-readable "daily 07:30" form already
 // fires late (isDue only checks that today's slot has passed), and a cron job must not be the one form that
@@ -308,11 +307,7 @@ export function parseOneShot(spec, now, timezone = systemZone()) {
 // scheduler and the preview, never a second approximation that could quietly disagree with a run.
 // IMPORTANT: calRequests an agenda must be able to paginate IN PLACE while jobs run. This module is
 // the only representation; the scheduler keeps its semantics unchanged.
-const need = undefined; void need;
-export const CALENDAR_MAX_SUMMARY_DAYS = 42;
-export const CALENDAR_MAX_AGENDA_DAYS = 7;
 export const CALENDAR_MAX_SAMPLES_PER_DAY = 3;
-export const CALENDAR_MARGIN_OCCURS = 250;
 export const CALENDAR_LIMIT_AGENDA_DEFAULT = 100;
 export const CALENDAR_AGENDA_MAX_OCCURRENCES = 250;
 export const CALENDAR_CANDIDATE_BUDGET = 100_000;
@@ -342,6 +337,9 @@ export function resolveLocalDateTime(timezone, date, time, disambiguation = 'ear
   }
   if (matches.length === 0) return { error: 'nonexistent' };
   if (matches.length === 1) return { ms: matches[0], ambiguous: false };
+  // The scan walks offsets low-to-high, so it collected instants later-to-earlier; the SAME wall
+  // clock can happen twice across a fall-back, and the default resolution is the earliest instant.
+  matches.sort((a, b) => a - b);
   const ms = disambiguation === 'later' ? matches[matches.length - 1] : matches[0];
   return { ms, ambiguous: true };
 }
@@ -349,12 +347,11 @@ export function resolveLocalDateTime(timezone, date, time, disambiguation = 'ear
 /** A job's optional cheap guard: a guarded occurrence runs the check first and may SKIP the AI turn.
  *  The calendar must say only that the turn MAY be skipped, never promise a run. */
 const hasGuard = (job) => typeof job?.check === 'string' && !!job.check.trim();
-export { hasGuard };
 
 /** Iterate LOCAL dates [fromMs, untilMs] in `timezone`, inclusive, in order. Each step yields the
  *  date's wall-clock fields (year, month, day, weekday). UTC date arithmetic on the triple, read on
  *  the zone's formatter — never 24h arithmetic, which a DST boundary would shift. */
-export function localDates(fromMs, untilMs, timezone) {
+function localDates(fromMs, untilMs, timezone) {
   const from = zonedParts(fromMs, timezone);
   const to = zonedParts(untilMs, timezone);
   const dates = [];
@@ -372,7 +369,7 @@ export function localDates(fromMs, untilMs, timezone) {
 /** The earliest minute at or after `slot` when the job may run (its own minute when already inside
  *  active hours, otherwise the first later minute whose wall hour qualifies), or null when the hours
  *  gate would never open again inside the same span. */
-export function expectedInstant(slotMs, hours, timezone) {
+function expectedInstant(slotMs, hours, timezone) {
   if (inHours(hours, slotMs, timezone)) return slotMs;
   let cursor = slotMs + 60_000;
   const far = slotMs + 24 * 3_600_000;
@@ -400,7 +397,7 @@ export const DEFAULT_TICK_MS = 30_000;
  *  render exactly that wall clock, narrowed to the EARLIER instant when the repeated fall-back hour
  *  carries it twice. Null when the wall clock does not exist that day (the spring gap) — the
  *  scheduler's own dueSlot skips it too, so the projection must. */
-export function localSlotInstant(timezone, date, hour, minute) {
+function localSlotInstant(timezone, date, hour, minute) {
   const slot = zonedTimeToMs(timezone, date.year, date.month, date.day, hour, minute);
   const p = zonedParts(slot, timezone);
   if (p.year !== date.year || p.month !== date.month || p.day !== date.day
@@ -416,7 +413,7 @@ export function localSlotInstant(timezone, date, hour, minute) {
 /** THE one bounded forward expansion. The scheduler answers "is this job due RIGHT NOW"; the
  *  calendar needs the forward view of the SAME parser, timezone rules, DST identity and
  *  active-hours gate, so this is the only occurrence representation. */
-export function slotOccurrence(job, timezone, kind, slotMs, expectedMs, disposition) {
+function slotOccurrence(job, timezone, kind, slotMs, expectedMs, disposition) {
   return {
     id: kind === 'oneShot' ? `${job.id}:once`
       : kind === 'interval' ? `${job.id}:instant:${slotMs}`
@@ -491,31 +488,34 @@ export function planOccurrences(job, opts = {}) {
   const floor = Math.max(anchor, nowMs - lookbackMs);
 
   if (sched.kind === 'interval') {
-    // An interval is a duration; an overdue one is ONE cluster due at the next tick inside active
-    // hours. After the claim the following instants anchor on THAT instant, never on the wall clock.
-    if (nowMs - anchor >= sched.ms) {
-      const missed = anchor + Math.floor((nowMs - anchor) / sched.ms) * sched.ms;
-      const eligible = inHours(job.hours, nowMs, timezone);
-      const claimed = eligible ? nowMs : expectedInstant(nowMs, job.hours, timezone);
-      if (claimed === null) omit(missed);
-      else occurrences.push(slotOccurrence(job, timezone, 'interval', missed, Math.max(claimed, nowMs), eligible ? 'dueNow' : 'deferredByHours'));
-      for (let t = (claimed ?? nowMs) + sched.ms; t <= opts.untilMs && !truncated && occurrences.length < maxOccurrences; t += sched.ms) {
-        spend();
-        const expected = inHours(job.hours, t, timezone) ? t : expectedInstant(t, job.hours, timezone);
-        if (expected === null) continue;
-        occurrences.push(slotOccurrence(job, timezone, 'interval', t, expected, expected === t ? 'onTime' : 'deferredByHours'));
-      }
-      return done();
-    }
-    // Not overdue: future instants keep anchoring on the CURRENT run state.
-    const from = Math.max(opts.fromMs ?? nowMs, anchor);
-    for (let t = anchor + Math.ceil((from - anchor) / sched.ms) * sched.ms; t <= opts.untilMs && !truncated && occurrences.length < maxOccurrences; t += sched.ms) {
+    // An interval is a duration, not a wall clock. Its occurrences anchor on the CURRENT run state:
+    // the first instant the job is already due appears ONCE, at the very next tick inside active
+    // hours (the same claim an isDue tick would make) — never a backlog — and further instants step
+    // the duration forward through the window.
+    if (anchor <= 0) anchor = Math.min(fromMs, nowMs); // an unarmed legacy row is armed from NOW
+    let emittedPast = false;
+    let k = Math.ceil((Math.max(opts.fromMs ?? fromMs, anchor) - anchor) / sched.ms);
+    do {
       spend();
-      const expected = inHours(job.hours, t, timezone) ? t : expectedInstant(t, job.hours, timezone);
-      if (expected === null) { omit(t); continue; }
-      if (t <= nowMs) occurrences.push(slotOccurrence(job, timezone, 'interval', t, Math.max(expected, nowMs), 'catchUp'));
-      else occurrences.push(slotOccurrence(job, timezone, 'interval', t, expected, expected === t ? 'onTime' : 'deferredByHours'));
-    }
+      const instant = anchor + k * sched.ms;
+      if (instant > opts.untilMs) break;
+      const expected = inHours(job.hours, instant, timezone)
+        ? Math.max(instant, nowMs > instant ? nowMs : instant, nowMs)
+        : expectedInstant(Math.max(instant, nowMs), job.hours, timezone);
+      if (expected === null) { omit(instant); k += 1; continue; }
+      // The catch/claim window: the FIRST overdue instant is ONE catchUp entry at the next tick;
+      // everything after the claim anchors further forward.
+      if (instant <= nowMs) {
+        if (!emittedPast) {
+          emittedPast = true;
+          occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, inHours(job.hours, nowMs, timezone) ? 'catchUp' : 'deferredByHours'));
+        }
+      } else {
+        occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, expected === instant ? 'onTime' : 'deferredByHours'));
+      }
+      if (occurrences.length >= maxOccurrences || truncated) break;
+      k += 1;
+    } while (k > 0);
     return done();
   }
 
@@ -555,8 +555,7 @@ export function planOccurrences(job, opts = {}) {
 /** Stable occurrence sort: expectedAt first (the instant the agenda is ordered by), then the
  *  recurrence's own slot, then the job, then the occurrence identity - identical inputs sort
  *  identically forever, so a cursor position can never drift between pages. */
-export const AGENDA_SORT_FIELDS = ['expectedAt', 'scheduledAt', 'jobId', 'id'];
-export const sortKeyOf = (occ) => JSON.stringify([occ.expectedAt, occ.scheduledAt, occ.jobId, occ.id]);
+const sortKeyOf = (occ) => JSON.stringify([occ.expectedAt, occ.scheduledAt, occ.jobId, occ.id]);
 
 export function sortOccurrences(list) {
   const field = (o) => [o.expectedAt, o.scheduledAt, o.jobId, o.id];
@@ -575,7 +574,7 @@ export function sortOccurrences(list) {
  *  `afterKey` (the last key of the previous page) is present, strictly AFTER that key. Truncated is
  *  truthful about the SAME list: another page exists NOW against this very snapshot. */
 export function paginateAgenda(sorted, { limit, afterKey } = {}) {
-  const started = afterKey === undefined;
+  let started = afterKey === undefined;
   const page = [];
   for (const occ of sorted) {
     if (!started) {
@@ -607,7 +606,7 @@ const tomorrowLocal = (date) => {
  *  and the window's own truncated flag the caller threads through. */
 export function summarizeDays(occurrences, { startLocal, days, samples = CALENDAR_MAX_SAMPLES_PER_DAY, omittedByHours = [], truncated = false }) {
   const detected = new Map();
-  for (const { date, count } of omittedByHours) detected.set(date, (detected.get(date) ?? 0) + 1);
+  for (const { date, count } of omittedByHours) detected.set(date, (detected.get(date) ?? 0) + count);
   const groups = new Map();
   for (const occ of occurrences) {
     const date = occ.localDate;
