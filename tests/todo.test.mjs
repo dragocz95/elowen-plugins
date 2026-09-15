@@ -7,8 +7,12 @@ test('todo manifest and marketplace registry expose the same release', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
 
-  assert.equal(manifest.version, '0.14.6');
-  assert.equal(manifest.requiresCore, '0.28.14');
+  // 0.14.7 rides core's per-step context seam, so the floor moved to the core that ships
+  // `ctx.registerStepContext`. `apiVersion` stays exactly '1': it is an EXACT match against core's
+  // PLUGIN_API_VERSION, so raising it would refuse this plugin on every core, including a newer one.
+  assert.equal(manifest.version, '0.14.7');
+  assert.equal(manifest.apiVersion, '1');
+  assert.equal(manifest.requiresCore, '0.28.47');
   assert.equal(catalog?.version, manifest.version);
   assert.equal(catalog?.requiresCore, manifest.requiresCore);
   assert.equal(catalog?.provides.tools, 5);

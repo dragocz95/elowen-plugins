@@ -1,5 +1,10 @@
 # Changelog
 
+## todo 0.14.7 - 2026-09-15
+
+- The task list now reaches the turn it was composed for. Core re-reads a registered provider inside a long turn, after the last tool result and every N tool calls (the cadence knob in Settings -> Runtime), so a 60-call turn no longer works from a snapshot taken before its first call. The reminder is at most two short lines — the running task, its elapsed time, the open and completed counts, and one instruction to reconcile the list — and never a second copy of `<task_context>`, because core freezes every byte of it and re-sends it for the rest of the turn.
+- A list whose every task is completed says nothing, so a conversation with no task list stays silent and spends no bytes. An install onto a core that predates the seam keeps today's behaviour instead of skipping the whole plugin.
+
 ## lsp 0.2.0 - 2026-09-15
 
 - Idle and root-less language servers are now evicted: a warm server whose project root has been deleted, or that has not served a check for idleTtlMinutes (default 10, 0 turns age eviction off), is disposed and its memory released, so the pool no longer holds a server for the whole daemon lifetime.

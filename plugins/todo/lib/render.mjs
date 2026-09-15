@@ -117,6 +117,63 @@ function renderRunningWorkReminder(tasks, now) {
   return `  <running_work_reminder>Task #${longest.id} has been in_progress for ${formatCoarseElapsed(now - longest.startedAt)}. Confirm the current work still matches it; complete or update the task if the work has moved on.</running_work_reminder>`;
 }
 
+/** A task label as the model knows it: the activeForm while work runs, the subject otherwise.
+ *
+ *  Capped because the mid-turn block is FROZEN for the rest of the turn: a 200-character subject would sit
+ *  in every later request of a long turn, and the byte budget a step provider is held to is a few
+ *  hundred, not a kilobyte. */
+const STEP_LABEL_MAX = 70;
+
+function stepLabel(task) {
+  const label = task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject;
+  return label.length > STEP_LABEL_MAX ? `${label.slice(0, STEP_LABEL_MAX - 1)}…` : label;
+}
+
+/** The mid-turn reminder, for core's per-step context seam (`ctx.registerStepContext`).
+ *
+ *  `renderTaskContext` says all of this once, while a fresh prompt is composed, and never again during the
+ *  turn it described — so a 60-call turn works against a snapshot taken before its first tool call. This is
+ *  the short form re-read at a cadence INSIDE the turn, and it is deliberately NOT a second copy of the
+ *  list: the full `<task_context>` is already in the history, and everything sent here is re-sent frozen on
+ *  every later request of the turn.
+ *
+ *  Two lines at most, carrying only what a stale snapshot cannot know: which task the list still claims is
+ *  running and for how long — that elapsed figure is the sense of time a long turn has never had — the
+ *  counts that let the model place itself, and one instruction to reconcile the list with the work. Like the
+ *  once-per-turn reminder it distinguishes the two anomalies that mean the list has stopped matching the
+ *  work: nothing marked in_progress, and several.
+ *
+ *  `info` is the seam's payload (`{ toolCalls }`), accepted so a future branch can use it; it is not
+ *  printed, because core already attributes the block with `<step_context tool_calls="N">` and repeating
+ *  that number spends frozen bytes. Returns `''` when there is nothing worth saying — no list, or a list
+ *  whose every task is completed — and an empty answer is what makes the seam contribute no block at all,
+ *  which is how a delegated child with no task list stays silent. */
+export function renderStepReminder(tasks, info, now = Date.now()) {
+  const unownedRunning = tasks.filter((task) => task.status === 'in_progress' && !task.owner);
+  const running = tasks.filter((task) => task.status === 'in_progress');
+  const unfinished = tasks.filter((task) => task.status !== 'completed');
+  if (unfinished.length === 0) return '';
+  const completed = tasks.length - unfinished.length;
+  const counts = `${unfinished.length} unfinished, ${completed} completed`;
+  const lines = [];
+  if (unownedRunning.length > 1) {
+    lines.push(`Several tasks are in_progress at once (${unownedRunning.map((task) => `#${task.id}`).join(', ')}); ${counts}. Keep only the work you are doing marked in_progress.`);
+  } else if (running.length === 0) {
+    const blocked = unfinished.filter((task) => unresolvedBlockers(task, tasks).length > 0).length;
+    lines.push(`Unfinished tasks exist but none is in_progress (${counts}${blocked ? `, ${blocked} blocked` : ''}). Mark the work you are doing in_progress or update stale task state.`);
+  } else {
+    const longest = running
+      .filter((task) => task.startedAt != null)
+      .sort((a, b) => a.startedAt - b.startedAt)[0] ?? running[0];
+    const elapsed = longest && longest.startedAt != null
+      ? ` for ${formatCoarseElapsed(now - longest.startedAt)}`
+      : '';
+    lines.push(`#${longest.id} ${stepLabel(longest)} is in_progress${elapsed}; ${counts}.`);
+    lines.push('Reconcile the list with the work you have actually done before continuing.');
+  }
+  return lines.join('\n');
+}
+
 export function renderTaskContext(tasks) {
   const now = Date.now();
   // `tasks` arrives in id order, so the completed ones are already oldest-first and the surplus to fold

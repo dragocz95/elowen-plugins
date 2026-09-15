@@ -29,6 +29,15 @@ const ENVIRONMENT_METHODS = [
   'environmentSnapshots', 'environmentLogs', 'managedWorktrees', 'projectPreviewBinding',
 ];
 
+/** The last core published without the per-step context seam (`ctx.registerStepContext`). A provider
+ *  registered there runs mid-turn, after the last tool result; on an older core the method simply does not
+ *  exist on `ctx`. */
+const BASELINE_WITHOUT_STEP_CONTEXT = '0.28.46';
+
+/** The seam itself. One method today, named separately from the environment control because the floor each
+ *  one implies is a different release, and a plugin may consume either without the other. */
+const STEP_CONTEXT_METHODS = ['registerStepContext'];
+
 const pluginsDir = join(import.meta.dirname, '..', 'plugins');
 const names = readdirSync(pluginsDir).filter((name) => existsSync(join(pluginsDir, name, 'elowen-plugin.json')));
 const manifestOf = (name: string) =>
@@ -56,6 +65,11 @@ const environmentConsumers = names.filter((name) => {
   // uses it to validate a download target and runs on any core.
   const source = sourceOf(name).split('host.projectFiles').join('hostPathGuard');
   return ENVIRONMENT_METHODS.some((method) => source.includes(`${method}(`) || source.includes(`.${method}`));
+});
+
+const stepContextConsumers = names.filter((name) => {
+  const source = sourceOf(name);
+  return STEP_CONTEXT_METHODS.some((method) => source.includes(`${method}(`) || source.includes(`.${method}`));
 });
 
 describe('requiresCore gate against the built candidate', () => {
@@ -87,5 +101,34 @@ describe('requiresCore gate against the built candidate', () => {
     // The whole point: a pinned older SDK would satisfy the admission assertions while proving nothing
     // about the core this work actually produces.
     expect(isNewer(candidateVersion, BASELINE_WITHOUT_ENVIRONMENTS)).toBe(true);
+  });
+});
+
+/** The same gate for the per-step context seam.
+ *
+ *  The environment assertions above prove the mechanism, not this floor: a plugin can consume a mid-turn
+ *  provider without touching any environment control, and the release that added the seam is a different
+ *  number. The todo plugin registers one, so its floor has to sit above every core that lacks it — enforced
+ *  here rather than remembered, because the failure mode is silent: the plugin installs, `register()` throws
+ *  on the missing method, and the loader reports only "plugin skipped". */
+describe('requiresCore gate for the per-step context seam', () => {
+  it('found the step-context consumers to gate', () => {
+    // Same reason as the environment list: if this empties, every assertion below passes while covering
+    // nothing, and the floor rots back into memory.
+    expect(stepContextConsumers.length).toBeGreaterThan(0);
+    expect(stepContextConsumers).toContain('todo');
+    // A turn-context provider is the once-per-turn sibling and shares a prefix with the seam, so the plugin
+    // that registers one must not be dragged above a core it runs on perfectly well.
+    expect(stepContextConsumers).not.toContain('lsp');
+  });
+
+  it.each(stepContextConsumers)('%s declares a floor no core without the seam satisfies', (name) => {
+    const manifest = manifestOf(name);
+    expect(manifest.requiresCore, `${name} registers step context and declares no requiresCore`).toBeTruthy();
+    expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_STEP_CONTEXT), `${name} would install on ${BASELINE_WITHOUT_STEP_CONTEXT}`).toBe(true);
+  });
+
+  it('is running against a candidate that carries the seam', () => {
+    expect(isNewer(candidateVersion, BASELINE_WITHOUT_STEP_CONTEXT), `the candidate is ${candidateVersion}, which has no registerStepContext`).toBe(true);
   });
 });
