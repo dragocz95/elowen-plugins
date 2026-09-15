@@ -175,9 +175,6 @@
   .items-center {
     align-items: center;
   }
-  .items-end {
-    align-items: flex-end;
-  }
   .items-start {
     align-items: flex-start;
   }
@@ -377,6 +374,9 @@
   }
   .px-2 {
     padding-inline: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .px-2\.5 {
+    padding-inline: calc(var(--spacing, 0.25rem) * 2.5);
   }
   .px-3 {
     padding-inline: calc(var(--spacing, 0.25rem) * 3);
