@@ -207,7 +207,14 @@
       "calNextMonth": "Další měsíc",
       "calToday": "Dnes",
       "calViewTitle": "Zobrazení",
-      "calDatePicker": "Datum"
+      "calDatePicker": "Datum",
+      "schedulerUnavailable": "Plánovač teď není připraven.",
+      "saveErrorResponse": "server odmítl odeslání",
+      "close": "Zavřít",
+      "helpCreatePrompt": "Jednoduchý úkol, jasně definovaný objem prvně. Krátce je lépe.",
+      "createPaused": "Vytvořit pozastavené",
+      "schedulePreviewNext": "Nejbližší spuštění:",
+      "calDayEmpty": "Agenda je prázdná."
     }
   }
 }

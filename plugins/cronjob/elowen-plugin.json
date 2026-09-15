@@ -320,7 +320,14 @@
       "calNextMonth": "Next month",
       "calToday": "Today",
       "calViewTitle": "View",
-      "calDatePicker": "Date"
+      "calDatePicker": "Date",
+      "schedulerUnavailable": "The scheduler is not ready right now.",
+      "saveErrorResponse": "the server refused the submit",
+      "close": "Close",
+      "helpCreatePrompt": "One prompt, plainly what to do. Short beats long.",
+      "createPaused": "Create paused",
+      "schedulePreviewNext": "Next runs:",
+      "calDayEmpty": "The agenda is clear."
     }
   }
 }
