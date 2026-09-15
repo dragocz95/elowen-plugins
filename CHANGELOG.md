@@ -1,5 +1,9 @@
 # Changelog
 
+## lsp 0.2.0 - 2026-09-15
+
+- Idle and root-less language servers are now evicted: a warm server whose project root has been deleted, or that has not served a check for idleTtlMinutes (default 10, 0 turns age eviction off), is disposed and its memory released, so the pool no longer holds a server for the whole daemon lifetime.
+
 ## onedrive 0.2.5 - 2026-09-15
 
 - Managed Project mirrors now pass the authenticated guest request when launching Git, renew and release their execution lease, cancel bounded commands that do not settle, and discard completed root locks instead of leaving later cycles joined to stale work.

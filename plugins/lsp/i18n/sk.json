@@ -4,6 +4,10 @@
     "diagnosticsEnabled": {
       "label": "Živá diagnostika",
       "hint": "Kontroluje úpravy cez language servery. Vypnutie zastaví všetky bežiace servery; nástroje zostanú vypísané a nahlásia, že je LSP vypnuté. Príkaz `/lsp` prepína to isté."
+    },
+    "idleTtlMinutes": {
+      "label": "Vypnúť server po nečinnosti",
+      "hint": "Language server, ktorý sa nepoužíva, sa po tejto dobe vypne a uvoľní pamäť. Napátať sa spustí znova, čo trvá niekoľko sekúnd. Hodnota 0 vypínanie podľa času vypína; server, ktorému zmizol koreň projektu, sa vypne vždy. Rozsah 0 až 240 minút, predvolene 10."
     }
   }
 }
