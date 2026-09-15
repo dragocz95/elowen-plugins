@@ -1,17 +1,101 @@
-/** cronjob — browser UI bundle.
+/** cronjob — the Automation browser bundle.
  *
- *  Registers the scheduled-jobs editor as Automation's Settings section. The host serves that sole
- *  section at the bare `/p/cronjob` route as well, and `ownsPageFrame` tells it to draw no page frame
- *  of its own around a section that already renders a whole workspace shell. Built by
- *  elowen-plugin-ui-kit into web/index.js.
- */
+ *  The page surface is the calendar workbench; the Settings deck renders a compact agenda of what is
+ *  scheduled next, so the same bundle reads calm on both surfaces and the registre's table-based
+ *  manager is retired with API 17. `ownsPageFrame` keeps the host from nesting another page frame
+ *  around a bundle that draws its own. */
+import { useState } from 'react';
+import { runtime, type CronCalendarResponse } from './runtime';
+import { CreateJobDialog } from './CreateJobDialog';
+import { JobDrawer } from './JobDrawer';
+import { CalendarDays } from 'lucide-react';
+import { AgendaView } from './AgendaView';
+import { CalendarPage } from './CalendarPage';
+
 import { registerCronUi } from './runtime';
-import { JobsSettings } from './JobsSettings';
+
+function CronJobApp({ surface }: { surface: 'page' | 'deck' }) {
+  if (surface === 'page') return <CalendarPage surface="page" />;
+  return <DeckAgenda />;
+}
+
+/** The Settings deck's compact agenda: the same server summary the page reads, the two creation
+ *  actions and the jobs beside them, without ever squeezing a month grid into the panel. */
+function DeckAgenda() {
+  const { components: C, hooks, utils } = runtime();
+  const s = hooks.usePluginStrings('cronjob');
+  const { t } = hooks.useTranslation();
+  const me = hooks.useMe();
+  const myId = me.data?.user?.id ?? null;
+  const isAdmin = me.data?.user?.is_admin === true;
+  const destinations = hooks.useNotificationDestinations();
+  const models = hooks.useBrainModels();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [opening, setOpening] = useState<'oneShot' | 'recurring' | null>(null);
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
+
+  const summary = hooks.useQuery<CronCalendarResponse>({
+    queryKey: ['cron-calendar', 'summary', today, 7, 'all'],
+    queryFn: () => runtime().api(`/plugins/cronjob/api/calendar?detail=summary&start=${encodeURIComponent(today)}&days=7`) as Promise<CronCalendarResponse>,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const jobs = summary.data?.jobs ?? [];
+  const agendaOccurrences = (summary.data?.days ?? []).flatMap((d) => d.samples);
+
+  return (
+    <>
+      <C.PluginSection title={s.title} description={s.sectionHint}
+        action={
+          <span className="flex flex-wrap items-center gap-2">
+            <C.Button variant="outline" onClick={() => setOpening('recurring')} disabled={opening !== null}>{s.createRecurring}</C.Button>
+            <C.Button variant="accent" onClick={() => setOpening('oneShot')} disabled={opening !== null}>{s.createOneShot}</C.Button>
+          </span>
+        }
+      >
+        {summary.isError ? <C.ErrorState message={t.common.daemonUnreachable} onRetry={() => summary.refetch()} />
+          : summary.isLoading && !summary.data ? <C.LoadingState variant="cards" />
+          : jobs.length === 0 ? <C.EmptyState title={s.calEmptyTitle} description={s.calEmptyHint} icon={CalendarDays} />
+          : (
+            <div className="flex min-w-0 flex-col gap-2" data-testid="cron-deck-agenda">
+              <AgendaView occurrences={agendaOccurrences} jobs={jobs} onOpen={(jobId) => setOpenJobId(jobId)} />
+              <span className="text-xs text-muted-foreground">
+                {s.metricActive} {jobs.filter((job) => job.enabled !== false).length} · {s.metricPaused} {jobs.filter((job) => job.enabled === false).length} · {s.nextRun}{' '}
+                {utils.compactElapsed(Date.now() - Date.parse(jobs.find((job) => job.enabled !== false)?.nextOccurrence?.expectedAt ?? summary.data!.generatedAt))}
+              </span>
+            </div>
+          )}
+      </C.PluginSection>
+      {opening !== null ? (
+        <CreateJobDialog
+          lifecycle={opening}
+          myId={myId}
+          isAdmin={isAdmin}
+          onClose={() => setOpening(null)}
+          onCreated={() => setOpening(null)}
+        />
+      ) : null}
+      {openJobId !== null && summary.data ? (
+        <JobDrawer
+          job={jobs.find((job) => job.id === openJobId)!}
+          myId={myId}
+          adminFields={isAdmin}
+          destinations={destinations.data ?? []}
+          models={models.data ?? []}
+          onClose={() => setOpenJobId(null)}
+          onRemoved={() => { setOpenJobId(null); void summary.refetch(); }}
+          onRefresh={() => void summary.refetch()}
+        />
+      ) : null}
+    </>
+  );
+}
 
 registerCronUi({
-  requiresApiVersion: 12,
+  requiresApiVersion: 17,
   settings: {
-    'jobs': JobsSettings,
+    'jobs': CronJobApp,
   },
   ownsPageFrame: ['jobs'],
 });
