@@ -1,6 +1,6 @@
 # telegram
 
-Runs a Telegram bot that answers from Elowen in private chats, groups and forum topics, with slash commands, per-chat model and presentation settings, live tool activity and role policies that map senders to access.
+Telegram bot that answers from Elowen AI, with slash commands, per-chat presentation settings, live tool activity, status reactions and proactive pushes. It also provides chat, member, moderation and forum-topic tools.
 
 ## Install
 
@@ -8,19 +8,18 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.2.14` |
+| Version | `0.2.15` |
 | Requires core | `0.28.11` |
 | Requires shared API | `4` |
-| User-grantable | No |
 
 ## Tools
 
-Sixteen `Telegram*` tools cover chat operations: sending a message, reading chat and member information and member counts, pinning and deleting messages, banning, unbanning and promoting members, setting a chat title and description, creating, editing and closing forum topics, and raw Telegram API access through `TelegramApi`.
+TelegramApi, TelegramSend, TelegramChatInfo, TelegramGetMembersCount, TelegramMemberInfo, TelegramPinMessage, TelegramUnpinMessage, TelegramDeleteMessage, TelegramBanMember, TelegramUnbanMember, TelegramPromoteMember, TelegramSetChatTitle, TelegramSetChatDescription, TelegramCreateForumTopic, TelegramEditForumTopic, TelegramCloseForumTopic.
 
 ## Configuration
 
-The required field is `botToken`, a write-only secret. The 24 remaining optional settings cover allowed chats and the notification destination, reply behavior and tool activity, vision and media limits, the open-question timeout, optional Whisper voice transcription and spoken replies, and the role policies that admit senders.
+botToken, allowedChatIds, notifyChatId, respondWithoutMention, toolActivity, answerMode, toolOutput, toolMessageMode, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, visionModel, maxImageBytes, maxImages, maxUploadImages, askTimeoutMs, voiceProvider, stt, sttModel, tts, ttsModel, ttsVoice, rolePolicies.
 
 ## Documentation
 
-See the "Chat Platform Plugins" page of the Elowen user manual (`docs/site/37-chat-platform-plugins.md` in the Elowen repository).
+See the [telegram page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).

@@ -1,6 +1,6 @@
 # todo
 
-Gives the agent a session task list: it tracks multi-step work incrementally and shows progress live in the interface.
+Session task list: the agent tracks multi-step work incrementally and shows progress live.
 
 ## Install
 
@@ -11,16 +11,15 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 | Version | `0.14.7` |
 | Requires core | `0.28.47` |
 | Requires shared API | `not declared` |
-| User-grantable | No |
 
 ## Tools
 
-`TaskCreate` adds tasks, `TaskGet` and `TaskList` read one or all of them, `TaskUpdate` changes status, dependencies and fields, and `TaskDelete` removes them.
+TaskCreate, TaskGet, TaskUpdate, TaskDelete, TaskList.
 
 ## Configuration
 
-The manifest declares no settings fields. Tasks live per conversation and are visible in the interface task panel.
+No settings fields declared.
 
 ## Documentation
 
-See the "Task List" page of the Elowen user manual (`docs/site/47-todo-plugin.md` in the Elowen repository).
+See the [todo page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/47-todo-plugin.md).

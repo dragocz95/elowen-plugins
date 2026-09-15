@@ -1,6 +1,6 @@
 # onedrive
 
-Mirrors a Project between the instance and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.
+Mirror a Project between the daemon and each person's own OneDrive in both directions.
 
 ## Install
 
@@ -15,12 +15,12 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 ## Tools
 
-This plugin provides no model tools. Connecting, pausing, syncing and conflict resolution run through its web interface surface on the Project.
+No agent tools declared.
 
 ## Configuration
 
-No field is required. The 5 optional settings name the OneDrive root folder, the sync interval, the largest mirrored file, extra ignored paths and whether deletions from OneDrive are applied. No field is a secret. The plugin requires the `microsoftIdentity` control, which the `msteams` plugin provides, because each person connects their own Microsoft account.
+rootFolder, intervalSeconds, maxFileMb, extraIgnore, applyRemoteDeletions.
 
 ## Documentation
 
-See the "OneDrive Mirror" page of the Elowen user manual (`docs/site/43-onedrive-plugin.md` in the Elowen repository).
+See the [onedrive page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/43-onedrive-plugin.md).
