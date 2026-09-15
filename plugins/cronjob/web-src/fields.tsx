@@ -17,7 +17,7 @@ import {
 /** Validity of a DRAFT schedule comes from the daemon (schedule-preview): it is the only place that
  *  parses five-field cron. The debounce matches the plan's 300ms; the query is disabled when the
  *  builder already knows a legitimate mode, whose manual controls carry their own truth. */
-export function useSchedulePreview(schedule: string | undefined, hours?: string): CronSchedulePreview | undefined {
+function useSchedulePreview(schedule: string | undefined, hours?: string): CronSchedulePreview | undefined {
   const { hooks } = runtime();
   const query = hooks.useQuery<CronSchedulePreview>({
     queryKey: ['cron-schedule-preview', schedule ?? '', hours ?? ''],

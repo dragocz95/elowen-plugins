@@ -20,7 +20,7 @@ const statusBadge = (occurrence: CronOccurrence, s: Record<string, string>) => {
 };
 
 /** One run as the agenda names it: nearest time, the job behind it, and its state in words. */
-export function OccurrenceCard({ occurrence, job, onOpen }: {
+function OccurrenceCard({ occurrence, job, onOpen }: {
   occurrence: CronOccurrence;
   job: CronJob | undefined;
   onOpen: (jobId: string) => void;

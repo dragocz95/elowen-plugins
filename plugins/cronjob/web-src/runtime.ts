@@ -45,7 +45,7 @@ export interface CronConversationsResponse {
 /** The server-derived next run of a job: wall-clock identity, expected instant, and WHY the expected
  *  instant may differ from the scheduled one. All times instant-ISO; local fields carry the SCHEDULER's
  *  timezone, never the browser's. */
-export interface CronNextOccurrence {
+interface CronNextOccurrence {
   occurrenceId: string;
   scheduledAt: string;
   expectedAt: string;
@@ -118,7 +118,7 @@ export interface CronOccurrence {
   guarded: boolean;
 }
 
-export interface CronCalendarDay {
+interface CronCalendarDay {
   date: string;
   total: number;
   samples: CronOccurrence[];
@@ -180,23 +180,7 @@ export interface CronJobCreateBody {
   localRunAt?: { date: string; time: string; disambiguation?: 'earlier' | 'later' };
 }
 
-export type CronApiErrorCode =
-  | 'invalid_request' | 'invalid_schedule' | 'invalid_local_time' | 'nonexistent_local_time'
-  | 'forbidden' | 'not_found' | 'revision_conflict' | 'idempotency_conflict'
-  | 'preview_too_large' | 'snapshot_changed' | 'scheduler_unavailable' | 'run_already_queued'
-  | 'one_shot_manual_run' | 'jobs_unreadable';
-
-/** One the daemon's routes may answer. `error` stays the lone human line API 12 bundles see; `code` is
- *  the machine field the calendar flows branch on. */
-export interface CronApiError extends Error {
-  error: string;
-  code?: CronApiErrorCode;
-  field?: string;
-  conflict?: boolean;
-  current?: CronJob | null;
-  snapshotChanged?: boolean;
-}
-
+/** One picker row as the conversation/channel/model fields narrow it. */
 export interface ManageSelectionItem {
   id: string; label: string; group: string; groupLabel?: string;
   icon?: ReactNode; badges?: { text: string; tone?: 'accent' | 'muted' }[];
