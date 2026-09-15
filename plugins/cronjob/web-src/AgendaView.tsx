@@ -25,8 +25,8 @@ function OccurrenceCard({ occurrence, job, onOpen }: {
   job: CronJob | undefined;
   onOpen: (jobId: string) => void;
 }) {
-  const { components: C } = runtime();
-  const s = runtime().hooks.usePluginStrings('cronjob');
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings('cronjob');
   const name = job?.name ?? occurrence.jobId;
   const oneShot = occurrence.lifecycle === 'oneShot';
   const paused = job?.enabled === false;
