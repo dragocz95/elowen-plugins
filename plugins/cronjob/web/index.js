@@ -1120,8 +1120,8 @@ var statusBadge = (occurrence, s) => {
   }
 };
 function OccurrenceCard({ occurrence, job, onOpen }) {
-  const { components: C } = runtime();
-  const s = runtime().hooks.usePluginStrings("cronjob");
+  const { components: C, hooks } = runtime();
+  const s = hooks.usePluginStrings("cronjob");
   const name = job?.name ?? occurrence.jobId;
   const oneShot = occurrence.lifecycle === "oneShot";
   const paused = job?.enabled === false;
