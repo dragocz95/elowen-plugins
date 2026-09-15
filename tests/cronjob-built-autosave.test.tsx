@@ -24,16 +24,25 @@ const job: CronJob = {
     disposition: 'onTime', guarded: false,
   },
 };
-const calendarBody = {
+const dayBody = {
   generatedAt: '2026-09-15T05:00:00.000Z',
+  todayLocalDate: '2026-09-15',
+  nowLocalTime: '07:00',
+  localDate: '2026-09-15',
   timezone: 'Europe/Prague',
   precisionMs: 30_000,
-  snapshot: 'built-snap-v1',
-  window: { startLocalDate: '2026-09-15', endLocalDateExclusive: '2026-09-16', startAt: '2026-09-14T22:00:00.000Z', endAt: '2026-09-15T22:00:00.000Z' },
   scheduler: { ready: true },
   jobs: [job],
-  days: [{ date: '2026-09-15', total: 1, samples: [{ id: 'built-1:slot:2026-09-15T06:00', jobId: 'built-1', lifecycle: 'recurring', scheduledAt: '2026-09-15T05:00:00.000Z', expectedAt: '2026-09-15T05:00:00.000Z', localDate: '2026-09-15', localTime: '06:00', timezone: 'Europe/Prague', disposition: 'onTime', guarded: false }], overflow: 0, omittedByHours: 0 }],
-  occurrences: [],
+  rows: [{
+    jobId: 'built-1', section: 'next', kind: 'daily', schedule: 'daily 06:00', enabled: true,
+    remaining: 1,
+    next: {
+      occurrenceId: 'built-1:slot:2026-09-15T06:00', scheduledAt: '2026-09-15T05:00:00.000Z',
+      expectedAt: '2026-09-15T05:00:00.000Z', localTime: '06:00', disposition: 'onTime', guarded: false,
+    },
+    moreTimes: [],
+    truncated: false,
+  }],
   truncated: false,
 };
 
@@ -60,7 +69,7 @@ describe('committed cronjob bundle autosave', () => {
   it('registers the built entry and persists an edit through the host runtime', async () => {
     const writes: unknown[] = [];
     use(
-      http.get('/api/plugins/cronjob/api/calendar', () => HttpResponse.json(calendarBody)),
+      http.get('/api/plugins/cronjob/api/day', () => HttpResponse.json(dayBody)),
       http.get('/api/plugins/cronjob/api/conversations', () => HttpResponse.json({ status: 'available', conversations: [] })),
       http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([job])),
       http.put('/api/plugins/cronjob/jobs/:id', async ({ request }) => {

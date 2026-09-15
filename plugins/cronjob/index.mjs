@@ -95,12 +95,11 @@ const clampConfig = (value, def, min, max) => Math.min(Math.max(Number(value) ||
 
 import {
   DEFAULT_CRON_LOOKBACK_MS, DEFAULT_TICK_MS,
-  systemZone, zonedParts, zonedTimeToMs,
+  systemZone, zonedTimeToMs,
   parseOneShot, parseSchedule, hoursAreValid, dueSlot,
   resolveLocalDateTime, planOccurrences,
-  sortOccurrences, paginateAgenda, summarizeDays, localDateLabel,
-  CALENDAR_MAX_SAMPLES_PER_DAY, CALENDAR_LIMIT_AGENDA_DEFAULT,
-  CALENDAR_AGENDA_MAX_OCCURRENCES, CALENDAR_CANDIDATE_BUDGET,
+  sortOccurrences, summarizeJobDay, localDateLabel, localTimeLabel,
+  DAY_MAX_TIMES, CALENDAR_CANDIDATE_BUDGET,
 } from './schedule.mjs';
 // The engine moved to schedule.mjs so the scheduler and every preview endpoint share one compiled
 // schedule representation; these names keep their exports here so existing imports stay working.
@@ -1663,156 +1662,119 @@ export function register(ctx) {
     },
   });
 
-  // ── The calendar: one window, ONE strict read, server-expanded occurrences ──────────────────────
-  // The month summary and the paginated agenda answer from the SAME engine the scheduler runs: the
-  // same parser, timezone rules, DST identity, active hours and catch-up. The snapshot, an opaque
-  // hash of everything visible in the window plus the engine inputs, carries the agenda's cursor —
-  // a snapshot the caller has not seen conflicts out (409) instead of mixing schedule states.
-  const encodeCursor = (snapshot, sortKey) => Buffer.from(JSON.stringify({ snapshot, sortKey }), 'utf-8').toString('base64url');
-  const decodeCursor = (cursor) => {
-    try {
-      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
-      return typeof parsed?.snapshot === 'string' && typeof parsed?.sortKey === 'string' ? parsed : null;
-    } catch { return null; }
-  };
+  // ── The day board: ONE local date, ONE strict read, ONE row per job ────────────────────────────
+  // This endpoint answers what a person can actually read: what each job does on one day. It never
+  // expands a schedule into its runs — a polling job is hundreds of runs a day and a real instance has
+  // dozens of them, which is a page nobody can load and nobody can use. Every count, next instant,
+  // timezone, DST, active-hours and catch-up answer still comes from the SAME engine the scheduler
+  // ticks with; only the SHAPE is bounded, one row per job with a short head of times.
   ctx.registerApiRoute({
-    path: 'calendar', method: 'GET', access: 'user',
+    path: 'day', method: 'GET', access: 'user',
     handler: async (req) => {
       const timezone = ctx.timezone();
       const nowMs = Date.now();
       const live = liveEngineInputs({ timezone, nowMs });
-      const detail = req.query.detail === 'agenda' ? 'agenda' : 'summary';
-      const scope = req.query.scope === undefined ? 'all' : String(req.query.scope);
-      if (!['all', 'personal', 'instance'].includes(scope)) {
-        return jsonRes({ error: 'scope must be all, personal or instance', code: 'invalid_request', field: 'scope' }, 400);
+      const todayLocalDate = localDateLabel(nowMs, timezone);
+      // No date means TODAY, as the scheduler's own clock reads it. The browser never derives the
+      // day it asks for, so a viewer in another zone lands on the scheduler's today on the first try
+      // and the initial load carries no range at all.
+      const requested = req.query.date === undefined ? todayLocalDate : String(req.query.date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
+        return jsonRes({ error: 'date must be a local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'date' }, 400);
       }
-      if (scope === 'instance' && req.auth.admin !== true) {
-        return jsonRes({ error: 'instance scope requires an administrator', code: 'forbidden', field: 'scope' }, 403);
+      const [year, month, day] = requested.split('-').map(Number);
+      const dayStartMs = zonedTimeToMs(timezone, year, month, day, 0, 0);
+      if (localDateLabel(dayStartMs, timezone) !== requested) {
+        return jsonRes({ error: 'date is not a real calendar date', code: 'invalid_request', field: 'date' }, 400);
       }
-      if (/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start ?? '')) === false) {
-        return jsonRes({ error: 'start must be a local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'start' }, 400);
-      }
-      const [sy, smo, sd] = String(req.query.start).split('-').map(Number);
-      const startInstant = zonedTimeToMs(timezone, sy, smo, sd, 0, 0);
-      const startParts = zonedParts(startInstant, timezone);
-      const maxDays = detail === 'agenda' ? 7 : 42;
-      let days = req.query.days === undefined ? 7 : Number(req.query.days);
-      if (!Number.isSafeInteger(days) || days < 1 || days > maxDays) {
-        return jsonRes({ error: `days must be an integer between 1 and ${maxDays} for detail=${detail}`, code: 'invalid_request', field: 'days' }, 400);
-      }
-      let limit;
-      if (detail === 'agenda') {
-        limit = req.query.limit === undefined ? CALENDAR_LIMIT_AGENDA_DEFAULT : Number(req.query.limit);
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > CALENDAR_AGENDA_MAX_OCCURRENCES) {
-          return jsonRes({ error: `limit must be an integer between 1 and ${CALENDAR_AGENDA_MAX_OCCURRENCES}`, code: 'invalid_request', field: 'limit' }, 400);
-        }
-      }
+      // The exclusive next midnight minus one: a DST day is 23 or 25 hours long and the board has to
+      // hold exactly the date it names, never a fixed 24 hours.
+      const nextDay = new Date(Date.UTC(year, month - 1, day) + 86_400_000);
+      const dayEndMs = zonedTimeToMs(
+        timezone, nextDay.getUTCFullYear(), nextDay.getUTCMonth() + 1, nextDay.getUTCDate(), 0, 0,
+      ) - 1;
+
       // One strict read of the jobs file: unreadable answers jobs_unreadable, never an empty list.
       let jobs;
       try { jobs = readJobsStrict(); }
       catch (error) {
-        ctx.logger.warn(`calendar strict jobs read failed (${error instanceof Error ? error.message : error})`);
+        ctx.logger.warn(`day board strict jobs read failed (${error instanceof Error ? error.message : error})`);
         return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500);
       }
       const actor = { userId: req.auth.userId, admin: req.auth.admin === true };
-      const actorJobs = actorSeesJobs(actor, jobs);
-      let visible = scope === 'personal' ? actorJobs.filter((j) => ownerOf(j) === actor.userId) : actorJobs;
-      if (scope === 'instance') visible = visible.filter((j) => ownerOf(j) === null);
-      // The snapshot: every visible scheduling/runtime field, plus the engine inputs the occurrences
-      // are expanded with. A change in ANY of it makes old cursors conflict, never silently mix.
-      const snapshotPayload = JSON.stringify({
-        v: 1,
-        timezone,
-        tickMs: live.tickMs,
-        lookbackMs: live.lookbackMs,
-        jobs: visible.map((j) => ({
-          id: j.id, name: j.name, revision: j.revision ?? 0,
-          schedule: j.schedule, runAt: j.runAt, hours: j.hours, enabled: j.enabled,
-          check: j.check, plain: j.plain, model: j.model, notifyChannelId: j.notifyChannelId,
-          ownerUserId: j.ownerUserId ?? null, conversationSessionId: j.conversationSessionId ?? null,
-          projectRef: j.projectRef ?? null, createdAt: j.createdAt,
-          lastRun: j.lastRun, lastSlot: j.lastSlot, lastResult: j.lastResult,
-          manualRequest: j.manualRequest ?? null, lastManualRequestId: j.lastManualRequestId ?? null,
-        })),
-      });
-      const snapshot = createHash('sha256').update(snapshotPayload).digest('base64url');
-      // The window: days local dates from start, ending at the exclusive midnight after the last one.
-      let lastLocal = { ...startParts };
-      {
-        let y = startParts.year; let mo = startParts.month; let d = startParts.day;
-        for (let i = 0; i < days; i += 1) {
-          d += 1;
-          if (d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) { d = 1; mo += 1; if (mo > 12) { mo = 1; y += 1; } }
-        }
-        lastLocal = { year: y, month: mo, day: d };
-      }
-      const untilMs = zonedTimeToMs(timezone, lastLocal.year, lastLocal.month, lastLocal.day, 0, 0) - 1;
-      // Expand every visible enabled job forward, under ONE hard candidate budget per request.
-      const occurrences = [];
-      const omittedByDate = new Map();
+      // Every job the actor may see travels in full. Owner and text filters are the browser's, applied
+      // to these already-bounded rows, so narrowing the board costs no further request.
+      const visible = actorSeesJobs(actor, jobs);
+      const isToday = requested === todayLocalDate;
+
+      const rows = [];
       let truncated = false;
       for (const job of visible) {
-        if (job.enabled === false) continue; // paused jobs: no occurrences, but listed in jobs
-        const planned = planOccurrences(job, {
-          ...live, fromMs: startInstant, untilMs,
-          budgetCap: CALENDAR_CANDIDATE_BUDGET,
+        const paused = job.enabled === false;
+        const summary = paused
+          ? { kind: typeof job.runAt === 'string' ? 'oneShot' : parseSchedule(job.schedule)?.kind ?? null, remaining: 0, head: [], truncated: false }
+          : summarizeJobDay(job, { ...live, dayStartMs, dayEndMs, maxTimes: DAY_MAX_TIMES });
+        if (summary.truncated) truncated = true;
+        const oneShot = summary.kind === 'oneShot';
+        // A one-shot is only ever on its own day. A recurring job is ALSO listed on today with nothing
+        // left, because today's board is this instance's inventory of what repeats: a paused job and a
+        // job that has already run its last slot both have to stay operable without hunting for them.
+        if (summary.remaining === 0 && (oneShot || !isToday)) continue;
+        const [next, ...rest] = summary.head;
+        rows.push({
+          jobId: job.id,
+          // Fixed times still ahead are what `Next` means; a polling interval is read as a rate, and
+          // everything else repeating (paused, or done for today) is read as status.
+          section: oneShot ? 'oneShot'
+            : summary.kind !== 'interval' && summary.remaining > 0 ? 'next'
+            : 'recurring',
+          kind: summary.kind,
+          schedule: oneShot ? null : job.schedule ?? null,
+          enabled: !paused,
+          remaining: summary.remaining,
+          next: next === undefined ? null : {
+            occurrenceId: next.id,
+            scheduledAt: next.scheduledAt,
+            expectedAt: next.expectedAt,
+            localTime: next.localTime,
+            disposition: next.disposition,
+            guarded: next.guarded,
+          },
+          // The further times of a job that runs several times a day, inline in its own row — never
+          // another card. `remaining` stays the truth about how many there really are.
+          //
+          // An interval names none of them: "14:22, 14:24, 14:26" is not information about a job that
+          // polls every two minutes, it is the first three of 720. Its rate and its count are the
+          // honest description, which is why the board reads a poll differently from an appointment.
+          moreTimes: summary.kind === 'interval' ? [] : rest.map((occurrence) => occurrence.localTime),
+          truncated: summary.truncated,
         });
-        if (planned.truncated) truncated = true;
-        for (const [date, count] of planned.omittedByHours) {
-          omittedByDate.set(date, (omittedByDate.get(date) ?? 0) + count);
-        }
-        occurrences.push(...planned.occurrences);
-        if (occurrences.length > CALENDAR_CANDIDATE_BUDGET) {
-          occurrences.length = CALENDAR_CANDIDATE_BUDGET;
-          truncated = true;
-          break;
-        }
       }
-      const sortedOccurrences = sortOccurrences(occurrences);
-      const projectedJobs = visible.map((job) => publicJob(job));
-      const schedulerStatus = adapter?.status() ?? { ready: false };
-      const response = {
+      // One order for the whole board: the instant each job next runs, then its identity so equal
+      // instants never shuffle between refetches. Sections slice this order without re-sorting.
+      rows.sort((a, b) => {
+        const ea = a.next?.expectedAt ?? '\uffff';
+        const eb = b.next?.expectedAt ?? '\uffff';
+        if (ea !== eb) return ea < eb ? -1 : 1;
+        return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
+      });
+
+      return jsonRes({
         generatedAt: new Date(nowMs).toISOString(),
-        // The scheduler's OWN wall-clock today: a viewer in another browser zone adopts this once,
-        // never derives it, and never re-syncs on later refetches.
-        todayLocalDate: localDateLabel(nowMs, timezone),
+        // The scheduler's OWN wall-clock today: a viewer in another browser zone adopts this, never
+        // derives it.
+        todayLocalDate,
+        // The scheduler's own wall clock right now, so the board can draw a "now" line on its day rail
+        // without the browser re-deriving the time in a zone that is not its own.
+        nowLocalTime: localTimeLabel(nowMs, timezone),
+        localDate: requested,
         timezone,
         precisionMs: live.tickMs,
-        snapshot,
-        window: {
-          startLocalDate: String(req.query.start),
-          endLocalDateExclusive: `${lastLocal.year}-${String(lastLocal.month).padStart(2, '0')}-${String(lastLocal.day).padStart(2, '0')}`,
-          startAt: new Date(startInstant).toISOString(),
-          endAt: new Date(untilMs + 1).toISOString(),
-        },
-        scheduler: schedulerStatus,
-        jobs: projectedJobs,
-      };
-      if (detail === 'summary') {
-        response.days = summarizeDays(sortedOccurrences, {
-          startLocal: String(req.query.start), days,
-          samples: CALENDAR_MAX_SAMPLES_PER_DAY,
-          omittedByHours: [...omittedByDate].map(([date, count]) => ({ date, count })),
-          truncated,
-        });
-      } else {
-        const cursor = req.query.cursor === undefined ? undefined : decodeCursor(String(req.query.cursor));
-        if (req.query.cursor !== undefined && cursor === null) {
-          return jsonRes({ error: 'the cursor is not readable', code: 'invalid_request', field: 'cursor' }, 400);
-        }
-        if (cursor !== null && req.query.snapshot !== undefined && String(req.query.snapshot) !== cursor.snapshot) {
-          return jsonRes({ error: 'the schedule changed; restart the agenda from its first page', code: 'snapshot_changed' }, 409);
-        }
-        if (req.query.cursor !== undefined && cursor !== null && cursor.snapshot !== snapshot) {
-          return jsonRes({ error: 'the schedule changed; restart the agenda from its first page', code: 'snapshot_changed' }, 409);
-        }
-        const page = paginateAgenda(sortedOccurrences, { limit, afterKey: cursor?.sortKey });
-        const payload = { occurrences: page.occurrences };
-        if (page.nextKey !== undefined) payload.nextCursor = encodeCursor(snapshot, page.nextKey);
-        Object.assign(response, payload);
-      }
-      response.truncated = truncated;
-      return jsonRes(response);
+        scheduler: adapter?.status() ?? { ready: false },
+        jobs: visible.map((job) => publicJob(job)),
+        rows,
+        truncated,
+      });
     },
   });
 

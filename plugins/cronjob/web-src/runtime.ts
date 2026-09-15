@@ -5,7 +5,7 @@
  *  is a local structural CONTRACT, not a source import — the bundle must not compile against `web/`
  *  (it builds standalone via elowen-plugin-ui-kit).
  */
-import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
@@ -105,7 +105,7 @@ export interface BrainModelOption { provider: string; model: string }
 
 /** One planned occurrence inside a calendar/agenda window, expanded by the server from the same
  *  engine the scheduler ticks with. `localDate`/`localTime` belong to the response's timezone. */
-export interface CronOccurrence {
+interface CronOccurrence {
   id: string;
   jobId: string;
   lifecycle: 'recurring' | 'oneShot';
@@ -118,37 +118,56 @@ export interface CronOccurrence {
   guarded: boolean;
 }
 
-export interface CronCalendarDay {
-  date: string;
-  total: number;
-  samples: CronOccurrence[];
-  overflow: number;
-  omittedByHours: number;
-  /** The window's expansion budget ran out, so this row's `total` may be short of the real schedule.
-   *  It is NOT "this day holds more than it shows" — that is `overflow`, which is exact. */
-  truncated?: boolean;
+/** ONE job's whole day, as the board draws it — never one entry per run.
+ *
+ *  `remaining` is the server's exact count of runs the job still has on this date, so a row can say
+ *  "720 runs left today" without anything having built 720 of anything. `moreTimes` names the few
+ *  further wall clocks of a job with several fixed times; `truncated` means the server's per-job slot
+ *  cap stopped the walk, so `remaining` is a floor rather than the total. */
+export interface CronDayRow {
+  jobId: string;
+  /** Where the row is read: `next` = a fixed time still ahead today, `recurring` = a rate or a status
+   *  (paused, or nothing left today), `oneShot` = a single pending wake-up. */
+  section: 'next' | 'recurring' | 'oneShot';
+  kind: 'interval' | 'daily' | 'weekly' | 'cron' | 'oneShot' | null;
+  /** The stored schedule string; null for a one-shot, which has no recurrence to name. */
+  schedule: string | null;
+  enabled: boolean;
+  remaining: number;
+  next: CronDayNext | null;
+  moreTimes: string[];
+  truncated: boolean;
 }
 
-/** GET /plugins/cronjob/api/calendar. `snapshot` hashes every visible scheduling/runtime field plus the
- *  engine inputs; the agenda's cursor rides on it and a changed snapshot conflicts out (409). */
-export interface CronCalendarResponse {
+/** Why an instant is what it is: on time, deferred by active hours, a replayed miss, due now, or late. */
+export type CronDisposition = 'onTime' | 'deferredByHours' | 'catchUp' | 'dueNow' | 'late';
+
+interface CronDayNext {
+  occurrenceId: string;
+  scheduledAt: string;
+  expectedAt: string;
+  /** The wall clock in the SCHEDULER's timezone, never the browser's. */
+  localTime: string;
+  disposition: CronDisposition;
+  guarded: boolean;
+}
+
+/** GET /plugins/cronjob/api/day — one local date, one row per visible job, bounded by construction. */
+export interface CronDayResponse {
   generatedAt: string;
   /** The scheduler's own today, in its own timezone — the browser never derives it. */
-  todayLocalDate?: string;
+  todayLocalDate: string;
+  /** The scheduler's own wall clock right now (`HH:mm`), so the day rail can place its "now" line
+   *  without the browser re-deriving the time in a timezone that is not its own. */
+  nowLocalTime: string;
+  /** The date this board describes; equal to `todayLocalDate` on the initial, parameterless load. */
+  localDate: string;
   timezone: string;
   precisionMs: number;
-  snapshot: string;
-  window: {
-    startLocalDate: string;
-    endLocalDateExclusive: string;
-    startAt: string;
-    endAt: string;
-  };
   scheduler: { ready: boolean; runningJobId?: string; runningSince?: string };
   jobs: CronJob[];
-  days?: CronCalendarDay[];
-  occurrences?: CronOccurrence[];
-  nextCursor?: string;
+  rows: CronDayRow[];
+  /** Some row's per-job slot cap was reached; its count is a floor. */
   truncated: boolean;
 }
 
@@ -245,37 +264,9 @@ interface ModalProps {
 interface ModalBodyProps { children: ReactNode; gap?: 4 | 5 | 6 }
 interface ModalFooterProps { children?: ReactNode; status?: ReactNode }
 
-/** react-day-picker v9's day identity, as the host Calendar hands it to a custom day component. */
-interface CalendarDay {
-  date: Date;
-  displayMonth: Date;
-  outside?: boolean;
-  isoDate?: string;
-}
-
-/** The v9 modifiers a day carries. `focused` is the one a custom day button MUST honour: the library
- *  moves keyboard focus by marking a day focused and expecting the button to take it. */
-interface CalendarDayModifiers {
-  focused?: boolean;
-  selected?: boolean;
-  today?: boolean;
-  outside?: boolean;
-  disabled?: boolean;
-  hidden?: boolean;
-  [modifier: string]: boolean | undefined;
-}
-
-/** What `components.DayButton` receives: the day, its modifiers, and every ordinary button prop the
- *  library computed (className, tabIndex, aria-label, the whole keyboard/pointer handler set, and the
- *  formatted day number as children). All of it has to reach the rendered `<button>`. */
-export type CalendarDayButtonProps = {
-  day: CalendarDay;
-  modifiers: CalendarDayModifiers;
-} & ButtonHTMLAttributes<HTMLButtonElement>;
-
-/** react-day-picker v9 props the calendar flows use, named structurally. The host Calendar IS a
- *  DayPicker — the shapes below mirror the v9 surface this bundle drives, nothing narrower. v9 has no
- *  `DayContent`: the day cell's own interactive element is what a caller replaces. */
+/** The react-day-picker v9 props this bundle drives. The board uses the host Calendar as a DATE
+ *  PICKER and nothing more — one `Other day` chooser — so no day cell is ever overridden and the
+ *  library's own keyboard model, focus handling and day rendering stay entirely the host's. */
 interface CalendarProps {
   mode?: 'single' | 'multiple' | 'range';
   /** A browser-local Date built at LOCAL midnight from a server local-date label — see `parseDate`. */
@@ -285,10 +276,7 @@ interface CalendarProps {
   onMonthChange?: (month: Date) => void;
   showOutsideDays?: boolean;
   className?: string;
-  classNames?: Record<string, string>;
   'aria-label'?: string;
-  /** Custom day rendering: the ledger inside each day cell's button. */
-  components?: { DayButton?: ComponentType<CalendarDayButtonProps> };
 }
 
 // ---- hook shapes --------------------------------------------------------------------------------
@@ -339,6 +327,10 @@ interface CronComponents {
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;
   EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent;
+  /** The host's own grouped-row surface — its rounded, divided container and one row inside it. The
+   *  Recurring lane is built from these rather than from a hand-rolled card, because the host
+   *  publishes no Card primitive and a bundle drawing its own would stop matching every other list. */
+  EntityList: AnyComponent; EntityRow: AnyComponent;
   Modal: ComponentType<ModalProps>; ModalBody: ComponentType<ModalBodyProps>; ModalFooter: ComponentType<ModalFooterProps>;
   PluginSection: AnyComponent;
   /** The canonical page anatomy and toolbar (API 17's Calendar is the first REQUIRED one). */

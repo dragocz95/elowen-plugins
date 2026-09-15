@@ -1,7 +1,10 @@
 // @vitest-environment node
-// The calendar and the schedule draft preview: the server expands and orders future occurrences from
-// the SAME engine the scheduler runs. Bounds, stable identities, cursor conflicts, truncation truth
-// and the strict unreadable-file behaviour are the contract the browser builds against.
+// The day board endpoint and the schedule draft preview.
+//
+// The day board's whole contract is that it is BOUNDED: one row per visible job for one local date,
+// with counts computed from the same engine the scheduler runs rather than from an expansion. These
+// tests hold it to the case that broke the month view — real polling jobs, which produced 455 to 1253
+// occurrences for a single day — plus the day-length, placement and refusal behaviour around it.
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -60,198 +63,195 @@ const seed = (dataRoot: string, jobs: unknown[]): string => {
 };
 
 const nowMs0 = Date.parse('2026-09-15T08:00:00Z');
+void nowMs0;
 
-/** A real night window: agenda first page plus the day summaries of one, several dense jobs. */
-interface OccurrenceLike { id: string; jobId: string; expectedAt: string }
-const byId = (rows: unknown[]): Record<string, OccurrenceLike> =>
-  Object.fromEntries((rows as OccurrenceLike[]).map((o) => [o.id, o as OccurrenceLike]));
+/** The scheduler's own today, derived the same way the endpoint derives it. Dates are computed rather
+ *  than written down, so these tests keep meaning something the day after they were written. */
+const todayIn = (timezone: string): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const shiftDate = (date: string, days: number): string => {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! + days)).toISOString().slice(0, 10);
+};
 
-describe('the cronjob calendar endpoint', () => {
-  it('answers the window summaries with truthful samples, overflow, omitted slots and shapes', async () => {
+interface DayRow {
+  jobId: string;
+  section: 'next' | 'recurring' | 'oneShot';
+  kind: string | null;
+  schedule: string | null;
+  enabled: boolean;
+  remaining: number;
+  next: { localTime: string; disposition: string; guarded: boolean } | null;
+  moreTimes: string[];
+  truncated: boolean;
+}
+interface DayBody {
+  todayLocalDate: string;
+  nowLocalTime: string;
+  localDate: string;
+  timezone: string;
+  rows: DayRow[];
+  jobs: { id: string; nextOccurrence: unknown }[];
+  truncated: boolean;
+}
+const getDay = async (app: { request: (path: string, init?: unknown) => Promise<Response> }, tok: string, query = ''): Promise<DayBody> => {
+  const res = await app.request(`/plugins/cronjob/api/day${query}`, auth(tok));
+  expect(res.status).toBe(200);
+  return await res.json() as DayBody;
+};
+
+describe('the cronjob day endpoint', () => {
+  it('answers a real polling instance with ONE row per job and a COUNT, never an occurrence list', async () => {
     const { app, dataRoot, adminTok } = setup();
-    seed(dataRoot, [
-      {
-        id: 'daily', name: 'morning', schedule: 'daily 07:30', prompt: 'p',
-        createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T04:30:00.000Z', revision: 2,
-      },
-      {
-        // Active hours dead-end for a morning slot: fully omitted for the day.
-        id: 'late', name: 'gated', schedule: 'daily 06:00', prompt: 'p', hours: '9-17',
-        createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T04:00:00.000Z', revision: 1,
-      },
-    ]);
-    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=3&detail=summary`, auth(adminTok))).json() as Record<string, unknown>;
-    expect(rows).toEqual(expect.objectContaining({
-      timezone: PRAGUE,
-      precisionMs: expect.any(Number),
-      snapshot: expect.any(String),
-      window: expect.objectContaining({ startLocalDate: '2026-09-15', endLocalDateExclusive: '2026-09-18' }),
-      scheduler: expect.objectContaining({ ready: expect.any(Boolean) }),
-      truncated: false,
-    }));
-    const days = rows.days as { date: string; total: number; samples: { id: string; disposition: string; expectedAt: string; scheduledAt: string }[]; overflow: number; omittedByHours: number; truncated: boolean }[];
-    expect(days.map((d) => d.date)).toEqual(['2026-09-15', '2026-09-16', '2026-09-17']);
-    // TODAY: both unclaimed past slots are catchable at the next tick (planned slot stays 06:00/07:30).
-    expect(days[0]).toEqual(expect.objectContaining({ date: '2026-09-15', total: 2, overflow: 0, omittedByHours: 0, truncated: false }));
-    expect(days[0]!.samples.map((s) => [s.id, s.disposition])).toEqual([
-      ['late:slot:2026-09-15T06:00', 'catchUp'],
-      ['daily:slot:2026-09-15T07:30', 'catchUp'],
-    ]);
-    expect(days[0]!.samples[0]!.scheduledAt).toBe('2026-09-15T04:00:00.000Z');
-    // The forward days: the gated morning slot is deferred INTO its active hours, still on the day.
-    expect(days[1]).toEqual(expect.objectContaining({ date: '2026-09-16', total: 2, omittedByHours: 0 }));
-    expect(days[1]!.samples.map((s) => [s.id, s.disposition])).toEqual([
-      ['daily:slot:2026-09-16T07:30', 'onTime'],
-      ['late:slot:2026-09-16T06:00', 'deferredByHours'],
-    ]);
-    const late16 = days[1]!.samples[1]!;
-    expect(new Date(late16.expectedAt).getTime()).toBeGreaterThan(new Date(late16.scheduledAt).getTime());
+    // The acceptance fixture: the shape of the instance that broke the month view. Two-minute and
+    // fifteen-minute polls are 720 and 96 runs a day EACH; the old surface drew every one of them.
+    const jobs = [
+      { id: 'poll2', name: 'inbox poll', schedule: 'every 2m', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'poll15', name: 'feed poll', schedule: 'every 15m', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'digest', name: 'digest', schedule: 'daily 07:30', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+    ];
+    seed(dataRoot, jobs);
+    const body = await getDay(app, adminTok);
+
+    // One row per job. This is the invariant the redesign exists for.
+    expect(body.rows).toHaveLength(3);
+    expect(body.rows.map((r) => r.jobId).sort()).toEqual(['digest', 'poll15', 'poll2']);
+    expect(new Set(body.rows.map((r) => r.jobId)).size).toBe(body.rows.length);
+
+    const poll2 = body.rows.find((r) => r.jobId === 'poll2')!;
+    expect(poll2.section).toBe('recurring');
+    expect(poll2.kind).toBe('interval');
+    // A rate, not a list: the count is real and large, and nothing was built to produce it.
+    expect(poll2.remaining).toBeGreaterThan(50);
+    expect(poll2.moreTimes).toEqual([]);
+    expect(poll2.next).not.toBeNull();
+
+    // Nothing anywhere in the response is proportional to the number of runs.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('"occurrences"');
+    expect(serialized).not.toContain('"samples"');
+    const total = body.rows.reduce((sum, row) => sum + 1 + row.moreTimes.length, 0);
+    expect(total).toBeLessThan(20);
   });
 
-  it('the agenda paginates a DENSE interval window without losing its order or truth', async () => {
+  it('opens on the scheduler own today when the request names no date at all', async () => {
     const { app, dataRoot, adminTok } = setup();
-    const lastRun = Date.parse('2026-09-15T07:50:00Z');
-    seed(dataRoot, [{
-      id: 'dense', name: 'every minute', schedule: 'every 1m', prompt: 'p',
-      lastRun: new Date(lastRun).toISOString(), createdAt: new Date(lastRun - 3600_000).toISOString(),
-    }]);
-    let res = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=2&detail=agenda&limit=25`, auth(adminTok));
-    expect(res.status).toBe(200);
-    const first = await res.json() as Record<string, unknown>;
-    const page1 = (first.occurrences as OccurrenceLike[]);
-    expect(page1).toHaveLength(25);
-    expect(new Set(page1.map((o) => o.id)).size).toBe(25);
-    const sorted = [...page1].sort((a, b) => a.expectedAt < b.expectedAt ? -1 : 1);
-    expect(page1.map((o) => o.id)).toEqual(sorted.map((o) => o.id));
-    expect(first.nextCursor).not.toBeUndefined();
-    const cursor = JSON.parse(Buffer.from(String(first.nextCursor), 'base64url').toString('utf-8'));
-    expect(cursor.snapshot).toBe(first.snapshot);
-    res = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=2&detail=agenda&limit=25&cursor=` + encodeURIComponent(String(first.nextCursor)), auth(adminTok));
-    const second = await res.json() as Record<string, unknown>;
-    expect(res.status).toBe(200);
-    const page2 = second.occurrences as OccurrenceLike[];
-    // The second page holds different, LATER occurrences against the same snapshot.
-    expect(new Set(page2.map((o) => o.id)).size === page2.length).toBe(true);
-    expect(new Set(page1.map((o) => o.id)).has(page2[0]!.id)).toBe(false);
+    seed(dataRoot, []);
+    const body = await getDay(app, adminTok);
+    // The initial load carries NO range: no start, no days, no detail, no cursor. There is nothing in
+    // the contract a browser could accidentally turn into a month or a week.
+    expect(body.localDate).toBe(todayIn(PRAGUE));
+    expect(body.todayLocalDate).toBe(body.localDate);
+    expect(body.nowLocalTime).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
   });
 
-  it('expands an interval job that has never run, and reads it the way dueSlot does', async () => {
+  it('names a fixed-time job several times in ONE row and counts the rest exactly', async () => {
     const { app, dataRoot, adminTok } = setup();
-    // No `lastRun`: the scheduler's own rule (`now - last >= ms`, with last = 0) claims it at the very
-    // next tick, so the projection owes exactly ONE catch-up plus the duration stepping forward.
-    seed(dataRoot, [{ id: 'unarmed', name: 'pulse', schedule: 'every 1h', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' }]);
-    const res = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=1&detail=agenda`, auth(adminTok));
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    const page = body.occurrences as { id: string; disposition: string }[];
-    expect(page.length).toBeGreaterThan(1);
-    expect(page.filter((o) => o.disposition === 'catchUp' || o.disposition === 'dueNow')).toHaveLength(1);
-    // Interval identity is the real INSTANT, never a wall slot: a repeated DST hour is two runs.
-    expect(page.every((o) => o.id.startsWith('unarmed:instant:'))).toBe(true);
-    expect(new Set(page.map((o) => o.id)).size).toBe(page.length);
-  });
-
-  it('previews a plain interval draft instead of failing the whole route', async () => {
-    const { app, adminTok } = setup();
-    const res = await app.request(`/plugins/cronjob/api/schedule-preview`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${adminTok}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ schedule: 'every 1h', count: 3 }),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body).toEqual(expect.objectContaining({ valid: true, kind: 'interval' }));
-    expect((body.occurrences as unknown[]).length).toBe(3);
-  });
-
-  it('a day denser than its samples reports EXACT overflow and is not called truncated', async () => {
-    const { app, dataRoot, adminTok } = setup();
-    // Twelve slots on one date — four times the three a cell shows, and far inside the expansion
-    // budget. `overflow` is the exact remainder; `truncated` is reserved for a budget that ran out.
+    // Every other hour: twelve slots on a full day, far more than one row shows inline.
+    const target = shiftDate(todayIn(PRAGUE), 1);
     seed(dataRoot, [{
       id: 'dense', name: 'every other hour', schedule: '0 */2 * * *', prompt: 'p',
-      createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T22:00:00.000Z',
+      createdAt: '2026-09-01T00:00:00.000Z',
     }]);
-    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-16&days=1&detail=summary`, auth(adminTok))).json() as Record<string, unknown>;
-    const days = rows.days as { total: number; samples: unknown[]; overflow: number; truncated: boolean }[];
-    expect(days[0]!.total).toBe(12);
-    expect(days[0]!.samples).toHaveLength(3);
-    expect(days[0]!.overflow).toBe(9);
-    expect(days[0]!.truncated).toBe(false);
-    expect(rows.truncated).toBe(false);
+    const body = await getDay(app, adminTok, `?date=${target}`);
+    expect(body.rows).toHaveLength(1);
+    const row = body.rows[0]!;
+    expect(row.section).toBe('next');
+    expect(row.remaining).toBe(12);
+    // The head names a bounded few; `remaining` stays the whole truth about the day.
+    expect(row.next!.localTime).toBe('00:00');
+    expect(row.moreTimes).toEqual(['02:00', '04:00', '06:00']);
+    expect(row.truncated).toBe(false);
   });
 
-  it('an agenda cursor built against a CHANGED snapshot conflicts 409 instead of appending', async () => {
+  it('measures the day the calendar says it is, not a fixed 24 hours', async () => {
     const { app, dataRoot, adminTok } = setup();
-    seed(dataRoot, [{ id: 'a', name: 'a', schedule: 'daily 07:00', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T05:00:00.000Z' }]);
-    const res1 = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=2&detail=agenda`, auth(adminTok));
-    const page1 = await res1.json() as Record<string, unknown>;
-    expect(page1.nextCursor).toBeTruthy();
-    // The schedule changed between pages: the cursor's snapshot no longer matches.
-    seed(dataRoot, [{ id: 'a', name: 'a', schedule: 'daily 08:00', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T05:00:00.000Z' }]);
-    const res2 = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=2&detail=agenda&cursor=` + encodeURIComponent(String(page1.nextCursor)), auth(adminTok));
-    expect(res2.status).toBe(409);
-    expect(await res2.json()).toEqual(expect.objectContaining({ code: 'snapshot_changed' }));
+    // 25 October 2026 is Prague's fall-back day: 25 hours long, so an hourly job runs 25 times.
+    seed(dataRoot, [{ id: 'hourly', name: 'hourly', schedule: 'every 1h', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' }]);
+    const dstDay = await getDay(app, adminTok, '?date=2026-10-25');
+    const plainDay = await getDay(app, adminTok, '?date=2026-10-26');
+    expect(dstDay.rows[0]!.remaining).toBe(25);
+    expect(plainDay.rows[0]!.remaining).toBe(24);
   });
 
-  it('pauses jobs out of the occurrence expansion but keeps them in the jobs list', async () => {
+  it('keeps today a full inventory: a paused job stays, and leaves another day alone', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [{ id: 'paused', name: 'p', schedule: 'daily 07:00', prompt: 'x', enabled: false, createdAt: '2026-09-01T00:00:00.000Z' }]);
-    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=2&detail=agenda`, auth(adminTok))).json() as Record<string, unknown>;
-    expect((rows.jobs as { id: string }[]).map((j) => j.id)).toEqual(['paused']);
-    expect(rows.occurrences).toEqual([]);
-    expect((rows.jobs as { nextOccurrence: unknown }[])[0]!.nextOccurrence).toBeNull();
+    const today = await getDay(app, adminTok);
+    expect(today.rows).toHaveLength(1);
+    expect(today.rows[0]).toEqual(expect.objectContaining({
+      jobId: 'paused', section: 'recurring', enabled: false, remaining: 0, next: null,
+    }));
+    expect(today.jobs[0]!.nextOccurrence).toBeNull();
+    // A different day is only what is SCHEDULED on it; a paused job is not.
+    const later = await getDay(app, adminTok, `?date=${shiftDate(todayIn(PRAGUE), 3)}`);
+    expect(later.rows).toEqual([]);
   });
 
-  it('marks guarded occurrences and overlapping ones at their planned times', async () => {
+  it('places a pending one-shot on its own day and a missed one on today', async () => {
     const { app, dataRoot, adminTok } = setup();
+    const soon = new Date(Date.now() + 3_600_000).toISOString();
     seed(dataRoot, [
-      { id: 'g1', name: 'guarded', schedule: 'daily 07:00', check: 'ls /', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T05:00:00.000Z' },
-      { id: 'g2', name: 'also seven', schedule: 'daily 07:00', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z', lastRun: '2026-09-14T05:00:00.000Z' },
+      { id: 'late', name: 'wake', schedule: 'one-shot', runAt: new Date(Date.now() - 6 * 3_600_000).toISOString(), prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'soon', name: 'next', schedule: 'one-shot', runAt: soon, prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
     ]);
-    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-16&days=1&detail=agenda`, auth(adminTok))).json() as Record<string, unknown>;
-    const page = rows.occurrences as { id: string; guarded: boolean; expectedAt: string }[];
-    expect(page.map((o) => [o.id, o.guarded])).toEqual(
-      expect.arrayContaining([['g1:slot:2026-09-16T07:00', true], ['g2:slot:2026-09-16T07:00', false]]));
-    // Overlapping planned occurrences sit AT their own times; the scheduler explains sequential delay.
-    const instants = new Set(page.map((o) => o.expectedAt));
-    expect(instants.size).toBe(1);
+    const body = await getDay(app, adminTok);
+    const late = body.rows.find((r) => r.jobId === 'late')!;
+    // A one-shot whose time has passed is claimed on the NEXT tick, so it belongs to today — showing
+    // it only on the day it was meant for would hide the one thing still waiting to happen.
+    expect(late.section).toBe('oneShot');
+    expect(late.next!.disposition).toMatch(/^(dueNow|late)$/);
+    expect(body.rows.find((r) => r.jobId === 'soon')!.section).toBe('oneShot');
   });
 
-  it('shows a pending one-shot where it belongs and a past one-shot as late/dueNow', async () => {
+  it('marks a guarded job and reads active hours as a deferral, not a disappearance', async () => {
     const { app, dataRoot, adminTok } = setup();
+    const target = shiftDate(todayIn(PRAGUE), 1);
     seed(dataRoot, [
-      { id: 'w1', name: 'wake', schedule: 'one-shot', runAt: Date.parse('2026-09-15T07:00:00Z') ? new Date(nowMs0 - 600_000).toISOString() : '', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
-      { id: 'w2', name: 'next', schedule: 'one-shot', runAt: new Date(nowMs0 + 3600_000).toISOString(), prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'g1', name: 'guarded', schedule: 'daily 07:00', check: 'ls /', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'gated', name: 'gated', schedule: 'daily 06:00', hours: '9-17', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
     ]);
-    const rows = await (await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=1&detail=agenda`, auth(adminTok))).json() as Record<string, unknown>;
-    const occurrences = byId(rows.occurrences as unknown[]);
-    expect(Object.keys(occurrences)).toContain('w1:once');
-    expect(byId(rows.occurrences as unknown[])['w1:once']!.disposition).toMatch(/^(dueNow|late)$/);
-    expect(byId(rows.occurrences as unknown[])['w2:once']!.scheduledAt).toBe(new Date(nowMs0 + 3600_000).toISOString());
+    const body = await getDay(app, adminTok, `?date=${target}`);
+    expect(body.rows.find((r) => r.jobId === 'g1')!.next!.guarded).toBe(true);
+    const gated = body.rows.find((r) => r.jobId === 'gated')!;
+    expect(gated.remaining).toBe(1);
+    expect(gated.next!.disposition).toBe('deferredByHours');
   });
 
   it('rejects an unreadable jobs file with jobs_unreadable, never a success-shaped empty', async () => {
     const { app, dataRoot, adminTok } = setup();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
     writeFileSync(join(dataRoot, 'cronjob', 'jobs.json'), '{oops');
-    const res = await app.request(`/plugins/cronjob/api/calendar?start=2026-09-15&days=1&detail=summary`, auth(adminTok));
+    const res = await app.request(`/plugins/cronjob/api/day`, auth(adminTok));
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual(expect.objectContaining({ code: 'jobs_unreadable' }));
   });
 
-  it('bounds the summary window and the agenda window and refuses bad detail/scope/limit', async () => {
-    const { app, adminTok, amyTok } = setup();
-    for (const [tok, query, expectedStatus, code, field] of [
-      [adminTok, `start=2026-09-15&days=43&detail=summary`, 400, 'invalid_request', 'days'],
-      [adminTok, `start=2026-09-15&days=8&detail=agenda`, 400, 'invalid_request', 'days'],
-      [adminTok, `start=2026-09-15&days=7&detail=agenda&limit=251`, 400, 'invalid_request', 'limit'],
-      [amyTok, `start=2026-09-15&days=7&detail=agenda&scope=instance`, 403, 'forbidden', 'scope'],
-    ] as const) {
-      const res = await app.request(`/plugins/cronjob/api/calendar?${query}`, auth(tok));
+  it('refuses a date that is not a real local calendar date', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, []);
+    for (const bad of ['tomorrow', '2026-9-1', '2026-02-30']) {
+      const res = await app.request(`/plugins/cronjob/api/day?date=${encodeURIComponent(bad)}`, auth(adminTok));
       const body = await res.json() as Record<string, unknown>;
-      expect([res.status, body.code, body.field]).toEqual([expectedStatus, code, field]);
+      expect([res.status, body.code, body.field]).toEqual([400, 'invalid_request', 'date']);
     }
+  });
+
+  it('ships exactly the jobs the reader may address, so the browser can filter without a request', async () => {
+    const { app, dataRoot, adminTok, amyTok, amy } = setup();
+    seed(dataRoot, [
+      { id: 'hers', name: 'hers', schedule: 'daily 07:00', prompt: 'p', ownerUserId: amy.id, createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: 'instance', name: 'instance', schedule: 'daily 08:00', prompt: 'p', createdAt: '2026-09-01T00:00:00.000Z' },
+    ]);
+    // Another account's personal job is nobody else's to see — not even an administrator's. That rule
+    // is the scheduler's, unchanged, and it is WHY the board can hand the whole visible set to the
+    // browser: the owner filter narrows what is already authorized instead of asking the server again.
+    const asAdmin = await getDay(app, adminTok);
+    expect(asAdmin.jobs.map((j) => j.id)).toEqual(['instance']);
+    // And an instance job is the administrator's: Amy holds her own row and nothing else.
+    const asAmy = await getDay(app, amyTok);
+    expect(asAmy.jobs.map((j) => j.id)).toEqual(['hers']);
+    expect(asAmy.rows.map((r) => r.jobId)).toEqual(['hers']);
   });
 });
 

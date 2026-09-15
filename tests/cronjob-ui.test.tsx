@@ -1,14 +1,15 @@
-/** The Automation workbench, exercised the way a reader drives it: rendered against the REAL host
- *  stand-in runtime, answering the real calendar/create/run/delete routes through the fetch boundary a
+/** The Automation day board, exercised the way a reader drives it: rendered against the REAL host
+ *  stand-in runtime, answering the real day/create/run/delete routes through the fetch boundary a
  *  shipped bundle actually talks to.
  *
- *  These are behaviour assertions, not structure ones. What they pin is what the plan promised and
- *  what a refactor can silently take away: the day ledger and its `+N more`, ONE date modal that is
- *  mounted only while open, an agenda-first phone with a working day strip, an Agenda view that
- *  REPLACES the month grid, the drawer reached from an occurrence, explicit creation of both
- *  lifecycles, recurring filing that blocks the submit until a conversation is chosen, revision
- *  conflicts, pause rollback, a durable run-now, focus returning after a delete, and a deep link that
- *  cannot tell a deleted job from a foreign one.
+ *  These are behaviour assertions, not structure ones. What they pin is the thing the redesign exists
+ *  to guarantee and that a refactor could silently take away: a day drawn as a DAY — an hour gutter,
+ *  a band per hour, a block in the band it runs in and a now line — with every job on it AT MOST
+ *  ONCE, a high-frequency poll read as a rate in its own lane instead of as hundreds of runs, an
+ *  initial load that asks for no range at all, filters that never re-query, ONE host modal holding
+ *  the real calendar, the drawer reached from a block, explicit creation of both lifecycles,
+ *  recurring filing that blocks the submit until a conversation is chosen, revision conflicts, pause
+ *  rollback, a durable run-now, and a deep link that cannot tell a deleted job from a foreign one.
  */
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,10 +20,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { http, HttpResponse, listen, resetHandlers, setDefaults, use, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
-import { CalendarPage } from '../plugins/cronjob/web-src/CalendarPage';
+import { DayBoard } from '../plugins/cronjob/web-src/DayBoard';
 import {
   runtime, apiErrorCode, apiErrorConflict, apiErrorCurrent, localDateLabel,
-  type CronJob, type CronOccurrence,
+  type CronJob, type CronDayRow,
 } from '../plugins/cronjob/web-src/runtime';
 import {
   parseActiveHours, parseBuilderSchedule, renderActiveHours, renderBuilderSchedule,
@@ -34,25 +35,11 @@ ensurePluginUiRuntime();
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const manifestApiVersion = (manifest as { web: { requiresApiVersion: number } }).web.requiresApiVersion;
 const TZ = 'Europe/Prague';
-/** The scheduler's own today. The page adopts it from the summary and never derives one. */
+/** The scheduler's own today and wall clock. The board is TOLD both and derives neither. */
 const TODAY = '2026-09-15';
-const MONTH_START = '2026-09-01';
+const NOW_LOCAL = '10:20';
 
 // ── fixtures ─────────────────────────────────────────────────────────────────────────────────────
-
-const occurrence = (jobId: string, date: string, time: string, over: Partial<CronOccurrence> = {}): CronOccurrence => ({
-  id: `${jobId}:slot:${date}T${time}`,
-  jobId,
-  lifecycle: 'recurring',
-  scheduledAt: `${date}T${time}:00.000Z`,
-  expectedAt: `${date}T${time}:00.000Z`,
-  localDate: date,
-  localTime: time,
-  timezone: TZ,
-  disposition: 'onTime',
-  guarded: false,
-  ...over,
-});
 
 const recurring: CronJob = {
   id: 'job-daily', name: 'Morning digest', schedule: 'daily 07:30', prompt: 'summarize',
@@ -73,60 +60,75 @@ const oneShot: CronJob = {
     timezone: TZ, disposition: 'onTime', guarded: false,
   },
 };
-
-/** A day denser than the three samples a month cell shows: the `+N more` affordance has to be real. */
-const denseSamples = [
-  occurrence('job-daily', TODAY, '07:30'),
-  occurrence('job-once', TODAY, '18:00', { lifecycle: 'oneShot', id: 'job-once:once' }),
-  occurrence('job-daily', TODAY, '20:00'),
-];
-
-interface CalendarOptions {
-  jobs?: CronJob[];
-  occurrences?: CronOccurrence[];
-  nextCursor?: string;
-  truncated?: boolean;
-  snapshot?: string;
-}
-
-const calendarBody = (detail: 'summary' | 'agenda', start: string, opts: CalendarOptions = {}) => {
-  const jobs = opts.jobs ?? [recurring, oneShot];
-  const common = {
-    generatedAt: '2026-09-15T10:00:00.000Z',
-    todayLocalDate: TODAY,
-    timezone: TZ,
-    precisionMs: 30_000,
-    snapshot: opts.snapshot ?? 'snap-1',
-    window: {
-      startLocalDate: start, endLocalDateExclusive: '2026-10-01',
-      startAt: '2026-08-31T22:00:00.000Z', endAt: '2026-09-30T22:00:00.000Z',
-    },
-    scheduler: { ready: true },
-    jobs,
-    truncated: opts.truncated ?? false,
-  };
-  if (detail === 'agenda') {
-    return {
-      ...common,
-      occurrences: opts.occurrences ?? denseSamples,
-      ...(opts.nextCursor ? { nextCursor: opts.nextCursor } : {}),
-    };
-  }
-  return {
-    ...common,
-    days: [{
-      date: TODAY, total: 5, samples: denseSamples, overflow: 2, omittedByHours: 0,
-      truncated: opts.truncated ?? false,
-    }],
-  };
+/** The job that broke the month view: a two-minute poll is 720 runs a day, and a real instance holds
+ *  dozens of them. On this board it is ONE row that names its rate. */
+const poll: CronJob = {
+  id: 'job-poll', name: 'Inbox poll', schedule: 'every 2m', prompt: 'poll',
+  enabled: true, ownerUserId: 7, lifecycle: 'recurring', revision: 1,
+};
+const paused: CronJob = {
+  id: 'job-paused', name: 'Weekly report', schedule: 'weekly mon 09:00', prompt: 'report',
+  enabled: false, ownerUserId: 7, lifecycle: 'recurring', revision: 1,
 };
 
-const serveCalendar = (opts: CalendarOptions | ((detail: string, url: URL) => CalendarOptions) = {}) =>
-  http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-    const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-    const start = url.searchParams.get('start') ?? MONTH_START;
-    const resolved = typeof opts === 'function' ? opts(detail, url) : opts;
-    return HttpResponse.json(calendarBody(detail, start, resolved));
+const row = (over: Partial<CronDayRow> & { jobId: string }): CronDayRow => ({
+  section: 'next',
+  kind: 'daily',
+  schedule: 'daily 07:30',
+  enabled: true,
+  remaining: 1,
+  next: {
+    occurrenceId: `${over.jobId}:slot:1`, scheduledAt: '2026-09-15T05:30:00.000Z',
+    expectedAt: '2026-09-15T05:30:00.000Z', localTime: '07:30', disposition: 'onTime', guarded: false,
+  },
+  moreTimes: [],
+  truncated: false,
+  ...over,
+});
+
+/** A day with all three kinds on it: a fixed-time job that runs three times, a one-shot in the
+ *  evening, a two-minute poll and a paused recurrence. */
+const DEFAULT_ROWS: CronDayRow[] = [
+  row({ jobId: 'job-daily', remaining: 3, moreTimes: ['12:00', '18:30'] }),
+  row({
+    jobId: 'job-poll', section: 'recurring', kind: 'interval', schedule: 'every 2m', remaining: 720,
+    next: { occurrenceId: 'job-poll:instant:1', scheduledAt: '2026-09-15T08:22:00.000Z', expectedAt: '2026-09-15T08:22:00.000Z', localTime: '10:22', disposition: 'onTime', guarded: false },
+  }),
+  row({
+    jobId: 'job-once', section: 'oneShot', kind: 'oneShot', schedule: null,
+    next: { occurrenceId: 'job-once:once', scheduledAt: '2026-09-15T16:00:00.000Z', expectedAt: '2026-09-15T16:00:00.000Z', localTime: '18:00', disposition: 'onTime', guarded: false },
+  }),
+  row({
+    jobId: 'job-paused', section: 'recurring', kind: 'weekly', schedule: 'weekly mon 09:00',
+    enabled: false, remaining: 0, next: null,
+  }),
+];
+
+interface DayOptions {
+  jobs?: CronJob[];
+  rows?: CronDayRow[];
+  localDate?: string;
+  truncated?: boolean;
+}
+
+const dayBody = (opts: DayOptions = {}) => ({
+  generatedAt: '2026-09-15T08:20:00.000Z',
+  todayLocalDate: TODAY,
+  nowLocalTime: NOW_LOCAL,
+  localDate: opts.localDate ?? TODAY,
+  timezone: TZ,
+  precisionMs: 30_000,
+  scheduler: { ready: true },
+  jobs: opts.jobs ?? [recurring, oneShot, poll, paused],
+  rows: opts.rows ?? DEFAULT_ROWS,
+  truncated: opts.truncated ?? false,
+});
+
+const serveDay = (opts: DayOptions | ((url: URL) => DayOptions) = {}) =>
+  http.get('/api/plugins/cronjob/api/day', ({ url }) => {
+    const resolved = typeof opts === 'function' ? opts(url) : opts;
+    const asked = url.searchParams.get('date');
+    return HttpResponse.json(dayBody({ localDate: asked ?? TODAY, ...resolved }));
   });
 
 setDefaults(
@@ -140,7 +142,7 @@ setDefaults(
     conversations: [{ id: 'conv-1', title: 'Ops chat', ownerUserId: 7, platform: null, direct: false, updatedAt: '2026-09-01T00:00:00.000Z' }],
   })),
   http.get('/api/plugins/cronjob/jobs', () => HttpResponse.json([recurring, oneShot])),
-  serveCalendar(),
+  serveDay(),
 );
 
 beforeAll(() => listen());
@@ -163,144 +165,171 @@ function setViewport(mobile: boolean): void {
 
 function renderPage() {
   const { wrapper: Wrapper, client } = createWrapper();
-  return { ...render(<Wrapper><ToastProvider><CalendarPage /></ToastProvider></Wrapper>), client };
+  return { ...render(<Wrapper><ToastProvider><DayBoard /></ToastProvider></Wrapper>), client };
 }
 
-/** The agenda card for a job. A recurring job legitimately has SEVERAL occurrences in one window and
- *  each card is independently operable, so the first one is the one a reader clicks. */
+/** The control a reader clicks to open a job. Each job has exactly one on the board — that is the
+ *  invariant, so `findByRole` (which throws on a second match) is itself part of the assertion. */
 const occurrenceCard = async (name: string): Promise<HTMLElement> =>
-  (await screen.findAllByRole('button', { name: strings.openJob.replace('{name}', name) }))[0]!;
+  await screen.findByRole('button', { name: strings.openJob.replace('{name}', name) });
 
-/** The page has painted when the first summary landed and the toolbar exists. */
-const awaitPainted = () => screen.findByTestId('cron-calendar-body');
+/** The page has painted when the first day landed. */
+const awaitPainted = () => screen.findByTestId('cron-day-board');
 
-// ── the month surface ────────────────────────────────────────────────────────────────────────────
+// ── the day, drawn as a day ──────────────────────────────────────────────────────────────────────
 
-describe('the month surface', () => {
+describe('the day rail', () => {
   beforeEach(() => setViewport(false));
 
-  it('renders the day as a schedule ledger: three ordered times, a +N more, and a counted name', async () => {
+  it('draws an hour gutter with a band per hour and each job in the band it runs in', async () => {
     renderPage();
     await awaitPainted();
-    const cell = await screen.findByTestId(`cron-day-${TODAY}`);
-    // The ledger itself: at most three ordered local time labels, then the overflow count.
-    expect(within(cell).getByText('07:30')).toBeInTheDocument();
-    expect(within(cell).getByText('18:00')).toBeInTheDocument();
-    expect(within(cell).getByText('20:00')).toBeInTheDocument();
-    expect(within(cell).getByText(strings.calMore.replace('{n}', '2'))).toBeInTheDocument();
-    // The count reaches a screen reader through the day button's own accessible name, and the
-    // library's localized full-date name is kept rather than replaced by the raw label.
-    expect(cell.getAttribute('aria-label')).toBe(
-      strings.calDayAria.replace('{date}', '15 September 2026').replace('{count}', '5'),
-    );
+    const rail = await screen.findByTestId('cron-day-rail');
+
+    // An hour gutter that reads as a day: a labelled band for every hour the day spans, including the
+    // empty ones between its appointments. A list with headings has none of this.
+    const bands = Array.from(rail.children);
+    expect(bands.length).toBe(12); // 07:00 through 18:00 inclusive, nothing skipped
+    const gutter = bands.map((band) => band.firstElementChild?.textContent);
+    expect(gutter[0]).toBe('07:00');
+    expect(gutter).toContain('10:00');   // an hour with nothing scheduled still holds its band
+    expect(gutter.at(-1)).toBe('18:00');
+
+    // Each job sits INSIDE its own hour, not in a flat column under a heading.
+    const sevenBand = screen.getByTestId('cron-hour-07');
+    expect(within(sevenBand).getByTestId('cron-row-job-daily')).toBeInTheDocument();
+    const eighteenBand = screen.getByTestId('cron-hour-18');
+    expect(within(eighteenBand).getByTestId('cron-row-job-once')).toBeInTheDocument();
   });
 
-  it('keeps every button prop the calendar computed on the ledger button — nothing is a plain span', async () => {
+  it('marks the current moment on the rail, and only on today', async () => {
     renderPage();
     await awaitPainted();
-    const cell = await screen.findByTestId(`cron-day-${TODAY}`);
-    // The override IS the day button: the type, the roving tabIndex and the click handler all survive.
-    expect(cell.tagName).toBe('BUTTON');
-    expect(cell).toHaveAttribute('type', 'button');
-    expect(cell).toHaveAttribute('tabindex');
-    // Nothing inside the ledger is separately focusable — one tab stop per day, by design.
-    expect(within(cell).queryAllByRole('button')).toHaveLength(0);
+    // 10:20 lands a third of the way down the 10:00 band.
+    const now = await screen.findByTestId('cron-now-line');
+    expect(screen.getByTestId('cron-hour-10').contains(now)).toBe(true);
+    expect(now.style.top).toBe(`${(20 / 60) * 100}%`);
+
+    cleanup();
+    use(serveDay({ localDate: '2026-09-18' }));
+    renderPage();
+    await awaitPainted();
+    // Another day has no "now" on it: a now line on a future date would be a lie about the clock.
+    await waitFor(() => expect(screen.queryByTestId('cron-now-line')).toBeNull());
   });
 
-  it('selecting a day moves the side agenda to it and asks the server for that ONE local date', async () => {
-    const asked: string[] = [];
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      if (detail === 'agenda') asked.push(`${url.searchParams.get('start')}/${url.searchParams.get('days')}`);
-      return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START));
-    }));
+  it('draws a two-minute poll ONCE, as a rate in its own lane, never as a run per occurrence', async () => {
     renderPage();
     await awaitPainted();
-    await waitFor(() => expect(asked).toContain(`${TODAY}/1`));
-    fireEvent.click(await screen.findByTestId('cron-day-2026-09-17'));
-    // The month panel reads exactly one day; the window start follows the selection.
-    await waitFor(() => expect(asked).toContain('2026-09-17/1'));
+
+    // THE invariant. 720 runs a day is exactly what buried the old month view.
+    const all = screen.getAllByTestId(/^cron-row-/);
+    expect(all).toHaveLength(DEFAULT_ROWS.length);
+    expect(new Set(all.map((el) => el.getAttribute('data-testid'))).size).toBe(all.length);
+
+    const lane = await screen.findByTestId('cron-recurring-lane');
+    const pollRow = within(lane).getByTestId('cron-row-job-poll');
+    // The rate and the count, in words: the poll is described rather than enumerated.
+    expect(within(pollRow).getByText('every 2m')).toBeInTheDocument();
+    expect(within(pollRow).getByText(strings.boardRemaining.replace('{n}', '720'))).toBeInTheDocument();
+    // And it is NOT on the timed rail, where it would bury every real appointment.
+    expect(within(screen.getByTestId('cron-day-rail')).queryByTestId('cron-row-job-poll')).toBeNull();
   });
 
-  it('adopts the SCHEDULER\'s today rather than the browser\'s, once', async () => {
-    // The browser clock is deliberately a different day; the server states 2026-09-15.
-    vi.setSystemTime(new Date('2026-11-02T23:30:00Z'));
-    const starts: string[] = [];
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      if (detail === 'summary') starts.push(url.searchParams.get('start') ?? '');
-      return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START));
-    }));
+  it('names a job several further times inside its own block instead of drawing it again', async () => {
     renderPage();
     await awaitPainted();
-    await waitFor(() => expect(starts).toContain(MONTH_START));
-    vi.useRealTimers();
+    const block = screen.getByTestId('cron-row-job-daily');
+    expect(within(block).getByTestId('cron-times-job-daily').textContent)
+      .toBe(strings.boardAlsoAt.replace('{times}', '12:00 · 18:30'));
+    // Three runs today, one block. The other two are named, not re-drawn.
+    expect(screen.getAllByTestId('cron-row-job-daily')).toHaveLength(1);
+  });
+
+  it('keeps a paused job on today board with its state in words', async () => {
+    renderPage();
+    await awaitPainted();
+    const lane = await screen.findByTestId('cron-recurring-lane');
+    const pausedRow = within(lane).getByTestId('cron-row-job-paused');
+    expect(within(pausedRow).getByText(strings.paused)).toBeInTheDocument();
+    expect(within(pausedRow).getByText('weekly mon 09:00')).toBeInTheDocument();
+    // Paused says everything: the row carries no next time and claims no runs left.
+    expect(within(pausedRow).getByText('—')).toBeInTheDocument();
+    expect(within(pausedRow).queryByText(strings.boardRemaining.replace('{n}', '0'))).toBeNull();
   });
 });
 
-// ── the Agenda view REPLACES the month grid ──────────────────────────────────────────────────────
+// ── what the board asks the server for ───────────────────────────────────────────────────────────
 
-describe('the agenda view', () => {
+describe('the board network contract', () => {
   beforeEach(() => setViewport(false));
 
-  it('replaces the month grid with one seven-day chronological list under its own range heading', async () => {
-    const windows: string[] = [];
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      if (detail === 'agenda') windows.push(`${url.searchParams.get('start')}/${url.searchParams.get('days')}`);
-      return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START));
+  it('asks for NO range on the initial load, and for exactly one date after that', async () => {
+    const asked: string[] = [];
+    use(http.get('/api/plugins/cronjob/api/day', ({ url }) => {
+      asked.push(url.search);
+      return HttpResponse.json(dayBody({ localDate: url.searchParams.get('date') ?? TODAY }));
     }));
     renderPage();
     await awaitPainted();
-    expect(screen.getByTestId('cron-month-grid')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: strings.calAgendaHeading }));
-
-    // The grid is GONE — an Agenda view that only changed the query would leave it standing.
-    await waitFor(() => expect(screen.queryByTestId('cron-month-grid')).toBeNull());
-    expect(screen.getByTestId('cron-agenda-view')).toBeInTheDocument();
-    // Its own heading names the whole range, not a single day.
-    const heading = screen.getByTestId('cron-agenda-range');
-    expect(heading.textContent).toContain('September');
-    expect(heading.textContent).toContain('21');
-    await waitFor(() => expect(windows).toContain(`${TODAY}/7`));
+    // The first request carries nothing at all: no start, no days, no detail, no cursor. A month or a
+    // week cannot be asked for by accident, because there is no range in the contract to ask with.
+    await waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(asked[0]).toBe('');
+    for (const search of asked) {
+      const params = new URLSearchParams(search);
+      expect([...params.keys()].filter((k) => k !== 'date')).toEqual([]);
+    }
   });
 
-  it('pages a truncated agenda through the server cursor instead of hiding what does not fit', async () => {
-    const cursors: (string | null)[] = [];
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      if (detail !== 'agenda') return HttpResponse.json(calendarBody('summary', MONTH_START));
-      const cursor = url.searchParams.get('cursor');
-      cursors.push(cursor);
-      if (cursor === null) {
-        return HttpResponse.json(calendarBody('agenda', TODAY, {
-          occurrences: [occurrence('job-daily', TODAY, '07:30')], nextCursor: 'cursor-page-2',
-        }));
-      }
-      return HttpResponse.json(calendarBody('agenda', TODAY, {
-        occurrences: [occurrence('job-daily', TODAY, '23:45')],
-      }));
+  it('reads one other day through ONE host modal holding the real calendar, and comes back', async () => {
+    const asked: string[] = [];
+    use(http.get('/api/plugins/cronjob/api/day', ({ url }) => {
+      asked.push(url.searchParams.get('date') ?? '');
+      return HttpResponse.json(dayBody({ localDate: url.searchParams.get('date') ?? TODAY }));
     }));
     renderPage();
     await awaitPainted();
-    await screen.findByTestId('cron-agenda-more');
-    // The window says outright that more follows — never a silent cut.
-    expect(screen.getByText(strings.calAgendaTruncated)).toBeInTheDocument();
+    // The host Modal has no `open` prop: not-open MUST mean not mounted.
+    expect(screen.queryByTestId('calendar-grid')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: strings.calAgendaMore }));
+    fireEvent.click(screen.getByRole('button', { name: strings.boardOtherDay }));
+    const grid = await screen.findByTestId('calendar-grid');
+    expect(screen.getAllByTestId('calendar-grid')).toHaveLength(1);
+    // Nothing else nests inside the date chooser — a creation form here would be a second surface.
+    expect(screen.queryByTestId('cron-create-form')).toBeNull();
 
-    // Scoped to the agenda: the month cell's own ledger shows the same times, and it is the LIST that
-    // has to grow.
-    const list = await screen.findByTestId('cron-agenda');
-    await waitFor(() => expect(within(list).getByText('23:45')).toBeInTheDocument());
-    // The first page stays: pages append in order, they do not replace each other.
-    expect(within(list).getByText('07:30')).toBeInTheDocument();
-    // The cursor travelled with the snapshot it was cut against.
-    const second = cursors.filter((c) => c !== null);
-    expect(second).toContain('cursor-page-2');
-    // And the affordance is gone once the server stops handing out a cursor.
-    await waitFor(() => expect(screen.queryByTestId('cron-agenda-more')).toBeNull());
+    // A real day cell, not the month chevrons beside the grid: choosing a date is what closes it.
+    const cell = within(grid).getAllByRole('gridcell')[10]!;
+    const chosen = cell.getAttribute('data-day')!;
+    fireEvent.click(within(cell).getByRole('button'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-grid')).toBeNull());
+    // Exactly ONE day was fetched, for exactly the date chosen — never a window around it.
+    await waitFor(() => expect(asked.filter((d) => d !== '')).toEqual([chosen]));
+
+    fireEvent.click(await screen.findByRole('button', { name: strings.calToday }));
+    await waitFor(() => expect(screen.getByTestId('cron-day-heading').textContent)
+      .toBe(new Intl.DateTimeFormat('en', { weekday: 'long', day: 'numeric', month: 'long' })
+        .format(new Date(2026, 8, 15))));
+  });
+
+  it('narrows already-loaded rows without asking the server again', async () => {
+    let calls = 0;
+    use(http.get('/api/plugins/cronjob/api/day', ({ url }) => {
+      calls += 1;
+      return HttpResponse.json(dayBody({ localDate: url.searchParams.get('date') ?? TODAY }));
+    }));
+    renderPage();
+    await awaitPainted();
+    await waitFor(() => expect(calls).toBeGreaterThan(0));
+    const before = calls;
+
+    fireEvent.change(screen.getByPlaceholderText(strings.searchPlaceholder), { target: { value: 'inbox' } });
+    await waitFor(() => expect(screen.queryByTestId('cron-row-job-daily')).toBeNull());
+    expect(screen.getByTestId('cron-row-job-poll')).toBeInTheDocument();
+    // The board is one bounded row per job, so a filter has nothing left to fetch.
+    expect(calls).toBe(before);
   });
 });
 
@@ -309,60 +338,15 @@ describe('the agenda view', () => {
 describe('the phone surface', () => {
   beforeEach(() => setViewport(true));
 
-  it('is agenda-first: a seven-day strip drives the agenda and no month grid is squeezed in', async () => {
-    const windows: string[] = [];
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      if (detail === 'agenda') windows.push(`${url.searchParams.get('start')}/${url.searchParams.get('days')}`);
-      return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START));
-    }));
+  it('is the same vertical day planner, with no week strip and no second date control', async () => {
     renderPage();
     await awaitPainted();
-
-    expect(screen.queryByTestId('cron-month-grid')).toBeNull();
-    const strip = await screen.findByTestId('cron-day-strip');
-    // Seven dates from the selected day, each an addressable 44px target naming its own count.
-    const days = within(strip).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') !== null);
-    expect(days).toHaveLength(7);
-    expect(days[0]).toHaveAttribute('aria-pressed', 'true');
-    expect(days[0]).toHaveAttribute('aria-label', strings.calDayAria.replace('{date}', TODAY).replace('{count}', '5'));
-    await waitFor(() => expect(windows).toContain(`${TODAY}/7`));
-
-    // Picking a later date in the strip moves the agenda window to it.
-    fireEvent.click(days[3]!);
-    await waitFor(() => expect(windows).toContain('2026-09-18/7'));
-  });
-
-  it('steps the strip by WEEKS, under its own week labels — never the month ones', async () => {
-    renderPage();
-    await awaitPainted();
-    const strip = await screen.findByTestId('cron-day-strip');
-    expect(within(strip).getByRole('button', { name: strings.calPrevWeek })).toBeInTheDocument();
-    expect(within(strip).getByRole('button', { name: strings.calNextWeek })).toBeInTheDocument();
-    expect(within(strip).queryByRole('button', { name: strings.calPrevMonth })).toBeNull();
-
-    fireEvent.click(within(strip).getByRole('button', { name: strings.calNextWeek }));
-    await waitFor(() => {
-      const days = within(screen.getByTestId('cron-day-strip')).getAllByRole('button')
-        .filter((b) => b.getAttribute('aria-pressed') !== null);
-      expect(days[0]).toHaveAttribute('aria-label', expect.stringContaining('2026-09-22'));
-    });
-  });
-
-  it('opens the month picker in ONE host modal, mounted only while it is open', async () => {
-    renderPage();
-    await awaitPainted();
-    // The host Modal has no `open` prop: not-open MUST mean not mounted.
-    expect(screen.queryByTestId('calendar-grid')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: strings.calDatePicker }));
-    const grid = await screen.findByTestId('calendar-grid');
-    expect(screen.getAllByTestId('calendar-grid')).toHaveLength(1);
-    // Nothing else nests inside the date chooser — a creation form here would be a second surface.
-    expect(screen.queryByTestId('cron-create-form')).toBeNull();
-
-    fireEvent.click(within(grid.closest('[role="dialog"]') ?? grid).getAllByRole('button')[0]!);
-    await waitFor(() => expect(screen.queryByTestId('calendar-grid')).toBeNull());
+    // One day planner, with its real hour bands — not a stripped-down list and not a 7-day swipe.
+    expect(await screen.findByTestId('cron-day-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('cron-hour-07')).toBeInTheDocument();
+    expect(screen.queryByTestId('cron-day-strip')).toBeNull();
+    // ONE way to reach another day, the same one the desktop has.
+    expect(screen.getAllByRole('button', { name: strings.boardOtherDay })).toHaveLength(1);
   });
 });
 
@@ -419,12 +403,9 @@ describe('the job drawer', () => {
     let queued = false;
     let summaryCalls = 0;
     use(
-      http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-        const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-        if (detail === 'summary') summaryCalls += 1;
-        return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START, {
-          jobs: [{ ...recurring, manualQueued: queued }, oneShot],
-        }));
+      http.get('/api/plugins/cronjob/api/day', () => {
+        summaryCalls += 1;
+        return HttpResponse.json(dayBody({ jobs: [{ ...recurring, manualQueued: queued }, oneShot, poll, paused] }));
       }),
       http.post('/api/plugins/cronjob/jobs/:id/run', async ({ request }) => {
         runs.push(await request.json() as Record<string, unknown>);
@@ -438,7 +419,7 @@ describe('the job drawer', () => {
     expect(typeof runs[0]!.requestId).toBe('string');
     expect(runs[0]!.expectedRevision).toBe(3);
 
-    // While the request is queued the page reads the calendar at the fast cadence, not the 30s one.
+    // While the request is queued the page reads the day at the fast cadence, not the 30s one.
     const before = summaryCalls;
     await vi.advanceTimersByTimeAsync(6_500);
     expect(summaryCalls).toBeGreaterThan(before + 1);
@@ -589,18 +570,16 @@ describe('deep links', () => {
 
   it('falls back to the same unavailable state when an open job disappears under the reader', async () => {
     let present = true;
-    use(http.get('/api/plugins/cronjob/api/calendar', ({ url }) => {
-      const detail = url.searchParams.get('detail') === 'agenda' ? 'agenda' : 'summary';
-      return HttpResponse.json(calendarBody(detail, url.searchParams.get('start') ?? MONTH_START, {
-        jobs: present ? [recurring, oneShot] : [oneShot],
-      }));
-    }));
+    use(http.get('/api/plugins/cronjob/api/day', () => HttpResponse.json(dayBody({
+      jobs: present ? [recurring, oneShot] : [oneShot],
+      rows: present ? DEFAULT_ROWS : DEFAULT_ROWS.filter((r) => r.jobId !== 'job-daily'),
+    }))));
     window.history.replaceState({}, '', '/p/cronjob?job=job-daily');
     const { client } = renderPage();
     await screen.findByText(strings.nextRun);
     present = false;
-    // The next window read no longer carries the row; the drawer must not render over `undefined`.
-    await client.invalidateQueries({ queryKey: ['cron-calendar'] });
+    // The next day read no longer carries the row; the drawer must not render over `undefined`.
+    await client.invalidateQueries({ queryKey: ['cron-day'] });
     await waitFor(() => expect(screen.queryByText(strings.nextRun)).toBeNull(), { timeout: 4000 });
     expect(await screen.findByText(strings.linkUnavailable)).toBeInTheDocument();
   });
@@ -623,10 +602,17 @@ describe('cronjob bundle registration', () => {
   it('pairs the manifest it claims to serve: API 17, the workbench layout, and the strings the page reads', () => {
     expect(manifestApiVersion).toBe(17);
     expect((manifest as { web: { layout?: string } }).web.layout).toBe('workbench');
-    for (const key of ['calMonthLabel', 'calAgendaHeading', 'calDayAria', 'calMore', 'createOneShot',
+    for (const key of ['calMonthLabel', 'calToday', 'calMore', 'createOneShot',
       'createRecurring', 'nextRun', 'lastStarted', 'badgeLate', 'hoursTimeZone',
-      'calPrevWeek', 'calNextWeek', 'calAgendaRange', 'calAgendaMore', 'calAgendaTruncated']) {
+      'sectionDay', 'sectionRecurring', 'boardOtherDay', 'boardRemaining', 'boardAlsoAt',
+      'boardNothingLeft', 'boardAtLeast', 'boardNoTimed', 'calDayPast']) {
       expect(Object.hasOwn(strings, key), `missing web.strings.${key}`).toBe(true);
+    }
+    // The month and agenda copy went with the views that used it: a string nothing reads is a string
+    // three locales keep translating for nobody.
+    for (const gone of ['calAgendaHeading', 'calDayAria', 'calAgendaRange', 'calAgendaMore',
+      'calAgendaTruncated', 'calPrevWeek', 'calNextWeek', 'calViewTitle', 'calDatePicker']) {
+      expect(Object.hasOwn(strings, gone), `orphaned web.strings.${gone}`).toBe(false);
     }
   });
 });
@@ -671,7 +657,7 @@ describe('the calendar wire helpers', () => {
     expect(typeof runtime().components.Calendar).toBe('function');
     // Validity is the server's (schedule-preview); the compat helper stays for released bundles only.
     const here = dirname(fileURLToPath(import.meta.url));
-    for (const file of ['CalendarPage.tsx', 'fields.tsx', 'JobDrawer.tsx', 'CreateJobDialog.tsx']) {
+    for (const file of ['DayBoard.tsx', 'fields.tsx', 'JobDrawer.tsx', 'CreateJobDialog.tsx']) {
       const source = resolve(here, '../plugins/cronjob/web-src/', file);
       expect(readFileSync(source, 'utf-8').includes('isValidSchedule'), basename(source)).toBe(false);
     }

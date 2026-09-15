@@ -301,15 +301,17 @@ export function parseOneShot(spec, now, timezone = systemZone()) {
 }
 
 
-// ── Forward projection (calendar, agenda, schedule-preview) ─────────────────
-// The scheduler above answers "is this job due RIGHT NOW". A calendar needs the forward-looking view of
-// the SAME parser, timezone rules, DST identity and active-hours gate — one representation for the
-// scheduler and the preview, never a second approximation that could quietly disagree with a run.
-// IMPORTANT: calRequests an agenda must be able to paginate IN PLACE while jobs run. This module is
-// the only representation; the scheduler keeps its semantics unchanged.
-export const CALENDAR_MAX_SAMPLES_PER_DAY = 3;
-export const CALENDAR_LIMIT_AGENDA_DEFAULT = 100;
-export const CALENDAR_AGENDA_MAX_OCCURRENCES = 250;
+// ── Forward projection (the day board, schedule-preview) ───────────────────
+// The scheduler above answers "is this job due RIGHT NOW". A forward view needs the same parser,
+// timezone rules, DST identity and active-hours gate — one representation for the scheduler and the
+// preview, never a second approximation that could quietly disagree with a run.
+//
+// Two shapes read that one representation:
+//   - `planOccurrences` expands a job into individual occurrences. It answers a job's NEXT run and a
+//     draft's preview, both of which want a handful of instants.
+//   - `summarizeJobDay` answers one job's whole day as a COUNT plus a short head. A two-minute poll
+//     has 720 instants a day and dozens of such jobs would be tens of thousands of objects nobody can
+//     read; the day board must never build them, so the count is arithmetic.
 export const CALENDAR_CANDIDATE_BUDGET = 100_000;
 
 /** Resolve a LOCAL wall clock (YYYY-MM-DD + HH:mm) in `timezone` DST-truthfully:
@@ -387,7 +389,7 @@ export const localDateLabel = (ms, timezone) => {
   const p = zonedParts(ms, timezone);
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
 };
-const localTimeLabel = (ms, timezone) => {
+export const localTimeLabel = (ms, timezone) => {
   const p = zonedParts(ms, timezone);
   return `${pad2(p.hour)}:${pad2(p.minute)}`;
 };
@@ -428,6 +430,67 @@ function slotOccurrence(job, timezone, kind, slotMs, expectedMs, disposition) {
     disposition,
     guarded: hasGuard(job),
   };
+}
+
+/** ONE stored job, ONE local wall clock: what the scheduler would do with that slot.
+ *
+ *  Both the occurrence expansion and the day summary read it, so a claimed slot, a spring-gap time,
+ *  the lookback floor and the active-hours deferral can never be decided two different ways —
+ *  a count that disagreed with the list beside it would be worse than no count at all.
+ *
+ *  'skip'  the slot is not a future run at all (nonexistent, already claimed, or below the floor);
+ *  'past'  an unclaimed slot already behind `nowMs` — the caller keeps only the LATEST as a catch-up;
+ *  'omit'  active hours can never open for it;
+ *  'emit'  a real future run, with the instant the scheduler could claim it (`when`). */
+const SLOT_SKIP = { kind: 'skip' };
+function slotDecision(job, timezone, date, hour, minute, { nowMs, floor }) {
+  const slot = localSlotInstant(timezone, date, hour, minute);
+  if (slot === null) return SLOT_SKIP;                                                   // spring gap
+  if (job.lastSlot !== undefined && job.lastSlot === slotKey(slot, timezone)) return SLOT_SKIP; // claimed
+  if (slot < floor) return SLOT_SKIP;                                                    // history
+  if (slot < nowMs) return { kind: 'past', slot };
+  const when = inHours(job.hours, slot, timezone) ? slot : expectedInstant(slot, job.hours, timezone);
+  if (when === null) return { kind: 'omit', slot };
+  return { kind: 'emit', slot, when, disposition: when === slot ? 'onTime' : 'deferredByHours' };
+}
+
+/** The interval grid inside [lowMs, highMs], both inclusive: the FIRST instant at or after `lowMs`,
+ *  and how many instants the window holds — arithmetic, never an expansion. Stepping to count is what
+ *  turns a `every 2m` job into 720 objects; this answers 720 without building one. */
+function intervalGrid(anchor, ms, lowMs, highMs) {
+  if (!(ms > 0) || !Number.isFinite(lowMs) || !Number.isFinite(highMs) || highMs < lowMs) {
+    return { first: null, count: 0 };
+  }
+  const kMin = Math.ceil((lowMs - anchor) / ms);
+  const kMax = Math.floor((highMs - anchor) / ms);
+  if (kMax < kMin) return { first: null, count: 0 };
+  return { first: anchor + kMin * ms, count: kMax - kMin + 1 };
+}
+
+/** The ONE already-elapsed interval claim, read the way `dueSlot` claims it: once a whole duration has
+ *  passed since the anchor the scheduler takes a single run NOW — never a backlog of the instants it
+ *  slept through. Null when nothing is elapsed; `occurrence: null` when active hours can never open. */
+function intervalCatchUp(job, timezone, anchor, periodMs, nowMs) {
+  if (nowMs - anchor < periodMs) return null;
+  // The claim's own slot is the LATEST elapsed instant; an older one is superseded, exactly as the
+  // scheduler supersedes it by claiming only once.
+  const slot = anchor + Math.floor((nowMs - anchor) / periodMs) * periodMs;
+  const open = inHours(job.hours, nowMs, timezone);
+  const expected = open ? nowMs : expectedInstant(nowMs, job.hours, timezone);
+  if (expected === null) return { slot, occurrence: null };
+  return {
+    slot,
+    occurrence: slotOccurrence(job, timezone, 'interval', slot, expected, open ? 'catchUp' : 'deferredByHours'),
+  };
+}
+
+/** The interval anchor the scheduler will claim from: the last run, or — for a row that never ran —
+ *  one whole duration back, which is what `last = 0` means to `dueSlot` (due at the very next tick)
+ *  and what puts every later instant on the grid the first claim establishes. */
+function intervalAnchor(job, nowMs, periodMs) {
+  const last = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
+    ? Date.parse(job.lastRun) : 0;
+  return last > 0 ? last : nowMs - periodMs;
 }
 
 /** Expand ONE stored job into its future occurrences between [opts.fromMs, opts.untilMs], inclusive.
@@ -483,9 +546,9 @@ export function planOccurrences(job, opts = {}) {
 
   // The catch-up floor: a PAST slot is catchable only while strictly newer than the last run AND
   // inside the lookback window — the replays the scheduler's own due logic would still perform.
-  let anchor = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
+  const lastRunMs = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
     ? Date.parse(job.lastRun) : 0;
-  const floor = Math.max(anchor, nowMs - lookbackMs);
+  const floor = Math.max(lastRunMs, nowMs - lookbackMs);
   // The window's own start. A caller that names none plans from NOW, which is what every
   // next-occurrence query wants.
   const fromMs = opts.fromMs ?? nowMs;
@@ -498,29 +561,24 @@ export function planOccurrences(job, opts = {}) {
     // A row with no `lastRun` is what the scheduler reads as `last = 0`, i.e. due at the very next
     // tick. Anchoring it one whole duration back says exactly that, and keeps every later instant on
     // the same grid the claim will establish.
-    if (anchor <= 0) anchor = nowMs - sched.ms;
-    const elapsed = nowMs - anchor >= sched.ms;
-    if (elapsed && fromMs <= nowMs && nowMs <= opts.untilMs) {
+    const anchor = intervalAnchor(job, nowMs, sched.ms);
+    const elapsed = intervalCatchUp(job, timezone, anchor, sched.ms, nowMs);
+    if (elapsed !== null && fromMs <= nowMs && nowMs <= opts.untilMs) {
       spend();
-      // The claim's own slot is the LATEST elapsed instant; an older one is superseded, exactly as the
-      // scheduler supersedes it by claiming only once.
-      const instant = anchor + Math.floor((nowMs - anchor) / sched.ms) * sched.ms;
-      const open = inHours(job.hours, nowMs, timezone);
-      const expected = open ? nowMs : expectedInstant(nowMs, job.hours, timezone);
-      if (expected === null) omit(instant);
-      else occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, open ? 'catchUp' : 'deferredByHours'));
+      if (elapsed.occurrence === null) omit(elapsed.slot);
+      else occurrences.push(elapsed.occurrence);
     }
-    // Forward: every instant strictly after now that the window contains. `ceil` puts the first one at
-    // or after the window start, so a window opening next month never reports an instant before it.
-    let k = Math.max(1, Math.ceil((Math.max(fromMs, nowMs + 1) - anchor) / sched.ms));
-    while (!truncated && occurrences.length < maxOccurrences) {
+    // Forward: every instant strictly after now that the window contains, on the same grid. The `+ ms`
+    // floor keeps the first one a whole duration past the anchor, so a `lastRun` seconds old never
+    // reports a run "now"; `first` puts it at or after the window start, so a window opening next
+    // month never reports an instant before it.
+    const grid = intervalGrid(anchor, sched.ms, Math.max(fromMs, nowMs + 1, anchor + sched.ms), opts.untilMs);
+    for (let i = 0; i < grid.count && !truncated && occurrences.length < maxOccurrences; i += 1) {
       spend();
-      const instant = anchor + k * sched.ms;
-      if (instant > opts.untilMs) break;
+      const instant = grid.first + i * sched.ms;
       const expected = inHours(job.hours, instant, timezone) ? instant : expectedInstant(instant, job.hours, timezone);
       if (expected === null) omit(instant);
       else occurrences.push(slotOccurrence(job, timezone, 'interval', instant, expected, expected === instant ? 'onTime' : 'deferredByHours'));
-      k += 1;
     }
     return done();
   }
@@ -536,15 +594,12 @@ export function planOccurrences(job, opts = {}) {
     for (const hour of hourValues) {
       for (const minute of minuteValues) {
         if (truncated) break;
-        const slot = localSlotInstant(timezone, date, hour, minute);
         spend();
-        if (slot === null) continue;                     // a spring-gap time simply never happens
-        if (job.lastSlot !== undefined && job.lastSlot === slotKey(slot, timezone)) continue; // already claimed: history
-        if (slot < floor) continue;                      // already-run history, never returned
-        if (slot < nowMs) { lastPast = slot; continue; } // remember the latest unclaimed past slot
-        const when = inHours(job.hours, slot, timezone) ? slot : expectedInstant(slot, job.hours, timezone);
-        if (when === null) { omit(slot); continue; }
-        occurrences.push(slotOccurrence(job, timezone, 'slot', slot, when, when === slot ? 'onTime' : 'deferredByHours'));
+        const decision = slotDecision(job, timezone, date, hour, minute, { nowMs, floor });
+        if (decision.kind === 'skip') continue;
+        if (decision.kind === 'past') { lastPast = decision.slot; continue; } // the latest one wins
+        if (decision.kind === 'omit') { omit(decision.slot); continue; }
+        occurrences.push(slotOccurrence(job, timezone, 'slot', decision.slot, decision.when, decision.disposition));
         if (occurrences.length >= maxOccurrences) break;
       }
       if (occurrences.length >= maxOccurrences) break;
@@ -558,11 +613,8 @@ export function planOccurrences(job, opts = {}) {
   return done();
 }
 
-/** Stable occurrence sort: expectedAt first (the instant the agenda is ordered by), then the
- *  recurrence's own slot, then the job, then the occurrence identity - identical inputs sort
- *  identically forever, so a cursor position can never drift between pages. */
-const sortKeyOf = (occ) => JSON.stringify([occ.expectedAt, occ.scheduledAt, occ.jobId, occ.id]);
-
+/** Stable occurrence sort: expectedAt first (the instant a list is ordered by), then the recurrence's
+ *  own slot, then the job, then the occurrence identity — identical inputs sort identically forever. */
 export function sortOccurrences(list) {
   const field = (o) => [o.expectedAt, o.scheduledAt, o.jobId, o.id];
   return [...list].sort((a, b) => {
@@ -576,66 +628,129 @@ export function sortOccurrences(list) {
   });
 }
 
-/** paginateAgenda: one stable page of a sorted occurrence list, cut after `limit` items and, when
- *  `afterKey` (the last key of the previous page) is present, strictly AFTER that key. Truncated is
- *  truthful about the SAME list: another page exists NOW against this very snapshot. */
-export function paginateAgenda(sorted, { limit, afterKey } = {}) {
-  let started = afterKey === undefined;
-  const page = [];
-  for (const occ of sorted) {
-    if (!started) {
-      if (sortKeyOf(occ) === afterKey) started = true;
-      continue;
-    }
-    page.push(occ);
-    if (page.length >= limit) break;
-  }
-  const last = page.at(-1);
-  const nextKey = last === undefined ? undefined : sortKeyOf(last);
-  const truncated = page.length === limit && sorted.indexOf(last) + 1 < sorted.length;
-  return { occurrences: page, nextKey, truncated };
-}
+// ── One job, one day: the bounded summary the day board is built from ─────────────────────────────
 
-const tomorrowLocal = (date) => {
-  // Walk the DATE triple with UTC arithmetic on a normalized noon stamp: never 24h instants, which a
-  // DST boundary would shift.
-  const [y, mo, d] = date.split('-').map(Number);
-  const utc = Date.UTC(y, mo - 1, d) + 86_400_000;
-  const p = zonedParts(utc, 'UTC');
-  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
-};
+/** How many FURTHER runs one row names inline before it falls back to a count. */
+export const DAY_MAX_TIMES = 3;
+/** One job, one local date: the hard ceiling on wall clocks examined. 1440 is a full day of minutes,
+ *  which is the most a five-field cron can ever match on one date — past it the row says `truncated`
+ *  and its count is a floor, so a pathological schedule bounds the request instead of the request
+ *  bounding its own honesty. */
+const DAY_SLOT_CAP = 1440;
 
-/** Day summaries for a month/agenda window: one row per local date from `startLocal` for `days`
- *  dates, each with a truthful total, up to `samples` sorted occurrences, the overflow count and the
- *  per-day count of slots the active hours could never open for.
+/** Everything ONE stored job does on ONE local date, as a count plus a short head.
  *
- *  `truncated` on a row means ONE thing: the expansion budget ran out while building this window, so
- *  the row's own `total` may be short of what the schedule really holds. It is NOT the "this day has
- *  more than it shows" signal — that is `overflow`, which is exact. A row therefore carries the
- *  window's budget verdict, because an exhausted budget stops the walk for the whole window and no
- *  single date can claim to have escaped it. */
-export function summarizeDays(occurrences, { startLocal, days, samples = CALENDAR_MAX_SAMPLES_PER_DAY, omittedByHours = [], truncated = false }) {
-  const detected = new Map();
-  for (const { date, count } of omittedByHours) detected.set(date, (detected.get(date) ?? 0) + count);
-  const groups = new Map();
-  for (const occ of occurrences) {
-    const date = occ.localDate;
-    if (!groups.has(date)) groups.set(date, []);
-    groups.get(date).push(occ);
+ *  The board exists because expanding this is what broke: a `every 2m` job is 720 runs a day and a
+ *  real instance has dozens of them. So an interval's day is counted ARITHMETICALLY off the same grid
+ *  the scheduler will claim from, and a fixed-time schedule enumerates only its own wall clocks on
+ *  this one date, under `DAY_SLOT_CAP`. Nothing here is ever proportional to the number of runs.
+ *
+ *  Forward-looking, exactly like `planOccurrences`: a slot the scheduler already passed is history and
+ *  is never counted, so a date entirely in the past summarises as empty rather than as invented history.
+ *
+ *  `opts`: { timezone, nowMs, tickMs, lookbackMs, dayStartMs, dayEndMs, maxTimes }, where the two day
+ *  bounds are the first and last INSTANT of the local date (inclusive), resolved DST-truthfully by
+ *  the caller. Returns { kind, remaining, head, truncated }:
+ *   - `kind`      the parsed schedule kind, or 'oneShot', or null when nothing parses;
+ *   - `remaining` how many runs the job still has on that date — exact unless `truncated`;
+ *   - `head`      the first `maxTimes + 1` of them as full occurrences, in chronological order;
+ *   - `truncated` the slot cap stopped the walk, so `remaining` is a floor. */
+export function summarizeJobDay(job, opts = {}) {
+  const timezone = opts.timezone ?? systemZone();
+  const nowMs = opts.nowMs ?? Date.now();
+  const tickMs = opts.tickMs ?? DEFAULT_TICK_MS;
+  const lookbackMs = opts.lookbackMs ?? DEFAULT_CRON_LOOKBACK_MS;
+  const maxTimes = opts.maxTimes ?? DAY_MAX_TIMES;
+  const dayStartMs = opts.dayStartMs;
+  const dayEndMs = opts.dayEndMs;
+  const nothing = (kind) => ({ kind, remaining: 0, head: [], truncated: false });
+
+  if (typeof job?.id !== 'string' || job.id === '') return nothing(null);
+  if (!Number.isFinite(dayStartMs) || !Number.isFinite(dayEndMs)) return nothing(null);
+
+  // ── One-shot: a single wake-up. A PENDING one past its runAt is claimed on the next tick, so it
+  //    belongs to the date that tick falls in — today — not to the date its runAt names. That is the
+  //    same `expectedAt = max(runAt, now)` the expansion already publishes.
+  if (typeof job.runAt === 'string') {
+    const at = Date.parse(job.runAt);
+    if (Number.isNaN(at)) return nothing('oneShot');
+    const expected = Math.max(at, nowMs);
+    if (expected < dayStartMs || expected > dayEndMs) return nothing('oneShot');
+    const disposition = at >= nowMs ? 'onTime' : (nowMs - at) <= tickMs ? 'dueNow' : 'late';
+    return {
+      kind: 'oneShot',
+      remaining: 1,
+      head: [slotOccurrence(job, timezone, 'oneShot', at, expected, disposition)],
+      truncated: false,
+    };
   }
-  const rows = [];
-  let cursor = startLocal;
-  for (let i = 0; i < days; i += 1) {
-    const day = groups.get(cursor) ?? [];
-    rows.push({
-      date: cursor,
-      total: day.length,
-      samples: day.slice(0, samples),
-      overflow: Math.max(day.length - samples, 0),
-      omittedByHours: detected.get(cursor) ?? 0,
-      truncated,
-    });
-    cursor = tomorrowLocal(cursor);
+
+  const sched = parseSchedule(job.schedule);
+  if (!sched) return nothing(null);
+  if (dayEndMs < nowMs) return nothing(sched.kind); // a date already behind the scheduler
+
+  if (sched.kind === 'interval') {
+    const anchor = intervalAnchor(job, nowMs, sched.ms);
+    const head = [];
+    let remaining = 0;
+    // The one elapsed claim, when NOW falls inside this date.
+    const elapsed = nowMs >= dayStartMs && nowMs <= dayEndMs
+      ? intervalCatchUp(job, timezone, anchor, sched.ms, nowMs) : null;
+    if (elapsed !== null && elapsed.occurrence !== null) {
+      remaining += 1;
+      head.push(elapsed.occurrence);
+    }
+    // The rest of the date, counted rather than built. `expectedInstant` can only refuse a window that
+    // never opens, which the accepted `H-H` grammar cannot express, so every counted instant is a run.
+    const grid = intervalGrid(anchor, sched.ms, Math.max(dayStartMs, nowMs + 1, anchor + sched.ms), dayEndMs);
+    remaining += grid.count;
+    for (let i = 0; i < grid.count && head.length <= maxTimes; i += 1) {
+      const instant = grid.first + i * sched.ms;
+      const when = inHours(job.hours, instant, timezone) ? instant : expectedInstant(instant, job.hours, timezone);
+      if (when === null) continue;
+      head.push(slotOccurrence(job, timezone, 'interval', instant, when, when === instant ? 'onTime' : 'deferredByHours'));
+    }
+    return { kind: 'interval', remaining, head, truncated: false };
   }
-  return rows;
+
+  // ── Fixed times (daily / weekly / cron): this job's own wall clocks on this ONE date.
+  const date = localDates(dayStartMs, dayStartMs, timezone)[0];
+  if (sched.kind === 'weekly' && date.weekday !== sched.day) return nothing(sched.kind);
+  const lastRunMs = typeof job.lastRun === 'string' && !Number.isNaN(Date.parse(job.lastRun))
+    ? Date.parse(job.lastRun) : 0;
+  const floor = Math.max(lastRunMs, nowMs - lookbackMs);
+  const minuteValues = [...(sched.kind === 'cron' ? sched.minute : [sched.minute])].sort((a, b) => a - b);
+  const hourValues = [...(sched.kind === 'cron' ? sched.hour : [sched.hour])].sort((a, b) => a - b);
+
+  const head = [];
+  let remaining = 0;
+  let examined = 0;
+  let truncated = false;
+  let lastPast = null; // the LATEST unclaimed past slot; earlier ones are superseded
+  // Hour-major over one date IS chronological order, so the head needs no sort.
+  for (const hour of hourValues) {
+    if (truncated) break;
+    for (const minute of minuteValues) {
+      examined += 1;
+      if (examined > DAY_SLOT_CAP) { truncated = true; break; }
+      const decision = slotDecision(job, timezone, date, hour, minute, { nowMs, floor });
+      if (decision.kind === 'skip' || decision.kind === 'omit') continue;
+      if (decision.kind === 'past') { lastPast = decision.slot; continue; }
+      remaining += 1;
+      if (head.length <= maxTimes) {
+        head.push(slotOccurrence(job, timezone, 'slot', decision.slot, decision.when, decision.disposition));
+      }
+    }
+  }
+  // A missed slot the scheduler will still replay runs on the NEXT tick, which puts it ahead of every
+  // future slot of the day — the head is chronological, so it belongs at the front.
+  if (lastPast !== null && !truncated) {
+    const when = inHours(job.hours, nowMs, timezone) ? nowMs : expectedInstant(nowMs, job.hours, timezone);
+    if (when !== null) {
+      remaining += 1;
+      head.unshift(slotOccurrence(job, timezone, 'slot', lastPast, Math.max(when, nowMs), 'catchUp'));
+      if (head.length > maxTimes + 1) head.length = maxTimes + 1;
+    }
+  }
+  return { kind: sched.kind, remaining, head, truncated };
 }
