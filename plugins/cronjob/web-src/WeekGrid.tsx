@@ -28,7 +28,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
   onOpenJob(jobId: string): void;
   onRun(job: CronJob): void;
   onToggle(job: CronJob): void;
-  onShowResult(job: CronJob, localDate: string): void;
+  onShowResult(job: CronJob, localDate: string, localTime: string): void;
   /** Schedule something ON this day — the calendar's own way in, next to the header's New task menu. */
   onAddAt(localDate: string): void;
 }) {
@@ -38,14 +38,20 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
   // At most ONE day is unfolded: expanding a second one would recreate the wall of cards the fold exists
   // to prevent, and the grid would jump in height on every click.
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  // A different week is a different set of days: an expansion kept across the shift reopens a day the
+  // reader never asked about, and the column is unfolded again when the old week comes back.
+  const windowStart = days[0]?.localDate;
+  useEffect(() => { setExpandedDate(null); }, [windowStart]);
   const selectOffset = (offset: number) => {
     const index = days.findIndex((day) => day.localDate === selectedDate);
     const next = days[Math.min(Math.max(index + offset, 0), days.length - 1)];
     if (next) onSelectDate(next.localDate);
   };
   return (
+    // NOT `role="grid"`: a day column holds a variable number of entries and none of them is a cell in a
+    // shared row, so the grid pattern's rows, cells and focus contract cannot be honoured here. Each day is
+    // a labelled region instead, which is what this actually is — seven small agendas side by side.
     <div
-      role="grid"
       aria-label={s.tabCalendar || 'Calendar'}
       className="grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-border/80 bg-document"
       data-testid="cron-week-grid"
@@ -57,11 +63,12 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
         const shown = expanded ? day.cards : day.cards.slice(0, MAX_CARDS_PER_DAY);
         const folded = day.dayTotal - shown.length;
         return (
-          <div
+          <section
             key={day.localDate}
+            aria-label={shortDay(day.localDate, locale)}
             className={`flex min-w-0 flex-col border-l border-border/50 first:border-l-0 ${selected ? 'bg-primary/[0.03]' : ''}`}
           >
-            <div role="columnheader">
+            <div>
               <button
                 type="button"
                 aria-current={selected ? 'date' : undefined}
@@ -84,6 +91,9 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                 >
                   {dayNumber(day.localDate, locale)}
                 </span>
+                {/* Today is drawn as a filled disc; colour alone is not an accessible distinction, so the
+                    word travels with it. */}
+                {today ? <span className="sr-only">{s.calToday || 'Today'}</span> : null}
               </button>
             </div>
             <div className="flex min-h-[13rem] min-w-0 flex-1 flex-col gap-0.5 border-t border-border/50 p-1">
@@ -108,6 +118,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                   type="button"
                   className="mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
                   data-testid={`cron-day-more-${day.localDate}`}
+                  aria-expanded={false}
                   onClick={() => { setExpandedDate(day.localDate); onSelectDate(day.localDate); }}
                 >
                   {(s.dayMoreCards || '+{n} more').replace('{n}', String(folded))}
@@ -117,6 +128,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                 <button
                   type="button"
                   className="mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
+                  aria-expanded
                   onClick={() => setExpandedDate(null)}
                 >
                   {s.dayShowLess || 'Show less'}
@@ -136,7 +148,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                 <Plus size={14} aria-hidden />
               </button>
             </div>
-          </div>
+          </section>
         );
       })}
     </div>

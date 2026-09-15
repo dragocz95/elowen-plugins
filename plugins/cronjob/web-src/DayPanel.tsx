@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
-import { runtime, type CronDayCard, type CronIntervalRow, type CronJob, type CronRunRow, type CronWeekDay } from './runtime';
+import { ArrowRight, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { runtime, type CronIntervalRow, type CronJob, type CronRunRow, type CronWeekDay } from './runtime';
 
 const parseDate = (label: string): Date => {
   const [year, month, day] = label.split('-').map(Number);
@@ -17,7 +17,7 @@ const status = (outcome: CronRunRow['outcome'], s: Record<string, string>): stri
 const tone = (outcome: CronRunRow['outcome']): string =>
   outcome === 'ok' ? 'success' : outcome === 'error' ? 'danger' : outcome === 'running' ? 'accent' : 'muted';
 
-type WaitingRow = { key: string; job: CronJob; time: string; source: CronDayCard | CronIntervalRow };
+type WaitingRow = { key: string; job: CronJob; time: string };
 
 export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, hasMore, onLoadMore, selectedJobId, onSelectJob, onOpenRun, onOpenJob, onPreviousDay, onNextDay, mobile = false }: {
   day: CronWeekDay;
@@ -39,15 +39,16 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
   const { locale } = hooks.useTranslation();
-  const waiting: WaitingRow[] = [
-    ...day.cards
-      .filter((card) => card.state === 'waiting' || card.state === 'paused')
-      .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime, source: card }))
-      .filter((row) => row.job),
-    ...intervals
-      .filter((row) => row.nextLocalTime && jobs.has(row.jobId))
-      .map((row) => ({ key: `interval-${row.jobId}`, job: jobs.get(row.jobId)!, time: row.nextLocalTime!, source: row })),
-  ].sort((a, b) => a.time.localeCompare(b.time));
+  const waiting: WaitingRow[] = day.cards
+    .filter((card) => card.state === 'waiting' || card.state === 'paused')
+    .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime }))
+    .filter((row) => row.job)
+    .sort((a, b) => a.time.localeCompare(b.time));
+  /** An interval job is not an occurrence OF this day: one of them fires hundreds of times, on every day of
+   *  the week alike. It is listed once, as a compact footer, so the day's own timeline stays a timeline —
+   *  it used to be a full register table under the calendar, repeating what this panel already said. The
+   *  next fire has its own calendar day, so the time is shown only when that day IS this one. */
+  const ongoing = intervals.filter((row) => jobs.has(row.jobId));
   const selectedJob = selectedJobId ? jobs.get(selectedJobId) : undefined;
   const plannedCount = day.dayTotal + intervals.filter((row) => row.enabled).length;
   const countCopy = plannedCount === 1
@@ -70,7 +71,9 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
         </div>
       </header>
       <div className="border-t border-border/60 pt-3">
-        {loading && runs.length === 0 ? <C.LoadingState variant="list" /> : runs.length === 0 && waiting.length === 0 ? (
+        {/* "Nothing is scheduled" has to account for the strip below as well, or the panel contradicts
+            itself on a day whose only work is an interval job. */}
+        {loading && runs.length === 0 ? <C.LoadingState variant="list" /> : runs.length === 0 && waiting.length === 0 && ongoing.length === 0 ? (
           <C.EmptyState
             title={s.dayNothing || 'Nothing ran or is scheduled for this day'}
             description={day.localDate < todayLocalDate ? (s.dayBeforeHistory || 'Run history is recorded from this upgrade onward.') : undefined}
@@ -110,6 +113,36 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
         )}
         {hasMore ? <C.Button variant="ghost" className="mt-2 w-full" onClick={onLoadMore}>{s.loadOlder || 'Load older'}</C.Button> : null}
       </div>
+      {ongoing.length > 0 ? (
+        <section className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-3" data-testid="cron-intervals-strip">
+          <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">{s.intervalsTitle || 'Recurring jobs'}</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {ongoing.map((row) => {
+              const job = jobs.get(row.jobId)!;
+              const nextHere = row.nextLocalTime && row.nextLocalDate === day.localDate ? row.nextLocalTime : null;
+              const state = row.enabled ? '' : ` · ${s.paused}`;
+              return (
+                <button
+                  key={row.jobId}
+                  type="button"
+                  onClick={() => { onSelectJob(row.jobId); onOpenJob(row.jobId); }}
+                  className={`flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? 'text-foreground' : 'text-muted-foreground opacity-70'}`}
+                  aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${row.intervalLabel}${nextHere ? ` · ${s.nextRun || 'Next run'} ${nextHere}` : ''}${state}`}
+                >
+                  <span className="truncate">{job.name}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{row.intervalLabel}</span>
+                  {nextHere ? (
+                    <span className="flex items-center gap-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      <ArrowRight size={11} aria-hidden />{nextHere}
+                    </span>
+                  ) : null}
+                  {row.enabled ? null : <span className="text-[11px]">{s.paused}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
       {selectedJob ? (
         <section className="flex min-w-0 flex-col gap-3 border-t border-border/60 pt-4" data-testid="cron-selected-job">
           <div className="flex items-center gap-2">

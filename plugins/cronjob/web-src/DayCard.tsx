@@ -36,7 +36,9 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
   onOpen(jobId: string): void;
   onRun(job: CronJob): void;
   onToggle(job: CronJob): void;
-  onShowResult?(job: CronJob, localDate: string): void;
+  /** Carries the occurrence's own wall-clock time as well: a job that fires several times a day has one
+   *  receipt per fire, and the menu belongs to THIS line, not to the day's newest run. */
+  onShowResult?(job: CronJob, localDate: string, localTime: string): void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
@@ -45,7 +47,7 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
   const paused = card.state === 'paused';
   const items = [
     ...(onShowResult && hasReceipt(card.state)
-      ? [{ id: 'result', label: s.showResult || 'Show result', icon: FileText, onSelect: () => onShowResult(job, localDate) }]
+      ? [{ id: 'result', label: s.showResult || 'Show result', icon: FileText, onSelect: () => onShowResult(job, localDate, card.localTime) }]
       : []),
     { id: 'run', label: s.runNow || 'Run now', icon: Play, disabled: job.lifecycle === 'oneShot', onSelect: () => onRun(job) },
     { id: 'toggle', label: job.enabled === false ? (s.pauseLabelOn || 'Enable') : (s.pauseLabel || 'Pause'), icon: job.enabled === false ? Clock3 : Pause, onSelect: () => onToggle(job) },
@@ -61,13 +63,14 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
           type="button"
           onClick={() => onOpen(card.jobId)}
           className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? 'opacity-55' : ''} ${card.state === 'error' ? 'bg-destructive/[0.07]' : ''}`}
-          aria-label={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}
+          /* An `aria-label` REPLACES the element's text, so the time, the owner and the state have to be
+             part of it — as sibling `sr-only` text they were simply never announced. */
+          aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${card.localTime} · ${owner} · ${stateLabel(card.state, s)}`}
         >
           <span className={`size-1.5 shrink-0 rounded-full ${dotTone(card.state)}`} />
           <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{card.localTime}</span>
           <span className="truncate text-xs text-foreground">{job.name}</span>
           {card.remaining > 1 ? <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">+{card.remaining - 1}</span> : null}
-          <span className="sr-only">{owner} · {stateLabel(card.state, s)}</span>
         </button>
         <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100">
           <C.ActionMenu variant="kebab" label={s.actions || 'Actions'} items={items} />

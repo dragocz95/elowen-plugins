@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Plus } from 'lucide-react';
 import { DayCard } from './DayCard';
 import { DayPanel } from './DayPanel';
-import { IntervalsTable } from './IntervalsTable';
 import { RunResultModal } from './RunResultModal';
 import { MobileDayStrip, WeekGrid } from './WeekGrid';
 import { runsUrl, useRunFeed } from './useRunFeed';
@@ -46,12 +45,20 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
   const [openRun, setOpenRun] = useState<CronRunRow | null>(null);
   /** "Show result" asks the run register for what this job actually did on THAT calendar day, rather than
    *  reusing the selected day's feed — the reader opens it from a cell that may not be the selected one. */
-  const showResult = useCallback(async (job: CronJob, localDate: string) => {
-    const response = await runtime().api(runsUrl({ date: localDate, jobId: job.id, limit: 1 })) as CronRunsResponse;
-    const run = response.runs[0];
+  const showResult = useCallback(async (job: CronJob, localDate: string, localTime: string) => {
+    let response: CronRunsResponse;
+    try {
+      // A day's receipts for one job, newest first. The page is asked for rather than a single row because
+      // a job that fires several times a day has several, and the reader opened ONE of those lines.
+      response = await runtime().api(runsUrl({ date: localDate, jobId: job.id, limit: 50 })) as CronRunsResponse;
+    } catch (error) {
+      toast(`${s.runLoadError || 'The run could not be loaded'} — ${runtime().utils.apiErrorMessage(error)}`, 'error');
+      return;
+    }
+    const run = response.runs.find((row) => row.localTime === localTime) ?? response.runs[0];
     if (run) setOpenRun(run);
-    else toast(s.runNoneForDay || 'No run was recorded for this job on that day.', 'ok');
-  }, [s.runNoneForDay, toast]);
+    else toast(s.runNoneForDay || 'No run was recorded for this job on that day.', 'error');
+  }, [s.runLoadError, s.runNoneForDay, toast]);
   const week = hooks.useQuery<CronWeekResponse>({
     queryKey: ['cron-week', start],
     queryFn: () => runtime().api(weekUrl(start)) as Promise<CronWeekResponse>,
@@ -124,16 +131,15 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
               onOpenJob={onOpenJob}
               onRun={onRun}
               onToggle={onToggle}
-              onShowResult={(job, date) => void showResult(job, date)}
+              onShowResult={(job, date, time) => void showResult(job, date, time)}
               onAddAt={onAddAt}
             />
-            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </div>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
               todayLocalDate={data.todayLocalDate}
-              intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
+              intervals={filtered.intervals}
               jobs={filtered.jobs}
               runs={feed.rows}
               loading={feed.isLoading}
@@ -168,17 +174,16 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
                   onOpen={onOpenJob}
                   onRun={onRun}
                   onToggle={onToggle}
-                  onShowResult={(target, date) => void showResult(target, date)}
+                  onShowResult={(target, date, time) => void showResult(target, date, time)}
                 />
               ) : null;
             })}
-            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </section>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
               todayLocalDate={data.todayLocalDate}
-              intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
+              intervals={filtered.intervals}
               jobs={filtered.jobs}
               runs={feed.rows}
               loading={feed.isLoading}

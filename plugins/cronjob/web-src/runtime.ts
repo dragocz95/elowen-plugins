@@ -150,6 +150,8 @@ export interface CronIntervalRow {
   intervalLabel: string;
   enabled: boolean;
   nextExpectedAt: string | null;
+  /** Calendar day of the next fire, in the scheduler timezone. Active hours can push it past midnight. */
+  nextLocalDate: string | null;
   nextLocalTime: string | null;
   remainingToday: number;
   lastOutcome: CronRunOutcome | null;

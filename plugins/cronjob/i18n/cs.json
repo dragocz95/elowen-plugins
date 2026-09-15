@@ -265,7 +265,6 @@
       "dayBeforeHistory": "Historie spuštění se zaznamenává od této aktualizace.",
       "loadOlder": "Načíst starší",
       "intervalsTitle": "Opakované úlohy",
-      "intervalsHint": "Intervalové úlohy se zobrazují jednou. Jednotlivá spuštění kalendář nezaplní.",
       "historyEmpty": "Žádná historie spuštění",
       "historyEmptyHint": "Historie spuštění se zaznamenává od této aktualizace.",
       "colTime": "Čas",
@@ -273,8 +272,6 @@
       "colDuration": "Trvání",
       "colState": "Stav",
       "colModel": "Model",
-      "colSchedule": "Interval",
-      "colNext": "Příští spuštění",
       "dayShowLess": "Zobrazit méně",
       "dayAddTask": "Naplánovat úlohu na {date}",
       "showResult": "Zobrazit výsledek",
@@ -292,7 +289,8 @@
       "presetWeeklyPrompt": "Shrňte uplynulý týden: co bylo dokončeno, co zůstává otevřené a co je naplánováno na další týden.",
       "presetReminder": "Připomínka",
       "presetReminderName": "pripominka",
-      "presetReminderPrompt": "Připomeňte mi níže uvedený úkol a uveďte, v jakém je stavu."
+      "presetReminderPrompt": "Připomeňte mi níže uvedený úkol a uveďte, v jakém je stavu.",
+      "runLoadError": "Běh se nepodařilo načíst"
     }
   }
 }
