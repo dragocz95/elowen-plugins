@@ -269,6 +269,66 @@ describe('automation week calendar', () => {
     expect(screen.getByText(strings.createOneShot)).toBeInTheDocument();
   });
 
+  it('caps a day column at three entries and folds the rest behind one expander', async () => {
+    const many = (): CronWeekResponse => {
+      const body = weekBody();
+      const extras = ['08:00', '09:00', '10:00', '11:00', '12:00'].map((localTime, index) => ({
+        jobId: index % 2 === 0 ? recurring.id : oneShot.id,
+        kind: 'daily' as const, localTime, remaining: 1, moreTimes: [],
+        enabled: true, state: 'ok' as const, guarded: false, disposition: 'onTime' as const,
+      }));
+      return {
+        ...body,
+        days: body.days.map((entry) => entry.localDate === TODAY
+          ? { ...entry, cards: extras, dayTotal: extras.length }
+          : entry),
+      };
+    };
+    use(http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json(many())));
+    renderPage();
+    const grid = await screen.findByTestId('cron-week-grid');
+    expect(within(grid).getAllByText('08:00')).toHaveLength(1);
+    expect(within(grid).queryByText('11:00')).toBeNull();
+
+    fireEvent.click(within(grid).getByTestId(`cron-day-more-${TODAY}`));
+    expect(await within(grid).findByText('11:00')).toBeInTheDocument();
+    expect(within(grid).getByText('12:00')).toBeInTheDocument();
+    fireEvent.click(within(grid).getByText(strings.dayShowLess));
+    expect(within(grid).queryByText('11:00')).toBeNull();
+  });
+
+  it('opens the run receipt of the day the card belongs to from its own menu', async () => {
+    const asked: { date: string | null; jobId: string | null }[] = [];
+    use(http.get('/api/plugins/cronjob/api/runs', ({ url }) => {
+      if (url.searchParams.has('jobId')) {
+        asked.push({ date: url.searchParams.get('date'), jobId: url.searchParams.get('jobId') });
+        return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 1 });
+      }
+      return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 50 });
+    }));
+    renderPage();
+    const card = await screen.findByTestId('cron-card-job-daily');
+    fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
+    fireEvent.click(await screen.findByText(strings.showResult));
+    expect(await screen.findByText('Short retained preview')).toBeInTheDocument();
+    expect(asked).toEqual([{ date: TODAY, jobId: recurring.id }]);
+  });
+
+  it('creates from the calendar: a free cell opens a one-shot already dated to that day', async () => {
+    renderPage();
+    const grid = await screen.findByTestId('cron-week-grid');
+    fireEvent.click(within(grid).getByTestId('cron-day-add-2026-09-17'));
+    expect(await screen.findByTestId('cron-create-form')).toBeInTheDocument();
+    expect(screen.getByLabelText(strings.date)).toHaveValue('2026-09-17');
+
+    fireEvent.click(screen.getByText(strings.presetDigest));
+    expect(screen.getByPlaceholderText('verify-deploy')).toHaveValue(strings.presetDigestName);
+    expect(screen.getByDisplayValue(strings.presetDigestPrompt)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId('cron-create-quick-times')).getByText('18:00'));
+    expect(screen.getByLabelText(strings.time)).toHaveValue('18:00');
+    expect(screen.getByRole('button', { name: strings.createOneShotSubmit })).toBeEnabled();
+  });
+
   it('uses the scheduler today for past-day history guidance', () => {
     const { wrapper: Wrapper } = createWrapper();
     render(

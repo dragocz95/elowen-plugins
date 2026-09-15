@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Plus } from 'lucide-react';
 import { DayCard } from './DayCard';
 import { DayPanel } from './DayPanel';
 import { IntervalsTable } from './IntervalsTable';
 import { RunResultModal } from './RunResultModal';
 import { MobileDayStrip, WeekGrid } from './WeekGrid';
-import { useRunFeed } from './useRunFeed';
-import { runtime, type CronJob, type CronRunRow, type CronWeekResponse } from './runtime';
+import { runsUrl, useRunFeed } from './useRunFeed';
+import { runtime, type CronJob, type CronRunRow, type CronRunsResponse, type CronWeekResponse } from './runtime';
 
 export const shiftDate = (date: string, days: number): string => {
   const [year, month, day] = date.split('-').map(Number);
@@ -20,7 +20,7 @@ export const weekUrl = (start: string | null, days = 7): string => {
   return `/plugins/cronjob/api/week${suffix ? `?${suffix}` : ''}`;
 };
 
-export function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onSelectedDate, onData, onWindowShift, onOpenJob, onRun, onToggle }: {
+export function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onSelectedDate, onData, onWindowShift, onOpenJob, onRun, onToggle, onAddAt }: {
   start: string | null;
   selectedDate: string | null;
   view: 'day' | 'week';
@@ -34,14 +34,24 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
   onOpenJob(jobId: string): void;
   onRun(job: CronJob): void;
   onToggle(job: CronJob): void;
+  onAddAt(localDate: string): void;
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
   const { t } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const me = hooks.useMe();
   const mobile = hooks.useMobile();
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [openRun, setOpenRun] = useState<CronRunRow | null>(null);
+  /** "Show result" asks the run register for what this job actually did on THAT calendar day, rather than
+   *  reusing the selected day's feed — the reader opens it from a cell that may not be the selected one. */
+  const showResult = useCallback(async (job: CronJob, localDate: string) => {
+    const response = await runtime().api(runsUrl({ date: localDate, jobId: job.id, limit: 1 })) as CronRunsResponse;
+    const run = response.runs[0];
+    if (run) setOpenRun(run);
+    else toast(s.runNoneForDay || 'No run was recorded for this job on that day.', 'ok');
+  }, [s.runNoneForDay, toast]);
   const week = hooks.useQuery<CronWeekResponse>({
     queryKey: ['cron-week', start],
     queryFn: () => runtime().api(weekUrl(start)) as Promise<CronWeekResponse>,
@@ -101,7 +111,7 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
 
   return (
     <div className="flex min-w-0 flex-col gap-6" aria-busy={week.isLoading} data-testid="cron-calendar-tab">
-      {mobile ? <MobileDayStrip days={filtered.days} selectedDate={selectedDay.localDate} onSelectDate={onSelectedDate} /> : null}
+      {mobile ? <MobileDayStrip days={filtered.days} selectedDate={selectedDay.localDate} todayLocalDate={data.todayLocalDate} onSelectDate={onSelectedDate} /> : null}
       {showWeek ? (
         <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
           <div className="flex min-w-0 flex-col gap-6">
@@ -109,10 +119,13 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
               days={filtered.days}
               jobs={filtered.jobs}
               selectedDate={selectedDay.localDate}
+              todayLocalDate={data.todayLocalDate}
               onSelectDate={(date) => { onSelectedDate(date); setSelectedJobId(null); }}
               onOpenJob={onOpenJob}
               onRun={onRun}
               onToggle={onToggle}
+              onShowResult={(job, date) => void showResult(job, date)}
+              onAddAt={onAddAt}
             />
             <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </div>
@@ -138,10 +151,26 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
       ) : (
         <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
           <section className="flex min-w-0 flex-col gap-3" data-testid="cron-day-cards">
-            <h2 className="text-lg font-semibold">{s.viewDay || 'Day'}</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold">{s.viewDay || 'Day'}</h2>
+              <C.Button variant="ghost" icon={Plus} onClick={() => onAddAt(selectedDay.localDate)} data-testid="cron-day-add-selected">
+                {s.addJob || 'Add job'}
+              </C.Button>
+            </div>
             {selectedDay.cards.length === 0 ? <C.EmptyState title={s.dayNothing || 'No fixed-time jobs'} icon={CalendarDays} /> : selectedDay.cards.map((card) => {
               const job = filtered.jobs.get(card.jobId);
-              return job ? <DayCard key={card.jobId} card={card} job={job} onOpen={onOpenJob} onRun={onRun} onToggle={onToggle} /> : null;
+              return job ? (
+                <DayCard
+                  key={card.jobId}
+                  card={card}
+                  job={job}
+                  localDate={selectedDay.localDate}
+                  onOpen={onOpenJob}
+                  onRun={onRun}
+                  onToggle={onToggle}
+                  onShowResult={(target, date) => void showResult(target, date)}
+                />
+              ) : null;
             })}
             <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </section>
