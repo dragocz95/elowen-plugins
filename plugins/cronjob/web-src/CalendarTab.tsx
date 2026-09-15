@@ -104,18 +104,22 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
       {mobile ? <MobileDayStrip days={filtered.days} selectedDate={selectedDay.localDate} onSelectDate={onSelectedDate} /> : null}
       {showWeek ? (
         <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
-          <WeekGrid
-            days={filtered.days}
-            jobs={filtered.jobs}
-            selectedDate={selectedDay.localDate}
-            onSelectDate={(date) => { onSelectedDate(date); setSelectedJobId(null); }}
-            onOpenJob={onOpenJob}
-            onRun={onRun}
-            onToggle={onToggle}
-          />
+          <div className="flex min-w-0 flex-col gap-6">
+            <WeekGrid
+              days={filtered.days}
+              jobs={filtered.jobs}
+              selectedDate={selectedDay.localDate}
+              onSelectDate={(date) => { onSelectedDate(date); setSelectedJobId(null); }}
+              onOpenJob={onOpenJob}
+              onRun={onRun}
+              onToggle={onToggle}
+            />
+            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
+          </div>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
+              todayLocalDate={data.todayLocalDate}
               intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
               jobs={filtered.jobs}
               runs={feed.rows}
@@ -139,10 +143,12 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
               const job = filtered.jobs.get(card.jobId);
               return job ? <DayCard key={card.jobId} card={card} job={job} onOpen={onOpenJob} onRun={onRun} onToggle={onToggle} /> : null;
             })}
+            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </section>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
+              todayLocalDate={data.todayLocalDate}
               intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
               jobs={filtered.jobs}
               runs={feed.rows}
@@ -160,12 +166,6 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
           </div>
         </div>
       )}
-      <IntervalsTable
-        rows={filtered.intervals}
-        jobs={filtered.jobs}
-        onOpen={onOpenJob}
-        onRun={onRun}
-      />
       {openRun ? (
         <RunResultModal
           run={openRun}

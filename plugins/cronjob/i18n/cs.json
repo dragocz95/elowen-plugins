@@ -128,6 +128,7 @@
       "filterPaused": "Pozastavené",
       "ownerColumn": "Vlastník",
       "ownerInstance": "Všichni",
+      "ownerSystem": "Systém",
       "ownerMine": "Moje",
       "ownerFieldHint": "Instanční úloha běží bez účtu a hlásí do svého oznamovacího kanálu. Převzetím poběží s vašimi oprávněními a bude hlásit do vlastní konverzace pojmenované po úloze.",
       "filterMine": "Moje",

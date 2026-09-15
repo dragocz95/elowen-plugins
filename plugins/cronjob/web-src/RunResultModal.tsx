@@ -73,10 +73,8 @@ export function RunResultModal({ run: initial, job, onClose, onOpenJob, onRun }:
     if (!run.sessionId || !run.messageId) return;
     setFull({ state: 'loading' });
     try {
-      const response = await runtime().api(`/brain/messages?session=${encodeURIComponent(run.sessionId)}`) as BrainMessage[] | { messages?: BrainMessage[] };
-      const messages = Array.isArray(response) ? response : response.messages ?? [];
-      const exact = messages.find((message) => message.id === run.messageId);
-      const text = exact ? contentText(exact) : '';
+      const message = await runtime().api(`/brain/messages/${encodeURIComponent(run.messageId)}?session=${encodeURIComponent(run.sessionId)}`) as BrainMessage;
+      const text = contentText(message);
       setFull(text ? { state: 'ready', text } : { state: 'gone' });
     } catch {
       setFull({ state: 'gone' });

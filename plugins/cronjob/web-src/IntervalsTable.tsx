@@ -35,7 +35,7 @@ export function IntervalsTable({ rows, jobs, onOpen, onRun }: {
           </C.DataTableRow>
           {rows.map((row) => {
             const job = jobs.get(row.jobId)!;
-            const owner = job.owner?.name || s.ownerInstance;
+            const owner = job.owner?.name || s.ownerSystem || 'System';
             return (
               <C.DataTableRow key={row.jobId} height="tall" onOpen={() => onOpen(row.jobId)} openLabel={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}>
                 <C.DataTableCell lines="auto">

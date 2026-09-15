@@ -27,7 +27,7 @@ export function DayCard({ card, job, compact = false, onOpen, onRun, onToggle }:
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
-  const owner = job.owner?.name || job.owner?.username || s.ownerInstance;
+  const owner = job.owner?.name || job.owner?.username || s.ownerSystem || 'System';
   const hidden = Math.max(0, card.remaining - 1 - card.moreTimes.length);
   return (
     <div

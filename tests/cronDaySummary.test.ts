@@ -18,7 +18,6 @@ const mod = await import(schedulePath) as {
   summarizeJobDay(job: unknown, opts: Record<string, unknown>): DaySummary;
   planOccurrences(job: unknown, opts: Record<string, unknown>): { occurrences: Occurrence[]; truncated: boolean };
   zonedTimeToMs(tz: string, y: number, mo: number, d: number, h: number, mi: number): number;
-  DAY_MAX_TIMES: number;
 };
 
 const PRAGUE = 'Europe/Prague';
@@ -81,7 +80,7 @@ describe('the bounded day summary agrees with the authoritative expansion', () =
   it('never builds more than a short head, whatever the count is', () => {
     const summary = summarize({ id: 'p', schedule: 'every 1m', prompt: 'p' }, tomorrow, nowMs);
     expect(summary.remaining).toBe(1440);
-    expect(summary.head.length).toBeLessThanOrEqual(mod.DAY_MAX_TIMES + 1);
+    expect(summary.head.length).toBeLessThanOrEqual(4);
   });
 
   it('reads a date already behind the scheduler as empty rather than as invented history', () => {

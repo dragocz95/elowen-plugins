@@ -1,7 +1,9 @@
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AutomationPage } from '../plugins/cronjob/web-src/AutomationPage';
+import { DayPanel } from '../plugins/cronjob/web-src/DayPanel';
+import { IntervalsTable } from '../plugins/cronjob/web-src/IntervalsTable';
 import {
   apiErrorCode, apiErrorConflict, apiErrorCurrent, localDateLabel, runtime,
   type CronJob, type CronRunRow, type CronWeekDay, type CronWeekResponse,
@@ -10,7 +12,7 @@ import {
   parseActiveHours, parseBuilderSchedule, renderActiveHours, renderBuilderSchedule,
 } from '../plugins/cronjob/web-src/scheduleBuilder';
 import manifest from '../plugins/cronjob/elowen-plugin.json' with { type: 'json' };
-import { HttpResponse, close, http, listen, resetHandlers, setDefaults } from './ui/http';
+import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 
@@ -23,7 +25,7 @@ const TZ = 'Europe/Prague';
 const recurring: CronJob = {
   id: 'job-daily', name: 'Morning digest', schedule: 'daily 07:30', prompt: 'summarize',
   enabled: true, ownerUserId: 7, lifecycle: 'recurring', revision: 3, manualQueued: false,
-  conversationSessionId: 'conv-1', owner: { id: 7, username: 'filip', name: 'Filip' },
+  conversationSessionId: 'conv-1', owner: { id: 7, username: 'filip', name: 'Filip', avatar: '' },
   nextOccurrence: {
     occurrenceId: 'job-daily:slot:2026-09-15T07:30', scheduledAt: '2026-09-15T05:30:00.000Z',
     expectedAt: '2026-09-15T05:30:00.000Z', localDate: TODAY, localTime: '07:30',
@@ -33,24 +35,23 @@ const recurring: CronJob = {
 const oneShot: CronJob = {
   id: 'job-once', name: 'Check invoices', schedule: 'one-shot', prompt: 'check',
   enabled: true, ownerUserId: 7, lifecycle: 'oneShot', revision: 1,
-  runAt: '2026-09-15T16:00:00.000Z', owner: { id: 7, username: 'filip', name: 'Filip' },
+  runAt: '2026-09-15T16:00:00.000Z', owner: { id: 7, username: 'filip', name: 'Filip', avatar: '' },
 };
 const poll: CronJob = {
   id: 'job-poll', name: 'Inbox poll', schedule: 'every 2m', prompt: 'poll',
   enabled: true, ownerUserId: 7, lifecycle: 'recurring', revision: 1,
-  owner: { id: 7, username: 'filip', name: 'Filip' },
+  owner: { id: 7, username: 'filip', name: 'Filip', avatar: '' },
 };
 
 const dates = ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20'];
 const day = (localDate: string): CronWeekDay => ({
   localDate,
   cards: localDate === TODAY ? [
-    { jobId: recurring.id, localTime: '07:30', remaining: 1, moreTimes: [], state: 'ok', runId: 'run-1', guarded: false, disposition: 'onTime' },
-    { jobId: oneShot.id, localTime: '18:00', remaining: 1, moreTimes: [], state: 'waiting', guarded: false, disposition: 'onTime' },
+    { jobId: recurring.id, kind: 'daily', localTime: '07:30', remaining: 1, moreTimes: [], enabled: true, state: 'ok', guarded: false, disposition: 'onTime' },
+    { jobId: oneShot.id, kind: 'oneShot', localTime: '18:00', remaining: 1, moreTimes: [], enabled: true, state: 'waiting', guarded: false, disposition: 'onTime' },
   ] : [],
   dayTotal: localDate === TODAY ? 2 : 0,
-  moreCount: 0,
-  truncated: false,
+  runs: { ok: localDate === TODAY ? 1 : 0, error: 0, skipped: 0, running: 0 },
 });
 const weekBody = (): CronWeekResponse => ({
   generatedAt: '2026-09-15T08:20:00.000Z',
@@ -59,10 +60,10 @@ const weekBody = (): CronWeekResponse => ({
   nowLocalTime: '10:20',
   precisionMs: 30_000,
   scheduler: { ready: true },
-  window: { startLocalDate: dates[0]!, endLocalDateExclusive: '2026-09-21', dayCount: 7, maxDayCount: 7 },
+  window: { startLocalDate: dates[0]!, endLocalDateExclusive: '2026-09-21' },
   jobs: [recurring, oneShot, poll],
   days: dates.map(day),
-  intervals: [{ jobId: poll.id, schedule: 'every 2m', intervalLabel: 'every 2m', enabled: true, remaining: 720, nextLocalDate: TODAY, nextLocalTime: '10:22', guarded: false }],
+  intervals: [{ jobId: poll.id, schedule: 'every 2m', intervalLabel: 'every 2m', enabled: true, nextExpectedAt: '2026-09-15T08:22:00.000Z', nextLocalTime: '10:22', remainingToday: 720, lastOutcome: null, lastRunAt: null }],
   truncated: false,
 });
 
@@ -73,13 +74,11 @@ const run: CronRunRow = {
   schedule: recurring.schedule,
   ownerUserId: 7,
   owner: recurring.owner,
-  trigger: 'scheduled',
-  occurrenceId: 'job-daily:slot:1',
-  scheduledAt: '2026-09-15T05:30:00.000Z',
+  lifecycle: 'recurring',
+  trigger: 'schedule',
   localDate: TODAY,
   localTime: '07:30',
   timezone: TZ,
-  state: 'finished',
   outcome: 'ok',
   startedAt: '2026-09-15T05:30:01.000Z',
   finishedAt: '2026-09-15T05:30:03.500Z',
@@ -89,8 +88,9 @@ const run: CronRunRow = {
   model: 'openai/gpt-test',
   tokensTotal: 42,
   costUsd: 0.01,
-  deliveryState: 'delivered',
+  delivered: true,
   preview: 'Short retained preview',
+  previewTruncated: false,
 };
 
 setDefaults(
@@ -108,12 +108,10 @@ setDefaults(
     limit: Number(url.searchParams.get('limit') ?? 20),
   })),
   http.get('/api/plugins/cronjob/api/runs/:id', () => HttpResponse.json(run)),
-  http.get('/api/brain/messages', () => HttpResponse.json({
-    messages: [
-      { id: 'message-other', role: 'assistant', content: 'Wrong assistant message' },
-      { id: 'message-exact', role: 'assistant', content: 'Exact durable assistant result' },
-    ],
-  })),
+  http.get('/api/brain/messages/:id', ({ params, url }) =>
+    params.id === 'message-exact' && url.searchParams.get('session') === 'session-1'
+      ? HttpResponse.json({ id: 'message-exact', role: 'assistant', content: 'Exact durable assistant result' })
+      : HttpResponse.json({ error: 'unknown message' }, { status: 404 })),
 );
 
 beforeAll(() => listen());
@@ -168,6 +166,29 @@ describe('automation week calendar', () => {
     expect(screen.getAllByTestId('cron-card-job-once')).toHaveLength(1);
     expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
     expect(screen.getAllByText('every 2m')).toHaveLength(1);
+    const card = screen.getByTestId('cron-card-job-daily');
+    fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
+    expect(screen.queryByText(strings.deleteTitle)).toBeNull();
+    const intervals = screen.getByTestId('cron-intervals-table');
+    expect(intervals.parentElement).toContainElement(screen.getByTestId('cron-week-grid'));
+    expect(intervals.parentElement).not.toContainElement(screen.getByTestId('cron-day-panel'));
+  });
+
+  it('uses the localized system owner label for instance jobs', () => {
+    const instancePoll: CronJob = { ...poll, ownerUserId: null };
+    delete instancePoll.owner;
+    const { wrapper: Wrapper } = createWrapper();
+    render(
+      <Wrapper>
+        <IntervalsTable
+          rows={weekBody().intervals}
+          jobs={new Map([[instancePoll.id, instancePoll]])}
+          onOpen={() => {}}
+          onRun={() => {}}
+        />
+      </Wrapper>,
+    );
+    expect(screen.getAllByText(strings.ownerSystem).length).toBeGreaterThan(0);
   });
 
   it('opens the selected day panel with durable run receipts', async () => {
@@ -177,6 +198,24 @@ describe('automation week calendar', () => {
     expect(within(panel).getByText(/Morning digest/)).toBeInTheDocument();
     expect(within(panel).getByText(strings.runOk)).toBeInTheDocument();
     expect(within(panel).getByText(/Check invoices/)).toBeInTheDocument();
+  });
+
+  it('keeps the newest run page live after loading an older cursor page', async () => {
+    let latest = run;
+    const older = { ...run, id: 'run-old', jobName: 'Older receipt', startedAt: '2026-09-15T04:00:00.000Z' };
+    use(http.get('/api/plugins/cronjob/api/runs', ({ url }) =>
+      url.searchParams.has('cursor')
+        ? HttpResponse.json({ runs: [older], nextCursor: null, total: 2, limit: 50 })
+        : HttpResponse.json({ runs: [latest], nextCursor: 'older-page', total: 2, limit: 50 })));
+    const { client } = renderPage();
+    const panel = await screen.findByTestId('cron-day-panel');
+    fireEvent.click(await within(panel).findByRole('button', { name: strings.loadOlder }));
+    expect(await within(panel).findByText(/Older receipt/)).toBeInTheDocument();
+
+    latest = { ...run, id: 'run-new', jobName: 'Fresh receipt' };
+    await client.invalidateQueries({ queryKey: ['cron-runs-day-latest', TODAY] });
+    expect(await within(panel).findByText(/Fresh receipt/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Older receipt/)).toBeInTheDocument();
   });
 
   it('opens a run result and fetches the exact durable assistant message id', async () => {
@@ -198,12 +237,61 @@ describe('automation week calendar', () => {
     expect(screen.getByText(strings.runOk)).toBeInTheDocument();
   });
 
+  it('resets history to page one when a filter changes', async () => {
+    const historyOffsets: number[] = [];
+    use(http.get('/api/plugins/cronjob/api/runs', ({ url }) => {
+      if (url.searchParams.has('date')) return HttpResponse.json({ runs: [run], nextCursor: null, total: 1, limit: 50 });
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      historyOffsets.push(offset);
+      const q = url.searchParams.get('q');
+      return HttpResponse.json({
+        runs: [{ ...run, id: `history-${offset}-${q ?? 'all'}`, jobName: q ? 'Filtered receipt' : `History offset ${offset}` }],
+        nextCursor: null, total: 60, limit: 25,
+      });
+    }));
+    renderPage();
+    await screen.findByTestId('cron-week-grid');
+    fireEvent.click(screen.getByText(strings.tabHistory));
+    expect(await screen.findByText('History offset 0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+    expect(await screen.findByText('History offset 25')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'filtered' } });
+    expect(await screen.findByText('Filtered receipt')).toBeInTheDocument();
+    await waitFor(() => expect(historyOffsets.at(-1)).toBe(0));
+  });
+
   it('offers one New task menu with both lifecycle choices', async () => {
     renderPage();
     await screen.findByTestId('cron-week-grid');
     fireEvent.click(screen.getByText(strings.newTask));
     expect(await screen.findByText(strings.createRecurring)).toBeInTheDocument();
     expect(screen.getByText(strings.createOneShot)).toBeInTheDocument();
+  });
+
+  it('uses the scheduler today for past-day history guidance', () => {
+    const { wrapper: Wrapper } = createWrapper();
+    render(
+      <Wrapper>
+        <DayPanel
+          day={{ ...day(TODAY), cards: [], dayTotal: 0 }}
+          todayLocalDate="2026-09-16"
+          intervals={[]}
+          jobs={new Map()}
+          runs={[]}
+          loading={false}
+          hasMore={false}
+          onLoadMore={() => {}}
+          selectedJobId={null}
+          onSelectJob={() => {}}
+          onOpenRun={() => {}}
+          onOpenJob={() => {}}
+          onPreviousDay={() => {}}
+          onNextDay={() => {}}
+        />
+      </Wrapper>,
+    );
+    expect(screen.getByText(strings.dayBeforeHistory)).toBeInTheDocument();
   });
 
   it('uses a horizontal day strip and one-day view on a phone', async () => {
@@ -238,7 +326,7 @@ describe('cronjob bundle contracts', () => {
       'tabCalendar', 'tabHistory', 'viewDay', 'viewWeek', 'newTask', 'filterOwner',
       'filterState', 'filterKind', 'filterOutcome', 'filterRange', 'runWaiting',
       'runRunning', 'runOk', 'runErrorState', 'runSkipped', 'runFullResult',
-      'intervalsTitle', 'historyEmpty', 'colDuration', 'colModel',
+      'intervalsTitle', 'historyEmpty', 'colDuration', 'colModel', 'ownerSystem',
     ]) expect(Object.hasOwn(strings, key), `missing web.strings.${key}`).toBe(true);
   });
 });

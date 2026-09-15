@@ -26,17 +26,23 @@ interface CronAdapterUnderTest {
     usage?: { totalTokens?: number; cost?: number };
     completedAt?: string;
   }) => void) => Promise<string | undefined>): void;
+  connect(): Promise<void>;
   tick(): Promise<void>;
+  runClaim(job: Record<string, unknown>, details: { manual?: boolean; slot: string; now: number; timezone: string; skipReason?: string | null }): { id: string; created: boolean };
   disconnect(): void;
 }
 
 let dirs: string[] = [];
 function freshDataRoot(): string { const p = mkdtempSync(join(tmpdir(), 'elowen-pdata-')); dirs.push(p); return p; }
-afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
+afterEach(() => {
+  vi.useRealTimers();
+  for (const p of dirs) rmSync(p, { recursive: true, force: true });
+  dirs = [];
+});
 
 async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify, pluginDb: pluginDbFor(dataRoot) });
+  const reg = await loadPlugins({ dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify, pluginDb: pluginDbFor(dataRoot), delegatedTurnsOutOfProcess: () => false });
   return reg.platforms[0] as unknown as CronAdapterUnderTest;
 }
 
@@ -65,6 +71,36 @@ function parkingHandler(tag: string, calls: string[]) {
 }
 
 describe('cron scheduler across a plugin reload', () => {
+  it('uses one deterministic journal claim for the same interval slot across generations', async () => {
+    const dataRoot = freshDataRoot();
+    const oldAdapter = await loadCron(dataRoot, async () => {});
+    const newAdapter = await loadCron(dataRoot, async () => {});
+    const now = Date.parse('2026-09-15T17:27:15.000Z');
+    const job = {
+      id: 'poll', name: 'poll', schedule: 'every 5m', prompt: 'poll',
+      createdAt: new Date(now - 60_000).toISOString(),
+    };
+    const details = { slot: '2026-09-15T19:27', now, timezone: 'Europe/Prague' };
+
+    const first = oldAdapter.runClaim(job, details);
+    expect(first.created).toBe(true);
+    expect(newAdapter.runClaim(job, details)).toEqual({ id: first.id, created: false });
+  });
+
+  it('schedules daily journal retention and disposes both timers with the adapter', async () => {
+    vi.useFakeTimers();
+    const dataRoot = freshDataRoot();
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const adapter = await loadCron(dataRoot, async () => {});
+    await adapter.connect();
+
+    expect(interval.mock.calls.map((call) => call[1])).toContain(24 * 60 * 60_000);
+    expect(vi.getTimerCount()).toBe(2);
+    adapter.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+    interval.mockRestore();
+  });
+
   it('runs a durable manual request immediately without rewriting its future schedule', async () => {
     const dataRoot = freshDataRoot();
     mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });

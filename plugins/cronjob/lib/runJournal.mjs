@@ -76,6 +76,71 @@ const MIGRATIONS = [{
         ON p_cronjob_run_daily(local_date DESC);
     `);
   },
+}, {
+  version: 2,
+  up(db) {
+    db.exec(`
+      UPDATE p_cronjob_runs SET started_ms=claimed_ms WHERE started_ms IS NULL;
+      DROP INDEX IF EXISTS p_cronjob_runs_day;
+      DROP INDEX IF EXISTS p_cronjob_runs_job;
+      DROP INDEX IF EXISTS p_cronjob_runs_owner_time;
+      DROP INDEX IF EXISTS p_cronjob_runs_outcome_time;
+      ALTER TABLE p_cronjob_runs RENAME TO p_cronjob_runs_v1;
+      CREATE TABLE p_cronjob_runs (
+        id TEXT PRIMARY KEY,
+        claim_key TEXT NOT NULL UNIQUE,
+        job_id TEXT NOT NULL,
+        job_name TEXT NOT NULL,
+        owner_user_id INTEGER,
+        lifecycle TEXT NOT NULL CHECK (lifecycle IN ('recurring','oneShot')),
+        schedule TEXT,
+        trigger TEXT NOT NULL CHECK (trigger IN ('schedule','catchUp','manual')),
+        slot_ms INTEGER,
+        slot_local_date TEXT NOT NULL,
+        slot_local_time TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        claimed_ms INTEGER NOT NULL,
+        started_ms INTEGER NOT NULL,
+        finished_ms INTEGER,
+        duration_ms INTEGER,
+        outcome TEXT NOT NULL CHECK (outcome IN ('waiting','running','ok','error','skipped')),
+        skip_reason TEXT,
+        error_message TEXT,
+        preview TEXT,
+        preview_truncated INTEGER NOT NULL DEFAULT 0 CHECK (preview_truncated IN (0,1)),
+        session_id TEXT,
+        message_id TEXT,
+        delivered INTEGER NOT NULL DEFAULT 0 CHECK (delivered IN (0,1)),
+        delivery_target TEXT,
+        model TEXT,
+        tokens_total INTEGER,
+        cost_usd REAL
+      ) STRICT;
+      INSERT INTO p_cronjob_runs (
+        id,claim_key,job_id,job_name,owner_user_id,lifecycle,schedule,trigger,slot_ms,
+        slot_local_date,slot_local_time,timezone,claimed_ms,started_ms,finished_ms,duration_ms,
+        outcome,skip_reason,error_message,preview,preview_truncated,session_id,message_id,delivered,
+        delivery_target,model,tokens_total,cost_usd
+      )
+      SELECT
+        id,claim_key,job_id,job_name,owner_user_id,lifecycle,schedule,trigger,slot_ms,
+        slot_local_date,slot_local_time,timezone,claimed_ms,started_ms,finished_ms,duration_ms,
+        outcome,skip_reason,error_message,preview,preview_truncated,session_id,message_id,delivered,
+        delivery_target,model,tokens_total,cost_usd
+      FROM p_cronjob_runs_v1;
+      DROP TABLE p_cronjob_runs_v1;
+      CREATE INDEX p_cronjob_runs_day
+        ON p_cronjob_runs(slot_local_date, started_ms DESC, id DESC);
+      CREATE INDEX p_cronjob_runs_job
+        ON p_cronjob_runs(job_id, started_ms DESC, id DESC);
+      CREATE INDEX p_cronjob_runs_owner_time
+        ON p_cronjob_runs(owner_user_id, started_ms DESC, id DESC);
+      CREATE INDEX p_cronjob_runs_outcome_time
+        ON p_cronjob_runs(outcome, started_ms DESC, id DESC);
+      CREATE INDEX p_cronjob_runs_finished
+        ON p_cronjob_runs(outcome, finished_ms);
+    `);
+  },
 }];
 
 const bounded = (value, max) => typeof value === 'string' ? value.slice(0, max) : null;
@@ -133,7 +198,7 @@ const publicRow = (row) => ({
   localDate: row.slot_local_date,
   localTime: row.slot_local_time,
   timezone: row.timezone,
-  startedAt: row.started_ms === null ? new Date(row.claimed_ms).toISOString() : new Date(row.started_ms).toISOString(),
+  startedAt: new Date(row.started_ms).toISOString(),
   finishedAt: row.finished_ms === null ? null : new Date(row.finished_ms).toISOString(),
   durationMs: row.duration_ms,
   outcome: row.outcome,
@@ -172,8 +237,8 @@ export function openRunJournal(db, options = {}) {
       db.prepare(`
         INSERT INTO p_cronjob_runs (
           id,claim_key,job_id,job_name,owner_user_id,lifecycle,schedule,trigger,slot_ms,
-          slot_local_date,slot_local_time,timezone,claimed_ms,outcome
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting')
+          slot_local_date,slot_local_time,timezone,claimed_ms,started_ms,outcome
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting')
       `).run(
         id,
         claimKey,
@@ -187,6 +252,7 @@ export function openRunJournal(db, options = {}) {
         validateDate(input.localDate),
         validateTime(input.localTime),
         requiredText(input.timezone, 'timezone', 100),
+        claimedMs,
         claimedMs,
       );
       return { id, created: true };
@@ -236,8 +302,8 @@ export function openRunJournal(db, options = {}) {
         SUM(COALESCE(duration_ms,0)) AS total_duration_ms,
         SUM(COALESCE(tokens_total,0)) AS tokens_total,
         SUM(COALESCE(cost_usd,0)) AS cost_usd,
-        MIN(COALESCE(started_ms,claimed_ms)) AS first_started_ms,
-        MAX(COALESCE(started_ms,claimed_ms)) AS last_started_ms
+        MIN(started_ms) AS first_started_ms,
+        MAX(started_ms) AS last_started_ms
       FROM p_cronjob_runs
       WHERE outcome IN ('ok','error','skipped') AND finished_ms < ?
       GROUP BY job_id,slot_local_date
@@ -286,7 +352,7 @@ export function openRunJournal(db, options = {}) {
     const current = db.prepare('SELECT claimed_ms,started_ms,outcome FROM p_cronjob_runs WHERE id=?').get(id);
     if (!current || !NON_TERMINAL.has(current.outcome)) return false;
     const finishedMs = Number.isSafeInteger(result.finishedMs) ? result.finishedMs : now();
-    const startedMs = current.started_ms ?? current.claimed_ms;
+    const startedMs = current.started_ms;
     const rawPreview = typeof result.preview === 'string' ? result.preview : null;
     const preview = rawPreview === null ? null : rawPreview.slice(0, previewChars);
     const changed = db.prepare(`
@@ -305,7 +371,6 @@ export function openRunJournal(db, options = {}) {
       rawPreview !== null && rawPreview.length > previewChars ? 1 : 0,
       id,
     ).changes === 1;
-    if (changed) prune(finishedMs);
     return changed;
   };
 
@@ -313,7 +378,7 @@ export function openRunJournal(db, options = {}) {
     const cutoff = nowMs - Math.max(1, Number(tickMs) || 1);
     return db.prepare(`
       UPDATE p_cronjob_runs SET
-        outcome='error',finished_ms=?,duration_ms=MAX(0,?-COALESCE(started_ms,claimed_ms)),
+        outcome='error',finished_ms=?,duration_ms=MAX(0,?-started_ms),
         error_message='the daemon stopped before the run finished'
       WHERE outcome IN ('waiting','running') AND claimed_ms < ?
     `).run(nowMs, nowMs, cutoff).changes;
@@ -341,7 +406,7 @@ export function openRunJournal(db, options = {}) {
     if (includeCursor && query.cursor !== undefined) {
       const cursor = cursorDecode(query.cursor);
       if (!cursor) throw new Error('invalid cursor');
-      where.push('(COALESCE(started_ms,claimed_ms) < ? OR (COALESCE(started_ms,claimed_ms) = ? AND id < ?))');
+      where.push('(started_ms < ? OR (started_ms = ? AND id < ?))');
       params.push(cursor.startedMs, cursor.startedMs, cursor.id);
     }
     return { where: where.join(' AND '), params };
@@ -355,14 +420,14 @@ export function openRunJournal(db, options = {}) {
     const page = filters(actor, query, true);
     const rows = db.prepare(`
       SELECT * FROM p_cronjob_runs WHERE ${page.where}
-      ORDER BY COALESCE(started_ms,claimed_ms) DESC,id DESC LIMIT ? OFFSET ?
+      ORDER BY started_ms DESC,id DESC LIMIT ? OFFSET ?
     `).all(...page.params, limit, query.cursor ? 0 : offset);
     const last = rows.at(-1);
     return {
       runs: rows.map(publicRow),
       total: Number(count?.n ?? 0),
       ...(rows.length === limit && last
-        ? { nextCursor: cursorEncode(last.started_ms ?? last.claimed_ms, last.id) }
+        ? { nextCursor: cursorEncode(last.started_ms, last.id) }
         : {}),
     };
   };
@@ -396,7 +461,7 @@ export function openRunJournal(db, options = {}) {
       SELECT * FROM (
         SELECT r.*,ROW_NUMBER() OVER (
           PARTITION BY job_id,slot_local_date
-          ORDER BY COALESCE(started_ms,claimed_ms) DESC,id DESC
+          ORDER BY started_ms DESC,id DESC
         ) AS rank
         FROM p_cronjob_runs r
         WHERE ${access.sql} AND slot_local_date >= ? AND slot_local_date < ?
@@ -408,12 +473,6 @@ export function openRunJournal(db, options = {}) {
   const removeUser = (userId) => db.transaction(() => {
     const details = db.prepare('DELETE FROM p_cronjob_runs WHERE owner_user_id=?').run(userId).changes;
     const aggregates = db.prepare('DELETE FROM p_cronjob_run_daily WHERE owner_user_id=?').run(userId).changes;
-    return details + aggregates;
-  });
-
-  const removeJob = (jobId) => db.transaction(() => {
-    const details = db.prepare('DELETE FROM p_cronjob_runs WHERE job_id=?').run(jobId).changes;
-    const aggregates = db.prepare('DELETE FROM p_cronjob_run_daily WHERE job_id=?').run(jobId).changes;
     return details + aggregates;
   });
 
@@ -432,6 +491,6 @@ export function openRunJournal(db, options = {}) {
 
   return {
     claim, start, note, close, reconcile, prune, list, get, countsByDay, latestByJobDays,
-    removeUser, removeJob, removeMissingUsers,
+    removeUser, removeMissingUsers,
   };
 }

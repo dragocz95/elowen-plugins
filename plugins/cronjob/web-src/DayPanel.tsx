@@ -19,8 +19,9 @@ const tone = (outcome: CronRunRow['outcome']): string =>
 
 type WaitingRow = { key: string; job: CronJob; time: string; source: CronDayCard | CronIntervalRow };
 
-export function DayPanel({ day, intervals, jobs, runs, loading, hasMore, onLoadMore, selectedJobId, onSelectJob, onOpenRun, onOpenJob, onPreviousDay, onNextDay, mobile = false }: {
+export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, hasMore, onLoadMore, selectedJobId, onSelectJob, onOpenRun, onOpenJob, onPreviousDay, onNextDay, mobile = false }: {
   day: CronWeekDay;
+  todayLocalDate: string;
   intervals: CronIntervalRow[];
   jobs: Map<string, CronJob>;
   runs: CronRunRow[];
@@ -72,7 +73,7 @@ export function DayPanel({ day, intervals, jobs, runs, loading, hasMore, onLoadM
         {loading && runs.length === 0 ? <C.LoadingState variant="list" /> : runs.length === 0 && waiting.length === 0 ? (
           <C.EmptyState
             title={s.dayNothing || 'Nothing ran or is scheduled for this day'}
-            description={day.localDate < new Date().toISOString().slice(0, 10) ? (s.dayBeforeHistory || 'Run history is recorded from this upgrade onward.') : undefined}
+            description={day.localDate < todayLocalDate ? (s.dayBeforeHistory || 'Run history is recorded from this upgrade onward.') : undefined}
           />
         ) : (
           <C.EntityList>
@@ -86,7 +87,7 @@ export function DayPanel({ day, intervals, jobs, runs, loading, hasMore, onLoadM
                 >
                   <span className="font-mono text-xs tabular-nums">{run.localTime}</span>
                   <span className={`size-2 rounded-full ${run.outcome === 'ok' ? 'bg-emerald-500' : run.outcome === 'error' ? 'bg-destructive' : run.outcome === 'running' ? 'animate-pulse bg-primary' : 'border border-muted-foreground'}`} />
-                  <span className="truncate text-sm">{run.owner?.name || s.ownerInstance} · {run.jobName}</span>
+                  <span className="truncate text-sm">{run.owner?.name || s.ownerSystem || 'System'} · {run.jobName}</span>
                   <C.Badge tone={tone(run.outcome)}>{status(run.outcome, s)}</C.Badge>
                 </button>
               </C.EntityRow>
@@ -100,7 +101,7 @@ export function DayPanel({ day, intervals, jobs, runs, loading, hasMore, onLoadM
                 >
                   <span className="font-mono text-xs tabular-nums">{row.time}</span>
                   <span className="size-2 rounded-full border border-muted-foreground" />
-                  <span className="truncate text-sm">{row.job.owner?.name || s.ownerInstance} · {row.job.name}</span>
+                  <span className="truncate text-sm">{row.job.owner?.name || s.ownerSystem || 'System'} · {row.job.name}</span>
                   <C.Badge tone="muted">{row.job.enabled === false ? s.paused : s.runWaiting}</C.Badge>
                 </button>
               </C.EntityRow>
@@ -112,10 +113,10 @@ export function DayPanel({ day, intervals, jobs, runs, loading, hasMore, onLoadM
       {selectedJob ? (
         <section className="flex min-w-0 flex-col gap-3 border-t border-border/60 pt-4" data-testid="cron-selected-job">
           <div className="flex items-center gap-2">
-            <C.Avatar name={selectedJob.owner?.name || s.ownerInstance} src={selectedJob.owner?.avatar || undefined} />
+            <C.Avatar name={selectedJob.owner?.name || s.ownerSystem || 'System'} src={selectedJob.owner?.avatar || undefined} />
             <div className="min-w-0">
               <h3 className="truncate text-base font-semibold">{selectedJob.name}</h3>
-              <p className="truncate text-xs text-muted-foreground">{selectedJob.owner?.name || s.ownerInstance}</p>
+              <p className="truncate text-xs text-muted-foreground">{selectedJob.owner?.name || s.ownerSystem || 'System'}</p>
             </div>
           </div>
           <dl className="grid gap-2 text-sm">

@@ -631,7 +631,7 @@ export function sortOccurrences(list) {
 // ── One job, one day: the bounded summary the day board is built from ─────────────────────────────
 
 /** How many FURTHER runs one row names inline before it falls back to a count. */
-export const DAY_MAX_TIMES = 3;
+const DAY_MAX_TIMES = 3;
 /** One job, one local date: the hard ceiling on wall clocks examined. 1440 is a full day of minutes,
  *  which is the most a five-field cron can ever match on one date — past it the row says `truncated`
  *  and its count is a floor, so a pathological schedule bounds the request instead of the request

@@ -14,7 +14,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { executionRef, projectCheck } from './execution.mjs';
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runtimeFooter } from 'elowen-plugin-shared/format';
@@ -41,6 +41,7 @@ const DEFAULT_MAX_JOBS_PER_USER = 20;
 const DEFAULT_MIN_INTERVAL_MINUTES = 15;
 const DEFAULT_CRON_TURN_ATTEMPTS = 2; // one retry on a request-time failure (a transient relay/gateway/network blip)
 const DEFAULT_CRON_RETRY_BACKOFF_MS = 3_000; // brief pause before the retry so the transient condition can clear
+const RUN_JOURNAL_MAINTENANCE_MS = 24 * 60 * 60_000;
 // How many undelivered results may wait for a retry at once. A delivery sink that is down for good (a
 // revoked bot token, a deleted channel) must not grow this file forever — past the cap, the OLDEST
 // pending delivery is dropped (and logged) to make room for the next one.
@@ -100,7 +101,7 @@ import {
   parseOneShot, parseSchedule, hoursAreValid, dueSlot,
   resolveLocalDateTime, planOccurrences,
   sortOccurrences, summarizeJobDay, localDateLabel, localTimeLabel,
-  DAY_MAX_TIMES, CALENDAR_CANDIDATE_BUDGET,
+  CALENDAR_CANDIDATE_BUDGET,
 } from './schedule.mjs';
 // The engine moved to schedule.mjs so the scheduler and every preview endpoint share one compiled
 // schedule representation; these names keep their exports here so existing imports stay working.
@@ -217,6 +218,12 @@ class CronAdapter {
   }
   listen(onMessage) { this.handler = onMessage; }
   async connect() {
+    this.journal.prune(Date.now());
+    this.maintenanceTimer = setInterval(() => {
+      try { this.journal.prune(Date.now()); }
+      catch (error) { this.log.error(`run journal maintenance failed: ${error?.message ?? error}`); }
+    }, RUN_JOURNAL_MAINTENANCE_MS);
+    this.maintenanceTimer.unref?.();
     this.timer = setInterval(() => void this.tick().catch((e) => this.log.error(`tick failed: ${e?.message ?? e}`)), this.tickMs);
   }
   // Clearing the interval only stops FUTURE ticks — a tick already in flight is parked on a (slow) brain
@@ -226,7 +233,12 @@ class CronAdapter {
   // tick loop finishes delivering the result it already paid for, then abandons the remaining jobs to the
   // live adapter. Synchronous on purpose — the host's stopAll() cannot await, and a reload must not block
   // for the minutes an LLM turn can take.
-  disconnect() { this.stopped = true; this.checkAbort.abort(); clearInterval(this.timer); }
+  disconnect() {
+    this.stopped = true;
+    this.checkAbort.abort();
+    clearInterval(this.timer);
+    clearInterval(this.maintenanceTimer);
+  }
   async send() { /* cron has no outbound channel; results land in the job's conversation */ }
 
   runClaim(job, { manual = false, slot, now, timezone, skipReason = null }) {
@@ -250,10 +262,22 @@ class CronAdapter {
     const trigger = manual ? 'manual'
       : parsed?.kind !== 'interval' && slot !== slotKey(now, timezone) ? 'catchUp'
         : 'schedule';
+    // An interval has no wall-clock slot. Its durable identity is the scheduled instant made due by the
+    // PRE-CLAIM lastRun snapshot, so two adapter generations holding that snapshot collide, while a later
+    // legitimate run in the same wall minute does not. The jobs-store claim advances lastRun before this
+    // insert, which keeps the crash window loss-only rather than duplicate-prone.
+    const intervalClaimSlot = parsed?.kind === 'interval'
+      ? (() => {
+          const previous = typeof job.lastRun === 'string' ? Date.parse(job.lastRun) : Number.NaN;
+          return Number.isFinite(previous)
+            ? String(previous + parsed.ms)
+            : `initial:${typeof job.createdAt === 'string' ? job.createdAt : slot}`;
+        })()
+      : null;
     const claimKey = manualId
       ? `manual:${job.id}:${manualId}`
-      : parsed?.kind === 'interval'
-        ? `schedule:${job.id}:interval:${now}:${randomUUID()}`
+      : intervalClaimSlot !== null
+        ? `schedule:${job.id}:interval:${intervalClaimSlot}`
         : `schedule:${job.id}:${slot}`;
     return this.journal.claim({
       claimKey: `${claimKey}${skipReason ? `:skip:${skipReason}` : ''}`,
@@ -368,6 +392,10 @@ class CronAdapter {
         this.recordSkip(snapshot, runDetails, 'project_unavailable', message);
         continue;
       }
+      // Claim the authoritative jobs store before inserting the journal row. A crash in the narrow window
+      // between these writes can lose this one execution, but it cannot duplicate it: the jobs-store claim
+      // has already advanced the recurring slot or consumed the one-shot. Reversing the order would leave a
+      // journal claim without the authoritative claim and let a replacement generation execute ambiguously.
       const job = manual ? this.claimManualRequest(snapshot, now, tz) : this.claimDueJob(snapshot.id, now, tz);
       if (!job) continue;
       const receipt = this.runClaim(snapshot, runDetails);
@@ -1992,123 +2020,6 @@ export function register(ctx) {
       } catch (error) {
         return jsonRes({ error: error instanceof Error ? error.message : String(error), code: 'invalid_request', field: 'cursor' }, 400);
       }
-    },
-  });
-
-  // Legacy day endpoint retained for one compatibility release; all shipped UI uses the bounded week route.
-  // ── The day board: ONE local date, ONE strict read, ONE row per job ────────────────────────────
-  // This endpoint answers what a person can actually read: what each job does on one day. It never
-  // expands a schedule into its runs — a polling job is hundreds of runs a day and a real instance has
-  // dozens of them, which is a page nobody can load and nobody can use. Every count, next instant,
-  // timezone, DST, active-hours and catch-up answer still comes from the SAME engine the scheduler
-  // ticks with; only the SHAPE is bounded, one row per job with a short head of times.
-  ctx.registerApiRoute({
-    path: 'day', method: 'GET', access: 'user',
-    handler: async (req) => {
-      const timezone = ctx.timezone();
-      const nowMs = Date.now();
-      const live = liveEngineInputs({ timezone, nowMs });
-      const todayLocalDate = localDateLabel(nowMs, timezone);
-      // No date means TODAY, as the scheduler's own clock reads it. The browser never derives the
-      // day it asks for, so a viewer in another zone lands on the scheduler's today on the first try
-      // and the initial load carries no range at all.
-      const requested = req.query.date === undefined ? todayLocalDate : String(req.query.date);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) {
-        return jsonRes({ error: 'date must be a local calendar date YYYY-MM-DD', code: 'invalid_request', field: 'date' }, 400);
-      }
-      const [year, month, day] = requested.split('-').map(Number);
-      const dayStartMs = zonedTimeToMs(timezone, year, month, day, 0, 0);
-      if (localDateLabel(dayStartMs, timezone) !== requested) {
-        return jsonRes({ error: 'date is not a real calendar date', code: 'invalid_request', field: 'date' }, 400);
-      }
-      // The exclusive next midnight minus one: a DST day is 23 or 25 hours long and the board has to
-      // hold exactly the date it names, never a fixed 24 hours.
-      const nextDay = new Date(Date.UTC(year, month - 1, day) + 86_400_000);
-      const dayEndMs = zonedTimeToMs(
-        timezone, nextDay.getUTCFullYear(), nextDay.getUTCMonth() + 1, nextDay.getUTCDate(), 0, 0,
-      ) - 1;
-
-      // One strict read of the jobs file: unreadable answers jobs_unreadable, never an empty list.
-      let jobs;
-      try { jobs = readJobsStrict(); }
-      catch (error) {
-        ctx.logger.warn(`day board strict jobs read failed (${error instanceof Error ? error.message : error})`);
-        return jsonRes({ error: 'the scheduled jobs file could not be read', code: 'jobs_unreadable' }, 500);
-      }
-      const actor = { userId: req.auth.userId, admin: req.auth.admin === true };
-      // Every job the actor may see travels in full. Owner and text filters are the browser's, applied
-      // to these already-bounded rows, so narrowing the board costs no further request.
-      const visible = actorSeesJobs(actor, jobs);
-      const isToday = requested === todayLocalDate;
-
-      const rows = [];
-      let truncated = false;
-      for (const job of visible) {
-        const paused = job.enabled === false;
-        const summary = paused
-          ? { kind: typeof job.runAt === 'string' ? 'oneShot' : parseSchedule(job.schedule)?.kind ?? null, remaining: 0, head: [], truncated: false }
-          : summarizeJobDay(job, { ...live, dayStartMs, dayEndMs, maxTimes: DAY_MAX_TIMES });
-        if (summary.truncated) truncated = true;
-        const oneShot = summary.kind === 'oneShot';
-        // A one-shot is only ever on its own day. A recurring job is ALSO listed on today with nothing
-        // left, because today's board is this instance's inventory of what repeats: a paused job and a
-        // job that has already run its last slot both have to stay operable without hunting for them.
-        if (summary.remaining === 0 && (oneShot || !isToday)) continue;
-        const [next, ...rest] = summary.head;
-        rows.push({
-          jobId: job.id,
-          // Fixed times still ahead are what `Next` means; a polling interval is read as a rate, and
-          // everything else repeating (paused, or done for today) is read as status.
-          section: oneShot ? 'oneShot'
-            : summary.kind !== 'interval' && summary.remaining > 0 ? 'next'
-            : 'recurring',
-          kind: summary.kind,
-          schedule: oneShot ? null : job.schedule ?? null,
-          enabled: !paused,
-          remaining: summary.remaining,
-          next: next === undefined ? null : {
-            occurrenceId: next.id,
-            scheduledAt: next.scheduledAt,
-            expectedAt: next.expectedAt,
-            localTime: next.localTime,
-            disposition: next.disposition,
-            guarded: next.guarded,
-          },
-          // The further times of a job that runs several times a day, inline in its own row — never
-          // another card. `remaining` stays the truth about how many there really are.
-          //
-          // An interval names none of them: "14:22, 14:24, 14:26" is not information about a job that
-          // polls every two minutes, it is the first three of 720. Its rate and its count are the
-          // honest description, which is why the board reads a poll differently from an appointment.
-          moreTimes: summary.kind === 'interval' ? [] : rest.map((occurrence) => occurrence.localTime),
-          truncated: summary.truncated,
-        });
-      }
-      // One order for the whole board: the instant each job next runs, then its identity so equal
-      // instants never shuffle between refetches. Sections slice this order without re-sorting.
-      rows.sort((a, b) => {
-        const ea = a.next?.expectedAt ?? '\uffff';
-        const eb = b.next?.expectedAt ?? '\uffff';
-        if (ea !== eb) return ea < eb ? -1 : 1;
-        return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
-      });
-
-      return jsonRes({
-        generatedAt: new Date(nowMs).toISOString(),
-        // The scheduler's OWN wall-clock today: a viewer in another browser zone adopts this, never
-        // derives it.
-        todayLocalDate,
-        // The scheduler's own wall clock right now, so the board can draw a "now" line on its day rail
-        // without the browser re-deriving the time in a zone that is not its own.
-        nowLocalTime: localTimeLabel(nowMs, timezone),
-        localDate: requested,
-        timezone,
-        precisionMs: live.tickMs,
-        scheduler: adapter?.status() ?? { ready: false },
-        jobs: visible.map((job) => publicJob(job)),
-        rows,
-        truncated,
-      });
     },
   });
 

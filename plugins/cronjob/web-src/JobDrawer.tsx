@@ -52,7 +52,7 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('cronjob');
-  const { t } = hooks.useTranslation();
+  const { t, locale } = hooks.useTranslation();
   const { toast } = hooks.useToast();
   const save = hooks.useSaveCronJob();
   const del = hooks.useDeleteCronJob();
@@ -172,7 +172,7 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
   };
 
   const oneShot = draft.runAt !== undefined && draft.runAt !== null;
-  const localRun = useMemo(() => localRunOf(draft), [draft.localRunAt, draft.nextOccurrence?.occurrenceId]);
+  const localRun = useMemo(() => localRunOf(draft), [draft]);
   const enabled = draft.enabled !== false;
   const mayPatch = adminFields || (job.ownerUserId != null && job.ownerUserId === myId);
   const name = draft.name || s.jobNew;
@@ -329,7 +329,7 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
             a completed run, and lastResult itself remains unclassified text. */}
         <div className="flex min-w-0 flex-col gap-1" data-testid="cron-last-run">
           <span className="text-sm font-medium text-foreground">{s.lastStarted}</span>
-          <span className="text-xs text-muted-foreground">{job.lastRun ? `${s.lastRunAt} ${utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)!).toLocaleString() : ''}` : '—'}</span>
+          <span className="text-xs text-muted-foreground">{job.lastRun ? `${s.lastRunAt} ${utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)!).toLocaleString(locale || undefined) : ''}` : '—'}</span>
           {job.lastResult ? (
             <p className="whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">{job.lastResult}</p>
           ) : null}

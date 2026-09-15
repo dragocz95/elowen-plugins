@@ -91,6 +91,33 @@ describe('cron run journal', () => {
     });
   });
 
+  it('migrates legacy nullable started times to a non-null indexed column', () => {
+    const { db, raw } = dbFixture();
+    const journal = openRunJournal(db, { now: () => BASE });
+    const legacy = journal.claim(input({ claimKey: 'legacy-null-start' }));
+
+    // Recreate the v1 nullable shape around a real row, then let migration v2 backfill and rebuild it.
+    raw.exec(`
+      ALTER TABLE p_cronjob_runs RENAME TO p_cronjob_runs_strict;
+      CREATE TABLE p_cronjob_runs AS SELECT * FROM p_cronjob_runs_strict WHERE 0;
+      INSERT INTO p_cronjob_runs SELECT * FROM p_cronjob_runs_strict;
+      UPDATE p_cronjob_runs SET started_ms=NULL;
+      DROP TABLE p_cronjob_runs_strict;
+      DELETE FROM plugin_migrations WHERE version=2;
+    `);
+    const migrated = openRunJournal(db, { now: () => BASE });
+    const started = raw.prepare("PRAGMA table_info('p_cronjob_runs')").all()
+      .find((column) => (column as { name: string }).name === 'started_ms') as { notnull: number };
+    const indexes = raw.prepare("PRAGMA index_list('p_cronjob_runs')").all()
+      .map((index) => (index as { name: string }).name);
+
+    expect(started.notnull).toBe(1);
+    expect(raw.prepare('SELECT started_ms,claimed_ms FROM p_cronjob_runs WHERE id=?').get(legacy.id))
+      .toEqual({ started_ms: BASE, claimed_ms: BASE });
+    expect(indexes).toContain('p_cronjob_runs_finished');
+    expect(migrated.get({ userId: 7, admin: false }, legacy.id)?.startedAt).toBe(new Date(BASE).toISOString());
+  });
+
   it('records skipped and failed terminal rows without inventing a session', () => {
     const { db } = dbFixture();
     const journal = openRunJournal(db, { now: () => BASE });
@@ -152,6 +179,57 @@ describe('cron run journal', () => {
     expect(raw.prepare('SELECT COUNT(*) AS n FROM p_cronjob_run_daily').get()).toEqual({ n: 0 });
   });
 
+  it('keeps exact retention boundaries, rolls aggregation back before detail deletion, and never double-counts', () => {
+    const { db, raw } = dbFixture();
+    const journal = openRunJournal(db, { now: () => BASE });
+    const detailCutoff = BASE - 7 * 86_400_000;
+    const old = journal.claim(input({
+      claimKey: 'old-boundary', startedMs: detailCutoff - 2_000, localDate: '2026-09-08',
+    }));
+    journal.start(old.id, detailCutoff - 2_000);
+    journal.close(old.id, { outcome: 'ok', finishedMs: detailCutoff - 1 });
+    const edge = journal.claim(input({
+      claimKey: 'exact-boundary', jobId: 'edge', startedMs: detailCutoff, localDate: '2026-09-08',
+    }));
+    journal.start(edge.id, detailCutoff);
+    journal.close(edge.id, { outcome: 'error', finishedMs: detailCutoff });
+
+    const plan = raw.prepare(`EXPLAIN QUERY PLAN SELECT id FROM p_cronjob_runs
+      WHERE outcome IN ('ok','error','skipped') AND finished_ms < ?`).all(detailCutoff);
+    expect(plan.map((row) => String((row as { detail: string }).detail)).join(' '))
+      .toContain('p_cronjob_runs_finished');
+
+    raw.exec(`CREATE TRIGGER block_prune BEFORE DELETE ON p_cronjob_runs
+      BEGIN SELECT RAISE(ABORT, 'blocked deletion'); END`);
+    expect(() => journal.prune(BASE)).toThrow('blocked deletion');
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM p_cronjob_run_daily').get()).toEqual({ n: 0 });
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM p_cronjob_runs').get()).toEqual({ n: 2 });
+
+    raw.exec('DROP TRIGGER block_prune');
+    journal.prune(BASE);
+    expect(raw.prepare('SELECT id FROM p_cronjob_runs').all()).toEqual([{ id: edge.id }]);
+    expect(raw.prepare('SELECT total_count FROM p_cronjob_run_daily WHERE job_id=?').get('job-1'))
+      .toEqual({ total_count: 1 });
+    journal.prune(BASE);
+    expect(raw.prepare('SELECT total_count FROM p_cronjob_run_daily WHERE job_id=?').get('job-1'))
+      .toEqual({ total_count: 1 });
+
+    const aggregateCutoff = BASE - 90 * 86_400_000;
+    raw.prepare('UPDATE p_cronjob_run_daily SET first_started_ms=?,last_started_ms=? WHERE job_id=?')
+      .run(aggregateCutoff, aggregateCutoff, 'job-1');
+    raw.prepare(`INSERT INTO p_cronjob_run_daily (
+      job_id,local_date,job_name,owner_user_id,lifecycle,schedule,timezone,
+      ok_count,error_count,skipped_count,total_count,total_duration_ms,tokens_total,cost_usd,
+      first_started_ms,last_started_ms
+    ) SELECT 'expired','2026-06-16',job_name,owner_user_id,lifecycle,schedule,timezone,
+      ok_count,error_count,skipped_count,total_count,total_duration_ms,tokens_total,cost_usd,?,?
+      FROM p_cronjob_run_daily WHERE job_id='job-1'`)
+      .run(aggregateCutoff - 1, aggregateCutoff - 1);
+    journal.prune(BASE);
+    expect(raw.prepare('SELECT job_id FROM p_cronjob_run_daily ORDER BY job_id').all())
+      .toEqual([{ job_id: 'job-1' }]);
+  });
+
   it('reapplies ACL in SQL, preserves deleted-job snapshots and paginates a two-minute load within fixed bounds', () => {
     const { db } = dbFixture();
     const journal = openRunJournal(db, { now: () => BASE });
@@ -179,11 +257,11 @@ describe('cron run journal', () => {
     expect(first.runs).toHaveLength(50);
     expect(first.total).toBe(720);
     expect(first.nextCursor).toBeTruthy();
-    expect(first.runs.every((row) => row.jobName === 'Deleted poll snapshot')).toBe(true);
+    expect(first.runs.every((row: { jobName: string }) => row.jobName === 'Deleted poll snapshot')).toBe(true);
     const second = journal.list({ userId: 7, admin: true }, {
       date: '2026-09-15', limit: 50, cursor: first.nextCursor,
     });
-    expect(new Set([...first.runs, ...second.runs].map((row) => row.id)).size).toBe(100);
+    expect(new Set([...first.runs, ...second.runs].map((row: { id: string }) => row.id)).size).toBe(100);
     expect(journal.get({ userId: 7, admin: true }, foreign.id)).toBeNull();
   });
 
@@ -194,7 +272,7 @@ describe('cron run journal', () => {
       const row = journal.claim(input({ claimKey, jobId: claimKey, ownerUserId }));
       journal.close(row.id, { outcome: 'ok', finishedMs: BASE + 1 });
     }
-    expect(journal.list({ userId: 7, admin: true }, { limit: 100 }).runs.map((row) => row.jobId).sort())
+    expect(journal.list({ userId: 7, admin: true }, { limit: 100 }).runs.map((row: { jobId: string }) => row.jobId).sort())
       .toEqual(['instance', 'mine']);
     expect(journal.removeUser(7)).toBeGreaterThan(0);
     expect(raw.prepare('SELECT job_id FROM p_cronjob_runs ORDER BY job_id').all())
