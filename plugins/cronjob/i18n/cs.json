@@ -202,7 +202,12 @@
       "hoursTimeZone": "Časy jsou v časovém pásmu plánovače.",
       "cancel": "Zrušit",
       "pauseLabel": "Pozastavit",
-      "pauseLabelOn": "Znovu zapnout"
+      "pauseLabelOn": "Znovu zapnout",
+      "calPrevMonth": "Předchozí měsíc",
+      "calNextMonth": "Další měsíc",
+      "calToday": "Dnes",
+      "calViewTitle": "Zobrazení",
+      "calDatePicker": "Datum"
     }
   }
 }

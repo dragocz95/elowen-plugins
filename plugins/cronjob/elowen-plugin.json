@@ -315,7 +315,12 @@
       "hoursTimeZone": "Times are in the scheduler timezone.",
       "cancel": "Cancel",
       "pauseLabel": "Pause",
-      "pauseLabelOn": "Re-enable"
+      "pauseLabelOn": "Re-enable",
+      "calPrevMonth": "Previous month",
+      "calNextMonth": "Next month",
+      "calToday": "Today",
+      "calViewTitle": "View",
+      "calDatePicker": "Date"
     }
   }
 }
