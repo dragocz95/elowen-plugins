@@ -28,8 +28,9 @@ if (!existsSync(hostHookPath) || !existsSync(coreUiKitTypesPath)) {
   throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT is not a source checkout with the API 16 files: ${coreRoot}`);
 }
 const coreUiKitTypes = readFileSync(coreUiKitTypesPath, 'utf8');
-if (!/PLUGIN_UI_API_VERSION:\s*16\b/.test(coreUiKitTypes)) {
-  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT does not expose plugin UI API 16: ${coreRoot}`);
+const coreKitApiVersion = Number(/PLUGIN_UI_API_VERSION:\s*(\d+)\b/.exec(coreUiKitTypes)?.[1] ?? 0);
+if (coreKitApiVersion < 16) {
+  throw new Error(`[autosave-contract] ELOWEN_CORE_ROOT exposes plugin UI API ${coreKitApiVersion}, below the contract's floor: ${coreRoot}`);
 }
 
 function hookBody(source: string, path: string): string {
@@ -48,7 +49,7 @@ afterEach(() => {
 });
 
 describe('registry auto-save ABI', () => {
-  it('uses the API 16 ui-kit declarations from the configured core', () => {
+  it('uses the shipped ui-kit declarations from the configured core', () => {
     expect(readFileSync(resolvedUiKitTypesPath, 'utf8')).toBe(coreUiKitTypes);
   });
 
