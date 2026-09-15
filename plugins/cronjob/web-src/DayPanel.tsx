@@ -39,15 +39,17 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
   const { locale } = hooks.useTranslation();
-  const waiting: WaitingRow[] = [
-    ...day.cards
-      .filter((card) => card.state === 'waiting' || card.state === 'paused')
-      .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime, source: card }))
-      .filter((row) => row.job),
-    ...intervals
-      .filter((row) => row.nextLocalTime && jobs.has(row.jobId))
-      .map((row) => ({ key: `interval-${row.jobId}`, job: jobs.get(row.jobId)!, time: row.nextLocalTime!, source: row })),
-  ].sort((a, b) => a.time.localeCompare(b.time));
+  const waiting: WaitingRow[] = day.cards
+    .filter((card) => card.state === 'waiting' || card.state === 'paused')
+    .map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId)!, time: card.localTime, source: card }))
+    .filter((row) => row.job)
+    .sort((a, b) => a.time.localeCompare(b.time));
+  /** An interval job is not an occurrence OF this day: one of them fires hundreds of times, on every day of
+   *  the week alike. It is listed once, as a compact footer, so the day's own timeline stays a timeline —
+   *  it used to be a full register table under the calendar, repeating what this panel already said. The
+   *  next fire is only meaningful for today, so the time is shown only there. */
+  const ongoing = intervals.filter((row) => jobs.has(row.jobId));
+  const isToday = day.localDate === todayLocalDate;
   const selectedJob = selectedJobId ? jobs.get(selectedJobId) : undefined;
   const plannedCount = day.dayTotal + intervals.filter((row) => row.enabled).length;
   const countCopy = plannedCount === 1
@@ -110,6 +112,30 @@ export function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, 
         )}
         {hasMore ? <C.Button variant="ghost" className="mt-2 w-full" onClick={onLoadMore}>{s.loadOlder || 'Load older'}</C.Button> : null}
       </div>
+      {ongoing.length > 0 ? (
+        <section className="flex min-w-0 flex-col gap-2 border-t border-border/60 pt-3" data-testid="cron-intervals-strip">
+          <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">{s.intervalsTitle || 'Recurring jobs'}</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {ongoing.map((row) => {
+              const job = jobs.get(row.jobId)!;
+              return (
+                <button
+                  key={row.jobId}
+                  type="button"
+                  onClick={() => { onSelectJob(row.jobId); onOpenJob(row.jobId); }}
+                  className={`flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? 'text-foreground' : 'text-muted-foreground opacity-70'}`}
+                  aria-label={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}
+                >
+                  <span className="truncate">{job.name}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{row.intervalLabel}</span>
+                  {isToday && row.nextLocalTime ? <span className="font-mono text-[11px] tabular-nums text-muted-foreground">→ {row.nextLocalTime}</span> : null}
+                  {row.enabled ? null : <span className="text-[11px]">{s.paused}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
       {selectedJob ? (
         <section className="flex min-w-0 flex-col gap-3 border-t border-border/60 pt-4" data-testid="cron-selected-job">
           <div className="flex items-center gap-2">

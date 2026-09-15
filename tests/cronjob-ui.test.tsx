@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AutomationPage } from '../plugins/cronjob/web-src/AutomationPage';
 import { DayPanel } from '../plugins/cronjob/web-src/DayPanel';
-import { IntervalsTable } from '../plugins/cronjob/web-src/IntervalsTable';
 import {
   apiErrorCode, apiErrorConflict, apiErrorCurrent, localDateLabel, runtime,
   type CronJob, type CronRunRow, type CronWeekDay, type CronWeekResponse,
@@ -159,36 +158,32 @@ describe('automation week calendar', () => {
     expect(screen.queryByText(strings.calMonthLabel)).toBeNull();
   });
 
-  it('renders each job once per day card and keeps a 720-fire poll as one interval row', async () => {
+  it('renders each job once per day card and keeps a 720-fire poll out of the timeline', async () => {
     renderPage();
     await screen.findByTestId('cron-week-grid');
     expect(screen.getAllByTestId('cron-card-job-daily')).toHaveLength(1);
     expect(screen.getAllByTestId('cron-card-job-once')).toHaveLength(1);
-    expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
-    expect(screen.getAllByText('every 2m')).toHaveLength(1);
     const card = screen.getByTestId('cron-card-job-daily');
     fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
     expect(screen.queryByText(strings.deleteTitle)).toBeNull();
-    const intervals = screen.getByTestId('cron-intervals-table');
-    expect(intervals.parentElement).toContainElement(screen.getByTestId('cron-week-grid'));
-    expect(intervals.parentElement).not.toContainElement(screen.getByTestId('cron-day-panel'));
+
+    // The interval job is named ONCE on the whole page, in the day panel's footer strip — never as a
+    // register table repeating the panel, and never as a card in a day column.
+    expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
+    const strip = screen.getByTestId('cron-intervals-strip');
+    expect(within(strip).getByText('every 2m')).toBeInTheDocument();
+    expect(screen.getByTestId('cron-day-panel')).toContainElement(strip);
+    expect(screen.getByTestId('cron-week-grid')).not.toContainElement(strip);
   });
 
-  it('uses the localized system owner label for instance jobs', () => {
-    const instancePoll: CronJob = { ...poll, ownerUserId: null };
-    delete instancePoll.owner;
-    const { wrapper: Wrapper } = createWrapper();
-    render(
-      <Wrapper>
-        <IntervalsTable
-          rows={weekBody().intervals}
-          jobs={new Map([[instancePoll.id, instancePoll]])}
-          onOpen={() => {}}
-          onRun={() => {}}
-        />
-      </Wrapper>,
-    );
-    expect(screen.getAllByText(strings.ownerSystem).length).toBeGreaterThan(0);
+  it('keeps interval jobs listed on a day that is not today, without a next-fire time', async () => {
+    renderPage();
+    const grid = await screen.findByTestId('cron-week-grid');
+    const thursday = within(grid).getAllByRole('columnheader')[3]!;
+    fireEvent.click(within(thursday).getByRole('button'));
+    const strip = await screen.findByTestId('cron-intervals-strip');
+    expect(within(strip).getByText('Inbox poll')).toBeInTheDocument();
+    expect(within(strip).queryByText(/10:22/)).toBeNull();
   });
 
   it('opens the selected day panel with durable run receipts', async () => {

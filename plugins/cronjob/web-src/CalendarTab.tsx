@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Plus } from 'lucide-react';
 import { DayCard } from './DayCard';
 import { DayPanel } from './DayPanel';
-import { IntervalsTable } from './IntervalsTable';
 import { RunResultModal } from './RunResultModal';
 import { MobileDayStrip, WeekGrid } from './WeekGrid';
 import { runsUrl, useRunFeed } from './useRunFeed';
@@ -127,13 +126,12 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
               onShowResult={(job, date) => void showResult(job, date)}
               onAddAt={onAddAt}
             />
-            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </div>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
               todayLocalDate={data.todayLocalDate}
-              intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
+              intervals={filtered.intervals}
               jobs={filtered.jobs}
               runs={feed.rows}
               loading={feed.isLoading}
@@ -172,13 +170,12 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
                 />
               ) : null;
             })}
-            <IntervalsTable rows={filtered.intervals} jobs={filtered.jobs} onOpen={onOpenJob} onRun={onRun} />
           </section>
           <div className="rounded-lg border border-border/80 bg-document p-4">
             <DayPanel
               day={selectedDay}
               todayLocalDate={data.todayLocalDate}
-              intervals={selectedDay.localDate === data.todayLocalDate ? filtered.intervals : []}
+              intervals={filtered.intervals}
               jobs={filtered.jobs}
               runs={feed.rows}
               loading={feed.isLoading}
