@@ -6,7 +6,7 @@ import test from 'node:test';
 import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { register } from '../plugins/todo/index.mjs';
-import { RENDERED_COMPLETED } from '../plugins/todo/lib/render.mjs';
+import { RENDERED_COMPLETED, renderStepReminder } from '../plugins/todo/lib/render.mjs';
 import { COMPLETED_LIST_GRACE_TURNS } from '../plugins/todo/lib/tasks.mjs';
 
 const text = (result) => result.content[0].text;
@@ -25,6 +25,7 @@ function harness(t, options = {}) {
   let sessionId = 'brain-7-a';
   let turnContext;
   let turnContextOptions;
+  let stepContext;
   t.after(() => {
     rawDb.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -43,6 +44,11 @@ function harness(t, options = {}) {
     registerSystemPromptFragment: (fragment) => prompts.push(fragment),
     registerTool: (tool) => tools.push(tool),
     registerTurnContext: (render, options) => { turnContext = render; turnContextOptions = options; },
+    // Omitted entirely by the `noStepContext` harness: that is what a core older than the seam looks like,
+    // and the plugin must degrade instead of throwing inside register().
+    ...(options.noStepContext ? {} : {
+      registerStepContext: (render) => { stepContext = render; },
+    }),
   };
   register(ctx);
   return {
@@ -54,6 +60,8 @@ function harness(t, options = {}) {
     rawDb,
     turnContext: () => turnContext?.() ?? '',
     turnContextOptions: () => turnContextOptions,
+    stepContext: () => stepContext,
+    stepReminder: () => stepContext?.() ?? '',
     setSession: (value) => { sessionId = value; },
     tool: (name) => {
       const found = tools.find((tool) => tool.name === name);
@@ -348,6 +356,170 @@ test('running-work reminders stay quiet until work looks stale, duplicated or st
 
   await update.execute('6', { taskId: '3', status: 'completed' });
   assert.doesNotMatch(h.turnContext(), /running_work_reminder/);
+});
+
+/** The mid-turn reminder: what the per-step seam contributes. See `renderStepReminder`. */
+test('step reminder names the running task, its elapsed time and the counts, in two lines', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+
+  await create.execute('1', { tasks: [
+    { subject: 'Write the seam', description: 'the injection point', activeForm: 'Writing the seam' },
+    { subject: 'Wire it', description: 'the session' },
+    { subject: 'Test it', description: 'the byte prefix' },
+  ] });
+  await update.execute('3', { taskId: '3', status: 'completed' });
+
+  now += 25 * 60_000;
+  const reminder = h.stepReminder();
+  const lines = reminder.split('\n');
+  // Two lines, and the elapsed figure is the whole reason this seam exists: a turn whose prompt was
+  // composed an hour ago never learned that its own in_progress marker is now 25 minutes old.
+  assert.equal(lines.length, 2, reminder);
+  assert.match(lines[0], /^#1 Writing the seam is in_progress for 25m; 2 unfinished, 1 completed\./);
+  assert.match(lines[1], /^Reconcile the list with the work you have actually done before continuing\.$/);
+  // A reminder, never a second copy of the list: every byte of it is re-sent, frozen, on each later
+  // request until a compaction, so the list itself stays where it already arrived — in `<task_context>`.
+  assert.doesNotMatch(reminder, /<task_context>|<description>|<task_instructions>|the injection point/);
+  assert.ok(reminder.length < 300, `reminder must stay short, was ${reminder.length} bytes`);
+  // Well inside core's own clamp, which would otherwise cut the second line off.
+  assert.ok(Buffer.byteLength(reminder) < 1024);
+
+  // Coarse, and frozen with the render: an already-sent reminder is never re-rendered.
+  now += 6 * 60_000;
+  assert.match(h.stepReminder(), /in_progress for 30m/);
+});
+
+test('step reminder distinguishes the same anomalies the per-turn reminder does', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  await create.execute('1', { tasks: [
+    { subject: 'First', description: 'a' },
+    { subject: 'Second', description: 'b' },
+    { subject: 'Third', description: 'c', blockedBy: ['$1'] },
+    { subject: 'Fourth', description: 'd', blockedBy: ['$2'] },
+  ] });
+
+  await update.execute('2', { taskId: '2', status: 'in_progress' });
+  const duplicated = h.stepReminder();
+  assert.equal(duplicated.split('\n').length, 1, duplicated);
+  assert.match(duplicated, /^Several tasks are in_progress at once \(#1, #2\); 4 unfinished, 0 completed\./);
+  assert.match(duplicated, /Keep only the work you are doing marked in_progress/);
+
+  // Both markers cleared, one task still waiting on a pending blocker: the stalled-list branch, with the
+  // blocker count that tells the model whether starting something is even possible.
+  await update.execute('4', { taskId: '1', status: 'completed' });
+  await update.execute('5', { taskId: '2', status: 'pending' });
+  const stalled = h.stepReminder();
+  assert.equal(stalled.split('\n').length, 1, stalled);
+  assert.match(stalled, /^Unfinished tasks exist but none is in_progress \(3 unfinished, 1 completed, 1 blocked\)\./);
+  assert.match(stalled, /Mark the work you are doing in_progress or update stale task state/);
+});
+
+test('step reminder is silent when there is nothing to remind about', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+
+  // No list yet, and a conversation that is not this one: an empty answer contributes no block at all,
+  // which is what keeps the seam quiet in a delegated child that has no task tools.
+  assert.equal(h.stepReminder(), '');
+  h.setSession('brain-7-nobody');
+  assert.equal(h.stepReminder(), '');
+  h.setSession('brain-7-a');
+
+  await create.execute('1', { tasks: [{ subject: 'Done thing', description: 'finished' }] });
+  await update.execute('2', { taskId: '1', status: 'completed' });
+  assert.equal(h.stepReminder(), '', 'every task completed says nothing the turn does not already know');
+
+  // A turn with no conversation to key on is not an error the running turn has to hear about.
+  h.setSession('');
+  assert.equal(h.stepReminder(), '');
+  assert.deepEqual(h.warnings, []);
+});
+
+test('the step provider reads only: no card, no write, no aging of a finished list', async (t) => {
+  const h = harness(t);
+  const create = h.tool('TaskCreate');
+  const update = h.tool('TaskUpdate');
+  await create.execute('1', { tasks: [
+    { subject: 'Run', description: 'running work', activeForm: 'Running' },
+    { subject: 'Wait', description: 'blocked work', blockedBy: ['$1'] },
+  ] });
+  // TaskCreate marks the first runnable task in_progress itself, so the list already has running work.
+  assert.match(h.stepReminder(), /^#1 Running is in_progress/);
+
+  const dump = () => JSON.stringify({
+    tasks: h.rawDb.prepare('SELECT * FROM p_todo_tasks ORDER BY id').all(),
+    edges: h.rawDb.prepare('SELECT * FROM p_todo_task_blockers ORDER BY task_id,blocker_id').all(),
+    lists: h.rawDb.prepare('SELECT * FROM p_todo_task_lists').all(),
+    cards: h.cards.length,
+    warnings: h.warnings.length,
+  });
+  const before = dump();
+  for (let step = 0; step < 3; step += 1) assert.notEqual(h.stepReminder(), '');
+  assert.equal(dump(), before, 'a mid-turn reminder writes, ages and emits nothing');
+
+  // The TURN provider ages a finished list, because it runs at a real boundary. Forty tool calls into a
+  // turn is not a boundary, so the same list must survive the step provider byte for byte.
+  await update.execute('3', { taskId: '1', status: 'completed' });
+  await update.execute('4', { taskId: '2', status: 'completed' });
+  const finished = dump();
+  assert.equal(h.stepReminder(), '');
+  assert.equal(dump(), finished, 'an all-completed list is left exactly as it was');
+  assert.equal(h.rawDb.prepare('SELECT completed_turns FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').completed_turns, 0);
+});
+
+test('the plugin degrades quietly on a core with no step-context seam', (t) => {
+  // The real path, not a hypothetical: an rsynced install never passes the marketplace `requiresCore`
+  // gate, so an older daemon loads this code with no ctx.registerStepContext at all. Losing the reminder is
+  // fine; losing the task tools is not — an unguarded throw would surface only as "plugin skipped".
+  const h = harness(t, { noStepContext: true });
+  assert.equal(h.stepContext(), undefined);
+  assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TaskCreate', 'TaskDelete', 'TaskGet', 'TaskList', 'TaskUpdate']);
+  assert.equal(h.turnContext(), '', 'the once-per-turn context still registers and still finds no list');
+  assert.equal(h.stepReminder(), '');
+  assert.deepEqual(h.warnings, []);
+});
+
+const plainTask = (overrides = {}) => ({
+  id: '1', subject: 'Ship it', description: 'private detail', status: 'pending',
+  metadata: {}, blockedBy: [], blocks: [], ...overrides,
+});
+
+test('renderStepReminder is a pure function over the list it is handed', () => {
+  assert.equal(renderStepReminder([], 1_000), '');
+  assert.equal(renderStepReminder([plainTask({ status: 'completed' })], 1_000), '');
+
+  // An in_progress task with no startedAt still reports itself instead of printing "for undefined".
+  const unstarted = renderStepReminder([plainTask({ status: 'in_progress' })], 1_000);
+  assert.match(unstarted, /^#1 Ship it is in_progress; 1 unfinished, 0 completed\./);
+  assert.doesNotMatch(unstarted, /undefined|NaN|private detail/);
+
+  // A 200-character subject is a value the HTTP route accepts, and this block is re-sent frozen on every
+  // later request of the turn, so the label is bounded.
+  const long = renderStepReminder(
+    [plainTask({ status: 'in_progress', startedAt: 0, subject: 'x'.repeat(200) })],
+    25 * 60_000,
+  );
+  assert.ok(long.split('\n')[0].length < 130, `truncated line expected, got ${long.split('\n')[0].length}`);
+  assert.match(long, /x{69}…/);
+  assert.doesNotMatch(long, /x{70}/);
+
+  // In_progress work that has an OWNER is delegated, so two owners running is not the anomaly a single
+  // agent's duplicated marker is.
+  const owned = renderStepReminder([
+    plainTask({ id: '1', status: 'in_progress', owner: 'Luna', startedAt: 0 }),
+    plainTask({ id: '2', status: 'in_progress', owner: 'Iris', startedAt: 0 }),
+  ], 25 * 60_000);
+  assert.doesNotMatch(owned, /Several tasks are in_progress/);
+  assert.match(owned, /^#1 Ship it is in_progress for 25m; 2 unfinished, 0 completed\./m);
 });
 
 test('TaskDelete deletes an explicit batch atomically and emits one card update', async (t) => {

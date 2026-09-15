@@ -1,7 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fail, hasControlCharacters, keyFor, ok, parseObject } from './common.mjs';
-import { pushTaskCard, renderTaskContext } from './render.mjs';
+import { pushTaskCard, renderStepReminder, renderTaskContext } from './render.mjs';
 
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
 const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal(status)));
@@ -787,6 +787,32 @@ export function registerTaskMode(ctx, db) {
       return '';
     }
   }, { placement: 'after-user' });
+
+  // The per-step seam (core >= 0.28.47): the same list, re-read INSIDE a long turn instead of only while a
+  // fresh prompt is composed. Guarded by a function check rather than by the manifest alone, because a
+  // local install bypasses the version gate: `rsync -a --delete` into the plugin data root never evaluates
+  // `requiresCore`, which the marketplace compares only when installing from the catalog
+  // (src/plugins/marketplace.ts:715). On a daemon whose core predates the seam the unguarded call would
+  // throw inside `register()`, and the loader swallows that as "plugin skipped" — the whole task list would
+  // disappear over one missing reminder. This is a real caller, not a hypothetical.
+  if (typeof ctx.registerStepContext === 'function') {
+    ctx.registerStepContext(() => {
+      try {
+        // Resolved synchronously, before anything can await: this provider runs inside PI's `context`
+        // hook, where the turn's AsyncLocalStorage scope is live on entry and unreliable after a
+        // suspension — a key resolved later renders another conversation's list, or none.
+        const key = keyFor(ctx);
+        // Read-only by contract. No `ageCompletedAtTurnBoundary` (that is a turn boundary, and this is not
+        // one) and no `syncCard`: the panel belongs to mutations, `ctx.emitCard` is turn-bound, and this
+        // sits on the request path of a turn that is working.
+        if (!key) return '';
+        return renderStepReminder(store.list(key));
+      } catch (error) {
+        safeError(ctx, error);
+        return '';
+      }
+    });
+  }
 
   ctx.registerSystemPromptFragment(
     'You have a session task list (tools `TaskCreate`, `TaskGet`, `TaskUpdate`, `TaskDelete`, `TaskList`). Use it for genuinely multi-step work and update tasks incrementally by ID. Mark work in_progress when it starts and completed immediately when it finishes. `TaskCreate` takes the WHOLE plan in one call — pass every task in its `tasks` array, each with at least a `subject` and a `description`, and declare prerequisites in `blockedBy`: use an existing task ID such as `"3"`, or use the sibling token `"$1"` for the first task in this same call. Write `blockedBy: ["$1"]` for a sibling; `blockedBy: ["3", "$1"]` mixes an existing task and a sibling. This is the only sibling dependency syntax. `TaskCreate` returns the new IDs; `TaskUpdate` only changes a task that already exists and never creates one. `TaskGet` and `TaskUpdate` each act on ONE task per call and take its ID in a parameter named `taskId` (not `id`, `ids`, `task` or `updates`). `TaskDelete` takes `taskId` for one task or an explicit non-empty `taskIds` array for an atomic batch; do not send both, and never include duplicates or guess IDs. An invalid, duplicate or unknown batch ID rejects the whole call without deletion. `TaskDelete` permanently removes the selected existing tasks and their dependency edges, then emits one Todo panel update. Never guess a task ID — use the ID `TaskCreate` returned or one `TaskList` reported, and when an update or delete reports that an ID was not found, call `TaskList` and act on the current IDs rather than retrying. The user sees public progress automatically in the Todo panel; descriptions and metadata remain private, and the list must not be repeated in the reply.',
