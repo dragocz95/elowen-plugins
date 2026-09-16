@@ -62,7 +62,7 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
         <button
           type="button"
           onClick={() => onOpen(card.jobId)}
-          className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? 'opacity-55' : ''} ${card.state === 'error' ? 'bg-destructive/[0.07]' : ''}`}
+          className={`flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? 'opacity-55' : ''} ${card.state === 'error' ? 'bg-destructive/[0.07]' : ''}`}
           /* An `aria-label` REPLACES the element's text, so the time, the owner and the state have to be
              part of it — as sibling `sr-only` text they were simply never announced. */
           aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${card.localTime} · ${owner} · ${stateLabel(card.state, s)}`}
@@ -93,7 +93,10 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
       <button
         type="button"
         onClick={() => onOpen(card.jobId)}
-        className={`flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? 'opacity-70' : ''}`}
+        /* `pl-3 pr-10`, never `px-3 pr-10`: both set the row's right padding and the shorthand wins in the
+           generated stylesheet, so the space reserved for the kebab disappeared and the owner avatar sat
+           under it. */
+        className={`flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg py-2.5 pl-3 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? 'opacity-70' : ''}`}
         aria-label={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}
       >
         <span className="flex w-14 shrink-0 items-center gap-1.5">

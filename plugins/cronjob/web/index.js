@@ -340,7 +340,7 @@ function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggl
         {
           type: "button",
           onClick: () => onOpen(card.jobId),
-          className: `flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? "opacity-55" : ""} ${card.state === "error" ? "bg-destructive/[0.07]" : ""}`,
+          className: `flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-7 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${paused ? "opacity-55" : ""} ${card.state === "error" ? "bg-destructive/[0.07]" : ""}`,
           "aria-label": `${(s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name)} \xB7 ${card.localTime} \xB7 ${owner} \xB7 ${stateLabel(card.state, s)}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-1.5 shrink-0 rounded-full ${dotTone(card.state)}` }),
@@ -371,7 +371,7 @@ function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggl
             {
               type: "button",
               onClick: () => onOpen(card.jobId),
-              className: `flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? "opacity-70" : ""}`,
+              className: `flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg py-2.5 pl-3 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? "opacity-70" : ""}`,
               "aria-label": (s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name),
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex w-14 shrink-0 items-center gap-1.5", children: [
