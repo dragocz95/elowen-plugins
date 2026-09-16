@@ -20,7 +20,9 @@
       "clearAllDesc": "Všetky úlohy budú natrvalo odstránené.",
       "empty": "Žiadne úlohy",
       "emptyDesc": "V tejto konverzácii nie sú žiadne úlohy.",
-      "unavailable": "Plugin úloh nie je k dispozícii."
+      "unavailable": "Plugin úloh nie je k dispozícii.",
+      "railTitle": "Úlohy",
+      "more": "ďalšie"
     }
   }
 }

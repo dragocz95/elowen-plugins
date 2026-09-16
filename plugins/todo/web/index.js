@@ -339,9 +339,102 @@ function TodoCard({ card, sessionId, live, open }) {
   ] });
 }
 
+// plugins/todo/web-src/TasksRail.tsx
+var import_react5 = __toESM(require_react(), 1);
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+function parseData(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const tasks = data.tasks;
+  if (!Array.isArray(tasks)) return null;
+  const parsed = tasks.map((task) => {
+    if (!task || typeof task !== "object" || Array.isArray(task)) return null;
+    const value = task;
+    const subject = typeof value.subject === "string" ? value.subject : value.label;
+    if (typeof value.id !== "string" || typeof subject !== "string" || value.status !== "pending" && value.status !== "in_progress" && value.status !== "completed" || !Array.isArray(value.blockedBy) || !value.blockedBy.every((item) => typeof item === "string")) return null;
+    return {
+      id: value.id,
+      subject,
+      description: typeof value.description === "string" ? value.description : "",
+      status: value.status,
+      blockedBy: value.blockedBy,
+      blocks: [],
+      ...typeof value.startedAt === "number" ? { startedAt: value.startedAt } : {},
+      ...typeof value.activeForm === "string" ? { activeForm: value.activeForm } : {}
+    };
+  });
+  return parsed.every((task) => task !== null) ? { tasks: parsed } : null;
+}
+function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
+  const active = task.status === "in_progress";
+  const elapsed = active && task.startedAt != null ? `${Math.max(0, Math.round((now - task.startedAt) / 1e3))}s` : null;
+  const label = active && task.activeForm ? task.activeForm : task.subject;
+  const actions = [
+    { label: strings.pending, onSelect: () => onStatus("pending") },
+    { label: strings.inProgress, onSelect: () => onStatus("in_progress") },
+    { label: strings.completed, onSelect: () => onStatus("completed") }
+  ];
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex min-w-0 items-center gap-1.5", "data-testid": "telemetry-row", children: [
+    active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleDot, { size: 11, "aria-hidden": true, className: "shrink-0 text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: "min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary", title: task.subject, children: label }),
+    elapsed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "shrink-0 font-mono text-tiny text-muted-foreground", children: elapsed }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy })
+  ] });
+}
+function TasksRail({ variant, data, sessionId, open }) {
+  const { components: C, hooks } = runtime();
+  const strings = hooks.usePluginStrings("todo");
+  const parsed = (0, import_react5.useMemo)(() => parseData(data), [data]);
+  const [expanded, setExpanded] = (0, import_react5.useState)(false);
+  const [now, setNow] = (0, import_react5.useState)(() => Date.now());
+  const update = hooks.useUpdateSessionTask();
+  (0, import_react5.useEffect)(() => {
+    if (!parsed?.tasks.some((task) => task.status === "in_progress" && task.startedAt != null)) return;
+    const timer = setInterval(() => setNow(Date.now()), 1e3);
+    return () => clearInterval(timer);
+  }, [parsed]);
+  if (!parsed || parsed.tasks.length === 0) return null;
+  const active = parsed.tasks.filter((task) => task.status !== "completed");
+  if (active.length === 0) return null;
+  const shown = expanded ? active : active.slice(0, 4);
+  const done = parsed.tasks.length - active.length;
+  if (variant === "compact") return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { "data-testid": "telemetry-compact-tasks", className: "flex w-10 flex-col items-center gap-1 rounded-md px-1 py-1.5", title: strings.railTitle ?? strings.title, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ListChecks, { size: 14, "aria-hidden": true, className: "text-primary" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "font-mono text-[9px] leading-none text-muted-foreground", children: [
+      done,
+      "/",
+      parsed.tasks.length
+    ] })
+  ] });
+  const setStatus = (task, status) => {
+    if (!sessionId || status === task.status) return;
+    update.mutate({ sessionId, taskId: task.id, status });
+    setNow(Date.now());
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { "data-testid": "telemetry-tasks", className: "flex flex-col gap-1", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex w-full min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ListChecks, { size: 11, "aria-hidden": true }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate", children: strings.railTitle ?? strings.title }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "ml-auto shrink-0 rounded bg-muted px-1 py-0 text-tiny tabular-nums", children: [
+        done,
+        "/",
+        parsed.tasks.length
+      ] })
+    ] }),
+    variant === "expanded" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Progress, { className: "h-1", value: done / parsed.tasks.length * 100, "aria-label": strings.railTitle ?? strings.title }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-0.5", children: shown.map((task) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RailTaskRow, { task, now, onStatus: (status) => setStatus(task, status), open: () => open("tasks"), strings, busy: update.isPending, ActionMenu: C.ActionMenu }, task.id)) }),
+    active.length > shown.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", onClick: () => setExpanded((value) => !value), className: "self-start px-1 text-tiny text-muted-foreground hover:text-foreground", children: [
+      "+",
+      active.length - shown.length,
+      " ",
+      strings.more
+    ] }) : null
+  ] });
+}
+
 // plugins/todo/web-src/index.tsx
 registerTodoUi({
   requiresApiVersion: 17,
   chatPickers: { tasks: TasksPicker },
-  chatCards: { todos: TodoCard }
+  chatCards: { todos: TodoCard },
+  chatRailSections: { todo: TasksRail }
 });

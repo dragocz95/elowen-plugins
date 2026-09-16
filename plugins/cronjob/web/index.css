@@ -309,6 +309,9 @@
   .bg-emerald-500 {
     background-color: var(--color-emerald-500, oklch(69.6% 0.17 162.48));
   }
+  .bg-muted {
+    background-color: var(--color-muted, #0d0d0d);
+  }
   .bg-muted-foreground\/40 {
     background-color: color-mix(in srgb, #9d948e 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -345,6 +348,12 @@
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
   }
+  .px-1 {
+    padding-inline: var(--spacing, 0.25rem);
+  }
+  .px-1\.5 {
+    padding-inline: calc(var(--spacing, 0.25rem) * 1.5);
+  }
   .px-2 {
     padding-inline: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -356,6 +365,9 @@
   }
   .px-4 {
     padding-inline: calc(var(--spacing, 0.25rem) * 4);
+  }
+  .py-0\.5 {
+    padding-block: calc(var(--spacing, 0.25rem) * 0.5);
   }
   .py-1 {
     padding-block: var(--spacing, 0.25rem);
@@ -423,6 +435,9 @@
   }
   .text-\[11px\] {
     font-size: 11px;
+  }
+  .text-tiny {
+    font-size: var(--text-tiny, 0.5625rem);
   }
   .font-medium {
     --tw-font-weight: var(--font-weight-medium, 500);
@@ -538,8 +553,14 @@
     .hover\:text-accent-foreground:hover {
       color: var(--color-accent-foreground, var(--color-foreground));
     }
+    .hover\:text-foreground:hover {
+      color: var(--color-foreground, #f7f3f0);
+    }
     .hover\:text-muted-foreground:hover {
       color: var(--color-muted-foreground, #9d948e);
+    }
+    .hover\:text-primary:hover {
+      color: var(--color-primary, #ff5236);
     }
     .hover\:opacity-80:hover {
       opacity: 80%;

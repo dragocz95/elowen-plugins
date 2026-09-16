@@ -156,6 +156,7 @@
     "css": "web/index.css",
     "requiresApiVersion": 17,
     "dashboardMetrics": true,
+    "historyBranches": true,
     "layout": "workbench",
     "settings": [
       {
@@ -402,7 +403,9 @@
       "presetReminder": "Reminder",
       "presetReminderName": "reminder",
       "presetReminderPrompt": "Remind me about the task below and tell me what its current state is.",
-      "runLoadError": "The run could not be loaded"
+      "runLoadError": "The run could not be loaded",
+      "historyBranch": "Scheduled jobs",
+      "paused": "Paused"
     }
   }
 }

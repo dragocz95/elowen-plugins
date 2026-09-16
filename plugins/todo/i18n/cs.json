@@ -20,7 +20,9 @@
       "clearAllDesc": "Všechny úkoly budou trvale odstraněny.",
       "empty": "Žádné úkoly",
       "emptyDesc": "V této konverzaci nejsou žádné úkoly.",
-      "unavailable": "Plugin úkolů není k dispozici."
+      "unavailable": "Plugin úkolů není k dispozici.",
+      "railTitle": "Úkoly",
+      "more": "další"
     }
   }
 }

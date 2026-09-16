@@ -19,6 +19,7 @@
     "requiresApiVersion": 17,
     "chatPickers": true,
     "chatCards": true,
+    "chatRailSections": true,
     "strings": {
       "title": "Tasks",
       "filter": "Filter tasks",
@@ -38,7 +39,9 @@
       "clearAllDesc": "All tasks will be permanently removed.",
       "empty": "No tasks",
       "emptyDesc": "No tasks in this conversation.",
-      "unavailable": "The todo plugin is unavailable."
+      "unavailable": "The todo plugin is unavailable.",
+      "railTitle": "Tasks",
+      "more": "more"
     }
   },
   "icons": {

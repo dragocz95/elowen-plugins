@@ -37,7 +37,7 @@ interface Mutation<T> { mutate(vars: T, cb?: { onSuccess?: (value: any) => void;
 interface Components {
   Modal: ComponentType<any>; ModalBody: ComponentType<any>; ModalFooter: ComponentType<any>; ConfirmDialog: ComponentType<any>;
   Input: ComponentType<any>; Button: ComponentType<any>; Badge: ComponentType<any>; Checkbox: ComponentType<any>;
-  ActionMenu: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;
+  ActionMenu: ComponentType<any>; Progress: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;
 }
 interface Hooks {
   useTranslation(): { t: Record<string, any> };
@@ -50,10 +50,12 @@ interface Hooks {
 }
 export interface TodoRuntime { components: Components; hooks: Hooks; utils: { formatDuration(value: number): string; apiErrorMessage(error: unknown): string } }
 interface HostWindow { ElowenUiRuntime?: { components: Components; hooks: Hooks; utils: TodoRuntime['utils'] }; __elowenRegisterPluginUi?: (plugin: string, registration: TodoRegistration) => void }
+export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
 export interface TodoRegistration {
   requiresApiVersion: number;
   chatPickers?: Record<string, ComponentType<PluginChatPickerProps>>;
   chatCards?: Record<string, ComponentType<PluginChatCardProps>>;
+  chatRailSections?: Record<string, ComponentType<PluginChatRailSectionProps>>;
 }
 export function runtime(): TodoRuntime {
   const value = (window as HostWindow).ElowenUiRuntime;

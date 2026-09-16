@@ -1,0 +1,114 @@
+/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
+@layer properties;
+@layer theme, base, components, utilities;
+@layer utilities {
+  .flex {
+    display: flex;
+  }
+  .w-10 {
+    width: calc(var(--spacing, 0.25rem) * 10);
+  }
+  .min-w-0 {
+    min-width: 0px;
+  }
+  .transform {
+    transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+  }
+  .flex-col {
+    flex-direction: column;
+  }
+  .items-center {
+    align-items: center;
+  }
+  .gap-1 {
+    gap: var(--spacing, 0.25rem);
+  }
+  .gap-1\.5 {
+    gap: calc(var(--spacing, 0.25rem) * 1.5);
+  }
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rounded-md {
+    border-radius: var(--radius-md, 0.625rem);
+  }
+  .px-1 {
+    padding-inline: var(--spacing, 0.25rem);
+  }
+  .py-1\.5 {
+    padding-block: calc(var(--spacing, 0.25rem) * 1.5);
+  }
+  .font-mono {
+    font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
+  }
+  .text-xs {
+    font-size: var(--text-xs, 0.75rem);
+    line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
+  }
+  .text-\[9px\] {
+    font-size: 9px;
+  }
+  .leading-none {
+    --tw-leading: 1;
+    line-height: 1;
+  }
+  .tracking-wide {
+    --tw-tracking: var(--tracking-wide, 0.025em);
+    letter-spacing: var(--tracking-wide, 0.025em);
+  }
+  .text-muted-foreground {
+    color: var(--color-muted-foreground, #9d948e);
+  }
+  .text-subtle-foreground {
+    color: var(--color-subtle-foreground, #827974);
+  }
+  .text-success {
+    color: var(--color-success, #32c986);
+  }
+  .uppercase {
+    text-transform: uppercase;
+  }
+}
+@property --tw-rotate-x {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-rotate-y {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-rotate-z {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-skew-x {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-skew-y {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-leading {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-tracking {
+  syntax: "*";
+  inherits: false;
+}
+@layer properties {
+  @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
+    *, ::before, ::after, ::backdrop {
+      --tw-rotate-x: initial;
+      --tw-rotate-y: initial;
+      --tw-rotate-z: initial;
+      --tw-skew-x: initial;
+      --tw-skew-y: initial;
+      --tw-leading: initial;
+      --tw-tracking: initial;
+    }
+  }
+}

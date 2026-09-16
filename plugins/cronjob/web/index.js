@@ -2139,8 +2139,45 @@ function AutomationPage() {
   ] });
 }
 
-// plugins/cronjob/web-src/index.tsx
+// plugins/cronjob/web-src/ConversationHistoryBranch.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+function parseJobs(items) {
+  const jobs = items.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const value = item;
+    if (typeof value.jobId !== "string" || typeof value.name !== "string" || typeof value.enabled !== "boolean" || typeof value.href !== "string") return null;
+    const run = value.run;
+    if (run === void 0) return { jobId: value.jobId, name: value.name, enabled: value.enabled, href: value.href };
+    if (!run || typeof run !== "object" || typeof run.sessionId !== "string" || typeof run.continuable !== "boolean") return null;
+    return { jobId: value.jobId, name: value.name, enabled: value.enabled, href: value.href, run };
+  });
+  return jobs.every((job) => job !== null) ? jobs : null;
+}
+function ConversationHistoryBranch({ parent, items, expanded, toggle, open }) {
+  const { components: C, hooks } = runtime();
+  const strings = hooks.usePluginStrings("cronjob");
+  const jobs = parseJobs(items);
+  if (!jobs || jobs.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "jobs", "data-parent-session": parent.id, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", className: "flex items-center gap-1.5", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", onClick: toggle, "aria-expanded": expanded, className: "flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { "aria-hidden": true, children: expanded ? "\u2304" : "\u203A" }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: strings.historyBranch }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "font-mono tabular-nums", children: jobs.length })
+    ] }) }) }),
+    expanded ? jobs.map((job) => job.run ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "job", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", onClick: () => open("session:" + encodeURIComponent(job.run?.sessionId ?? "") + ":" + (job.run?.continuable === true ? "1" : "0")), className: "flex min-w-0 items-center gap-1.5 text-left text-xs hover:text-primary", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Clock, { size: 12, "aria-hidden": true }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: job.name }),
+      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "shrink-0 rounded bg-muted px-1.5 py-0.5 text-tiny text-muted-foreground", children: strings.paused })
+    ] }) }) }, job.jobId) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "job", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("a", { href: job.href, className: "flex min-w-0 items-center gap-1.5 text-left text-xs hover:text-primary", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Clock, { size: 12, "aria-hidden": true }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: job.name }),
+      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "shrink-0 rounded bg-muted px-1.5 py-0.5 text-tiny text-muted-foreground", children: strings.paused })
+    ] }) }) }, job.jobId)) : null
+  ] });
+}
+
+// plugins/cronjob/web-src/index.tsx
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function CronNextRunMetric({ locale }) {
   const { hooks } = runtime();
   const strings = hooks.usePluginStrings("cronjob");
@@ -2155,14 +2192,14 @@ function CronNextRunMetric({ locale }) {
     }
     return best;
   }, [jobs.data]);
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("a", { href: "/p/cronjob/settings/jobs", className: "min-w-0 rounded-lg transition-opacity hover:opacity-80", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl", children: next ? new Date(next.at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "\u2014" }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "mt-0.5 text-[11px] text-muted-foreground", children: strings.nextRun }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "mt-0.5 truncate text-[11px] text-muted-foreground", children: next?.name ?? strings.nextRunUnknown })
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("a", { href: "/p/cronjob/settings/jobs", className: "min-w-0 rounded-lg transition-opacity hover:opacity-80", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl", children: next ? new Date(next.at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "\u2014" }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 text-[11px] text-muted-foreground", children: strings.nextRun }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 truncate text-[11px] text-muted-foreground", children: next?.name ?? strings.nextRunUnknown })
   ] });
 }
 function CronJobApp({ surface }) {
-  return surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AutomationPage, {}) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AutomationDeck, {});
+  return surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(AutomationPage, {}) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(AutomationDeck, {});
 }
 function AutomationDeck() {
   const { components: C, hooks } = runtime();
@@ -2181,13 +2218,13 @@ function AutomationDeck() {
   });
   const jobs = board.data?.jobs ?? [];
   const openJob = jobs.find((job) => job.id === openJobId);
-  const createMenu = /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+  const createMenu = /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
     C.ActionMenu,
     {
       variant: "kebab",
       label: s.newTask,
-      trigger: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "inline-flex items-center gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Plus, { size: 14, "aria-hidden": true }),
+      trigger: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { className: "inline-flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Plus, { size: 14, "aria-hidden": true }),
         s.newTask
       ] }),
       triggerClassName: "inline-flex min-h-[44px] items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground pointer-coarse:min-h-[var(--touch-target)]",
@@ -2197,8 +2234,8 @@ function AutomationDeck() {
       ]
     }
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.PluginSection, { title: s.title, description: s.sectionHint, action: createMenu, children: board.isError ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => board.refetch() }) : !board.data ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : jobs.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.calEmptyTitle, description: s.calEmptyHint, icon: CalendarClock }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EntityList, { children: jobs.map((job) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EntityRow, { children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.PluginSection, { title: s.title, description: s.sectionHint, action: createMenu, children: board.isError ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => board.refetch() }) : !board.data ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "list" }) : jobs.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.EmptyState, { title: s.calEmptyTitle, description: s.calEmptyHint, icon: CalendarClock }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.EntityList, { children: jobs.map((job) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.EntityRow, { children: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
       "button",
       {
         type: "button",
@@ -2206,15 +2243,15 @@ function AutomationDeck() {
         className: "flex min-h-[44px] w-full items-center justify-between gap-3 text-left",
         onClick: () => setOpenJobId(job.id),
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "min-w-0", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "block truncate text-sm font-medium", children: job.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "block truncate text-xs text-muted-foreground", children: job.schedule })
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { className: "min-w-0", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "block truncate text-sm font-medium", children: job.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "block truncate text-xs text-muted-foreground", children: job.schedule })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.Badge, { tone: job.enabled === false ? "muted" : "success", children: job.enabled === false ? s.paused : s.metricActive })
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.Badge, { tone: job.enabled === false ? "muted" : "success", children: job.enabled === false ? s.paused : s.metricActive })
         ]
       }
     ) }, job.id)) }) }),
-    opening ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    opening ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       CreateJobDialog,
       {
         lifecycle: opening,
@@ -2228,7 +2265,7 @@ function AutomationDeck() {
         }
       }
     ) : null,
-    openJob ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    openJob ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       JobDrawer,
       {
         job: openJob,
@@ -2251,5 +2288,6 @@ registerCronUi({
   requiresApiVersion: 17,
   settings: { jobs: CronJobApp },
   ownsPageFrame: ["jobs"],
-  dashboardMetrics: { "next-run": CronNextRunMetric }
+  dashboardMetrics: { "next-run": CronNextRunMetric },
+  historyBranches: { cronjob: ConversationHistoryBranch }
 });

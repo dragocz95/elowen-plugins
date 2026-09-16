@@ -284,7 +284,9 @@
       "presetReminder": "Připomínka",
       "presetReminderName": "pripominka",
       "presetReminderPrompt": "Připomeňte mi níže uvedený úkol a uveďte, v jakém je stavu.",
-      "runLoadError": "Běh se nepodařilo načíst"
+      "runLoadError": "Běh se nepodařilo načíst",
+      "historyBranch": "Naplánované úlohy",
+      "paused": "Pozastaveno"
     }
   }
 }

@@ -45,6 +45,16 @@
     "LspDocumentSymbol",
     "LspWorkspaceSymbol"
   ],
+  "web": {
+    "entry": "web/index.js",
+    "requiresApiVersion": 17,
+    "chatRailSections": true,
+    "strings": {
+      "railTitle": "LSP",
+      "active": "Active",
+      "inactive": "Inactive"
+    }
+  },
   "configSchema": [
     {
       "key": "diagnosticsEnabled",

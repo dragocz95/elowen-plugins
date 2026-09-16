@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import type { DashboardMetricProps } from 'elowen-plugin-ui-kit';
+import type { DashboardMetricProps } from './runtime';
 import { CalendarClock, Plus, Repeat } from 'lucide-react';
 import { AutomationPage } from './AutomationPage';
 import { CreateJobDialog } from './CreateJobDialog';
 import { JobDrawer } from './JobDrawer';
+import { ConversationHistoryBranch } from './ConversationHistoryBranch';
 import { weekUrl } from './CalendarTab';
 import { runtime, registerCronUi, type CronWeekResponse } from './runtime';
 
@@ -120,4 +121,5 @@ registerCronUi({
   settings: { jobs: CronJobApp },
   ownsPageFrame: ['jobs'],
   dashboardMetrics: { 'next-run': CronNextRunMetric },
+  historyBranches: { cronjob: ConversationHistoryBranch },
 });

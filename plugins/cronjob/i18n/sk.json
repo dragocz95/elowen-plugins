@@ -284,7 +284,9 @@
       "presetReminder": "Pripomienka",
       "presetReminderName": "pripomienka",
       "presetReminderPrompt": "Pripomeňte mi nižšie uvedenú úlohu a uveďte, v akom je stave.",
-      "runLoadError": "Beh sa nepodarilo načítať"
+      "runLoadError": "Beh sa nepodarilo načítať",
+      "historyBranch": "Naplánované úlohy",
+      "paused": "Pozastavené"
     }
   }
 }

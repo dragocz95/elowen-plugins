@@ -7,6 +7,8 @@
  */
 import type { ComponentType, ReactNode } from 'react';
 import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+export interface DashboardMetricProps { now: number; locale: string; monthCostUsd: number | null; monthTokens: number }
+export interface PluginHistoryBranchProps { parent: { id: string; title: string; model: string; updated_at: string; running: boolean; kind: string; tokens?: number }; items: readonly unknown[]; expanded: boolean; toggle: () => void; open: (target: string) => void }
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
 
@@ -380,7 +382,8 @@ interface CronRuntime {
 }
 
 type CronRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'> & {
-  dashboardMetrics?: PluginUiRegistration['dashboardMetrics'];
+  dashboardMetrics?: Record<string, ComponentType<DashboardMetricProps>>;
+  historyBranches?: Record<string, ComponentType<PluginHistoryBranchProps>>;
 };
 
 /** The host runtime, narrowed. The settings deck loads the bundle only after installing the runtime,
