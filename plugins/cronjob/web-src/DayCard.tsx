@@ -72,7 +72,10 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
           <span className="truncate text-xs text-foreground">{job.name}</span>
           {card.remaining > 1 ? <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">+{card.remaining - 1}</span> : null}
         </button>
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100">
+        {/* Centred with `inset-y-0` and flex, NEVER with a transform: a transformed box becomes a
+            stacking context, and the menu it holds — however high its own z-index — is then trapped
+            under the rows that come after this one in the document. */}
+        <div className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100">
           <C.ActionMenu variant="kebab" label={s.actions || 'Actions'} items={items} />
         </div>
       </div>
@@ -80,14 +83,17 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
   }
 
   return (
+    // The paused wash goes on the ROW, never on this wrapper: an element below full opacity becomes a
+    // stacking context, and the actions menu inside it was then painted under the following cards and
+    // faded along with them — the three dots were unreadable and the panel see-through.
     <div
-      className={`relative min-w-0 rounded-lg border border-border/80 bg-card ${paused ? 'opacity-70' : ''}`}
+      className="relative min-w-0 rounded-lg border border-border/80 bg-card"
       data-testid={`cron-card-${card.jobId}`}
     >
       <button
         type="button"
         onClick={() => onOpen(card.jobId)}
-        className="flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
+        className={`flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? 'opacity-70' : ''}`}
         aria-label={(s.openJob || 'Open “{name}”').replace('{name}', job.name)}
       >
         <span className="flex w-14 shrink-0 items-center gap-1.5">
@@ -105,7 +111,7 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
         </span>
         <span className="sr-only">{stateLabel(card.state, s)}</span>
       </button>
-      <div className="absolute right-1 top-1/2 -translate-y-1/2">
+      <div className="absolute inset-y-0 right-1 flex items-center">
         <C.ActionMenu variant="kebab" label={s.actions || 'Actions'} items={items} />
       </div>
     </div>

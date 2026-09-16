@@ -353,49 +353,54 @@ function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggl
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-    "div",
-    {
-      className: `relative min-w-0 rounded-lg border border-border/80 bg-card ${paused ? "opacity-70" : ""}`,
-      "data-testid": `cron-card-${card.jobId}`,
-      children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-          "button",
-          {
-            type: "button",
-            onClick: () => onOpen(card.jobId),
-            className: "flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
-            "aria-label": (s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name),
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex w-14 shrink-0 items-center gap-1.5", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 shrink-0 rounded-full ${dotTone(card.state)}` }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-xs font-medium tabular-nums text-foreground", children: card.localTime })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm font-medium text-foreground", children: job.name }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: owner })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground", children: [
-                card.remaining > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
-                  "+",
-                  card.remaining - 1
-                ] }) : null,
-                hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
-                  "+",
-                  hidden
-                ] }) : null,
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: owner, src: job.owner?.avatar || void 0, size: 20 })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: stateLabel(card.state, s) })
-            ]
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute right-1 top-1/2 -translate-y-1/2", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
-      ]
-    }
+  return (
+    // The paused wash goes on the ROW, never on this wrapper: an element below full opacity becomes a
+    // stacking context, and the actions menu inside it was then painted under the following cards and
+    // faded along with them — the three dots were unreadable and the panel see-through.
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "div",
+      {
+        className: "relative min-w-0 rounded-lg border border-border/80 bg-card",
+        "data-testid": `cron-card-${card.jobId}`,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "button",
+            {
+              type: "button",
+              onClick: () => onOpen(card.jobId),
+              className: `flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-10 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${paused ? "opacity-70" : ""}`,
+              "aria-label": (s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex w-14 shrink-0 items-center gap-1.5", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `size-2 shrink-0 rounded-full ${dotTone(card.state)}` }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-xs font-medium tabular-nums text-foreground", children: card.localTime })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-sm font-medium text-foreground", children: job.name }),
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: owner })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground", children: [
+                  card.remaining > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
+                    "+",
+                    card.remaining - 1
+                  ] }) : null,
+                  hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "tabular-nums", children: [
+                    "+",
+                    hidden
+                  ] }) : null,
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Avatar, { name: owner, src: job.owner?.avatar || void 0, size: 20 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sr-only", children: stateLabel(card.state, s) })
+              ]
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-y-0 right-1 flex items-center", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", label: s.actions || "Actions", items }) })
+        ]
+      }
+    )
   );
 }
 

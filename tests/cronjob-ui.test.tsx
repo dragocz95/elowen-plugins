@@ -324,6 +324,27 @@ describe('automation week calendar', () => {
     expect(asked).toEqual([{ date: OTHER, jobId: recurring.id }]);
   });
 
+  it('fades a paused row without trapping its menu in a stacking context', async () => {
+    setViewport(true);
+    use(http.get('/api/plugins/cronjob/api/week', () => {
+      const body = weekBody();
+      return HttpResponse.json({
+        ...body,
+        jobs: body.jobs.map((job) => (job.id === recurring.id ? { ...job, enabled: false } : job)),
+        days: body.days.map((entry) => entry.localDate === TODAY
+          ? { ...entry, cards: entry.cards.map((card) => (card.jobId === recurring.id ? { ...card, state: 'paused' as const, enabled: false } : card)) }
+          : entry),
+      });
+    }));
+    renderPage();
+    const card = await screen.findByTestId('cron-card-job-daily');
+    // The wash belongs to the row. On the CARD it makes an element below full opacity, which is a
+    // stacking context: the open menu was then painted under the following rows and faded with them.
+    expect(card.className).not.toMatch(/opacity-/);
+    expect(within(card).getAllByRole('button')[0]!.className).toMatch(/opacity-/);
+    expect(card.className).not.toMatch(/translate-/);
+  });
+
   it('creates from the calendar: a free cell opens a one-shot already dated to that day', async () => {
     renderPage();
     const grid = await screen.findByTestId('cron-week-grid');

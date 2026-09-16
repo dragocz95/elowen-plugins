@@ -22,6 +22,9 @@
   .relative {
     position: relative;
   }
+  .inset-y-0 {
+    inset-block: 0px;
+  }
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
   }
