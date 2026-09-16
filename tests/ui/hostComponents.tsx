@@ -2,8 +2,9 @@
  *
  *  These are ports of the app's own primitives (web/components/ui/*, web/modules/settings/*), not
  *  look-alikes: the plugin's settings panel is asserted through the DOM contract they produce — the
- *  `role="switch"` toggles, the `role="radio"` scope filter, the `role="dialog"` detail drawer, the
- *  `aria-selected` row and the `.spatial-workspace-hero` / `[data-control-surface]` chrome. Anything
+ *  `role="switch"` toggles, the `role="combobox"` filter pickers, the `role="radio"` form groups, the
+ *  `role="dialog"` detail drawer, the `aria-selected` row and the `.spatial-workspace-hero` /
+ *  `[data-control-surface]` chrome. Anything
  *  weaker here would make those assertions test the stub instead of the plugin.
  *
  *  Only styling was dropped (the app's Tailwind classes carry no behaviour) and two purely visual pieces
@@ -16,8 +17,8 @@ import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffe
 import { createPortal } from 'react-dom';
 import {
   CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cpu, FolderGit2,
-  GitCommitHorizontal, Loader2, Maximize2, Search, Settings2, SlidersHorizontal, Trash2, TriangleAlert,
-  X, XCircle, type LucideIcon,
+  GitCommitHorizontal, Layers, Loader2, Maximize2, Package, Search, Settings2, SlidersHorizontal, Trash2,
+  TriangleAlert, User, X, XCircle, type LucideIcon,
 } from 'lucide-react';
 import { apiErrorMessage, type Task } from './hostClient';
 import { useBrainModels, useConfig, useProjectGit, useProjects,
@@ -129,6 +130,32 @@ export function Segmented({ options, value, onChange, className, 'aria-label': a
 }
 
 // ── surfaces ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The app's single-choice picker, the ONE control every list filter in the app uses. Ported from
+ *  `web/components/ui/SelectMenu.tsx` and deliberately a native `select` behind the same accessible name:
+ *  a plugin asserts on `getByRole('combobox', { name })` and on `option` values, and the real Radix
+ *  listbox answers to both. Every option's glyph is rendered, keyed by value, so a suite can assert that
+ *  no option arrives bare. `disabled` and `invalid` are honoured because the host honours them. */
+export function SelectMenu({ value, onChange, options, label, disabled, invalid }: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string; icon?: ReactNode }[];
+  label: string;
+  disabled?: boolean;
+  invalid?: boolean;
+}) {
+  return (
+    <label>
+      {label}
+      <select aria-label={label} value={value} disabled={disabled} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+      <span aria-hidden>
+        {options.map((option) => <span key={option.value} data-select-option-icon={option.value}>{option.icon}</span>)}
+      </span>
+    </label>
+  );
+}
 
 export function ControlSurfaceDocument({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section data-control-surface className={`control-surface-document ${className}`}>{children}</section>;
@@ -1291,26 +1318,32 @@ export function MarkdownAssetEditor(props: any) {
           </div>
           {/* One filter row, never two: an asset type with ownership scopes already splits the same set
               more finely (mine / instance / bundled), so showing the coarse source filter beside it would
-              offer two controls whose answers overlap — and "Built-in" in both of them. */}
+              offer two controls whose answers overlap — and "Built-in" in both of them. Both axes are ONE
+              picker here as they are in the host: neutral option first, a glyph on every entry, the
+              scope's own glyph supplied by the caller through `ownership.scopes[].icon`. */}
           {ownership ? (
-            <Segmented
+            <SelectMenu
               value={scope}
               onChange={setScope}
-              options={[{ value: 'all', label: t.assetEditor.filterAll }, ...ownership.scopes.map((sc: any) => ({ value: sc.value, label: sc.label }))]}
-              aria-label={ownership.header}
-              nowrap
+              options={[
+                { value: 'all', label: t.assetEditor.filterAll, icon: <Layers size={14} /> },
+                ...ownership.scopes.map((sc: any) => {
+                  const ScopeIcon = sc.icon;
+                  return { value: sc.value, label: sc.label, ...(ScopeIcon ? { icon: <ScopeIcon size={14} /> } : {}) };
+                }),
+              ]}
+              label={ownership.header}
             />
           ) : (
-            <Segmented
+            <SelectMenu
               value={source}
               onChange={(value) => setSource(value as SourceFilter)}
               options={[
-                { value: 'all', label: t.assetEditor.filterAll },
-                { value: 'user', label: t.assetEditor.filterUser },
-                { value: 'builtin', label: t.assetEditor.filterBuiltin },
+                { value: 'all', label: t.assetEditor.filterAll, icon: <Layers size={14} /> },
+                { value: 'user', label: t.assetEditor.filterUser, icon: <User size={14} /> },
+                { value: 'builtin', label: t.assetEditor.filterBuiltin, icon: <Package size={14} /> },
               ]}
-              aria-label={t.assetEditor.filterAll}
-              nowrap
+              label={t.assetEditor.colSource}
             />
           )}
           {/* The host folds its own scope field AND any field the page contributes behind ONE filter

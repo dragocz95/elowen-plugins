@@ -126,6 +126,40 @@ var ArrowRight = createLucideIcon("ArrowRight", [
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/boxes.js
+var Boxes = createLucideIcon("Boxes", [
+  [
+    "path",
+    {
+      d: "M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z",
+      key: "lc1i9w"
+    }
+  ],
+  ["path", { d: "m7 16.5-4.74-2.85", key: "1o9zyk" }],
+  ["path", { d: "m7 16.5 5-3", key: "va8pkn" }],
+  ["path", { d: "M7 16.5v5.17", key: "jnp8gn" }],
+  [
+    "path",
+    {
+      d: "M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z",
+      key: "8zsnat"
+    }
+  ],
+  ["path", { d: "m17 16.5-5-3", key: "8arw3v" }],
+  ["path", { d: "m17 16.5 4.74-2.85", key: "8rfmw" }],
+  ["path", { d: "M17 16.5v5.17", key: "k6z78m" }],
+  [
+    "path",
+    {
+      d: "M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z",
+      key: "1xygjf"
+    }
+  ],
+  ["path", { d: "M12 8 7.26 5.15", key: "1vbdud" }],
+  ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
+  ["path", { d: "M12 13.5V8", key: "1io7kd" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/calendar-clock.js
 var CalendarClock = createLucideIcon("CalendarClock", [
   ["path", { d: "M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5", key: "1osxxc" }],
@@ -163,11 +197,36 @@ var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/circle-check.js
+var CircleCheck = createLucideIcon("CircleCheck", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/circle-dashed.js
+var CircleDashed = createLucideIcon("CircleDashed", [
+  ["path", { d: "M10.1 2.182a10 10 0 0 1 3.8 0", key: "5ilxe3" }],
+  ["path", { d: "M13.9 21.818a10 10 0 0 1-3.8 0", key: "11zvb9" }],
+  ["path", { d: "M17.609 3.721a10 10 0 0 1 2.69 2.7", key: "1iw5b2" }],
+  ["path", { d: "M2.182 13.9a10 10 0 0 1 0-3.8", key: "c0bmvh" }],
+  ["path", { d: "M20.279 17.609a10 10 0 0 1-2.7 2.69", key: "1ruxm7" }],
+  ["path", { d: "M21.818 10.1a10 10 0 0 1 0 3.8", key: "qkgqxc" }],
+  ["path", { d: "M3.721 6.391a10 10 0 0 1 2.7-2.69", key: "1mcia2" }],
+  ["path", { d: "M6.391 20.279a10 10 0 0 1-2.69-2.7", key: "1fvljs" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/circle-pause.js
 var CirclePause = createLucideIcon("CirclePause", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "10", x2: "10", y1: "15", y2: "9", key: "c1nkhi" }],
   ["line", { x1: "14", x2: "14", y1: "15", y2: "9", key: "h65svq" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/circle-x.js
+var CircleX = createLucideIcon("CircleX", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m15 9-6 6", key: "1uzhvr" }],
+  ["path", { d: "m9 9 6 6", key: "z0biqf" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/clock-3.js
@@ -211,6 +270,19 @@ var Hash = createLucideIcon("Hash", [
   ["line", { x1: "4", x2: "20", y1: "15", y2: "15", key: "vyu0kd" }],
   ["line", { x1: "10", x2: "8", y1: "3", y2: "21", key: "1ggp8o" }],
   ["line", { x1: "16", x2: "14", y1: "3", y2: "21", key: "weycgp" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/layers.js
+var Layers = createLucideIcon("Layers", [
+  [
+    "path",
+    {
+      d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+      key: "8b97xw"
+    }
+  ],
+  ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", key: "dd6zsq" }],
+  ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/message-square.js
@@ -268,6 +340,12 @@ var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
   ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/user.js
+var User = createLucideIcon("User", [
+  ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
+  ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/x.js
@@ -1952,37 +2030,53 @@ function AutomationPage() {
     month: "short",
     ...parseDate2(meta.window.startLocalDate).getFullYear() !== parseDate2(shiftDate(meta.window.endLocalDateExclusive, -1)).getFullYear() ? { year: "numeric" } : {}
   }).formatRange(parseDate2(meta.window.startLocalDate), parseDate2(shiftDate(meta.window.endLocalDateExclusive, -1))) : "\u2026";
+  const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? value;
+  const selectFilter = (value, onChange, options, label) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SelectMenu, { value, onChange: (next) => onChange(next), options, label });
+  const ownerOptions = [
+    { value: "all", label: s.filterAll, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Layers, { size: 14 }) },
+    { value: "mine", label: s.filterMine, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(User, { size: 14 }) },
+    { value: "instance", label: s.filterInstance, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Boxes, { size: 14 }) }
+  ];
+  const stateOptions = [
+    { value: "all", label: s.filterAll, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Layers, { size: 14 }) },
+    { value: "active", label: s.metricActive, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CircleCheck, { size: 14 }) },
+    { value: "paused", label: s.paused, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CirclePause, { size: 14 }) }
+  ];
+  const kindOptions = [
+    { value: "all", label: s.filterAll, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Layers, { size: 14 }) },
+    { value: "fixed", label: s.kindFixed || "Fixed time", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Clock, { size: 14 }) },
+    { value: "interval", label: s.kindInterval || "Interval", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Repeat, { size: 14 }) },
+    { value: "oneShot", label: s.badgeOneShot, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CalendarClock, { size: 14 }) }
+  ];
+  const outcomeOptions = [
+    { value: "all", label: s.filterAll, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Layers, { size: 14 }) },
+    { value: "ok", label: s.runOk, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CircleCheck, { size: 14 }) },
+    { value: "error", label: s.runErrorState, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CircleX, { size: 14 }) },
+    { value: "skipped", label: s.runSkipped, icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CircleDashed, { size: 14 }) }
+  ];
+  const rangeOptions = [
+    { value: "7", label: s.range7 || "7 days", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Layers, { size: 14 }) },
+    { value: "today", label: s.rangeToday || "Today", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CalendarDays, { size: 14 }) },
+    { value: "30", label: s.range30 || "30 days", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(CalendarDays, { size: 14 }) }
+  ];
   const calendarFields = [
     ...me.data?.user?.is_admin ? [{
       id: "owner",
       label: s.filterOwner || "Owner",
-      control: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Segmented, { value: owner, onChange: setOwner, options: [
-        { value: "all", label: s.filterAll },
-        { value: "mine", label: s.filterMine },
-        { value: "instance", label: s.filterInstance }
-      ] }),
-      ...owner !== "all" ? { active: true, activeLabel: `${s.filterOwner}: ${owner === "mine" ? s.filterMine : s.filterInstance}`, onReset: () => setOwner("all") } : { active: false }
+      control: selectFilter(owner, setOwner, ownerOptions, s.filterOwner || "Owner"),
+      ...owner !== "all" ? { active: true, activeLabel: `${s.filterOwner}: ${labelOf(ownerOptions, owner)}`, onReset: () => setOwner("all") } : { active: false }
     }] : [],
     {
       id: "state",
       label: s.filterState || "Status",
-      control: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Segmented, { value: state, onChange: setState, options: [
-        { value: "all", label: s.filterAll },
-        { value: "active", label: s.metricActive },
-        { value: "paused", label: s.paused }
-      ] }),
-      ...state !== "all" ? { active: true, activeLabel: `${s.filterState}: ${state === "active" ? s.metricActive : s.paused}`, onReset: () => setState("all") } : { active: false }
+      control: selectFilter(state, setState, stateOptions, s.filterState || "Status"),
+      ...state !== "all" ? { active: true, activeLabel: `${s.filterState}: ${labelOf(stateOptions, state)}`, onReset: () => setState("all") } : { active: false }
     },
     {
       id: "kind",
       label: s.filterKind || "Type",
-      control: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Segmented, { value: kind, onChange: setKind, options: [
-        { value: "all", label: s.filterAll },
-        { value: "fixed", label: s.kindFixed || "Fixed time" },
-        { value: "interval", label: s.kindInterval || "Interval" },
-        { value: "oneShot", label: s.badgeOneShot }
-      ] }),
-      ...kind !== "all" ? { active: true, activeLabel: `${s.filterKind}: ${kind}`, onReset: () => setKind("all") } : { active: false }
+      control: selectFilter(kind, setKind, kindOptions, s.filterKind || "Type"),
+      ...kind !== "all" ? { active: true, activeLabel: `${s.filterKind}: ${labelOf(kindOptions, kind)}`, onReset: () => setKind("all") } : { active: false }
     }
   ];
   const historyFields = [
@@ -1990,23 +2084,14 @@ function AutomationPage() {
     {
       id: "outcome",
       label: s.filterOutcome || "Outcome",
-      control: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Segmented, { value: outcome, onChange: setOutcome, options: [
-        { value: "all", label: s.filterAll },
-        { value: "ok", label: s.runOk },
-        { value: "error", label: s.runErrorState },
-        { value: "skipped", label: s.runSkipped }
-      ] }),
-      ...outcome !== "all" ? { active: true, activeLabel: `${s.filterOutcome}: ${outcome}`, onReset: () => setOutcome("all") } : { active: false }
+      control: selectFilter(outcome, setOutcome, outcomeOptions, s.filterOutcome || "Outcome"),
+      ...outcome !== "all" ? { active: true, activeLabel: `${s.filterOutcome}: ${labelOf(outcomeOptions, outcome)}`, onReset: () => setOutcome("all") } : { active: false }
     },
     {
       id: "range",
       label: s.filterRange || "Range",
-      control: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Segmented, { value: range, onChange: setRange, options: [
-        { value: "today", label: s.rangeToday || "Today" },
-        { value: "7", label: s.range7 || "7 days" },
-        { value: "30", label: s.range30 || "30 days" }
-      ] }),
-      ...range !== "7" ? { active: true, activeLabel: `${s.filterRange}: ${range}`, onReset: () => setRange("7") } : { active: false }
+      control: selectFilter(range, setRange, rangeOptions, s.filterRange || "Range"),
+      ...range !== "7" ? { active: true, activeLabel: `${s.filterRange}: ${labelOf(rangeOptions, range)}`, onReset: () => setRange("7") } : { active: false }
     }
   ];
   const dateNavigator = tab === "calendar" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", "data-testid": "cron-date-navigator", children: [

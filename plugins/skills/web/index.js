@@ -142,6 +142,40 @@ var BookOpen = createLucideIcon("BookOpen", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/boxes.js
+var Boxes = createLucideIcon("Boxes", [
+  [
+    "path",
+    {
+      d: "M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z",
+      key: "lc1i9w"
+    }
+  ],
+  ["path", { d: "m7 16.5-4.74-2.85", key: "1o9zyk" }],
+  ["path", { d: "m7 16.5 5-3", key: "va8pkn" }],
+  ["path", { d: "M7 16.5v5.17", key: "jnp8gn" }],
+  [
+    "path",
+    {
+      d: "M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z",
+      key: "8zsnat"
+    }
+  ],
+  ["path", { d: "m17 16.5-5-3", key: "8arw3v" }],
+  ["path", { d: "m17 16.5 4.74-2.85", key: "8rfmw" }],
+  ["path", { d: "M17 16.5v5.17", key: "k6z78m" }],
+  [
+    "path",
+    {
+      d: "M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z",
+      key: "1xygjf"
+    }
+  ],
+  ["path", { d: "M12 8 7.26 5.15", key: "1vbdud" }],
+  ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
+  ["path", { d: "M12 13.5V8", key: "1io7kd" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
@@ -179,6 +213,17 @@ var Play = createLucideIcon("Play", [
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/puzzle.js
+var Puzzle = createLucideIcon("Puzzle", [
+  [
+    "path",
+    {
+      d: "M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z",
+      key: "w46dr5"
+    }
+  ]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/shield-check.js
@@ -370,7 +415,8 @@ function SkillsSettings({ surface }) {
         onChange: (value) => chooseAccount(Number(value)),
         options: (accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
           value: String(account.id),
-          label: account.name || account.username
+          label: account.name || account.username,
+          icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(User, { size: 14 })
         })),
         label: s.accountLabel
       }
@@ -426,10 +472,12 @@ function SkillsSettings({ surface }) {
         header: s.ownerColumn,
         label: ownerLabel,
         scopes: [
-          { value: "personal", label: s.scopeMine, matches: (skill) => skill.catalogSource === "personal" && skill.owner === selectedAccount },
-          { value: "instance", label: s.scopeInstance, matches: (skill) => skill.catalogSource === "instance" },
-          { value: "bundled", label: s.scopeBundled, matches: (skill) => skill.catalogSource === "bundled" },
-          { value: "plugin", label: s.scopePlugin, matches: (skill) => skill.catalogSource === "plugin" }
+          { value: "personal", label: s.scopeMine, icon: User, matches: (skill) => skill.catalogSource === "personal" && skill.owner === selectedAccount },
+          { value: "instance", label: s.scopeInstance, icon: Boxes, matches: (skill) => skill.catalogSource === "instance" },
+          // `Package` is the bundled catalogue and `Puzzle` the plugin-contributed one: the two were
+          // both reading as a package, which is the collision the register's glyphs exist to avoid.
+          { value: "bundled", label: s.scopeBundled, icon: Package, matches: (skill) => skill.catalogSource === "bundled" },
+          { value: "plugin", label: s.scopePlugin, icon: Puzzle, matches: (skill) => skill.catalogSource === "plugin" }
         ]
       },
       extraFilters: accountFilter ? [accountFilter] : void 0,
@@ -560,7 +608,7 @@ function SkillsSettings({ surface }) {
         metrics: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.statusEffective, value: effectiveCount, icon: ShieldCheck }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: t.assetEditor.filterUser, value: userCount, icon: User }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.scopePlugin, value: pluginCount, icon: Package }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.scopePlugin, value: pluginCount, icon: Puzzle }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.WorkspaceMetric, { label: s.manualOnlyBadge, value: manualCount, icon: Hand })
         ] })
       },

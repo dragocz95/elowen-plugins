@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Clock, Plus, Repeat } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Boxes, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CircleDashed, Clock, Layers, PauseCircle, Plus, Repeat, User, XCircle } from 'lucide-react';
 import { CalendarTab, shiftDate } from './CalendarTab';
 import { CreateJobDialog } from './CreateJobDialog';
 import { HistoryTab } from './HistoryTab';
 import { JobDrawer } from './JobDrawer';
 import { runtime, type CronJob, type CronWeekResponse } from './runtime';
+
+/** One entry of a filter picker: the value behind it, the word the option and its chip show, and the
+ *  glyph the option carries. The same shape the Sites register hands its pickers. */
+type FilterOption = { value: string; label: string; icon: ReactNode };
 
 const parseDate = (label: string): Date => {
   const [year, month, day] = label.split('-').map(Number);
@@ -98,46 +102,73 @@ export function AutomationPage() {
       : {}),
   }).formatRange(parseDate(meta.window.startLocalDate), parseDate(shiftDate(meta.window.endLocalDateExclusive, -1))) : '…';
 
+  // Every filter is one picker with a glyph per option, neutral FIRST, exactly as on the Sites page.
+  // A chip prints the option's LABEL rather than the raw value behind it, so `oneShot` never reads as a
+  // key and the period chip never reads as `7`.
+  const labelOf = (options: FilterOption[], value: string): string =>
+    options.find((option) => option.value === value)?.label ?? value;
+  const selectFilter = <T extends string>(value: T, onChange: (next: T) => void, options: FilterOption[], label: string) => (
+    <C.SelectMenu value={value} onChange={(next: string) => onChange(next as T)} options={options} label={label} />
+  );
+  const ownerOptions: FilterOption[] = [
+    { value: 'all', label: s.filterAll, icon: <Layers size={14} /> },
+    { value: 'mine', label: s.filterMine, icon: <User size={14} /> },
+    { value: 'instance', label: s.filterInstance, icon: <Boxes size={14} /> },
+  ];
+  const stateOptions: FilterOption[] = [
+    { value: 'all', label: s.filterAll, icon: <Layers size={14} /> },
+    { value: 'active', label: s.metricActive, icon: <CheckCircle2 size={14} /> },
+    { value: 'paused', label: s.paused, icon: <PauseCircle size={14} /> },
+  ];
+  const kindOptions: FilterOption[] = [
+    { value: 'all', label: s.filterAll, icon: <Layers size={14} /> },
+    { value: 'fixed', label: s.kindFixed || 'Fixed time', icon: <Clock size={14} /> },
+    { value: 'interval', label: s.kindInterval || 'Interval', icon: <Repeat size={14} /> },
+    { value: 'oneShot', label: s.badgeOneShot, icon: <CalendarClock size={14} /> },
+  ];
+  const outcomeOptions: FilterOption[] = [
+    { value: 'all', label: s.filterAll, icon: <Layers size={14} /> },
+    { value: 'ok', label: s.runOk, icon: <CheckCircle2 size={14} /> },
+    { value: 'error', label: s.runErrorState, icon: <XCircle size={14} /> },
+    { value: 'skipped', label: s.runSkipped, icon: <CircleDashed size={14} /> },
+  ];
+  // The period axis has no "any period" value to add: its neutral is the 7 days the page loads with, so
+  // it comes first and carries `Layers` like every other neutral. The two periods that ARE narrowing get
+  // the page's own `CalendarDays`.
+  const rangeOptions: FilterOption[] = [
+    { value: '7', label: s.range7 || '7 days', icon: <Layers size={14} /> },
+    { value: 'today', label: s.rangeToday || 'Today', icon: <CalendarDays size={14} /> },
+    { value: '30', label: s.range30 || '30 days', icon: <CalendarDays size={14} /> },
+  ];
+
   const calendarFields = [
     ...(me.data?.user?.is_admin ? [{
       id: 'owner', label: s.filterOwner || 'Owner',
-      control: <C.Segmented value={owner} onChange={setOwner} options={[
-        { value: 'all', label: s.filterAll }, { value: 'mine', label: s.filterMine }, { value: 'instance', label: s.filterInstance },
-      ]} />,
-      ...(owner !== 'all' ? { active: true, activeLabel: `${s.filterOwner}: ${owner === 'mine' ? s.filterMine : s.filterInstance}`, onReset: () => setOwner('all') } : { active: false }),
+      control: selectFilter(owner, setOwner, ownerOptions, s.filterOwner || 'Owner'),
+      ...(owner !== 'all' ? { active: true, activeLabel: `${s.filterOwner}: ${labelOf(ownerOptions, owner)}`, onReset: () => setOwner('all') } : { active: false }),
     }] : []),
     {
       id: 'state', label: s.filterState || 'Status',
-      control: <C.Segmented value={state} onChange={setState} options={[
-        { value: 'all', label: s.filterAll }, { value: 'active', label: s.metricActive }, { value: 'paused', label: s.paused },
-      ]} />,
-      ...(state !== 'all' ? { active: true, activeLabel: `${s.filterState}: ${state === 'active' ? s.metricActive : s.paused}`, onReset: () => setState('all') } : { active: false }),
+      control: selectFilter(state, setState, stateOptions, s.filterState || 'Status'),
+      ...(state !== 'all' ? { active: true, activeLabel: `${s.filterState}: ${labelOf(stateOptions, state)}`, onReset: () => setState('all') } : { active: false }),
     },
     {
       id: 'kind', label: s.filterKind || 'Type',
-      control: <C.Segmented value={kind} onChange={setKind} options={[
-        { value: 'all', label: s.filterAll }, { value: 'fixed', label: s.kindFixed || 'Fixed time' },
-        { value: 'interval', label: s.kindInterval || 'Interval' }, { value: 'oneShot', label: s.badgeOneShot },
-      ]} />,
-      ...(kind !== 'all' ? { active: true, activeLabel: `${s.filterKind}: ${kind}`, onReset: () => setKind('all') } : { active: false }),
+      control: selectFilter(kind, setKind, kindOptions, s.filterKind || 'Type'),
+      ...(kind !== 'all' ? { active: true, activeLabel: `${s.filterKind}: ${labelOf(kindOptions, kind)}`, onReset: () => setKind('all') } : { active: false }),
     },
   ];
   const historyFields = [
     ...(me.data?.user?.is_admin ? calendarFields.slice(0, 1) : []),
     {
       id: 'outcome', label: s.filterOutcome || 'Outcome',
-      control: <C.Segmented value={outcome} onChange={setOutcome} options={[
-        { value: 'all', label: s.filterAll }, { value: 'ok', label: s.runOk },
-        { value: 'error', label: s.runErrorState }, { value: 'skipped', label: s.runSkipped },
-      ]} />,
-      ...(outcome !== 'all' ? { active: true, activeLabel: `${s.filterOutcome}: ${outcome}`, onReset: () => setOutcome('all') } : { active: false }),
+      control: selectFilter(outcome, setOutcome, outcomeOptions, s.filterOutcome || 'Outcome'),
+      ...(outcome !== 'all' ? { active: true, activeLabel: `${s.filterOutcome}: ${labelOf(outcomeOptions, outcome)}`, onReset: () => setOutcome('all') } : { active: false }),
     },
     {
       id: 'range', label: s.filterRange || 'Range',
-      control: <C.Segmented value={range} onChange={setRange} options={[
-        { value: 'today', label: s.rangeToday || 'Today' }, { value: '7', label: s.range7 || '7 days' }, { value: '30', label: s.range30 || '30 days' },
-      ]} />,
-      ...(range !== '7' ? { active: true, activeLabel: `${s.filterRange}: ${range}`, onReset: () => setRange('7') } : { active: false }),
+      control: selectFilter(range, setRange, rangeOptions, s.filterRange || 'Range'),
+      ...(range !== '7' ? { active: true, activeLabel: `${s.filterRange}: ${labelOf(rangeOptions, range)}`, onReset: () => setRange('7') } : { active: false }),
     },
   ];
 

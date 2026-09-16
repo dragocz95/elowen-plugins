@@ -133,6 +133,18 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/circle-dashed.js
+var CircleDashed = createLucideIcon("CircleDashed", [
+  ["path", { d: "M10.1 2.182a10 10 0 0 1 3.8 0", key: "5ilxe3" }],
+  ["path", { d: "M13.9 21.818a10 10 0 0 1-3.8 0", key: "11zvb9" }],
+  ["path", { d: "M17.609 3.721a10 10 0 0 1 2.69 2.7", key: "1iw5b2" }],
+  ["path", { d: "M2.182 13.9a10 10 0 0 1 0-3.8", key: "c0bmvh" }],
+  ["path", { d: "M20.279 17.609a10 10 0 0 1-2.7 2.69", key: "1ruxm7" }],
+  ["path", { d: "M21.818 10.1a10 10 0 0 1 0 3.8", key: "qkgqxc" }],
+  ["path", { d: "M3.721 6.391a10 10 0 0 1 2.7-2.69", key: "1mcia2" }],
+  ["path", { d: "M6.391 20.279a10 10 0 0 1-2.69-2.7", key: "1fvljs" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/download.js
 var Download = createLucideIcon("Download", [
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
@@ -150,6 +162,19 @@ var KeyRound = createLucideIcon("KeyRound", [
     }
   ],
   ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor", key: "w0ekpg" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/layers.js
+var Layers = createLucideIcon("Layers", [
+  [
+    "path",
+    {
+      d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+      key: "8b97xw"
+    }
+  ],
+  ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", key: "dd6zsq" }],
+  ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/message-circle.js
@@ -580,23 +605,28 @@ function LoadedWorkspace({ detail }) {
   const fieldHint = (field) => overlay[field.key]?.hint ?? field.hint;
   const fieldOptions = (field) => (field.options ?? []).map((option) => ({ value: option.value, label: overlay[field.key]?.options?.[option.value] ?? option.label }));
   const riskText = (risk) => risk === "high" ? s.riskHigh : risk === "medium" ? s.riskMedium : s.riskLow;
+  const personFilterOptions = [
+    { value: "all", label: s.filterAll, icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Layers, { size: 14 }) },
+    { value: "mapped", label: s.filterMapped, icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserCheck, { size: 14 }) },
+    { value: "unmapped", label: s.filterUnmapped, icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleDashed, { size: 14 }) }
+  ];
   const toolbarFilters = [{
     id: "mapping",
     label: s.peopleFilter,
     control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      C.Segmented,
+      C.SelectMenu,
       {
-        "aria-label": s.peopleFilter,
         value: filter,
         onChange: (value) => setFilter(value),
-        options: [
-          { value: "all", label: s.filterAll },
-          { value: "mapped", label: s.filterMapped },
-          { value: "unmapped", label: s.filterUnmapped }
-        ]
+        options: personFilterOptions,
+        label: s.peopleFilter
       }
     ),
-    ...filter === "all" ? { active: false } : { active: true, activeLabel: `${s.peopleFilter}: ${filter === "mapped" ? s.filterMapped : s.filterUnmapped}`, onReset: () => setFilter("all") }
+    ...filter === "all" ? { active: false } : {
+      active: true,
+      activeLabel: `${s.peopleFilter}: ${personFilterOptions.find((option) => option.value === filter)?.label ?? filter}`,
+      onReset: () => setFilter("all")
+    }
   }];
   const hero = {
     eyebrow: s.workspaceEyebrow,

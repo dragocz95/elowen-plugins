@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, KeyRound, MessageCircle, RefreshCw, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
+import { CircleDashed, Download, KeyRound, Layers, MessageCircle, RefreshCw, Search, Settings2, ShieldCheck, UserCheck, Users } from 'lucide-react';
 import { apiJson, runtime, type ConfigField, type PeopleResponse, type PluginDetail, type RolePolicy, type TeamsAccountDetail, type TeamsIdentity, type TeamsPerson, type User } from './runtime';
 
 type WorkspaceTab = 'people' | 'settings';
@@ -444,24 +444,32 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
   const fieldHint = (field: ConfigField) => overlay[field.key]?.hint ?? field.hint;
   const fieldOptions = (field: ConfigField) => (field.options ?? []).map((option) => ({ value: option.value, label: overlay[field.key]?.options?.[option.value] ?? option.label }));
   const riskText = (risk: 'low' | 'medium' | 'high') => risk === 'high' ? s.riskHigh : risk === 'medium' ? s.riskMedium : s.riskLow;
+  // One picker with its neutral option first and a glyph per entry. `UserCheck` is the metric's own glyph
+  // for a mapped person, so the filter and the figure above it agree; `CircleDashed` is the app's "not
+  // resolved yet" mark, which is what an unmapped directory entry is.
+  const personFilterOptions = [
+    { value: 'all', label: s.filterAll, icon: <Layers size={14} /> },
+    { value: 'mapped', label: s.filterMapped, icon: <UserCheck size={14} /> },
+    { value: 'unmapped', label: s.filterUnmapped, icon: <CircleDashed size={14} /> },
+  ];
   const toolbarFilters = [{
     id: 'mapping',
     label: s.peopleFilter,
     control: (
-      <C.Segmented
-        aria-label={s.peopleFilter}
+      <C.SelectMenu
         value={filter}
         onChange={(value: string) => setFilter(value as PersonFilter)}
-        options={[
-          { value: 'all', label: s.filterAll },
-          { value: 'mapped', label: s.filterMapped },
-          { value: 'unmapped', label: s.filterUnmapped },
-        ]}
+        options={personFilterOptions}
+        label={s.peopleFilter}
       />
     ),
     ...(filter === 'all'
       ? { active: false as const }
-      : { active: true as const, activeLabel: `${s.peopleFilter}: ${filter === 'mapped' ? s.filterMapped : s.filterUnmapped}`, onReset: () => setFilter('all') }),
+      : {
+        active: true as const,
+        activeLabel: `${s.peopleFilter}: ${personFilterOptions.find((option) => option.value === filter)?.label ?? filter}`,
+        onReset: () => setFilter('all'),
+      }),
   }];
 
   const hero = {

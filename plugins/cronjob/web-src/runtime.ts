@@ -362,6 +362,17 @@ interface CronComponents {
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;
   EmptyState: AnyComponent; Segmented: AnyComponent; ChoiceField: AnyComponent;
+  /** The one filter picker of the app's canonical toolbar: a flat option list, its neutral entry first,
+   *  one glyph per option. Typed rather than `AnyComponent` because a filter that forgets its `label`
+   *  loses the accessible name the panel's field shell no longer supplies for it. */
+  SelectMenu: ComponentType<{
+    value: string;
+    onChange(value: string): void;
+    options: { value: string; label: string; icon?: ReactNode }[];
+    label: string;
+    variant?: 'default' | 'line';
+    className?: string;
+  }>;
   EntityList: AnyComponent; EntityRow: AnyComponent;
   DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
   RegisterSearch: AnyComponent; Pager: AnyComponent; ActionMenu: AnyComponent;

@@ -7,11 +7,14 @@ const root = join(__dirname, '..');
 const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Record<string, unknown>;
 
 describe('shared API v4 registry contract', () => {
+  // The version each of these plugins currently ships at, re-pinned whenever one of them is released:
+  // what the case guards is that the manifest and the registry entry carry ONE version and still declare
+  // shared API v4, so a bump that reaches only one of the two files fails here.
   const versions = {
-    cronjob: '0.5.3',
+    cronjob: '0.6.3',
     discord: '0.3.20',
     telegram: '0.2.15',
-    msteams: '0.7.1',
+    msteams: '0.7.2',
     whatsapp: '0.2.18',
   } as const;
 
