@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 
 type AnyComponent = ComponentType<any>;
@@ -10,13 +10,15 @@ type MutationResult<T> = {
   mutate(vars: T, callbacks?: { onSuccess?: () => void; onError?: (error: unknown) => void }): void;
   mutateAsync(vars: T): Promise<unknown>;
   isPending: boolean;
+  isError?: boolean;
+  isSuccess?: boolean;
 };
 
 /** `executionKind` and `guestRoot` come straight from the host's project projection. The editor reads
  *  them for one decision each: whether this project has a second root to offer at all, and which guest
  *  directory to NAME in the interface. The path itself is never derived here — the daemon resolves every
  *  request from the project row, and a client that re-derived the mount rule would drift from it. */
-interface Project { id: number; slug: string; path: string; notes: string; icon?: string; pr_enabled: boolean | null; executionKind?: 'host' | 'managed'; guestRoot?: string }
+export interface Project { id: number; slug: string; path: string; notes: string; icon?: string; pr_enabled?: boolean | null; executionKind?: 'host' | 'managed'; guestRoot?: string }
 export interface FileNode { path: string; type: 'file' | 'dir'; size?: number }
 type Dict = Record<string, Record<string, string>>;
 /** Only what the editor asks of the signed-in account: whether it may reach the system root. */
@@ -28,7 +30,8 @@ interface Me { user: { id: number; username: string; is_admin: boolean } }
  *  to the core originals without restating every core prop type. */
 interface EditorComponents {
   Button: AnyComponent; ContextMenu: AnyComponent; EmptyState: AnyComponent;
-  Field: AnyComponent; Input: AnyComponent; LoadingState: AnyComponent;
+  Field: AnyComponent; Input: AnyComponent; LoadingState: AnyComponent; LoadingLine: AnyComponent; ErrorState: AnyComponent;
+  Badge: AnyComponent; EntityList: AnyComponent; EntityRow: AnyComponent; AutoSaveStatus: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent;
   ModuleHeader: AnyComponent; MotionLayoutItem: AnyComponent; MotionPresence: AnyComponent;
   PatchView: AnyComponent; ProjectFilterPills: AnyComponent; ProjectIcon: AnyComponent;
@@ -49,6 +52,8 @@ interface EditorRuntime {
     useProjects(): QueryResult<Project[]>;
     /** Git reads describe the project checkout and are asked for only under the project root. */
     useProjectFileAtHead(id: number | null, path: string | null, enabled: boolean): QueryResult<{ content: string }>;
+    useProjectGit(id: number | null, enabled?: boolean): QueryResult<ProjectGit>;
+    useProjectEnvironmentState(id: number | null): QueryResult<{ environment: { state: string } }>;
     useProjectCommit(id: number | null, hash: string | null): QueryResult<{ diff: string; files: string[] }>;
     useProjectCommitFileDiff(id: number | null, hash: string | null, path: string | null): QueryResult<{ diff: string }>;
     useProjectChanged(id: number | null): QueryResult<{ changed: string[] }>;
@@ -82,7 +87,18 @@ interface EditorRuntime {
 }
 
 type PluginPage = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[] }>;
-interface Registration { requiresApiVersion: number; pages: Record<string, PluginPage> }
+type ProjectGit = {
+  isRepo: boolean;
+  status: { branch: string; clean: boolean; dirty: number; ahead: number; behind: number } | null;
+  branches: { name: string; current: boolean }[];
+  commits: { hash: string; subject: string; author: string; relative: string }[];
+};
+type ProjectPanel = ComponentType<{ plugin: string; panelId: string; project: Project; surface: 'project' }>;
+type ProjectRowsHook = (input: { projects: Project[] }) => {
+  actions?: Record<number, { id: string; label: string; icon?: string; disabled?: boolean; tone?: 'danger'; onSelect: () => void }[]>;
+  overlay?: ReactNode;
+};
+interface Registration { requiresApiVersion: number; pages: Record<string, PluginPage>; project?: Record<string, ProjectPanel>; projectRows?: ProjectRowsHook }
 interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (name: string, registration: Registration) => void }
 
 export function runtime(): EditorRuntime {

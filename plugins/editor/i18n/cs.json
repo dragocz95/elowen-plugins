@@ -4,6 +4,9 @@
     "nav": {
       "": "Editor"
     },
+    "project": {
+      "git": "Git"
+    },
     "strings": {
       "title": "Editor",
       "project": "Projekt",
@@ -82,7 +85,10 @@
       "statusSelected": "vybráno",
       "statusSpaces": "Mezery",
       "statusUnsaved": "Neuložené změny",
-      "discardChanges": "Zahodit neuložené změny?"
+      "discardChanges": "Zahodit neuložené změny?",
+      "openEditor": "Otevřít editor",
+      "chooseIcon": "Vybrat ikonu",
+      "gitEnvironmentStopped": "Spravované prostředí není spuštěné."
     }
   }
 }

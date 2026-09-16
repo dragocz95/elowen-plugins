@@ -45,6 +45,14 @@
         "route": ""
       }
     ],
+    "project": [
+      {
+        "id": "git",
+        "label": "Git",
+        "icon": "GitBranch"
+      }
+    ],
+    "projectRows": true,
     "strings": {
       "title": "Editor",
       "project": "Project",
@@ -123,7 +131,10 @@
       "statusSelected": "selected",
       "statusSpaces": "Spaces",
       "statusUnsaved": "Unsaved changes",
-      "discardChanges": "Discard unsaved changes?"
+      "discardChanges": "Discard unsaved changes?",
+      "openEditor": "Open editor",
+      "chooseIcon": "Choose icon",
+      "gitEnvironmentStopped": "The managed environment is not running."
     }
   }
 }
