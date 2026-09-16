@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { BarChart3, Database, DollarSign, Gauge, MapPin, Search, Trash2 } from 'lucide-react';
+import { BarChart3, Database, DollarSign, Gauge, Layers, MapPin, Search, Trash2 } from 'lucide-react';
 import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
@@ -15,7 +15,7 @@ const DAY_MS = 86_400_000;
 const {
   Button, ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState,
   DataTable, DataTableCell, DataTableChevronCell, DataTableRow, DateRangeFilter, EmptyState, ErrorState,
-  LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, Segmented, WorkspaceDetailRail,
+  LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, SelectMenu, WorkspaceDetailRail,
   WorkspaceMetric, WorkspaceShell,
 } = runtime().components;
 const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslation, useUsageByDay } = runtime().hooks;
@@ -183,6 +183,16 @@ export function StatsView() {
     costed: s.filterCosted,
     cached: s.filterCached,
   };
+  // Each option carries the glyph the metric above already spends on that concept, so one idea keeps one
+  // icon on the page. The neutral is the register's own `Layers`, exactly as on Sites.
+  const usageIcons: Record<UsageFilter, ReactNode> = {
+    all: <Layers size={14} />,
+    costed: <DollarSign size={14} />,
+    cached: <Database size={14} />,
+  };
+  const usageOptions = (['all', 'costed', 'cached'] as const).map((value) => ({
+    value, label: usageLabels[value], icon: usageIcons[value],
+  }));
   const rangeLabels: Record<string, string> = {
     today: t.common.rangeToday,
     '7d': t.common.rangeLast7,
@@ -206,15 +216,11 @@ export function StatsView() {
         id: 'usage',
         label: s.filterLabel,
         control: (
-          <Segmented
-            aria-label={s.filterLabel}
+          <SelectMenu
             value={filter}
             onChange={(value: string) => changeUsageFilter(value as UsageFilter)}
-            options={[
-              { value: 'all', label: s.filterAll },
-              { value: 'costed', label: s.filterCosted },
-              { value: 'cached', label: s.filterCached },
-            ]}
+            options={usageOptions}
+            label={s.filterLabel}
           />
         ),
       },

@@ -245,6 +245,64 @@ describe('automation week calendar', () => {
     await waitFor(() => expect(historyOffsets.at(-1)).toBe(0));
   });
 
+  /** Every axis is one picker with a glyph on each option and its neutral value first, and its chip
+   *  prints the option's WORD rather than the value behind it — the kind, outcome and period chips used
+   *  to read `oneShot`, `skipped` and `30`. */
+  it('narrows the calendar and the history through one picker per axis', async () => {
+    const { container } = renderPage();
+    await screen.findByTestId('cron-week-grid');
+    // At the defaults nothing narrows, so no chip row appears at all.
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('page-filters-trigger'));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    const owner = within(filters).getByRole('combobox', { name: strings.filterOwner });
+    const state = within(filters).getByRole('combobox', { name: strings.filterState });
+    const kind = within(filters).getByRole('combobox', { name: strings.filterKind });
+    expect(within(owner).getAllByRole('option').map((option) => option.value)).toEqual(['all', 'mine', 'instance']);
+    expect(within(state).getAllByRole('option').map((option) => option.value)).toEqual(['all', 'active', 'paused']);
+    expect(within(kind).getAllByRole('option').map((option) => option.value)).toEqual(['all', 'fixed', 'interval', 'oneShot']);
+    // A glyph on every option of every axis, the neutral included.
+    for (const value of ['all', 'mine', 'instance', 'active', 'paused', 'fixed', 'interval', 'oneShot']) {
+      expect(container.querySelector(`[data-select-option-icon="${value}"] svg`)).not.toBeNull();
+    }
+
+    fireEvent.change(kind, { target: { value: 'oneShot' } });
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterKind}: ${strings.badgeOneShot}`);
+    fireEvent.change(state, { target: { value: 'paused' } });
+    const chips = screen.getByTestId('page-filter-chips');
+    expect(chips).toHaveTextContent(`${strings.filterState}: ${strings.paused}`);
+    expect(chips).not.toHaveTextContent('Type: oneShot');
+
+    // Two narrowing filters, so the row also offers the one reset that clears both.
+    fireEvent.click(within(chips).getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() => expect(screen.queryByTestId('page-filter-chips')).toBeNull());
+    expect(within(screen.getByRole('dialog', { name: 'Filters' })).getByRole('combobox', { name: strings.filterKind })).toHaveValue('all');
+    expect(within(screen.getByRole('dialog', { name: 'Filters' })).getByRole('combobox', { name: strings.filterState })).toHaveValue('all');
+
+    // History brings its own two axes, and the period axis still defaults to the 7 days it queried with.
+    fireEvent.click(screen.getByText(strings.tabHistory));
+    const history = screen.getByRole('dialog', { name: 'Filters' });
+    const outcome = within(history).getByRole('combobox', { name: strings.filterOutcome });
+    const range = within(history).getByRole('combobox', { name: strings.filterRange });
+    expect(range).toHaveValue('7');
+    expect(within(outcome).getAllByRole('option').map((option) => option.value)).toEqual(['all', 'ok', 'error', 'skipped']);
+    expect(within(range).getAllByRole('option').map((option) => option.value)).toEqual(['7', 'today', '30']);
+    for (const value of ['ok', 'error', 'skipped', 'today', '30']) {
+      expect(container.querySelector(`[data-select-option-icon="${value}"] svg`)).not.toBeNull();
+    }
+
+    fireEvent.change(outcome, { target: { value: 'skipped' } });
+    fireEvent.change(range, { target: { value: '30' } });
+    const historyChips = screen.getByTestId('page-filter-chips');
+    expect(historyChips).toHaveTextContent(`${strings.filterOutcome}: ${strings.runSkipped}`);
+    expect(historyChips).toHaveTextContent(`${strings.filterRange}: ${strings.range30}`);
+    // The period chip's own X puts the register back on the default window and leaves the other one on.
+    fireEvent.click(within(historyChips).getByRole('button', { name: new RegExp(`${strings.filterRange}: ${strings.range30}`) }));
+    await waitFor(() => expect(range).toHaveValue('7'));
+    expect(screen.getByTestId('page-filter-chips')).toHaveTextContent(`${strings.filterOutcome}: ${strings.runSkipped}`);
+  });
+
   it('offers one New task menu with both lifecycle choices', async () => {
     renderPage();
     await screen.findByTestId('cron-week-grid');

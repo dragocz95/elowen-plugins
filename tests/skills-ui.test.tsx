@@ -198,13 +198,21 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
       const account = new URL(request.url).searchParams.get('account');
       return HttpResponse.json([pluginRow(account === '9' ? 'patricie-only' : 'filip-only', 'salon')]);
     }));
-    mount('page');
+    const mounted = mount('page');
 
     // Your own account is the neutral state: nothing is filtered, so no chip is owed.
     await screen.findByText('filip-only');
     expect(screen.queryByTestId('page-filter-chips')).toBeNull();
 
-    fireEvent.change(await screen.findByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
+    const accountPicker = await screen.findByRole('combobox', { name: strings.accountLabel });
+    // Every account option carries a glyph, so the axis reads like the scope picker beside it.
+    const accountValues = within(accountPicker).getAllByRole('option').map((option) => option.value);
+    expect(accountValues.length).toBeGreaterThan(1);
+    for (const value of accountValues) {
+      expect(mounted.container.querySelector(`[data-select-option-icon="${value}"] svg`)).not.toBeNull();
+    }
+
+    fireEvent.change(accountPicker, { target: { value: '9' } });
     await screen.findByText('patricie-only');
     const chips = await screen.findByTestId('page-filter-chips');
     expect(within(chips).getByText(`${strings.accountLabel}: Patricie`)).toBeInTheDocument();
@@ -276,16 +284,26 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(screen.getAllByText('Patricie').length).toBeGreaterThan(0);
 
     // Opening MY alpha must select exactly one row, not both.
-    fireEvent.click(screen.getByRole('radio', { name: strings.scopeMine }));
+    // The register's scope filter is ONE picker, neutral first, with the glyph the plugin supplied for
+    // each scope — `User`/`Boxes` for personal/instance, and the pair that used to collide: `Package` for
+    // the bundled catalogue, `Puzzle` for the plugin-contributed one.
+    const scopePicker = screen.getByRole('combobox', { name: strings.ownerColumn });
+    expect(within(scopePicker).getAllByRole('option').map((option) => option.value))
+      .toEqual(['all', 'personal', 'instance', 'bundled', 'plugin']);
+    for (const value of ['all', 'personal', 'instance', 'bundled', 'plugin']) {
+      expect(mounted.container.querySelector(`[data-select-option-icon="${value}"] svg`)).not.toBeNull();
+    }
+
+    fireEvent.change(scopePicker, { target: { value: 'personal' } });
     await waitFor(() => expect(screen.getAllByText('alpha')).toHaveLength(1));
     expect(screen.queryByText('gamma')).toBeNull();
 
     // Back to everything, then open MY alpha: exactly one row may light up, not both namesakes.
-    // ONE "all" radio: an asset type with ownership scopes shows only that filter, because the coarse
+    // ONE "all" option: an asset type with ownership scopes shows only that filter, because the coarse
     // source filter beside it would answer the same question twice (and offer "Built-in" in both).
     // The "all" option of the scope filter is the CORE label (the register owns that option, not the
     // plugin), which is why the plugin ships no string for it.
-    fireEvent.click(screen.getByRole('radio', { name: 'All' }));
+    fireEvent.change(scopePicker, { target: { value: 'all' } });
     await waitFor(() => expect(screen.getAllByText('alpha')).toHaveLength(2));
     fireEvent.click(screen.getAllByText('alpha')[1]!);
     await screen.findByRole('dialog');

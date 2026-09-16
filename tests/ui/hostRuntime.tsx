@@ -37,20 +37,12 @@ export function ensurePluginUiRuntime(): void {
     jsxRuntime: JsxRuntime,
     components: {
       Badge: C.Badge, Button: C.Button, Input: C.Input, Field: C.Field, Toggle: C.Toggle, Segmented: C.Segmented,
-      // `disabled` and `invalid` are honoured because the host honours them: msteams locks its account
-      // picker while the link mutation is in flight, and a stub that ignored the prop would let a suite
-      // drive a control production had already locked.
-      SelectMenu: ({ value, onChange, label, options, disabled, invalid }: { value: string; onChange: (value: string) => void; label: string; options: { value: string; label: string; icon?: React.ReactNode }[]; disabled?: boolean; invalid?: boolean }) => (
-        <label>
-          {label}
-          <select aria-label={label} value={value} disabled={disabled} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value)}>
-            {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <span aria-hidden>
-            {options.map((option) => <span key={option.value} data-select-option-icon={option.value}>{option.icon}</span>)}
-          </span>
-        </label>
-      ),
+      // The picker lives beside the other primitive ports now, so the register stub and a plugin's own
+      // filter render through ONE implementation instead of two that could drift apart. `disabled` and
+      // `invalid` are honoured there, because the host honours them: msteams locks its account picker
+      // while the link mutation is in flight, and a stub that ignored the prop would let a suite drive a
+      // control production had already locked.
+      SelectMenu: C.SelectMenu,
       HelpTip: C.HelpTip, Modal: C.Modal, ModalBody: C.ModalBody, ModalFooter: C.ModalFooter,
       ControlSurfaceDocument: C.ControlSurfaceDocument, ControlSurfaceToolbar: C.ControlSurfaceToolbar,
       ControlSurfaceRegister: C.ControlSurfaceRegister, ControlSurfaceState: C.ControlSurfaceState,

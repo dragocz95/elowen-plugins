@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Hand, Package, Plus, ShieldCheck, User } from 'lucide-react';
+import { Boxes, Hand, Package, Plus, Puzzle, ShieldCheck, User } from 'lucide-react';
 import { runtime, type PluginSkill, type SkillAccount, type SkillFilterField, type SkillOwner } from './runtime';
 
 type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner; revision?: number };
@@ -180,7 +180,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         value={String(selectedAccount)}
         onChange={(value: string) => chooseAccount(Number(value))}
         options={(accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
-          value: String(account.id), label: account.name || account.username,
+          value: String(account.id), label: account.name || account.username, icon: <User size={14} />,
         }))}
         label={s.accountLabel}
       />
@@ -242,10 +242,12 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           header: s.ownerColumn,
           label: ownerLabel,
           scopes: [
-            { value: 'personal', label: s.scopeMine, matches: (skill: PluginSkill) => skill.catalogSource === 'personal' && skill.owner === selectedAccount },
-            { value: 'instance', label: s.scopeInstance, matches: (skill: PluginSkill) => skill.catalogSource === 'instance' },
-            { value: 'bundled', label: s.scopeBundled, matches: (skill: PluginSkill) => skill.catalogSource === 'bundled' },
-            { value: 'plugin', label: s.scopePlugin, matches: (skill: PluginSkill) => skill.catalogSource === 'plugin' },
+            { value: 'personal', label: s.scopeMine, icon: User, matches: (skill: PluginSkill) => skill.catalogSource === 'personal' && skill.owner === selectedAccount },
+            { value: 'instance', label: s.scopeInstance, icon: Boxes, matches: (skill: PluginSkill) => skill.catalogSource === 'instance' },
+            // `Package` is the bundled catalogue and `Puzzle` the plugin-contributed one: the two were
+            // both reading as a package, which is the collision the register's glyphs exist to avoid.
+            { value: 'bundled', label: s.scopeBundled, icon: Package, matches: (skill: PluginSkill) => skill.catalogSource === 'bundled' },
+            { value: 'plugin', label: s.scopePlugin, icon: Puzzle, matches: (skill: PluginSkill) => skill.catalogSource === 'plugin' },
           ],
         }}
         extraFilters={accountFilter ? [accountFilter] : undefined}
@@ -362,7 +364,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         metrics: <>
           <C.WorkspaceMetric label={s.statusEffective} value={effectiveCount} icon={ShieldCheck} />
           <C.WorkspaceMetric label={t.assetEditor.filterUser} value={userCount} icon={User} />
-          <C.WorkspaceMetric label={s.scopePlugin} value={pluginCount} icon={Package} />
+          <C.WorkspaceMetric label={s.scopePlugin} value={pluginCount} icon={Puzzle} />
           <C.WorkspaceMetric label={s.manualOnlyBadge} value={manualCount} icon={Hand} />
         </>,
       }}

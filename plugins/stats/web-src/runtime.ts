@@ -76,6 +76,16 @@ interface StatsRuntime {
       countLabel?: string;
       className?: string;
     }>;
+    /** Single-choice dropdown — the shape every list filter in the app takes, with one glyph per option
+     *  so the neutral entry reads as an option and not as the absence of one. */
+    SelectMenu: ComponentType<{
+      value: string;
+      onChange(value: string): void;
+      options: { value: string; label: string; icon?: ReactNode }[];
+      label: string;
+      variant?: 'default' | 'line';
+      className?: string;
+    }>;
     Segmented: SegmentedComponent;
     /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the
      *  app and loads lazily there, so this bundle never carries a charting library. */

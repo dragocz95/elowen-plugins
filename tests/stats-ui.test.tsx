@@ -91,17 +91,26 @@ describe('StatsView', () => {
   });
 
   it('announces and clears an active usage filter through its chip', async () => {
-    renderStats();
+    const { container } = renderStats();
     await screen.findByRole('figure', { name: strings.tokensByModel });
+    // Nothing is narrowing the register at the neutral value, so there is no chip to read.
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
     fireEvent.click(screen.getByTestId('page-filters-trigger'));
     const dialog = screen.getByRole('dialog', { name: 'Filters' });
-    fireEvent.click(within(dialog).getByRole('radio', { name: strings.filterCached }));
+    const usage = within(dialog).getByRole('combobox', { name: strings.filterLabel });
+    // One picker, its neutral option first, and a glyph on every option.
+    expect(within(usage).getAllByRole('option').map((option) => option.value)).toEqual(['all', 'costed', 'cached']);
+    for (const value of ['all', 'costed', 'cached']) {
+      expect(container.querySelector(`[data-select-option-icon="${value}"] svg`)).not.toBeNull();
+    }
+    fireEvent.change(usage, { target: { value: 'cached' } });
     await waitFor(() => expect(screen.getAllByTestId('model-usage-row')).toHaveLength(1));
     expect(screen.getByRole('button', { name: 'Filters, 1 active' })).toBeVisible();
     const chips = screen.getByTestId('page-filter-chips');
     expect(chips).toHaveTextContent(`${strings.filterLabel}: ${strings.filterCached}`);
     fireEvent.click(within(chips).getByRole('button'));
     await waitFor(() => expect(screen.getAllByTestId('model-usage-row')).toHaveLength(2));
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
   });
 
   // The register's footer is the host's one pager, page-size select included, so the usage table reads

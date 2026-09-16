@@ -167,6 +167,19 @@ var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/layers.js
+var Layers = createLucideIcon("Layers", [
+  [
+    "path",
+    {
+      d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+      key: "8b97xw"
+    }
+  ],
+  ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", key: "dd6zsq" }],
+  ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/map-pin.js
 var MapPin = createLucideIcon("MapPin", [
   [
@@ -571,7 +584,7 @@ var {
   ModuleHeader,
   Pager,
   RegisterSearch,
-  Segmented: Segmented2,
+  SelectMenu,
   WorkspaceDetailRail: WorkspaceDetailRail2,
   WorkspaceMetric,
   WorkspaceShell
@@ -716,6 +729,16 @@ function StatsView() {
     costed: s.filterCosted,
     cached: s.filterCached
   };
+  const usageIcons = {
+    all: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Layers, { size: 14 }),
+    costed: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DollarSign, { size: 14 }),
+    cached: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Database, { size: 14 })
+  };
+  const usageOptions = ["all", "costed", "cached"].map((value) => ({
+    value,
+    label: usageLabels[value],
+    icon: usageIcons[value]
+  }));
   const rangeLabels = {
     today: t.common.rangeToday,
     "7d": t.common.rangeLast7,
@@ -737,16 +760,12 @@ function StatsView() {
         id: "usage",
         label: s.filterLabel,
         control: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-          Segmented2,
+          SelectMenu,
           {
-            "aria-label": s.filterLabel,
             value: filter,
             onChange: (value) => changeUsageFilter(value),
-            options: [
-              { value: "all", label: s.filterAll },
-              { value: "costed", label: s.filterCosted },
-              { value: "cached", label: s.filterCached }
-            ]
+            options: usageOptions,
+            label: s.filterLabel
           }
         )
       },
