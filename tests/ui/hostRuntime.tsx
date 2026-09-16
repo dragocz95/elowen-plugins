@@ -90,6 +90,8 @@ export function ensurePluginUiRuntime(): void {
       usePluginSkills: H.usePluginSkills, useCreatePluginSkill: H.useCreatePluginSkill,
       useUpdatePluginSkill: H.useUpdatePluginSkill, useDeletePluginSkill: H.useDeletePluginSkill,
       useCronJobs: H.useCronJobs, useSaveCronJob: H.useSaveCronJob, useDeleteCronJob: H.useDeleteCronJob,
+      useSessionTasks: H.useSessionTasks, useUpdateSessionTask: H.useUpdateSessionTask,
+      useDeleteSessionTask: H.useDeleteSessionTask, useClearSessionTasks: H.useClearSessionTasks,
       useNotificationDestinations: H.useNotificationDestinations, useBrainModels: H.useBrainModels,
       useAutoSaveStatus: H.useAutoSaveStatus,
       useProjectFiles: H.useProjectFiles, useProjectFile: H.useProjectFile, useProjectFileAtHead: H.useProjectFileAtHead,

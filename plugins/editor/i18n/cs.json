@@ -88,7 +88,22 @@
       "discardChanges": "Zahodit neuložené změny?",
       "openEditor": "Otevřít editor",
       "chooseIcon": "Vybrat ikonu",
-      "gitEnvironmentStopped": "Spravované prostředí není spuštěné."
+      "gitEnvironmentStopped": "Spravované prostředí není spuštěné.",
+      "iconSearch": "Hledat obrázek…",
+      "noImages": "V projektu nejsou žádné obrázky",
+      "iconSelect": "Vybrat",
+      "iconRemove": "Odebrat ikonku",
+      "iconSet": "Ikonka nastavena",
+      "iconRemoved": "Ikonka odebrána",
+      "iconMore": "Zobrazeno prvních 300 obrázků — zúžit přes hledání.",
+      "notGit": "Není git repozitář",
+      "gitLabel": "Git",
+      "gitClean": "Čisté",
+      "gitDirty": "{count} změněno",
+      "gitBranches": "Větve",
+      "gitCommits": "Commity",
+      "viewChanges": "Zobrazit necommitnuté změny",
+      "retry": "Zkusit znovu"
     }
   }
 }

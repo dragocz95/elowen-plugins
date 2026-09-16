@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState, createContext, useContext, t
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   elowenClient,
-  type CronJobRow, type PluginSkillRow, type SkillOwner,
+  type CronJobRow, type PluginSkillRow, type SessionTaskRow, type SkillOwner,
 } from './hostClient';
 import { en } from './hostDictionary';
 export { useAutoSaveStatus } from './useAutoSaveStatus';
@@ -107,6 +107,59 @@ export function useDeletePluginSkill() {
   return useMutation({
     mutationFn: (v: { name: string; owner?: SkillOwner }) => elowenClient.deletePluginSkill(v.name, v.owner),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-skills'] }),
+  });
+}
+
+// ── session tasks ────────────────────────────────────────────────────────────────────────────────────
+// Ported from web/lib/queries.ts + web/lib/mutations.ts. The cache key `['session-tasks', sessionId]` is
+// the host's, not a convenience: the todo bundle and the app's own surfaces share ONE cache entry, and a
+// key invented here would make an invalidation look effective while the real app still went stale.
+
+export const useSessionTasks = (sessionId: string | null) => useQuery({
+  queryKey: ['session-tasks', sessionId],
+  queryFn: () => elowenClient.sessionTasks(sessionId!),
+  enabled: Boolean(sessionId),
+});
+
+/** Patch one session task: status, subject, owner, or any combination. Optimistic on the fields the
+ *  caller named, rolled back on error, re-fetched on settle — the same three moves the host makes. */
+export function useUpdateSessionTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, taskId, ...patch }: { sessionId: string; taskId: string; status?: SessionTaskRow['status']; subject?: string; owner?: string | null }) =>
+      elowenClient.updateSessionTask(sessionId, taskId, patch),
+    onMutate: async ({ sessionId, taskId, ...patch }) => {
+      const key = ['session-tasks', sessionId];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<{ tasks: SessionTaskRow[] }>(key);
+      // A cleared owner arrives as null/'' on the wire but is simply absent on a task, so mirror that
+      // rather than leaving an empty chip in the optimistic row.
+      const applied: Partial<SessionTaskRow> = {
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
+        ...(patch.owner !== undefined ? { owner: patch.owner || undefined } : {}),
+      };
+      qc.setQueryData<{ tasks: SessionTaskRow[] }>(key, (cur) => cur ? { tasks: cur.tasks.map((task) => task.id === taskId ? { ...task, ...applied } : task) } : cur);
+      return { key, prev };
+    },
+    onError: (_error, _value, context) => { if (context?.prev) qc.setQueryData(context.key, context.prev); },
+    onSettled: (_data, _error, value) => { void qc.invalidateQueries({ queryKey: ['session-tasks', value.sessionId] }); },
+  });
+}
+
+export function useDeleteSessionTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { sessionId: string; taskId: string }) => elowenClient.deleteSessionTask(v.sessionId, v.taskId),
+    onSuccess: (_data, value) => qc.invalidateQueries({ queryKey: ['session-tasks', value.sessionId] }),
+  });
+}
+
+export function useClearSessionTasks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { sessionId: string; scope: 'completed' | 'all' }) => elowenClient.clearSessionTasks(v.sessionId, v.scope),
+    onSuccess: (_data, value) => qc.invalidateQueries({ queryKey: ['session-tasks', value.sessionId] }),
   });
 }
 

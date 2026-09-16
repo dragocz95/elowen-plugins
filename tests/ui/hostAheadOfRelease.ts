@@ -21,7 +21,15 @@
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
   components: [],
-  hooks: ['useProjectEnvironmentState'],
+  // The session-task hooks arrived with the seam batch that moved the task surfaces out of the core and
+  // into this repository's `todo` plugin: the core publishes all four from web/lib/pluginUi.tsx and the
+  // pinned 0.28.47 predates them. They are what TasksPicker/TasksRail/TodoCard read, so the stand-in has
+  // to carry them or those components cannot be rendered in a test at all. Delete these four when the
+  // devDependency moves to the release that ships them — the guard fails until they are removed.
+  hooks: [
+    'useProjectEnvironmentState',
+    'useSessionTasks', 'useUpdateSessionTask', 'useDeleteSessionTask', 'useClearSessionTasks',
+  ],
   utils: [],
 };
 

@@ -49,7 +49,22 @@ export function TasksPicker({ sessionId, close }: PluginChatPickerProps) {
             <div className="flex flex-col gap-px overflow-hidden rounded-md border border-border bg-border/50">
               {rows.map((task) => (
                 <div key={task.id} className="flex items-center gap-2 bg-card px-3 py-2">
-                  {task.status === 'in_progress' ? <C.Spinner size="xs" /> : <C.Checkbox checked={task.status === 'completed'} disabled={busy} onCheckedChange={() => patch(task, { status: task.status === 'completed' ? 'pending' : 'completed' })} aria-label={task.subject} />}
+                  {/* The host Checkbox is a presentational indicator: `pointer-events-none`, `aria-hidden`
+                      and typed `{ checked, className }` only, so the clickable PARENT owns the toggle.
+                      Handing it `onCheckedChange` dropped the handler and left the list with no way to
+                      tick a task off other than the overflow menu. */}
+                  {task.status === 'in_progress' ? <C.Spinner size="xs" /> : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={task.subject}
+                      aria-pressed={task.status === 'completed'}
+                      onClick={() => patch(task, { status: task.status === 'completed' ? 'pending' : 'completed' })}
+                      className="shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 disabled:opacity-50"
+                    >
+                      <C.Checkbox checked={task.status === 'completed'} />
+                    </button>
+                  )}
                   <div className="min-w-0 flex-1">
                     {renaming === task.id ? <C.Input autoFocus value={draft} onChange={(event: { target: { value: string } }) => setDraft(event.target.value)} onBlur={() => { if (draft.trim()) patch(task, { subject: draft.trim() }); setRenaming(null); }} onKeyDown={(event: { key: string; preventDefault(): void }) => { if (event.key === 'Enter') { event.preventDefault(); if (draft.trim()) patch(task, { subject: draft.trim() }); setRenaming(null); } }} /> : <span className={task.status === 'completed' ? 'text-sm text-muted-foreground line-through' : 'text-sm text-foreground'}>{task.subject}</span>}
                     {task.description ? <div className="text-xs text-muted-foreground">{task.description}</div> : null}

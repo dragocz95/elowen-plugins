@@ -12,6 +12,11 @@ type FileNode = { path: string; type: 'file' | 'dir' };
 export function ProjectIconPicker({ project, onClose }: { project: Project; onClose: () => void }) {
   const { hooks, components: C, utils, api } = runtime();
   const { AutoSaveStatus, Button, EmptyState, ErrorState, Input, LoadingState, Modal, ModalBody, ModalFooter, ProjectIcon } = C;
+  // The picker's OWN copy comes from the plugin manifest (`web.strings` plus i18n/cs|sk); only genuinely
+  // shared host vocabulary still comes from `t`. Reading feature strings off the host is what left this
+  // modal blank when the core deleted them together with the component it moved here — and the core's
+  // languages-check refuses to keep a key no core source references, so the host cannot hold them.
+  const s = hooks.usePluginStrings('editor');
   const host = hooks.useTranslation().t;
   const { toast } = hooks.useToast();
   const queryClient = hooks.useQueryClient();
@@ -55,21 +60,21 @@ export function ProjectIconPicker({ project, onClose }: { project: Project; onCl
   const apply = (icon: string) => {
     if (update.isPending) return;
     update.mutate(icon, {
-      onSuccess: () => { toast(icon ? host.projects.iconSet : host.projects.iconRemoved); onClose(); },
+      onSuccess: () => { toast(icon ? s.iconSet : s.iconRemoved); onClose(); },
       onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
     });
   };
 
   return (
-    <Modal title={host.projects.chooseIcon} description={project.slug} onClose={onClose} closeDisabled={update.isPending} size="xl" icon={ImageIcon}>
-      <div className="border-b border-border px-5 py-3"><Input value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} placeholder={host.projects.iconSearch} autoFocus /></div>
+    <Modal title={s.chooseIcon} description={project.slug} onClose={onClose} closeDisabled={update.isPending} size="xl" icon={ImageIcon}>
+      <div className="border-b border-border px-5 py-3"><Input value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} placeholder={s.iconSearch} autoFocus /></div>
       <ModalBody gap={6}>
         {managed && environment.isLoading ? <LoadingState />
           : managed && environment.isError ? <ErrorState message={utils.apiErrorMessage(environment.error)} onRetry={() => { void environment.refetch(); }} />
-          : !environmentReady ? <EmptyState title={host.projects.iconEnvironmentStopped} icon={ImageIcon} />
+          : !environmentReady ? <EmptyState title={s.gitEnvironmentStopped} icon={ImageIcon} />
           : files.isLoading ? <LoadingState />
           : files.isError ? <ErrorState message={utils.apiErrorMessage(files.error)} onRetry={() => { void files.refetch(); }} />
-          : images.length === 0 ? <EmptyState title={host.projects.noImages} icon={ImageIcon} />
+          : images.length === 0 ? <EmptyState title={s.noImages} icon={ImageIcon} />
           : groups.map(([dir, paths]) => (
             <div key={dir} className="flex flex-col gap-2">
               <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{dir}</span>
@@ -86,13 +91,13 @@ export function ProjectIconPicker({ project, onClose }: { project: Project; onCl
               </div>
             </div>
           ))}
-        {images.length >= MAX_SHOWN ? <p className="text-xs text-muted-foreground">{host.projects.iconMore}</p> : null}
+        {images.length >= MAX_SHOWN ? <p className="text-xs text-muted-foreground">{s.iconMore}</p> : null}
       </ModalBody>
       <ModalFooter>
-        {project.icon ? <Button variant="danger" onClick={() => apply('')} disabled={update.isPending}>{host.projects.iconRemove}</Button> : null}
+        {project.icon ? <Button variant="danger" onClick={() => apply('')} disabled={update.isPending}>{s.iconRemove}</Button> : null}
         <div className="flex-1" />
         <Button variant="ghost" onClick={onClose} disabled={update.isPending}>{host.common.cancel}</Button>
-        <Button variant="accent" onClick={() => { if (selected) apply(selected); }} disabled={update.isPending || !selected}>{host.projects.iconSelect}</Button>
+        <Button variant="accent" onClick={() => { if (selected) apply(selected); }} disabled={update.isPending || !selected}>{s.iconSelect}</Button>
         <AutoSaveStatus status={update.isPending ? 'saving' : update.isError ? 'error' : update.isSuccess ? 'saved' : 'idle'} />
       </ModalFooter>
     </Modal>

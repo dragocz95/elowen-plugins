@@ -85,6 +85,13 @@ export interface DepEdge { task_id: string; depends_on_id: string }
 /** One entry of a project's flat file listing — the shape the editor panel builds its tree from. */
 export interface FileNode { path: string; type: 'file' | 'dir' }
 
+/** One session task, as the todo plugin's routes answer it. `blockedBy`/`blocks` are always present on
+ *  the wire (possibly empty) — the rail's parser rejects a row whose `blockedBy` is not an array. */
+export interface SessionTaskRow {
+  id: string; subject: string; description: string; status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string; startedAt?: number; owner?: string; blockedBy: string[]; blocks: string[];
+}
+
 export const elowenClient = {
   me: () => req<{ user: { id: number; username: string; is_admin: boolean } }>('/auth/me'),
   pluginUi: (lang?: string) => req<PluginUiListing[]>(`/plugins/ui${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
@@ -99,6 +106,19 @@ export const elowenClient = {
   cronJobs: () => req<CronJobRow[]>('/plugins/cronjob/jobs'),
   saveCronJob: (job: CronJobRow) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}`, json(job, 'PUT')),
   deleteCronJob: (id: string) => req<{ ok: boolean }>(`/plugins/cronjob/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // The todo plugin's session tasks. Ported from web/lib/elowenClient.ts, URLs included: they are the
+  // contract the plugin's node side is tested against. Every mutation answers with the WHOLE list, which
+  // is what lets a caller refresh a card snapshot without a refetch.
+  sessionTasks: (session: string) => req<{ tasks: SessionTaskRow[] }>(`/plugins/todo/api/tasks?session=${encodeURIComponent(session)}`),
+  updateSessionTask: (session: string, taskId: string, patch: SessionTaskRow['status'] | { status?: SessionTaskRow['status']; subject?: string; owner?: string | null }) =>
+    req<{ task: SessionTaskRow; tasks: SessionTaskRow[] }>(
+      `/plugins/todo/api/task?session=${encodeURIComponent(session)}`,
+      json({ taskId, ...(typeof patch === 'string' ? { status: patch } : patch) }, 'PATCH'),
+    ),
+  deleteSessionTask: (session: string, taskId: string) =>
+    req<{ success: true; taskId: string; tasks: SessionTaskRow[] }>(`/plugins/todo/api/task?session=${encodeURIComponent(session)}&taskId=${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
+  clearSessionTasks: (session: string, scope: 'completed' | 'all') =>
+    req<{ success: true; removed: number; tasks: SessionTaskRow[] }>(`/plugins/todo/api/tasks?session=${encodeURIComponent(session)}&scope=${scope}`, { method: 'DELETE' }),
   notificationDestinations: () => req<NotificationDestinationOption[]>('/plugins/destinations'),
   brainModels: () => req<BrainModelOption[]>('/brain/models'),
   // The editor panel's project-file calls. These are the plugin's OWN grandfathered routes (its manifest

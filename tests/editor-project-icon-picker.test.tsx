@@ -5,6 +5,7 @@ import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ProjectIconPicker } from '../plugins/editor/web-src/ProjectIconPicker';
 import { ProjectIcon } from './ui/hostProjectIcon';
+import manifest from '../plugins/editor/elowen-plugin.json';
 
 ensurePluginUiRuntime();
 
@@ -20,7 +21,10 @@ const lifecycleTrap = http.post('/api/plugins/sandbox/api/projects/7/environment
   return HttpResponse.json({ error: 'the picker must never request a lifecycle change' }, { status: 500 });
 });
 const server = setupServer(
-  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'editor', url: '/plugins/editor/web/hash.js', apiVersion: 4, nav: [], account: [], user: [], project: [], settings: [], strings: {} }])),
+  // The picker's copy is the PLUGIN's own (`web.strings` in the manifest), not host vocabulary, so the
+  // listing has to carry it exactly as the daemon serves it. Serving `{}` here would leave every label
+  // blank and assert nothing about the strings the reader actually sees.
+  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'editor', url: '/plugins/editor/web/hash.js', apiVersion: 4, nav: [], account: [], user: [], project: [], settings: [], strings: manifest.web.strings }])),
   environmentState('running'),
   lifecycleTrap,
   http.get('/api/projects/7/files', () => {
