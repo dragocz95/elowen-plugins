@@ -32,9 +32,10 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
   const routes = [];
   const userRemoved = [];
   const promptFragments = [];
+  const inputTransforms = [];
   // The identity/admin state the host would install around a turn or an API request. It is ambient in
   // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
-  const session = { identity: null, adminSession: false, contributionUserId: null };
+  const session = { identity: null, adminSession: false, contributionUserId: null, toolPolicy: undefined };
   const defaultCatalog = (ownerUserId) => {
     const selected = [];
     const byName = new Map();
@@ -96,6 +97,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
       workspaceSafe: opts.workspaceSafe === true,
     }),
     registerSystemPromptFragment: (fragment) => promptFragments.push(fragment),
+    registerInputTransform: (transform) => inputTransforms.push(transform),
     registerApiRoute: (route) => routes.push(route),
     registerUserRemoved: (fn) => userRemoved.push(fn),
     requestReload,
@@ -104,6 +106,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     // verified writer, so it is deliberately NOT derived from `identity` here either: the two part company
     // for a delegated sub-agent, and a stub that tied them together could never show that.
     currentContributionUserId: () => session.contributionUserId,
+    currentAccess: () => ({ toolPolicy: session.toolPolicy }),
     control: (name) => {
       if (name === 'skillCatalog' && skillCatalogControl) return {
         visibleSkills: () => (catalogSkills ?? defaultCatalog)(session.contributionUserId),
@@ -125,7 +128,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     host: { stores: () => ({ usersRead: { list: users } }) },
   };
   register(ctx);
-  return { skills, tools, routes, userRemoved, promptFragments, session };
+  return { skills, tools, routes, userRemoved, promptFragments, inputTransforms, session };
 }
 
 /** Run `fn` as a TURN — the scope `runWithPolicy(policy, fn, { identity })` installs around a tool call.
@@ -1601,6 +1604,36 @@ test('skills ownership transfer', async (t) => {
     assert.equal((await app.request('/plugins/skills/ghost/owner?owner=instance', moveTo(adminTok, 'me'))).status, 404);
     assert.equal(existsSync(join(userDir, 'staying.md')), true);
   });
+});
+
+test('the live input transform expands only the current grant-filtered catalog', async () => {
+  const root = tmpDir('skills-input-transform');
+  const filePath = join(root, 'SKILL.md');
+  mkdirSync(root, { recursive: true });
+  writeFileSync(filePath, skillMd('live-input', 'Live input.').replace('Body of live-input.', 'LIVE BODY'));
+  const skill = {
+    name: 'live-input', description: 'Live input.', filePath, baseDir: root,
+    sourceInfo: { path: filePath, source: 'test', scope: 'user', origin: 'package' },
+    disableModelInvocation: false,
+  };
+  let catalog = [skill];
+  const plugin = loadPlugin({
+    dataRoot: root,
+    catalogSkills: () => catalog,
+    catalogCanonicalBaseDir: () => realpathSync(root),
+  });
+  const transform = plugin.inputTransforms[0];
+  assert.equal(typeof transform, 'function');
+
+  plugin.session.contributionUserId = 7;
+  assert.match(await transform({ text: '/skill:live-input update 42', sessionId: 'brain-1', userId: 7 }), /LIVE BODY/);
+  assert.match(await transform({ text: '/skill:live-input update 42', sessionId: 'brain-1', userId: 7 }), /update 42/);
+
+  catalog = [];
+  assert.match(await transform({ text: '/skill:live-input', sessionId: 'brain-1', userId: 7 }), /<skill-unavailable/);
+  plugin.session.toolPolicy = { deny: ['SkillLoad'] };
+  assert.match(await transform({ text: '/skill:live-input', sessionId: 'brain-1', userId: 7 }), /<skill-unavailable/);
+  cleanup();
 });
 
 test('skills manifest and marketplace registry expose the same release version', () => {

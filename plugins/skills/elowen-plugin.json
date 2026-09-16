@@ -26,11 +26,13 @@
   },
   "userGrantable": true,
   "capabilities": {
+    "mutates": ["turnContext"],
     "reads": [
       "stores",
       "controls"
     ]
   },
+  "consumesControls": ["skillCatalog"],
   "deferLoading": [
     "CreateSkill",
     "DeleteSkill"

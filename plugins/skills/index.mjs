@@ -241,6 +241,60 @@ function splitFrontmatter(source) {
   return { frontmatter: m[1] ?? '', body: m[2] ?? '' };
 }
 
+function toolPolicyAllows(policy, name) {
+  const covers = (entries) => entries?.some((entry) => entry === name
+    || (entry.endsWith('*') && name.startsWith(entry.slice(0, -1)))) ?? false;
+  return !(policy?.allow && !covers(policy.allow)) && !(policy?.deny && covers(policy.deny));
+}
+
+function unavailableSkillInput(name) {
+  return `<skill-unavailable name="${xmlAttribute(name)}">\n`
+    + `The user explicitly invoked this skill, but it is not available in the current turn. Continue without it and tell the user.\n`
+    + '</skill-unavailable>';
+}
+
+function xmlAttribute(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+async function transformSkillInput(ctx, input) {
+  if (!input.text.startsWith('/skill:')) return input.text;
+  const spaceIndex = input.text.indexOf(' ');
+  const name = (spaceIndex === -1 ? input.text.slice(7) : input.text.slice(7, spaceIndex)).trim();
+  const args = spaceIndex === -1 ? '' : input.text.slice(spaceIndex + 1).trim();
+  const owner = ctx.currentContributionUserId();
+  const policy = ctx.currentAccess().toolPolicy;
+  if (owner === null || !toolPolicyAllows(policy, 'SkillLoad')) return unavailableSkillInput(name);
+
+  const control = ctx.control?.('skillCatalog');
+  if (!control) return unavailableSkillInput(name);
+  let skill;
+  try {
+    skill = control.visibleSkills().find((candidate) => candidate.name === name);
+  } catch (error) {
+    ctx.logger.warn(`live skill catalog failed during input transform: ${error instanceof Error ? error.message : error}`);
+    return unavailableSkillInput(name);
+  }
+  if (!skill) return unavailableSkillInput(name);
+
+  try {
+    const directory = control.canonicalBaseDir(skill);
+    const file = directory === null ? null : canonicalWithin(directory, skill.filePath);
+    if (file === null) return unavailableSkillInput(name);
+    const body = splitFrontmatter(readFileSync(file, 'utf-8')).body.trim();
+    const skillBlock = `<skill name="${xmlAttribute(skill.name)}" location="${xmlAttribute(file)}">\n`
+      + `References are relative to ${directory}.\n\n${body}\n</skill>`;
+    return args ? `${skillBlock}\n\n${args}` : skillBlock;
+  } catch (error) {
+    ctx.logger.warn(`could not transform skill '${name}': ${error instanceof Error ? error.message : error}`);
+    return unavailableSkillInput(name);
+  }
+}
+
 export function register(ctx) {
   const here = dirname(fileURLToPath(import.meta.url));
   const bundledDir = join(here, 'skills');
@@ -350,6 +404,7 @@ export function register(ctx) {
   // decides per turn (see buildSkillLoadTool). The core announces skills only when this writer may use the
   // loader, so granting a sibling plugin without granting the skills subsystem never creates a dead catalog.
   const skillLoader = buildSkillLoadTool(ctx, personalSkills, ownerScopeRoot);
+  ctx.registerInputTransform?.((input) => transformSkillInput(ctx, input));
   ctx.registerTool(skillLoader, { workspaceSafe: true });
   ctx.registerSystemPromptFragment([
     '<skill_loading>',
