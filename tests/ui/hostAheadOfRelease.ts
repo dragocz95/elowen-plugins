@@ -21,7 +21,7 @@
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
   components: [],
-  hooks: [],
+  hooks: ['useProjectEnvironmentState'],
   utils: [],
 };
 

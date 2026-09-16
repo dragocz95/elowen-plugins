@@ -28,6 +28,11 @@ const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/sites/web-src/SiteDetail.tsx', mode: 'explicit-save', reason: 'publication, guest replacement and destructive site actions' },
   { path: 'plugins/stats/web-src/ResetUsageModal.tsx', mode: 'explicit-save', reason: 'destructive usage-data reset' },
   { path: 'plugins/skills/web-src/SkillsSettings.tsx', mode: 'explicit-save', reason: 'skill file writes and ownership moves are atomic filesystem actions' },
+  { path: 'plugins/editor/web-src/ProjectIconPicker.tsx', mode: 'explicit-save', reason: 'project icon selection is an explicit project mutation' },
+  { path: 'plugins/skills/web-src/SkillsPicker.tsx', mode: 'explicit-save', reason: 'skill selection changes project or account state explicitly' },
+  { path: 'plugins/todo/web-src/TasksPicker.tsx', mode: 'explicit-save', reason: 'task selection changes session task state explicitly' },
+  { path: 'plugins/todo/web-src/TasksRail.tsx', mode: 'explicit-save', reason: 'task rail actions are explicit session task mutations' },
+  { path: 'plugins/todo/web-src/TodoCard.tsx', mode: 'explicit-save', reason: 'task card actions are explicit session task mutations' },
   { path: 'plugins/whatsapp/web-src/PairingSettings.tsx', mode: 'explicit-save', reason: 'pairing and unpairing are lifecycle actions' },
 ];
 
