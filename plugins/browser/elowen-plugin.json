@@ -1,6 +1,6 @@
 {
   "name": "browser",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "apiVersion": "1",
   "requiresCore": "0.28.46",
   "description": "Browser automation for linked accounts. Each account browser keeps an account-private profile on the host, with a virtual display, a VNC live view, exclusive user takeover and an enforcing network proxy around every session.",
@@ -34,6 +34,7 @@
       "BrowserAudit",
       "BrowserClose"
     ],
+    "readOnlyTools": ["BrowserSnapshot", "BrowserTabs", "BrowserScreenshot", "BrowserAudit"],
     "apiRoutes": [
       "profile",
       "sessions",
@@ -62,7 +63,6 @@
     "BrowserScreenshot",
     "BrowserAudit"
   ],
-  "readOnlyTools": ["BrowserSnapshot", "BrowserTabs", "BrowserScreenshot", "BrowserAudit"],
   "icons": {
     "Browser*": "🌐"
   },

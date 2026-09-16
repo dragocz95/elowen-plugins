@@ -1,5 +1,23 @@
-import type { PluginContext, SetupContext, SetupStepResult } from 'elowen/dist/plugins/api.js';
+import type { PluginContext } from 'elowen/dist/plugins/api.js';
 import { listServers } from './servers.js';
+
+// Keep the plugin buildable against the published core package until its declarations include the setup seam.
+interface SetupStepResult {
+  status: 'done' | 'skipped' | 'back';
+  summary?: string;
+}
+
+interface SetupContext {
+  request<T = unknown>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ ok: boolean; status: number; data: T | null }>;
+  note(message: string, title?: string): void;
+  log: { info(message: string): void; success(message: string): void; warn(message: string): void };
+  select(input: { message: string; options: { value: string; label?: string; hint?: string }[] }): Promise<string | { cancelled: true }>;
+  spinner(): { start(message: string): void; stop(message: string, kind?: 'success' | 'error'): void };
+}
+
+type SetupPluginContext = PluginContext & {
+  registerSetupStep?: (step: { id: string; run: (ctx: SetupContext) => Promise<SetupStepResult> }) => void;
+};
 
 interface LspServerRow {
   command: string;
@@ -15,7 +33,7 @@ interface LspStatus {
 
 /** The setup contribution for the TypeScript server. The plugin owns the server catalog and all
  * server-specific wording; the host owns wizard ordering, markers and the prompt implementation. */
-export function registerLspSetup(ctx: PluginContext): void {
+export function registerLspSetup(ctx: SetupPluginContext): void {
   if (typeof ctx.registerSetupStep !== 'function') return;
   ctx.registerSetupStep({ id: 'lsp', run: runLspSetup });
 }
