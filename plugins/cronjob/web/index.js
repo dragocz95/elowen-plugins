@@ -2141,6 +2141,26 @@ function AutomationPage() {
 
 // plugins/cronjob/web-src/index.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+function CronNextRunMetric({ locale }) {
+  const { hooks } = runtime();
+  const strings = hooks.usePluginStrings("cronjob");
+  const me = hooks.useMe();
+  const jobs = hooks.useCronJobs(me.data?.user?.is_admin === true);
+  const next = (0, import_react11.useMemo)(() => {
+    let best = null;
+    for (const job of jobs.data ?? []) {
+      const at = job.nextOccurrence ? Date.parse(job.nextOccurrence.expectedAt) : NaN;
+      if (Number.isNaN(at)) continue;
+      if (!best || at < best.at) best = { at, name: job.name };
+    }
+    return best;
+  }, [jobs.data]);
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("a", { href: "/p/cronjob/settings/jobs", className: "min-w-0 rounded-lg transition-opacity hover:opacity-80", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl", children: next ? new Date(next.at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "\u2014" }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "mt-0.5 text-[11px] text-muted-foreground", children: strings.nextRun }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "mt-0.5 truncate text-[11px] text-muted-foreground", children: next?.name ?? strings.nextRunUnknown })
+  ] });
+}
 function CronJobApp({ surface }) {
   return surface === "page" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AutomationPage, {}) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AutomationDeck, {});
 }
@@ -2230,5 +2250,6 @@ function AutomationDeck() {
 registerCronUi({
   requiresApiVersion: 17,
   settings: { jobs: CronJobApp },
-  ownsPageFrame: ["jobs"]
+  ownsPageFrame: ["jobs"],
+  dashboardMetrics: { "next-run": CronNextRunMetric }
 });

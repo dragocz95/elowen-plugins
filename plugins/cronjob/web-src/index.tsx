@@ -1,10 +1,36 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { DashboardMetricProps } from 'elowen-plugin-ui-kit';
 import { CalendarClock, Plus, Repeat } from 'lucide-react';
 import { AutomationPage } from './AutomationPage';
 import { CreateJobDialog } from './CreateJobDialog';
 import { JobDrawer } from './JobDrawer';
 import { weekUrl } from './CalendarTab';
 import { runtime, registerCronUi, type CronWeekResponse } from './runtime';
+
+function CronNextRunMetric({ locale }: DashboardMetricProps) {
+  const { hooks } = runtime();
+  const strings = hooks.usePluginStrings('cronjob');
+  const me = hooks.useMe();
+  const jobs = hooks.useCronJobs(me.data?.user?.is_admin === true);
+  const next = useMemo(() => {
+    let best: { at: number; name: string } | null = null;
+    for (const job of jobs.data ?? []) {
+      const at = job.nextOccurrence ? Date.parse(job.nextOccurrence.expectedAt) : NaN;
+      if (Number.isNaN(at)) continue;
+      if (!best || at < best.at) best = { at, name: job.name };
+    }
+    return best;
+  }, [jobs.data]);
+  return (
+    <a href="/p/cronjob/settings/jobs" className="min-w-0 rounded-lg transition-opacity hover:opacity-80">
+      <div className="font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl">
+        {next ? new Date(next.at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '—'}
+      </div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground">{strings.nextRun}</div>
+      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{next?.name ?? strings.nextRunUnknown}</div>
+    </a>
+  );
+}
 
 function CronJobApp({ surface }: { surface: 'page' | 'deck' }) {
   return surface === 'page' ? <AutomationPage /> : <AutomationDeck />;
@@ -93,4 +119,5 @@ registerCronUi({
   requiresApiVersion: 17,
   settings: { jobs: CronJobApp },
   ownsPageFrame: ['jobs'],
+  dashboardMetrics: { 'next-run': CronNextRunMetric },
 });

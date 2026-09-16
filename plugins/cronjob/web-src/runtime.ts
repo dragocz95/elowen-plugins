@@ -379,7 +379,9 @@ interface CronRuntime {
   api(path: string, init?: RequestInit): Promise<unknown>;
 }
 
-type CronRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'>;
+type CronRegistration = Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'> & {
+  dashboardMetrics?: PluginUiRegistration['dashboardMetrics'];
+};
 
 /** The host runtime, narrowed. The settings deck loads the bundle only after installing the runtime,
  *  so a missing global here is a programming error worth throwing on. */
