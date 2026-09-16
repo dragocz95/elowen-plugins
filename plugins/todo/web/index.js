@@ -232,7 +232,18 @@ function TasksPicker({ sessionId, close }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalBody, { gap: 4, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { value: filter, onChange: (event) => setFilter(event.target.value), placeholder: strings.filter, "aria-label": strings.filter }),
         query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : query.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: strings.unavailable, onRetry: () => query.refetch() }) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: strings.empty, description: strings.emptyDesc, icon: ListChecks }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex flex-col gap-px overflow-hidden rounded-md border border-border bg-border/50", children: rows.map((task) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex items-center gap-2 bg-card px-3 py-2", children: [
-          task.status === "in_progress" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Spinner, { size: "xs" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Checkbox, { checked: task.status === "completed", disabled: busy, onCheckedChange: () => patch(task, { status: task.status === "completed" ? "pending" : "completed" }), "aria-label": task.subject }),
+          task.status === "in_progress" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Spinner, { size: "xs" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              type: "button",
+              disabled: busy,
+              "aria-label": task.subject,
+              "aria-pressed": task.status === "completed",
+              onClick: () => patch(task, { status: task.status === "completed" ? "pending" : "completed" }),
+              className: "shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 disabled:opacity-50",
+              children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Checkbox, { checked: task.status === "completed" })
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0 flex-1", children: [
             renaming === task.id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Input, { autoFocus: true, value: draft, onChange: (event) => setDraft(event.target.value), onBlur: () => {
               if (draft.trim()) patch(task, { subject: draft.trim() });

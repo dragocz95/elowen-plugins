@@ -5889,7 +5889,7 @@ function editorUrl(projectId, params = {}) {
 }
 function ProjectGitPanel({ project }) {
   const s = hooks2.usePluginStrings("editor");
-  const host = hooks2.useTranslation().t.projects;
+  const host = hooks2.useTranslation().t;
   const managed = project.executionKind === "managed";
   const environment = hooks2.useProjectEnvironmentState(managed ? project.id : null);
   const git = hooks2.useProjectGit(project.id, !managed || environment.data?.environment.state === "running");
@@ -5904,16 +5904,16 @@ function ProjectGitPanel({ project }) {
       message,
       /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Button4, { variant: "ghost", onClick: () => {
         void git.refetch();
-      }, children: host.retry })
+      }, children: host.common.retry })
     ] });
   }
   if (!git.data) return null;
-  if (!git.data.isRepo) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "py-4", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Badge, { tone: "muted", children: host.notGit }) });
+  if (!git.data.isRepo) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "py-4", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Badge, { tone: "muted", children: s.notGit }) });
   return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
     git.data.status ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "border-b border-border/70 py-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-3 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(FolderGit2, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
-        host.git
+        s.gitLabel
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "flex flex-wrap items-center gap-1.5", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "accent", children: [
@@ -5922,10 +5922,10 @@ function ProjectGitPanel({ project }) {
         ] }),
         git.data.status.clean ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "success", children: [
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(CircleCheck, { size: 11, className: "mr-1", "aria-hidden": true }),
-          host.clean
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { working: "1" })), title: host.viewChanges, className: "rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "warning", children: [
+          s.gitClean
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { working: "1" })), title: s.viewChanges, className: "rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "warning", children: [
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(TriangleAlert, { size: 11, className: "mr-1", "aria-hidden": true }),
-          host.dirty.replace("{count}", String(git.data.status.dirty))
+          s.gitDirty.replace("{count}", String(git.data.status.dirty))
         ] }) }),
         git.data.status.ahead > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "accent", children: [
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ArrowUp, { size: 11, className: "mr-0.5", "aria-hidden": true }),
@@ -5940,7 +5940,7 @@ function ProjectGitPanel({ project }) {
     git.data.branches.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "border-b border-border/70 py-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-3 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(GitBranch, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
-        host.branches
+        s.gitBranches
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "flex flex-wrap gap-1.5", children: git.data.branches.map((branch) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: branch.current ? "accent" : "muted", children: [
         branch.name,
@@ -5950,9 +5950,9 @@ function ProjectGitPanel({ project }) {
     git.data.commits.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "py-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-2 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(GitCommitHorizontal, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
-        host.commits
+        s.gitCommits
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityList, { children: git.data.commits.map((commit) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityRow, { interactive: false, className: "py-0", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { commit: commit.hash })), title: host.viewCommit, className: "flex w-full min-w-0 flex-col gap-1 px-1 py-3 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityList, { children: git.data.commits.map((commit) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityRow, { interactive: false, className: "py-0", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { commit: commit.hash })), title: s.viewCommit, className: "flex w-full min-w-0 flex-col gap-1 px-1 py-3 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "font-mono text-[11px] text-primary", children: commit.hash }),
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "min-w-0 flex-1 truncate text-xs text-foreground", children: commit.subject })
@@ -5978,6 +5978,7 @@ var MAX_SHOWN = 300;
 function ProjectIconPicker({ project, onClose }) {
   const { hooks: hooks3, components: C4, utils: utils3, api } = runtime();
   const { AutoSaveStatus, Button: Button5, EmptyState: EmptyState3, ErrorState, Input: Input2, LoadingState: LoadingState2, Modal: Modal2, ModalBody: ModalBody2, ModalFooter: ModalFooter2, ProjectIcon: ProjectIcon2 } = C4;
+  const s = hooks3.usePluginStrings("editor");
   const host = hooks3.useTranslation().t;
   const { toast } = hooks3.useToast();
   const queryClient = hooks3.useQueryClient();
@@ -6020,20 +6021,20 @@ function ProjectIconPicker({ project, onClose }) {
     if (update.isPending) return;
     update.mutate(icon, {
       onSuccess: () => {
-        toast(icon ? host.projects.iconSet : host.projects.iconRemoved);
+        toast(icon ? s.iconSet : s.iconRemoved);
         onClose();
       },
       onError: (error) => toast(utils3.apiErrorMessage(error), "error")
     });
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Modal2, { title: host.projects.chooseIcon, description: project.slug, onClose, closeDisabled: update.isPending, size: "xl", icon: Image, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "border-b border-border px-5 py-3", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Input2, { value: query, onChange: (event) => setQuery(event.target.value), placeholder: host.projects.iconSearch, autoFocus: true }) }),
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Modal2, { title: s.chooseIcon, description: project.slug, onClose, closeDisabled: update.isPending, size: "xl", icon: Image, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "border-b border-border px-5 py-3", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Input2, { value: query, onChange: (event) => setQuery(event.target.value), placeholder: s.iconSearch, autoFocus: true }) }),
     /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(ModalBody2, { gap: 6, children: [
       managed && environment.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : managed && environment.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(environment.error), onRetry: () => {
         void environment.refetch();
-      } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: host.projects.iconEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
+      } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.gitEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
         void files.refetch();
-      } }) : images.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: host.projects.noImages, icon: Image }) : groups.map(([dir, paths]) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: "flex flex-col gap-2", children: [
+      } }) : images.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.noImages, icon: Image }) : groups.map(([dir, paths]) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: "flex flex-col gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "font-mono text-[11px] uppercase tracking-wide text-muted-foreground", children: dir }),
         /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2", children: paths.map((path) => {
           const selectedPath = selected === path;
@@ -6043,15 +6044,15 @@ function ProjectIconPicker({ project, onClose }) {
           ] }, path);
         }) })
       ] }, dir)),
-      images.length >= MAX_SHOWN ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("p", { className: "text-xs text-muted-foreground", children: host.projects.iconMore }) : null
+      images.length >= MAX_SHOWN ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("p", { className: "text-xs text-muted-foreground", children: s.iconMore }) : null
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(ModalFooter2, { children: [
-      project.icon ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "danger", onClick: () => apply2(""), disabled: update.isPending, children: host.projects.iconRemove }) : null,
+      project.icon ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "danger", onClick: () => apply2(""), disabled: update.isPending, children: s.iconRemove }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "flex-1" }),
       /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "ghost", onClick: onClose, disabled: update.isPending, children: host.common.cancel }),
       /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "accent", onClick: () => {
         if (selected) apply2(selected);
-      }, disabled: update.isPending || !selected, children: host.projects.iconSelect }),
+      }, disabled: update.isPending || !selected, children: s.iconSelect }),
       /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(AutoSaveStatus, { status: update.isPending ? "saving" : update.isError ? "error" : update.isSuccess ? "saved" : "idle" })
     ] })
   ] });
