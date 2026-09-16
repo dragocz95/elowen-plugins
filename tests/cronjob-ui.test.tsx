@@ -2,7 +2,6 @@ import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AutomationPage } from '../plugins/cronjob/web-src/AutomationPage';
-import { DayPanel } from '../plugins/cronjob/web-src/DayPanel';
 import {
   apiErrorCode, apiErrorConflict, apiErrorCurrent, localDateLabel, runtime,
   type CronJob, type CronRunRow, type CronWeekDay, type CronWeekResponse,
@@ -170,15 +169,14 @@ describe('automation week calendar', () => {
     fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
     expect(screen.queryByText(strings.deleteTitle)).toBeNull();
 
-    // The interval job is named ONCE on the whole page, in the day panel's footer strip — never as a
-    // register table repeating the panel, and never as a card in a day column.
+    // The interval job is named ONCE on the whole page, in the strip under the calendar — never as a
+    // register table and never as a card in a day column, where it would fire on all seven days.
     expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
     const strip = screen.getByTestId('cron-intervals-strip');
     expect(within(strip).getByText('every 2m')).toBeInTheDocument();
     // Today: the next fire is this day's, so it IS shown. The companion test below proves it disappears
     // on another day — without this half, dropping the time entirely would keep both tests green.
     expect(within(strip).getByText('10:22')).toBeInTheDocument();
-    expect(screen.getByTestId('cron-day-panel')).toContainElement(strip);
     expect(screen.getByTestId('cron-week-grid')).not.toContainElement(strip);
   });
 
@@ -191,47 +189,23 @@ describe('automation week calendar', () => {
     expect(within(strip).queryByText('10:22')).toBeNull();
   });
 
-  it('never says a day is empty while it lists a recurring job', async () => {
-    use(http.get('/api/plugins/cronjob/api/runs', () => HttpResponse.json({ runs: [], nextCursor: null, total: 0, limit: 50 })));
+  it('never says a day is empty while a recurring job is listed under it', async () => {
+    setViewport(true);
+    use(http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json({
+      ...weekBody(),
+      days: weekBody().days.map((entry) => ({ ...entry, cards: [], dayTotal: 0 })),
+    })));
     renderPage();
-    const grid = await screen.findByTestId('cron-week-grid');
-    fireEvent.click(within(within(grid).getAllByRole('region')[3]!).getAllByRole('button')[0]!);
-    const panel = await screen.findByTestId('cron-day-panel');
-    expect(await within(panel).findByTestId('cron-intervals-strip')).toBeInTheDocument();
-    expect(within(panel).queryByText(strings.dayNothing)).toBeNull();
-  });
-
-  it('opens the selected day panel with durable run receipts', async () => {
-    renderPage();
-    const panel = await screen.findByTestId('cron-day-panel');
-    await within(panel).findByTestId('cron-run-run-1');
-    expect(within(panel).getByText(/Morning digest/)).toBeInTheDocument();
-    expect(within(panel).getByText(strings.runOk)).toBeInTheDocument();
-    expect(within(panel).getByText(/Check invoices/)).toBeInTheDocument();
-  });
-
-  it('keeps the newest run page live after loading an older cursor page', async () => {
-    let latest = run;
-    const older = { ...run, id: 'run-old', jobName: 'Older receipt', startedAt: '2026-09-15T04:00:00.000Z' };
-    use(http.get('/api/plugins/cronjob/api/runs', ({ url }) =>
-      url.searchParams.has('cursor')
-        ? HttpResponse.json({ runs: [older], nextCursor: null, total: 2, limit: 50 })
-        : HttpResponse.json({ runs: [latest], nextCursor: 'older-page', total: 2, limit: 50 })));
-    const { client } = renderPage();
-    const panel = await screen.findByTestId('cron-day-panel');
-    fireEvent.click(await within(panel).findByRole('button', { name: strings.loadOlder }));
-    expect(await within(panel).findByText(/Older receipt/)).toBeInTheDocument();
-
-    latest = { ...run, id: 'run-new', jobName: 'Fresh receipt' };
-    await client.invalidateQueries({ queryKey: ['cron-runs-day-latest', TODAY] });
-    expect(await within(panel).findByText(/Fresh receipt/)).toBeInTheDocument();
-    expect(within(panel).getByText(/Older receipt/)).toBeInTheDocument();
+    const tab = await screen.findByTestId('cron-calendar-tab');
+    expect(await within(tab).findByTestId('cron-intervals-strip')).toBeInTheDocument();
+    expect(within(tab).queryByText(strings.dayNothing)).toBeNull();
   });
 
   it('opens a run result and fetches the exact durable assistant message id', async () => {
     renderPage();
-    const panel = await screen.findByTestId('cron-day-panel');
-    fireEvent.click(await within(panel).findByTestId('cron-run-run-1'));
+    const card = await screen.findByTestId('cron-card-job-daily');
+    fireEvent.click(within(card).getByRole('button', { name: strings.actions }));
+    fireEvent.click(await screen.findByText(strings.showResult));
     expect(await screen.findByText('Short retained preview')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: strings.runFullResult }));
     expect(await screen.findByText('Exact durable assistant result')).toBeInTheDocument();
@@ -279,7 +253,7 @@ describe('automation week calendar', () => {
     expect(screen.getByText(strings.createOneShot)).toBeInTheDocument();
   });
 
-  it('caps a day column at three entries and folds the rest behind one expander', async () => {
+  it('shows every occurrence of a day in its column, with no expander to unfold', async () => {
     const many = (): CronWeekResponse => {
       const body = weekBody();
       // One card per job per day, which is what the server can emit: reusing a job id across cards made
@@ -300,14 +274,11 @@ describe('automation week calendar', () => {
     use(http.get('/api/plugins/cronjob/api/week', () => HttpResponse.json(many())));
     renderPage();
     const grid = await screen.findByTestId('cron-week-grid');
-    expect(within(grid).getAllByText('08:00')).toHaveLength(1);
-    expect(within(grid).queryByText('11:00')).toBeNull();
-
-    fireEvent.click(within(grid).getByTestId(`cron-day-more-${TODAY}`));
-    expect(await within(grid).findByText('11:00')).toBeInTheDocument();
-    expect(within(grid).getByText('12:00')).toBeInTheDocument();
-    fireEvent.click(within(grid).getByText(strings.dayShowLess));
-    expect(within(grid).queryByText('11:00')).toBeNull();
+    // All five, straight away: the column used to stop at three and hide the rest behind "+N more".
+    for (const time of ['08:00', '09:00', '10:00', '11:00', '12:00']) {
+      expect(within(grid).getAllByText(time)).toHaveLength(1);
+    }
+    expect(within(grid).queryByTestId(`cron-day-more-${TODAY}`)).toBeNull();
   });
 
   it('opens the receipt of the occurrence the menu belongs to, not the selected day or the newest run', async () => {
@@ -368,37 +339,12 @@ describe('automation week calendar', () => {
     expect(screen.getByRole('button', { name: strings.createOneShotSubmit })).toBeEnabled();
   });
 
-  it('uses the scheduler today for past-day history guidance', () => {
-    const { wrapper: Wrapper } = createWrapper();
-    render(
-      <Wrapper>
-        <DayPanel
-          day={{ ...day(TODAY), cards: [], dayTotal: 0 }}
-          todayLocalDate="2026-09-16"
-          intervals={[]}
-          jobs={new Map()}
-          runs={[]}
-          loading={false}
-          hasMore={false}
-          onLoadMore={() => {}}
-          selectedJobId={null}
-          onSelectJob={() => {}}
-          onOpenRun={() => {}}
-          onOpenJob={() => {}}
-          onPreviousDay={() => {}}
-          onNextDay={() => {}}
-        />
-      </Wrapper>,
-    );
-    expect(screen.getByText(strings.dayBeforeHistory)).toBeInTheDocument();
-  });
-
   it('uses a horizontal day strip and one-day view on a phone', async () => {
     setViewport(true);
     renderPage();
     expect(await screen.findByTestId('cron-day-strip')).toBeInTheDocument();
     expect(screen.queryByTestId('cron-week-grid')).toBeNull();
-    expect(screen.getByTestId('cron-day-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('cron-day-cards')).toBeInTheDocument();
   });
 
   it('keeps job deep links and uses one indistinguishable unavailable state', async () => {

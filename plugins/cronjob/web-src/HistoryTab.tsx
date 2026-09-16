@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { RunResultModal } from './RunResultModal';
-import { runsUrl } from './useRunFeed';
+import { runsUrl } from './runsApi';
 import { shiftDate } from './CalendarTab';
 import { runtime, type CronJob, type CronRunRow, type CronRunsResponse } from './runtime';
 

@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Plus } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { DayCard } from './DayCard';
-import { DayPanel } from './DayPanel';
+import { IntervalsStrip } from './IntervalsStrip';
 import { RunResultModal } from './RunResultModal';
 import { MobileDayStrip, WeekGrid } from './WeekGrid';
-import { runsUrl, useRunFeed } from './useRunFeed';
+import { runsUrl } from './runsApi';
 import { runtime, type CronJob, type CronRunRow, type CronRunsResponse, type CronWeekResponse } from './runtime';
 
 export const shiftDate = (date: string, days: number): string => {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
+const dayTitle = (label: string, locale: string): string => {
+  const [year, month, day] = label.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale || undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+    .format(new Date(year!, month! - 1, day));
 };
 export const weekUrl = (start: string | null, days = 7): string => {
   const query = new URLSearchParams();
@@ -37,11 +42,10 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
 }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
-  const { t } = hooks.useTranslation();
+  const { t, locale } = hooks.useTranslation();
   const { toast } = hooks.useToast();
   const me = hooks.useMe();
   const mobile = hooks.useMobile();
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [openRun, setOpenRun] = useState<CronRunRow | null>(null);
   /** "Show result" asks the run register for what this job actually did on THAT calendar day, rather than
    *  reusing the selected day's feed — the reader opens it from a cell that may not be the selected one. */
@@ -76,7 +80,6 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
   const actualDate = selectedDate && data?.days.some((day) => day.localDate === selectedDate)
     ? selectedDate
     : data?.days[0]?.localDate ?? null;
-  const feed = useRunFeed(actualDate);
 
   const filtered = useMemo(() => {
     if (!data) return null;
@@ -120,50 +123,33 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
     <div className="flex min-w-0 flex-col gap-6" aria-busy={week.isLoading} data-testid="cron-calendar-tab">
       {mobile ? <MobileDayStrip days={filtered.days} selectedDate={selectedDay.localDate} todayLocalDate={data.todayLocalDate} onSelectDate={onSelectedDate} /> : null}
       {showWeek ? (
-        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
-          <div className="flex min-w-0 flex-col gap-6">
-            <WeekGrid
-              days={filtered.days}
-              jobs={filtered.jobs}
-              selectedDate={selectedDay.localDate}
-              todayLocalDate={data.todayLocalDate}
-              onSelectDate={(date) => { onSelectedDate(date); setSelectedJobId(null); }}
-              onOpenJob={onOpenJob}
-              onRun={onRun}
-              onToggle={onToggle}
-              onShowResult={(job, date, time) => void showResult(job, date, time)}
-              onAddAt={onAddAt}
-            />
-          </div>
-          <div className="rounded-lg border border-border/80 bg-document p-4">
-            <DayPanel
-              day={selectedDay}
-              todayLocalDate={data.todayLocalDate}
-              intervals={filtered.intervals}
-              jobs={filtered.jobs}
-              runs={feed.rows}
-              loading={feed.isLoading}
-              hasMore={feed.hasMore}
-              onLoadMore={feed.loadMore}
-              selectedJobId={selectedJobId}
-              onSelectJob={setSelectedJobId}
-              onOpenRun={setOpenRun}
-              onOpenJob={onOpenJob}
-              onPreviousDay={() => moveDay(-1)}
-              onNextDay={() => moveDay(1)}
-            />
-          </div>
-        </div>
+        <WeekGrid
+          days={filtered.days}
+          jobs={filtered.jobs}
+          selectedDate={selectedDay.localDate}
+          todayLocalDate={data.todayLocalDate}
+          onSelectDate={onSelectedDate}
+          onOpenJob={onOpenJob}
+          onRun={onRun}
+          onToggle={onToggle}
+          onShowResult={(job, date, time) => void showResult(job, date, time)}
+          onAddAt={onAddAt}
+        />
       ) : (
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-          <section className="flex min-w-0 flex-col gap-3" data-testid="cron-day-cards">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">{s.viewDay || 'Day'}</h2>
-              <C.Button variant="ghost" icon={Plus} onClick={() => onAddAt(selectedDay.localDate)} data-testid="cron-day-add-selected">
-                {s.addJob || 'Add job'}
-              </C.Button>
+        <section className="flex min-w-0 flex-col gap-3" data-testid="cron-day-cards">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              <C.IconButton icon={ChevronLeft} label={s.dayPrevious || 'Previous day'} onClick={() => moveDay(-1)} />
+              <h2 className="text-lg font-semibold capitalize">{dayTitle(selectedDay.localDate, locale)}</h2>
+              <C.IconButton icon={ChevronRight} label={s.dayNext || 'Next day'} onClick={() => moveDay(1)} />
             </div>
-            {selectedDay.cards.length === 0 ? <C.EmptyState title={s.dayNothing || 'No fixed-time jobs'} icon={CalendarDays} /> : selectedDay.cards.map((card) => {
+            <C.Button variant="ghost" icon={Plus} onClick={() => onAddAt(selectedDay.localDate)} data-testid="cron-day-add-selected">
+              {s.addJob || 'Add job'}
+            </C.Button>
+          </div>
+          {selectedDay.cards.length === 0 && filtered.intervals.length === 0
+            ? <C.EmptyState title={s.dayNothing || 'No fixed-time jobs'} icon={CalendarDays} />
+            : selectedDay.cards.map((card) => {
               const job = filtered.jobs.get(card.jobId);
               return job ? (
                 <DayCard
@@ -178,28 +164,16 @@ export function CalendarTab({ start, selectedDate, view, query, owner, state, ki
                 />
               ) : null;
             })}
-          </section>
-          <div className="rounded-lg border border-border/80 bg-document p-4">
-            <DayPanel
-              day={selectedDay}
-              todayLocalDate={data.todayLocalDate}
-              intervals={filtered.intervals}
-              jobs={filtered.jobs}
-              runs={feed.rows}
-              loading={feed.isLoading}
-              hasMore={feed.hasMore}
-              onLoadMore={feed.loadMore}
-              selectedJobId={selectedJobId}
-              onSelectJob={setSelectedJobId}
-              onOpenRun={setOpenRun}
-              onOpenJob={onOpenJob}
-              onPreviousDay={() => moveDay(-1)}
-              onNextDay={() => moveDay(1)}
-              mobile={mobile}
-            />
-          </div>
-        </div>
+        </section>
       )}
+      <IntervalsStrip
+        intervals={filtered.intervals}
+        jobs={filtered.jobs}
+        referenceDate={selectedDay.localDate}
+        onOpenJob={onOpenJob}
+      />
+      {/* The calendar carries the plan; what a job actually DID lives one click away in the run receipt
+          the card's menu opens, and in full in the History tab. */}
       {openRun ? (
         <RunResultModal
           run={openRun}

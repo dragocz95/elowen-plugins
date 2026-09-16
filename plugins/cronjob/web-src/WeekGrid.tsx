@@ -1,12 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import { DayCard } from './DayCard';
 import { runtime, type CronJob, type CronWeekDay } from './runtime';
-
-/** How many occurrences a day column shows before it folds the rest behind "+N more". A week of daily
- *  jobs repeats the SAME names in all seven columns, so a high cap buys no information and costs the
- *  whole grid its readability — the fold is the feature, and the reader expands one day at a time. */
-const MAX_CARDS_PER_DAY = 3;
 
 const parseDate = (label: string): Date => {
   const [year, month, day] = label.split('-').map(Number);
@@ -35,13 +30,6 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
   const { hooks } = runtime();
   const s = hooks.usePluginStrings('cronjob');
   const { locale } = hooks.useTranslation();
-  // At most ONE day is unfolded: expanding a second one would recreate the wall of cards the fold exists
-  // to prevent, and the grid would jump in height on every click.
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
-  // A different week is a different set of days: an expansion kept across the shift reopens a day the
-  // reader never asked about, and the column is unfolded again when the old week comes back.
-  const windowStart = days[0]?.localDate;
-  useEffect(() => { setExpandedDate(null); }, [windowStart]);
   const selectOffset = (offset: number) => {
     const index = days.findIndex((day) => day.localDate === selectedDate);
     const next = days[Math.min(Math.max(index + offset, 0), days.length - 1)];
@@ -59,9 +47,6 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
       {days.map((day) => {
         const selected = day.localDate === selectedDate;
         const today = day.localDate === todayLocalDate;
-        const expanded = expandedDate === day.localDate;
-        const shown = expanded ? day.cards : day.cards.slice(0, MAX_CARDS_PER_DAY);
-        const folded = day.dayTotal - shown.length;
         return (
           <section
             key={day.localDate}
@@ -96,8 +81,10 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                 {today ? <span className="sr-only">{s.calToday || 'Today'}</span> : null}
               </button>
             </div>
+            {/* Every occurrence of the day is listed: the column grows with the day's work instead of
+                folding the rest away, so the week is read in one look. */}
             <div className="flex min-h-[13rem] min-w-0 flex-1 flex-col gap-0.5 border-t border-border/50 p-1">
-              {shown.map((card) => {
+              {day.cards.map((card) => {
                 const job = jobs.get(card.jobId);
                 return job ? (
                   <DayCard
@@ -113,27 +100,6 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                   />
                 ) : null;
               })}
-              {folded > 0 ? (
-                <button
-                  type="button"
-                  className="mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
-                  data-testid={`cron-day-more-${day.localDate}`}
-                  aria-expanded={false}
-                  onClick={() => { setExpandedDate(day.localDate); onSelectDate(day.localDate); }}
-                >
-                  {(s.dayMoreCards || '+{n} more').replace('{n}', String(folded))}
-                </button>
-              ) : null}
-              {expanded && day.dayTotal > MAX_CARDS_PER_DAY ? (
-                <button
-                  type="button"
-                  className="mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
-                  aria-expanded
-                  onClick={() => setExpandedDate(null)}
-                >
-                  {s.dayShowLess || 'Show less'}
-                </button>
-              ) : null}
               {/* The rest of the column is the day's own "schedule something here": a calendar cell is where
                   a reader expects to click to add, and the free space is exactly the part of it that means
                   "nothing here yet". It stays a real button with a dated label, so it is reachable by
