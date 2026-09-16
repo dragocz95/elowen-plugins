@@ -19,10 +19,12 @@ const PNG = Buffer.from('PNG-BYTES');
 function makeCtx({ provider, config = {}, dir = dataDir() }) {
   const calls = { generate: [], edit: [] };
   const tools = new Map();
+  const sources = [];
   const image = { png: PNG, model: 'm', size: '1024x1024', quality: 'low', format: 'png', usage: null };
   return {
     calls,
     tools,
+    sources,
     dir,
     ctx: {
       config: { provider: 'p1', ...config },
@@ -31,6 +33,7 @@ function makeCtx({ provider, config = {}, dir = dataDir() }) {
       resolveProvider: (id) => (id === 'p1' ? provider : null),
       assertPathAllowed: (p) => p,
       registerTool: (tool) => tools.set(tool.name, tool),
+      registerChatImageSource: (source) => sources.push(source),
       images: {
         generate: async (req) => { calls.generate.push(req); return image; },
         edit: async (req) => { calls.edit.push(req); return image; },
@@ -59,6 +62,9 @@ describe('image-gen on the host image seam', () => {
     const rendered = /\(\/api\/brain\/images\/([^)]+)\)/.exec(out.content[0].text);
     assert.ok(rendered, 'the tool answers with the inline markdown image');
     assert.equal(readFileSync(join(host.dir, rendered[1])).toString(), 'PNG-BYTES');
+    assert.equal(host.sources.length, 1);
+    assert.deepEqual(host.sources[0].resolve(rendered[1]), { bytes: PNG, mimeType: 'image/png' });
+    assert.equal(host.sources[0].resolve('../outside.png'), null);
   });
 
   it('keeps using an API-key provider, and stays unregistered without a usable provider', async () => {

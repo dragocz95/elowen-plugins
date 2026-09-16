@@ -130,4 +130,9 @@ export function register(ctx, deps = {}) {
     ctx.registerControl('lsp', {
         diagnosticsEnabled: () => manager?.isEnabled() ?? lspPluginConfig(ctx.config).diagnosticsEnabled,
     });
+    if (typeof ctx.registerBrainStatusProvider === 'function') {
+        ctx.registerBrainStatusProvider(() => ({
+            lspEnabled: manager?.isEnabled() ?? lspPluginConfig(ctx.config).diagnosticsEnabled,
+        }));
+    }
 }

@@ -40,6 +40,17 @@ export function editSize(value) {
 }
 
 export function register(ctx) {
+  const dataDir = ctx.dataDir();
+  if (typeof ctx.registerChatImageSource === 'function') {
+    ctx.registerChatImageSource({
+      id: 'image-edit',
+      resolve: (file) => {
+        if (!/^[a-z0-9]+\.png$/.test(file)) return null;
+        try { return { bytes: readFileSync(join(dataDir, file)), mimeType: 'image/png' }; }
+        catch { return null; }
+      },
+    });
+  }
   // Credentials come from a configured brain provider (chosen in settings) — one central account or key.
   const providerId = typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '';
   const provider = ctx.resolveProvider(providerId);

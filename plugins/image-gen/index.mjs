@@ -7,7 +7,7 @@
 // code. This plugin picks the provider, the model and the size, and writes the bytes it gets back.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
@@ -38,6 +38,17 @@ export function resolveModel(raw, providerType) {
 }
 
 export function register(ctx) {
+  const dataDir = ctx.dataDir();
+  if (typeof ctx.registerChatImageSource === 'function') {
+    ctx.registerChatImageSource({
+      id: 'image-gen',
+      resolve: (file) => {
+        if (!/^[a-z0-9]+\.png$/.test(file)) return null;
+        try { return { bytes: readFileSync(join(dataDir, file)), mimeType: 'image/png' }; }
+        catch { return null; }
+      },
+    });
+  }
   // Credentials come from a configured brain provider (chosen in settings) — one central account or key,
   // not a second secret entered here.
   const providerId = typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '';

@@ -18,6 +18,7 @@
       "EditImage"
     ]
   },
+  "deferLoading": ["EditImage"],
   "configSchema": [
     {
       "key": "provider",

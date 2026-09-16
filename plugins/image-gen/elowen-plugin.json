@@ -15,6 +15,7 @@
       "GenerateImage"
     ]
   },
+  "deferLoading": ["GenerateImage"],
   "configSchema": [
     {
       "key": "provider",

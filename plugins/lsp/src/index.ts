@@ -145,4 +145,12 @@ export function register(ctx: PluginContext, deps: LspRegisterDeps = {}): void {
   ctx.registerControl('lsp', {
     diagnosticsEnabled: () => manager?.isEnabled() ?? lspPluginConfig(ctx.config).diagnosticsEnabled,
   });
+  const statusContext = ctx as PluginContext & {
+    registerBrainStatusProvider?: (provider: () => { lspEnabled: boolean }) => void;
+  };
+  if (typeof statusContext.registerBrainStatusProvider === 'function') {
+    statusContext.registerBrainStatusProvider(() => ({
+      lspEnabled: manager?.isEnabled() ?? lspPluginConfig(ctx.config).diagnosticsEnabled,
+    }));
+  }
 }
