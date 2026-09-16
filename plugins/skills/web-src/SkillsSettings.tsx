@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Hand, Package, Plus, ShieldCheck, User } from 'lucide-react';
-import { runtime, type PluginSkill, type SkillAccount, type SkillOwner } from './runtime';
+import { runtime, type PluginSkill, type SkillAccount, type SkillFilterField, type SkillOwner } from './runtime';
 
 type SkillExtra = { disableModelInvocation: boolean; owner: SkillOwner; editingOwner: SkillOwner; revision?: number };
 type SkillForm = { editing: string | null; name: string; description: string; body: string } & SkillExtra;
@@ -153,30 +153,53 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   const emptyForm = useMemo<SkillForm>(() => ({ ...BLANK_FORM, owner: selectedPersonalOwner }), [selectedPersonalOwner]);
 
   const addButton = <C.Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{s.add}</C.Button>;
-  const accountSelector = isAdmin && selectedAccount !== null ? (
-    <C.Field label={s.accountLabel} hint={s.accountHint}>
+
+  // Switching whose catalogue is on screen is one operation however it was reached — from the control in
+  // the filter panel or from the chip that dismisses it. The entry being written belongs to the account
+  // you are leaving, so it closes first; then the two race guards: bumping the request counter voids a
+  // list response still in flight for the account being left, and clearing the list keeps a late
+  // response from painting over the account just chosen.
+  const chooseAccount = (account: number) => {
+    setCreating(false);
+    selectedAccountRef.current = account;
+    skillRequestRef.current += 1;
+    setSkills(undefined);
+    setSelectedAccount(account);
+  };
+
+  // Whose catalogue is being read narrows EVERY row on the page, so the account choice is a filter: it
+  // rides in the page's one filter control beside the scope filter, in the same field shell, and reports
+  // itself as a chip like any other filter does. Your own account is the neutral state, so the chip only
+  // appears while you are reading somebody else's list and taking it off puts you back on your own.
+  const accountFieldBase = isAdmin && selectedAccount !== null ? {
+    id: 'skill-account',
+    label: s.accountLabel,
+    hint: s.accountHint,
+    control: (
       <C.SelectMenu
         value={String(selectedAccount)}
-        onChange={(value: string) => {
-          const account = Number(value);
-          setCreating(false);
-          selectedAccountRef.current = account;
-          skillRequestRef.current += 1;
-          setSkills(undefined);
-          setSelectedAccount(account);
-        }}
+        onChange={(value: string) => chooseAccount(Number(value))}
         options={(accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
           value: String(account.id), label: account.name || account.username,
         }))}
         label={s.accountLabel}
-        className="min-w-[12rem]"
       />
-    </C.Field>
-  ) : null;
+    ),
+  } : null;
+  // A non-admin has exactly one account to look at, so they contribute no field at all: no row in the
+  // panel, no chip, and a filter surface identical to the one they had before this control existed.
+  const accountFilter: SkillFilterField | undefined = accountFieldBase === null ? undefined
+    : myId !== null && selectedAccount !== myId
+      ? {
+        ...accountFieldBase,
+        active: true,
+        activeLabel: `${s.accountLabel}: ${accountName(selectedAccount)}`,
+        onReset: () => chooseAccount(myId),
+      }
+      : { ...accountFieldBase, active: false };
 
   const surfaceDocument = (
     <C.ControlSurfaceDocument>
-      {accountSelector ? <div className="mb-4 max-w-sm">{accountSelector}</div> : null}
       <C.MarkdownAssetEditor
         query={query}
         creating={creating}
@@ -225,6 +248,7 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
             { value: 'plugin', label: s.scopePlugin, matches: (skill: PluginSkill) => skill.catalogSource === 'plugin' },
           ],
         }}
+        extraFilters={accountFilter ? [accountFilter] : undefined}
         renderBadges={(skill: PluginSkill) => (
           <>
             {skill.catalogSource === 'plugin' ? <C.Badge tone="default">{skill.contributorPlugin}</C.Badge> : null}

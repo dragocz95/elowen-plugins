@@ -191,6 +191,29 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(await screen.findByText('patricie-only')).toBeInTheDocument();
   });
 
+  // Whose catalogue is on screen narrows EVERY row, so the account choice is a filter of the page: it
+  // reports itself with a chip that names the account and puts the reader back on their own list.
+  it('reports the account filter as a chip that returns to your own catalogue', async () => {
+    use(http.get('/api/plugins/skills/list', ({ request }) => {
+      const account = new URL(request.url).searchParams.get('account');
+      return HttpResponse.json([pluginRow(account === '9' ? 'patricie-only' : 'filip-only', 'salon')]);
+    }));
+    mount('page');
+
+    // Your own account is the neutral state: nothing is filtered, so no chip is owed.
+    await screen.findByText('filip-only');
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
+    await screen.findByText('patricie-only');
+    const chips = await screen.findByTestId('page-filter-chips');
+    expect(within(chips).getByText(`${strings.accountLabel}: Patricie`)).toBeInTheDocument();
+
+    fireEvent.click(within(chips).getByRole('button'));
+    await screen.findByText('filip-only');
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
+  });
+
   it('shows Patricie the effective read-only plugin catalog without admin controls', async () => {
     use(
       http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 9, username: 'patricie', is_admin: false } })),
@@ -200,6 +223,9 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
 
     await screen.findByText('salon-operations');
     expect(screen.queryByRole('combobox', { name: strings.accountLabel })).toBeNull();
+    // Contributing no field at all, rather than an inert one: the filter surface stays exactly as wide
+    // as it was, with no empty row behind the trigger and no chip to dismiss.
+    expect(screen.queryByTestId('page-filter-chips')).toBeNull();
     expect(screen.queryByRole('switch', { name: `${strings.pluginAvailability}: salon-operations` })).toBeNull();
     expect(screen.getAllByText(strings.statusEffective).length).toBeGreaterThan(0);
   });

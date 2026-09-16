@@ -2,20 +2,11 @@
 @layer properties;
 @layer theme, base, components, utilities;
 @layer utilities {
-  .mb-4 {
-    margin-bottom: calc(var(--spacing, 0.25rem) * 4);
-  }
   .flex {
     display: flex;
   }
-  .max-w-sm {
-    max-width: var(--container-sm, 24rem);
-  }
   .min-w-0 {
     min-width: 0px;
-  }
-  .min-w-\[12rem\] {
-    min-width: 12rem;
   }
   .flex-1 {
     flex: 1;

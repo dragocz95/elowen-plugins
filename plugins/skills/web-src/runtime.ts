@@ -3,7 +3,7 @@
  *  The runtime hands over untyped `components`/`hooks` records; this module narrows each entry to
  *  the signature the moved skills editor was written against in the core app. The narrowing is a
  *  local structural CONTRACT, not a source import — the bundle must not compile against `web/`. */
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 export interface PluginChatPickerProps {
   plugin: string;
   command: string;
@@ -41,6 +41,16 @@ export interface SkillAccount { id: number; username: string; name?: string }
 
 /** Which set a write addresses: an account id, the shared instance set, or the caller's own. */
 export type SkillOwner = number | 'instance' | null;
+
+/** One entry of the page's single condensed filter control — the host's `PageFilterField`
+ *  (web/components/ui/PageFilters.tsx), mirrored structurally because a bundle never compiles against
+ *  `web/`. `control` is an opaque node the host renders and never reads: whether the page is narrowed is
+ *  answered by the page's own `active` flag, and an active field must also say what it filters
+ *  (`activeLabel`) and how to undo it (`onReset`) — which is why the two are inseparable here too.
+ *  `MarkdownAssetEditor`'s `extraFilters` prop takes these. */
+export type SkillFilterField =
+  | { id: string; label: string; hint?: string; control: ReactNode; active: true; activeLabel: string; onReset: () => void }
+  | { id: string; label: string; hint?: string; control: ReactNode; active: false };
 
 // ---- hook shapes --------------------------------------------------------------------------------
 

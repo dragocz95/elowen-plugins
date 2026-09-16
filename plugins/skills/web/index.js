@@ -352,190 +352,198 @@ function SkillsSettings({ surface }) {
   const effectiveCount = skills?.filter((skill) => skill.effective).length ?? 0;
   const emptyForm = (0, import_react3.useMemo)(() => ({ ...BLANK_FORM, owner: selectedPersonalOwner }), [selectedPersonalOwner]);
   const addButton = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: () => setCreating(true), children: s.add });
-  const accountSelector = isAdmin && selectedAccount !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.accountLabel, hint: s.accountHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-    C.SelectMenu,
-    {
-      value: String(selectedAccount),
-      onChange: (value) => {
-        const account = Number(value);
-        setCreating(false);
-        selectedAccountRef.current = account;
-        skillRequestRef.current += 1;
-        setSkills(void 0);
-        setSelectedAccount(account);
-      },
-      options: (accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
-        value: String(account.id),
-        label: account.name || account.username
-      })),
-      label: s.accountLabel,
-      className: "min-w-[12rem]"
-    }
-  ) }) : null;
-  const surfaceDocument = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ControlSurfaceDocument, { children: [
-    accountSelector ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mb-4 max-w-sm", children: accountSelector }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      C.MarkdownAssetEditor,
+  const chooseAccount = (account) => {
+    setCreating(false);
+    selectedAccountRef.current = account;
+    skillRequestRef.current += 1;
+    setSkills(void 0);
+    setSelectedAccount(account);
+  };
+  const accountFieldBase = isAdmin && selectedAccount !== null ? {
+    id: "skill-account",
+    label: s.accountLabel,
+    hint: s.accountHint,
+    control: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.SelectMenu,
       {
-        query,
-        creating,
-        onCreatingChange: setCreating,
-        addAction: surface === "deck" ? addButton : void 0,
-        labels: {
-          empty: s.empty,
-          badgeUser: s.badgeUser,
-          badgeBuiltin: s.badgeProvided,
-          addTitle: s.add,
-          edit: s.edit,
-          remove: s.remove,
-          save: s.save,
-          cancel: s.cancel,
-          name: s.name,
-          nameHint: s.helpName,
-          namePlaceholder: "deploy-checklist",
-          description: s.description,
-          descriptionHint: s.helpDescription,
-          body: s.content,
-          bodyHint: s.helpContent,
-          created: s.created,
-          updated: s.updated,
-          deleted: s.deleted,
-          deleteTitle: s.deleteTitle,
-          deleteDesc: s.deleteDesc
-        },
-        emptyForm,
-        formFromItem: (skill) => ({
-          editing: skill.name,
-          name: skill.name,
-          description: skill.description,
-          body: skill.content ?? "",
-          disableModelInvocation: skill.disableModelInvocation,
-          owner: targetOwner(skill),
-          editingOwner: targetOwner(skill),
-          revision: skill.revision ?? skill.version ?? 0
-        }),
-        ownership: {
-          header: s.ownerColumn,
-          label: ownerLabel,
-          scopes: [
-            { value: "personal", label: s.scopeMine, matches: (skill) => skill.catalogSource === "personal" && skill.owner === selectedAccount },
-            { value: "instance", label: s.scopeInstance, matches: (skill) => skill.catalogSource === "instance" },
-            { value: "bundled", label: s.scopeBundled, matches: (skill) => skill.catalogSource === "bundled" },
-            { value: "plugin", label: s.scopePlugin, matches: (skill) => skill.catalogSource === "plugin" }
-          ]
-        },
-        renderBadges: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          skill.catalogSource === "plugin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: skill.contributorPlugin }) : null,
-          skill.catalogSource === "bundled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.badgeBundled }) : null,
-          skill.version != null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: "default", children: [
-            "v",
-            skill.version
-          ] }) : null,
-          skill.disableModelInvocation ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.manualOnlyBadge }) : null,
-          skill.unavailableReason === "disabled-for-account" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusDisabled }) : null,
-          skill.unavailableReason === "plugin-unavailable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusUnavailable }) : null,
-          skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.statusShadowed }) : null,
-          skill.effective ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "success", children: s.statusEffective }) : null
-        ] }),
-        renderRowControl: (skill) => skill.catalogSource === "plugin" ? isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.Toggle,
+        value: String(selectedAccount),
+        onChange: (value) => chooseAccount(Number(value)),
+        options: (accounts.length ? accounts : [{ id: selectedAccount, username: accountName(selectedAccount) }]).map((account) => ({
+          value: String(account.id),
+          label: account.name || account.username
+        })),
+        label: s.accountLabel
+      }
+    )
+  } : null;
+  const accountFilter = accountFieldBase === null ? void 0 : myId !== null && selectedAccount !== myId ? {
+    ...accountFieldBase,
+    active: true,
+    activeLabel: `${s.accountLabel}: ${accountName(selectedAccount)}`,
+    onReset: () => chooseAccount(myId)
+  } : { ...accountFieldBase, active: false };
+  const surfaceDocument = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    C.MarkdownAssetEditor,
+    {
+      query,
+      creating,
+      onCreatingChange: setCreating,
+      addAction: surface === "deck" ? addButton : void 0,
+      labels: {
+        empty: s.empty,
+        badgeUser: s.badgeUser,
+        badgeBuiltin: s.badgeProvided,
+        addTitle: s.add,
+        edit: s.edit,
+        remove: s.remove,
+        save: s.save,
+        cancel: s.cancel,
+        name: s.name,
+        nameHint: s.helpName,
+        namePlaceholder: "deploy-checklist",
+        description: s.description,
+        descriptionHint: s.helpDescription,
+        body: s.content,
+        bodyHint: s.helpContent,
+        created: s.created,
+        updated: s.updated,
+        deleted: s.deleted,
+        deleteTitle: s.deleteTitle,
+        deleteDesc: s.deleteDesc
+      },
+      emptyForm,
+      formFromItem: (skill) => ({
+        editing: skill.name,
+        name: skill.name,
+        description: skill.description,
+        body: skill.content ?? "",
+        disableModelInvocation: skill.disableModelInvocation,
+        owner: targetOwner(skill),
+        editingOwner: targetOwner(skill),
+        revision: skill.revision ?? skill.version ?? 0
+      }),
+      ownership: {
+        header: s.ownerColumn,
+        label: ownerLabel,
+        scopes: [
+          { value: "personal", label: s.scopeMine, matches: (skill) => skill.catalogSource === "personal" && skill.owner === selectedAccount },
+          { value: "instance", label: s.scopeInstance, matches: (skill) => skill.catalogSource === "instance" },
+          { value: "bundled", label: s.scopeBundled, matches: (skill) => skill.catalogSource === "bundled" },
+          { value: "plugin", label: s.scopePlugin, matches: (skill) => skill.catalogSource === "plugin" }
+        ]
+      },
+      extraFilters: accountFilter ? [accountFilter] : void 0,
+      renderBadges: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        skill.catalogSource === "plugin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: skill.contributorPlugin }) : null,
+        skill.catalogSource === "bundled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.badgeBundled }) : null,
+        skill.version != null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: "default", children: [
+          "v",
+          skill.version
+        ] }) : null,
+        skill.disableModelInvocation ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.manualOnlyBadge }) : null,
+        skill.unavailableReason === "disabled-for-account" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusDisabled }) : null,
+        skill.unavailableReason === "plugin-unavailable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusUnavailable }) : null,
+        skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.statusShadowed }) : null,
+        skill.effective ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "success", children: s.statusEffective }) : null
+      ] }),
+      renderRowControl: (skill) => skill.catalogSource === "plugin" ? isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Toggle,
+        {
+          checked: skill.enabledForAccount,
+          onChange: (enabled) => {
+            void togglePluginAvailability(skill, enabled);
+          },
+          label: `${s.pluginAvailability}: ${skill.name}`,
+          disabled: availabilityKey === `${selectedAccount}:${skill.pluginKey}`
+        }
+      ) : null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Toggle,
+        {
+          checked: !skill.disableModelInvocation,
+          onChange: (enabled) => toggleInvocation(skill, enabled),
+          label: `${s.disableModelInvocation}: ${skill.name}`,
+          disabled: !skill.canDelete || update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill)
+        }
+      ),
+      renderFieldsAfterBody: (form, patch) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        isAdmin && scopeSwitchable(form) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scopeFieldLabel, hint: form.editing === null ? s.scopeFieldHint : s.scopeMoveHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          C.Segmented,
           {
-            checked: skill.enabledForAccount,
-            onChange: (enabled) => {
-              void togglePluginAvailability(skill, enabled);
-            },
-            label: `${s.pluginAvailability}: ${skill.name}`,
-            disabled: availabilityKey === `${selectedAccount}:${skill.pluginKey}`
+            value: form.owner === "instance" ? "instance" : "personal",
+            onChange: (value) => patch({ owner: value === "instance" ? "instance" : selectedPersonalOwner }),
+            options: [
+              { value: "personal", label: s.scopeFieldPersonal },
+              { value: "instance", label: s.scopeFieldInstance }
+            ],
+            "aria-label": s.scopeFieldLabel,
+            nowrap: true
           }
-        ) : null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.Toggle,
-          {
-            checked: !skill.disableModelInvocation,
-            onChange: (enabled) => toggleInvocation(skill, enabled),
-            label: `${s.disableModelInvocation}: ${skill.name}`,
-            disabled: !skill.canDelete || update.isPending && update.variables?.name === skill.name && update.variables?.owner === targetOwner(skill)
-          }
-        ),
-        renderFieldsAfterBody: (form, patch) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          isAdmin && scopeSwitchable(form) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.scopeFieldLabel, hint: form.editing === null ? s.scopeFieldHint : s.scopeMoveHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            C.Segmented,
+        ) }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            C.Toggle,
             {
-              value: form.owner === "instance" ? "instance" : "personal",
-              onChange: (value) => patch({ owner: value === "instance" ? "instance" : selectedPersonalOwner }),
-              options: [
-                { value: "personal", label: s.scopeFieldPersonal },
-                { value: "instance", label: s.scopeFieldInstance }
-              ],
-              "aria-label": s.scopeFieldLabel,
-              nowrap: true
+              checked: !form.disableModelInvocation,
+              onChange: (enabled) => patch({ disableModelInvocation: !enabled }),
+              label: s.disableModelInvocation
             }
-          ) }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              C.Toggle,
-              {
-                checked: !form.disableModelInvocation,
-                onChange: (enabled) => patch({ disableModelInvocation: !enabled }),
-                label: s.disableModelInvocation
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex flex-col", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-foreground", children: s.disableModelInvocation }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: s.disableModelInvocationHint })
-            ] })
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex flex-col", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-foreground", children: s.disableModelInvocation }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-xs text-muted-foreground", children: s.disableModelInvocationHint })
           ] })
-        ] }),
-        onSave: (form, callbacks) => {
-          if (submitRef.current) return;
-          submitRef.current = true;
-          setSubmitting(true);
-          const guarded = {
-            onSuccess: () => {
-              submitRef.current = false;
-              setSubmitting(false);
-              void loadSkills();
-              callbacks.onSuccess();
-            },
-            onError: (error) => {
-              submitRef.current = false;
-              setSubmitting(false);
-              void loadSkills();
-              callbacks.onError(error);
-            }
-          };
-          if (form.editing !== null) {
-            const name = form.editing;
-            const from = form.editingOwner;
-            const patch = { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation };
-            const revision = form.revision ?? 0;
-            void (async () => {
-              const path = form.owner !== from ? `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}` : `/plugins/skills/${encodeURIComponent(name)}?owner=${encodeURIComponent(ownerParam(from))}`;
-              const body = form.owner !== from ? { owner: ownerParam(form.owner), expectedRevision: revision, patch } : { ...patch, expectedRevision: revision };
-              try {
-                await api(path, { method: form.owner !== from ? "POST" : "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-                guarded.onSuccess();
-              } catch (error) {
-                guarded.onError(error);
-              }
-            })();
-          } else {
-            create.mutate(
-              { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
-              guarded
-            );
-          }
-        },
-        saving: submitting || create.isPending || update.isPending,
-        onDelete: (skill, callbacks) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, {
+        ] })
+      ] }),
+      onSave: (form, callbacks) => {
+        if (submitRef.current) return;
+        submitRef.current = true;
+        setSubmitting(true);
+        const guarded = {
           onSuccess: () => {
+            submitRef.current = false;
+            setSubmitting(false);
             void loadSkills();
             callbacks.onSuccess();
           },
-          onError: callbacks.onError
-        })
-      }
-    )
-  ] });
+          onError: (error) => {
+            submitRef.current = false;
+            setSubmitting(false);
+            void loadSkills();
+            callbacks.onError(error);
+          }
+        };
+        if (form.editing !== null) {
+          const name = form.editing;
+          const from = form.editingOwner;
+          const patch = { description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation };
+          const revision = form.revision ?? 0;
+          void (async () => {
+            const path = form.owner !== from ? `/plugins/skills/${encodeURIComponent(name)}/owner?owner=${encodeURIComponent(ownerParam(from))}` : `/plugins/skills/${encodeURIComponent(name)}?owner=${encodeURIComponent(ownerParam(from))}`;
+            const body = form.owner !== from ? { owner: ownerParam(form.owner), expectedRevision: revision, patch } : { ...patch, expectedRevision: revision };
+            try {
+              await api(path, { method: form.owner !== from ? "POST" : "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+              guarded.onSuccess();
+            } catch (error) {
+              guarded.onError(error);
+            }
+          })();
+        } else {
+          create.mutate(
+            { name: form.name.trim(), description: form.description.trim(), content: form.body, disableModelInvocation: form.disableModelInvocation, owner: form.owner },
+            guarded
+          );
+        }
+      },
+      saving: submitting || create.isPending || update.isPending,
+      onDelete: (skill, callbacks) => remove.mutate({ name: skill.name, owner: targetOwner(skill) }, {
+        onSuccess: () => {
+          void loadSkills();
+          callbacks.onSuccess();
+        },
+        onError: callbacks.onError
+      })
+    }
+  ) });
   if (surface === "deck") return surfaceDocument;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
     C.WorkspaceShell,

@@ -1215,6 +1215,7 @@ const assetKey = (item: MarkdownAsset): string => `${item.source}:${item.owner ?
 export function MarkdownAssetEditor(props: any) {
   const {
     query, labels, emptyForm, formFromItem, extraValid, renderBadges, renderRowControl, ownership,
+    extraFilters,
     renderFieldsBeforeBody, renderFieldsAfterBody, onSave, saving, onDelete, creating, onCreatingChange,
     addAction,
   } = props;
@@ -1253,9 +1254,6 @@ export function MarkdownAssetEditor(props: any) {
   const clampedPage = Math.min(page, pageCount - 1);
   const pageItems = useMemo(() => filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE), [filtered, clampedPage]);
 
-  if (isError) return <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => query.refetch()} /></ControlSurfaceState>;
-  if (isLoading || !data) return <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>;
-
   const patch = (p: any) => setForm((cur: any) => (cur ? { ...cur, ...p } : cur));
   const closeForm = () => { setForm(null); setEditing(null); onCreatingChange(false); };
   const nameValid = form !== null && NAME_RE.test(form.name.trim());
@@ -1281,8 +1279,10 @@ export function MarkdownAssetEditor(props: any) {
     setPendingDelete(null);
   };
 
-  return (
-    <div className="markdown-asset-editor">
+  // The port's copy of the host's toolbar row, hoisted out of the return so the register can keep it on
+  // screen while its body is loading or failed, exactly as the host's editor does.
+  const toolbar = (
+    <>
       <ControlSurfaceToolbar>
         <div className="markdown-asset-editor__toolbar">
           <div>
@@ -1313,11 +1313,38 @@ export function MarkdownAssetEditor(props: any) {
               nowrap
             />
           )}
+          {/* The host folds its own scope field AND any field the page contributes behind ONE filter
+              control. This port has always rendered the register's own field inline, so a contributed
+              control is rendered beside it; the chip row is the shared one, which is what a plugin asserts
+              on. That the contributed field really sits inside the panel is the host's behaviour, proven by
+              the host's own MarkdownAssetEditor test against the real PageFilters. */}
+          {(extraFilters ?? []).map((field: any) => (
+            <div key={field.id} className="page-filters__field" role="group" aria-label={field.label}>
+              <span className="page-filters__field-label">{field.label}</span>
+              <div className="page-filters__field-control">{field.control}</div>
+            </div>
+          ))}
           {addAction}
         </div>
       </ControlSurfaceToolbar>
+      <PageFilterChips fields={extraFilters ?? []} />
+    </>
+  );
+  // The host keeps that row on screen while its body loads or fails, so a filter stays reachable while a
+  // request is in flight, and it draws the state INSTEAD of the register rather than instead of the whole
+  // panel — which is why an open form survives a refetch. The port mirrors the shape: a plugin test that
+  // drove a control the real register would not have shown would be proving nothing.
+  const registerState = isError
+    ? <ControlSurfaceState tone="danger"><ErrorState message={t.common.daemonUnreachable} onRetry={() => query.refetch()} /></ControlSurfaceState>
+    : isLoading || !data
+      ? <ControlSurfaceState><LoadingState variant="cards" /></ControlSurfaceState>
+      : null;
 
-      <ControlSurfaceRegister>
+  return (
+    <div className="markdown-asset-editor">
+      {toolbar}
+
+      {registerState ?? <ControlSurfaceRegister>
         {items.length === 0 ? <EmptyState title={labels.empty} />
           : filtered.length === 0 ? <EmptyState title={t.assetEditor.emptySearch} icon={Search} />
           : (
@@ -1384,7 +1411,7 @@ export function MarkdownAssetEditor(props: any) {
               />
             </div>
           )}
-      </ControlSurfaceRegister>
+      </ControlSurfaceRegister>}
 
       {form ? (
         <WorkspaceDetailRail
