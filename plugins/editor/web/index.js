@@ -241,9 +241,9 @@ var require_papaparse_min = __commonJS({
       function q2(e) {
         return e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       }
-      function E2(C3) {
-        var S3 = (C3 = C3 || {}).delimiter, O2 = C3.newline, x2 = C3.comments, I2 = C3.step, A2 = C3.preview, T = C3.fastMode, D2 = null, L2 = false, F2 = null == C3.quoteChar ? '"' : C3.quoteChar, z2 = F2;
-        if (void 0 !== C3.escapeChar && (z2 = C3.escapeChar), ("string" != typeof S3 || -1 < w.BAD_DELIMITERS.indexOf(S3)) && (S3 = ","), x2 === S3) throw new Error("Comment character same as delimiter");
+      function E2(C4) {
+        var S3 = (C4 = C4 || {}).delimiter, O2 = C4.newline, x2 = C4.comments, I2 = C4.step, A2 = C4.preview, T = C4.fastMode, D2 = null, L2 = false, F2 = null == C4.quoteChar ? '"' : C4.quoteChar, z2 = F2;
+        if (void 0 !== C4.escapeChar && (z2 = C4.escapeChar), ("string" != typeof S3 || -1 < w.BAD_DELIMITERS.indexOf(S3)) && (S3 = ","), x2 === S3) throw new Error("Comment character same as delimiter");
         true === x2 ? x2 = "#" : ("string" != typeof x2 || -1 < w.BAD_DELIMITERS.indexOf(x2)) && (x2 = false), "\n" !== O2 && "\r" !== O2 && "\r\n" !== O2 && (O2 = "\n");
         var M = 0, j2 = false;
         this.parse = function(i2, t, r2) {
@@ -307,12 +307,12 @@ var require_papaparse_min = __commonJS({
             M = e2, k3(d2), d2 = [], _4 = i2.indexOf(O2, M);
           }
           function v3(e2) {
-            if (C3.header && !t && h3.length && !L2) {
+            if (C4.header && !t && h3.length && !L2) {
               var s3 = h3[0], a3 = /* @__PURE__ */ Object.create(null), o3 = new Set(s3);
               let n3 = false;
               for (let r3 = 0; r3 < s3.length; r3++) {
                 let i3 = P2(s3[r3]);
-                if (a3[i3 = U2(C3.transformHeader) ? C3.transformHeader(i3, r3) : i3]) {
+                if (a3[i3 = U2(C4.transformHeader) ? C4.transformHeader(i3, r3) : i3]) {
                   let e3, t2 = a3[i3];
                   for (; e3 = i3 + "_" + t2, t2++, o3.has(e3); ) ;
                   o3.add(e3), s3[r3] = e3, a3[i3]++, n3 = true, (D2 = null === D2 ? {} : D2)[e3] = i3;
@@ -529,12 +529,30 @@ var AlignLeft = createLucideIcon("AlignLeft", [
   ["path", { d: "M21 6H3", key: "1jwq7v" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/arrow-down.js
+var ArrowDown = createLucideIcon("ArrowDown", [
+  ["path", { d: "M12 5v14", key: "s699le" }],
+  ["path", { d: "m19 12-7 7-7-7", key: "1idqje" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/arrow-up.js
+var ArrowUp = createLucideIcon("ArrowUp", [
+  ["path", { d: "m5 12 7-7 7 7", key: "hav0vg" }],
+  ["path", { d: "M12 19V5", key: "x0mq9r" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
 // node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/circle-check.js
+var CircleCheck = createLucideIcon("CircleCheck", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/circle.js
@@ -597,6 +615,20 @@ var File2 = createLucideIcon("File", [
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/folder-git-2.js
+var FolderGit2 = createLucideIcon("FolderGit2", [
+  [
+    "path",
+    {
+      d: "M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5",
+      key: "1w6njk"
+    }
+  ],
+  ["circle", { cx: "13", cy: "12", r: "2", key: "1j92g6" }],
+  ["path", { d: "M18 19c-2.8 0-5-2.2-5-5v8", key: "pkpw2h" }],
+  ["circle", { cx: "20", cy: "19", r: "2", key: "1obnsp" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/folder-open.js
 var FolderOpen = createLucideIcon("FolderOpen", [
   [
@@ -652,6 +684,21 @@ var Folder = createLucideIcon("Folder", [
   ]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/git-branch.js
+var GitBranch = createLucideIcon("GitBranch", [
+  ["line", { x1: "6", x2: "6", y1: "3", y2: "15", key: "17qcm7" }],
+  ["circle", { cx: "18", cy: "6", r: "3", key: "1h7g24" }],
+  ["circle", { cx: "6", cy: "18", r: "3", key: "fqmcym" }],
+  ["path", { d: "M18 9a9 9 0 0 1-9 9", key: "n2h4wq" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/git-commit-horizontal.js
+var GitCommitHorizontal = createLucideIcon("GitCommitHorizontal", [
+  ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }],
+  ["line", { x1: "3", x2: "9", y1: "12", y2: "12", key: "1dyftd" }],
+  ["line", { x1: "15", x2: "21", y1: "12", y2: "12", key: "oup4p8" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/git-compare.js
 var GitCompare = createLucideIcon("GitCompare", [
   ["circle", { cx: "18", cy: "18", r: "3", key: "1xkwt0" }],
@@ -672,6 +719,13 @@ var HardDrive = createLucideIcon("HardDrive", [
   ],
   ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
   ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/image.js
+var Image = createLucideIcon("Image", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }],
+  ["circle", { cx: "9", cy: "9", r: "2", key: "af1f0g" }],
+  ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21", key: "1xmnt7" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/map.js
@@ -3748,7 +3802,7 @@ function createDOMPurify() {
   };
   const _document = document2, implementation = _document.implementation, createNodeIterator = _document.createNodeIterator, createDocumentFragment = _document.createDocumentFragment, getElementsByTagName = _document.getElementsByTagName;
   const importNode = originalDocument.importNode;
-  let hooks2 = _createHooksMap();
+  let hooks3 = _createHooksMap();
   DOMPurify.isSupported = typeof entries === "function" && typeof getParentNode === "function" && implementation && implementation.createHTMLDocument !== void 0;
   const MUSTACHE_EXPR$1 = MUSTACHE_EXPR, ERB_EXPR$1 = ERB_EXPR, TMPLIT_EXPR$1 = TMPLIT_EXPR, DATA_ATTR$1 = DATA_ATTR, ARIA_ATTR$1 = ARIA_ATTR, IS_SCRIPT_OR_DATA$1 = IS_SCRIPT_OR_DATA, ATTR_WHITESPACE$1 = ATTR_WHITESPACE, CUSTOM_ELEMENT$1 = CUSTOM_ELEMENT;
   let IS_ALLOWED_URI$1 = IS_ALLOWED_URI;
@@ -4400,11 +4454,11 @@ function createDOMPurify() {
       return false;
     }
   };
-  function _executeHooks(hooks3, currentNode, data) {
-    if (hooks3.length === 0) {
+  function _executeHooks(hooks4, currentNode, data) {
+    if (hooks4.length === 0) {
       return;
     }
-    arrayForEach(hooks3, (hook) => {
+    arrayForEach(hooks4, (hook) => {
       hook.call(DOMPurify, currentNode, data, CONFIG);
     });
   }
@@ -4469,7 +4523,7 @@ function createDOMPurify() {
     return true;
   };
   const _sanitizeElements = function _sanitizeElements2(currentNode, root) {
-    _executeHooks(hooks2.beforeSanitizeElements, currentNode, null);
+    _executeHooks(hooks3.beforeSanitizeElements, currentNode, null);
     if (_handleHookDetachedNode(currentNode, root)) {
       return true;
     }
@@ -4478,8 +4532,8 @@ function createDOMPurify() {
       return true;
     }
     const tagName = transformCaseFunc(_readNodeName(currentNode));
-    ALLOWED_TAGS = _forkSharedAllowlist(hooks2.uponSanitizeElement, ALLOWED_TAGS, DEFAULT_ALLOWED_TAGS, SET_CONFIG_ALLOWED_TAGS);
-    _executeHooks(hooks2.uponSanitizeElement, currentNode, {
+    ALLOWED_TAGS = _forkSharedAllowlist(hooks3.uponSanitizeElement, ALLOWED_TAGS, DEFAULT_ALLOWED_TAGS, SET_CONFIG_ALLOWED_TAGS);
+    _executeHooks(hooks3.uponSanitizeElement, currentNode, {
       tagName,
       allowedTags: ALLOWED_TAGS
     });
@@ -4493,7 +4547,7 @@ function createDOMPurify() {
     if (FORBID_TAGS[tagName] || !(EXTRA_ELEMENT_HANDLING.tagCheck instanceof Function && EXTRA_ELEMENT_HANDLING.tagCheck(tagName)) && !ALLOWED_TAGS[tagName]) {
       const removed = _sanitizeDisallowedNode(currentNode, tagName, root);
       if (removed === false) {
-        _executeHooks(hooks2.afterSanitizeElements, currentNode, null);
+        _executeHooks(hooks3.afterSanitizeElements, currentNode, null);
       }
       return removed;
     }
@@ -4515,7 +4569,7 @@ function createDOMPurify() {
         currentNode.textContent = content;
       }
     }
-    _executeHooks(hooks2.afterSanitizeElements, currentNode, null);
+    _executeHooks(hooks3.afterSanitizeElements, currentNode, null);
     return false;
   };
   const _isValidAttribute = function _isValidAttribute2(lcTag, lcName, value) {
@@ -4594,12 +4648,12 @@ function createDOMPurify() {
     }
   };
   const _sanitizeAttributes = function _sanitizeAttributes2(currentNode) {
-    _executeHooks(hooks2.beforeSanitizeAttributes, currentNode, null);
+    _executeHooks(hooks3.beforeSanitizeAttributes, currentNode, null);
     const attributes = currentNode.attributes;
     if (!attributes || _isClobbered(currentNode)) {
       return;
     }
-    ALLOWED_ATTR = _forkSharedAllowlist(hooks2.uponSanitizeAttribute, ALLOWED_ATTR, DEFAULT_ALLOWED_ATTR, SET_CONFIG_ALLOWED_ATTR);
+    ALLOWED_ATTR = _forkSharedAllowlist(hooks3.uponSanitizeAttribute, ALLOWED_ATTR, DEFAULT_ALLOWED_ATTR, SET_CONFIG_ALLOWED_ATTR);
     const hookEvent = {
       attrName: "",
       attrValue: "",
@@ -4619,7 +4673,7 @@ function createDOMPurify() {
       hookEvent.attrValue = value;
       hookEvent.keepAttr = true;
       hookEvent.forceKeepAttr = void 0;
-      _executeHooks(hooks2.uponSanitizeAttribute, currentNode, hookEvent);
+      _executeHooks(hooks3.uponSanitizeAttribute, currentNode, hookEvent);
       value = hookEvent.attrValue;
       if (SANITIZE_NAMED_PROPS && (lcName === "id" || lcName === "name") && stringIndexOf(value, SANITIZE_NAMED_PROPS_PREFIX) !== 0) {
         _removeAttribute(name, currentNode, attr);
@@ -4656,14 +4710,14 @@ function createDOMPurify() {
         _setAttributeValue(currentNode, name, namespaceURI, value);
       }
     }
-    _executeHooks(hooks2.afterSanitizeAttributes, currentNode, null);
+    _executeHooks(hooks3.afterSanitizeAttributes, currentNode, null);
   };
   const _sanitizeShadowDOM2 = function _sanitizeShadowDOM(fragment) {
     let shadowNode = null;
     const shadowIterator = _createNodeIterator(fragment);
-    _executeHooks(hooks2.beforeSanitizeShadowDOM, fragment, null);
+    _executeHooks(hooks3.beforeSanitizeShadowDOM, fragment, null);
     while (shadowNode = shadowIterator.nextNode()) {
-      _executeHooks(hooks2.uponSanitizeShadowNode, shadowNode, null);
+      _executeHooks(hooks3.uponSanitizeShadowNode, shadowNode, null);
       _sanitizeElements(shadowNode, fragment);
       _sanitizeAttributes(shadowNode);
       if (_isDocumentFragment(shadowNode.content)) {
@@ -4677,7 +4731,7 @@ function createDOMPurify() {
         }
       }
     }
-    _executeHooks(hooks2.afterSanitizeShadowDOM, fragment, null);
+    _executeHooks(hooks3.afterSanitizeShadowDOM, fragment, null);
   };
   const _sanitizeAttachedShadowRoots = function _sanitizeAttachedShadowRoots2(root) {
     const stack = [{
@@ -4753,10 +4807,10 @@ function createDOMPurify() {
     } else {
       _parseConfig(cfg);
     }
-    if (hooks2.uponSanitizeElement.length > 0 || hooks2.uponSanitizeAttribute.length > 0) {
+    if (hooks3.uponSanitizeElement.length > 0 || hooks3.uponSanitizeAttribute.length > 0) {
       ALLOWED_TAGS = clone(ALLOWED_TAGS);
     }
-    if (hooks2.uponSanitizeAttribute.length > 0) {
+    if (hooks3.uponSanitizeAttribute.length > 0) {
       ALLOWED_ATTR = clone(ALLOWED_ATTR);
     }
     DOMPurify.removed = [];
@@ -4890,29 +4944,29 @@ function createDOMPurify() {
     if (typeof hookFunction !== "function") {
       return;
     }
-    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+    if (!objectHasOwnProperty(hooks3, entryPoint)) {
       return;
     }
-    arrayPush(hooks2[entryPoint], hookFunction);
+    arrayPush(hooks3[entryPoint], hookFunction);
   };
   DOMPurify.removeHook = function(entryPoint, hookFunction) {
-    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+    if (!objectHasOwnProperty(hooks3, entryPoint)) {
       return void 0;
     }
     if (hookFunction !== void 0) {
-      const index2 = arrayLastIndexOf(hooks2[entryPoint], hookFunction);
-      return index2 === -1 ? void 0 : arraySplice(hooks2[entryPoint], index2, 1)[0];
+      const index2 = arrayLastIndexOf(hooks3[entryPoint], hookFunction);
+      return index2 === -1 ? void 0 : arraySplice(hooks3[entryPoint], index2, 1)[0];
     }
-    return arrayPop(hooks2[entryPoint]);
+    return arrayPop(hooks3[entryPoint]);
   };
   DOMPurify.removeHooks = function(entryPoint) {
-    if (!objectHasOwnProperty(hooks2, entryPoint)) {
+    if (!objectHasOwnProperty(hooks3, entryPoint)) {
       return;
     }
-    hooks2[entryPoint] = [];
+    hooks3[entryPoint] = [];
   };
   DOMPurify.removeAllHooks = function() {
-    hooks2 = _createHooksMap();
+    hooks3 = _createHooksMap();
   };
   return DOMPurify;
 }
@@ -5825,8 +5879,213 @@ function EditorPage() {
   ] });
 }
 
+// plugins/editor/web-src/ProjectGitPanel.tsx
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var { hooks: hooks2, components: C3, utils: utils2, navigate: navigate2 } = runtime();
+var { Badge, Button: Button4, EntityList, EntityRow, LoadingLine } = C3;
+function editorUrl(projectId, params = {}) {
+  const query = new URLSearchParams({ project: String(projectId), ...params });
+  return `/p/editor?${query.toString()}`;
+}
+function ProjectGitPanel({ project }) {
+  const s = hooks2.usePluginStrings("editor");
+  const host = hooks2.useTranslation().t.projects;
+  const managed = project.executionKind === "managed";
+  const environment = hooks2.useProjectEnvironmentState(managed ? project.id : null);
+  const git = hooks2.useProjectGit(project.id, !managed || environment.data?.environment.state === "running");
+  if (managed && environment.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(LoadingLine, {});
+  if (managed && environment.isError) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("p", { role: "alert", className: "py-4 text-xs text-muted-foreground", children: utils2.apiErrorMessage(environment.error) });
+  if (managed && environment.data && environment.data.environment.state !== "running") return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("p", { role: "status", className: "py-4 text-xs text-muted-foreground", children: s.gitEnvironmentStopped });
+  if (git.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(LoadingLine, {});
+  if (git.isError) {
+    const status = git.error?.status;
+    const message = status === 409 ? s.gitEnvironmentStopped : utils2.apiErrorMessage(git.error);
+    return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("p", { role: "alert", className: "flex flex-wrap items-center gap-2 py-4 text-xs text-muted-foreground", children: [
+      message,
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Button4, { variant: "ghost", onClick: () => {
+        void git.refetch();
+      }, children: host.retry })
+    ] });
+  }
+  if (!git.data) return null;
+  if (!git.data.isRepo) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "py-4", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Badge, { tone: "muted", children: host.notGit }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+    git.data.status ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "border-b border-border/70 py-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-3 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(FolderGit2, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
+        host.git
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: "flex flex-wrap items-center gap-1.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "accent", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(GitBranch, { size: 11, className: "mr-1", "aria-hidden": true }),
+          git.data.status.branch
+        ] }),
+        git.data.status.clean ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "success", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(CircleCheck, { size: 11, className: "mr-1", "aria-hidden": true }),
+          host.clean
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { working: "1" })), title: host.viewChanges, className: "rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "warning", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(TriangleAlert, { size: 11, className: "mr-1", "aria-hidden": true }),
+          host.dirty.replace("{count}", String(git.data.status.dirty))
+        ] }) }),
+        git.data.status.ahead > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "accent", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ArrowUp, { size: 11, className: "mr-0.5", "aria-hidden": true }),
+          git.data.status.ahead
+        ] }) : null,
+        git.data.status.behind > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: "muted", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ArrowDown, { size: 11, className: "mr-0.5", "aria-hidden": true }),
+          git.data.status.behind
+        ] }) : null
+      ] })
+    ] }) : null,
+    git.data.branches.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "border-b border-border/70 py-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-3 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(GitBranch, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
+        host.branches
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: "flex flex-wrap gap-1.5", children: git.data.branches.map((branch) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Badge, { tone: branch.current ? "accent" : "muted", children: [
+        branch.name,
+        branch.current ? " *" : ""
+      ] }, branch.name)) })
+    ] }) : null,
+    git.data.commits.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("section", { className: "py-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("h3", { className: "mb-2 flex items-center gap-2 text-xs font-semibold text-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(GitCommitHorizontal, { size: 14, className: "text-muted-foreground", "aria-hidden": true }),
+        host.commits
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityList, { children: git.data.commits.map((commit) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityRow, { interactive: false, className: "py-0", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { commit: commit.hash })), title: host.viewCommit, className: "flex w-full min-w-0 flex-col gap-1 px-1 py-3 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "font-mono text-[11px] text-primary", children: commit.hash }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "min-w-0 flex-1 truncate text-xs text-foreground", children: commit.subject })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "text-[10px] text-muted-foreground", children: [
+          commit.author,
+          " \xB7 ",
+          commit.relative
+        ] })
+      ] }) }, commit.hash)) })
+    ] }) : null
+  ] });
+}
+
+// plugins/editor/web-src/projectRows.tsx
+var import_react25 = __toESM(require_react(), 1);
+
+// plugins/editor/web-src/ProjectIconPicker.tsx
+var import_react24 = __toESM(require_react(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
+var MAX_SHOWN = 300;
+function ProjectIconPicker({ project, onClose }) {
+  const { hooks: hooks3, components: C4, utils: utils3, api } = runtime();
+  const { AutoSaveStatus, Button: Button5, EmptyState: EmptyState3, ErrorState, Input: Input2, LoadingState: LoadingState2, Modal: Modal2, ModalBody: ModalBody2, ModalFooter: ModalFooter2, ProjectIcon: ProjectIcon2 } = C4;
+  const host = hooks3.useTranslation().t;
+  const { toast } = hooks3.useToast();
+  const queryClient = hooks3.useQueryClient();
+  const managed = project.executionKind === "managed";
+  const environment = hooks3.useProjectEnvironmentState(managed ? project.id : null);
+  const environmentReady = !managed || environment.data?.environment.state === "running";
+  const files = hooks3.useQuery({
+    queryKey: ["editor-project-files", project.id],
+    queryFn: () => api(`/projects/${project.id}/files`),
+    enabled: environmentReady
+  });
+  const update = hooks3.useMutation({
+    mutationFn: (icon) => api(`/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ icon }) }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-summaries"] })
+      ]);
+    }
+  });
+  const [query, setQuery] = (0, import_react24.useState)("");
+  const [selected, setSelected] = (0, import_react24.useState)(project.icon || null);
+  const images = (0, import_react24.useMemo)(() => {
+    const all = (files.data ?? []).filter((file) => file.type === "file" && IMAGE_RE.test(file.path));
+    const needle = query.trim().toLowerCase();
+    return (needle ? all.filter((file) => file.path.toLowerCase().includes(needle)) : all).slice(0, MAX_SHOWN);
+  }, [files.data, query]);
+  const groups = (0, import_react24.useMemo)(() => {
+    const by = /* @__PURE__ */ new Map();
+    for (const file of images) {
+      const slash = file.path.lastIndexOf("/");
+      const dir = slash >= 0 ? file.path.slice(0, slash) : "/";
+      const paths = by.get(dir);
+      if (paths) paths.push(file.path);
+      else by.set(dir, [file.path]);
+    }
+    return [...by.entries()].sort((a, b2) => a[0].localeCompare(b2[0]));
+  }, [images]);
+  const apply2 = (icon) => {
+    if (update.isPending) return;
+    update.mutate(icon, {
+      onSuccess: () => {
+        toast(icon ? host.projects.iconSet : host.projects.iconRemoved);
+        onClose();
+      },
+      onError: (error) => toast(utils3.apiErrorMessage(error), "error")
+    });
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Modal2, { title: host.projects.chooseIcon, description: project.slug, onClose, closeDisabled: update.isPending, size: "xl", icon: Image, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "border-b border-border px-5 py-3", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Input2, { value: query, onChange: (event) => setQuery(event.target.value), placeholder: host.projects.iconSearch, autoFocus: true }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(ModalBody2, { gap: 6, children: [
+      managed && environment.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : managed && environment.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(environment.error), onRetry: () => {
+        void environment.refetch();
+      } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: host.projects.iconEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
+        void files.refetch();
+      } }) : images.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: host.projects.noImages, icon: Image }) : groups.map(([dir, paths]) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: "flex flex-col gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "font-mono text-[11px] uppercase tracking-wide text-muted-foreground", children: dir }),
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2", children: paths.map((path) => {
+          const selectedPath = selected === path;
+          return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("button", { type: "button", onClick: () => setSelected(path), onDoubleClick: () => apply2(path), title: path, "aria-pressed": selectedPath, className: `flex flex-col items-center gap-1.5 rounded-lg border p-2 transition-colors ${selectedPath ? "border-primary bg-primary/[0.08]" : "border-border bg-card hover:border-border-strong hover:bg-accent"}`, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-border bg-background", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ProjectIcon2, { project: { id: project.id, icon: path }, size: 40 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "w-full truncate text-center text-[11px] text-muted-foreground", children: path.slice(path.lastIndexOf("/") + 1) })
+          ] }, path);
+        }) })
+      ] }, dir)),
+      images.length >= MAX_SHOWN ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("p", { className: "text-xs text-muted-foreground", children: host.projects.iconMore }) : null
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(ModalFooter2, { children: [
+      project.icon ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "danger", onClick: () => apply2(""), disabled: update.isPending, children: host.projects.iconRemove }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "flex-1" }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "ghost", onClick: onClose, disabled: update.isPending, children: host.common.cancel }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Button5, { variant: "accent", onClick: () => {
+        if (selected) apply2(selected);
+      }, disabled: update.isPending || !selected, children: host.projects.iconSelect }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(AutoSaveStatus, { status: update.isPending ? "saving" : update.isError ? "error" : update.isSuccess ? "saved" : "idle" })
+    ] })
+  ] });
+}
+
+// plugins/editor/web-src/projectRows.tsx
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var { navigate: navigate3 } = runtime();
+function useProjectRowContribution({ projects }) {
+  const s = runtime().hooks.usePluginStrings("editor");
+  const [iconFor, setIconFor] = (0, import_react25.useState)(null);
+  return {
+    actions: Object.fromEntries(projects.map((project) => [project.id, [
+      {
+        id: "open-editor",
+        label: s.openEditor,
+        icon: "Code2",
+        onSelect: () => navigate3(`/p/editor?project=${encodeURIComponent(String(project.id))}`)
+      },
+      {
+        id: "choose-icon",
+        label: s.chooseIcon,
+        icon: "Image",
+        onSelect: () => setIconFor(project)
+      }
+    ]])),
+    overlay: iconFor ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(ProjectIconPicker, { project: iconFor, onClose: () => setIconFor(null) }) : null
+  };
+}
+
 // plugins/editor/web-src/index.tsx
 registerEditorUi({
   requiresApiVersion: 16,
-  pages: { "": EditorPage }
+  pages: { "": EditorPage },
+  project: { git: ProjectGitPanel },
+  projectRows: useProjectRowContribution
 });

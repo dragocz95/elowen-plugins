@@ -42,7 +42,8 @@
       "DiscordLockThread",
       "DiscordAddThreadMember",
       "DiscordRemoveThreadMember"
-    ]
+    ],
+    "readOnlyTools": ["DiscordListChannels", "DiscordReadChannel", "DiscordListRoles", "DiscordListMembers", "DiscordServerInfo", "DiscordChannelInfo", "DiscordMemberInfo", "DiscordSearchMembers", "DiscordListPins"]
   },
   "deferLoading": [
     "Discord*"

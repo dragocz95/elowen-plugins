@@ -51,6 +51,7 @@
       "MicrosoftExcel",
       "MicrosoftTeams"
     ],
+    "readOnlyTools": ["TeamsFindPerson", "TeamsChatInfo", "TeamsMembers", "TeamsMemberInfo", "TeamsListConversations"],
     "controls": [
       "microsoftIdentity"
     ]

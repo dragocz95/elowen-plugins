@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-export interface BrainCard {
+interface BrainCard {
   id: string;
   title?: string;
   items?: readonly { text: string; status?: 'pending' | 'in_progress' | 'completed'; startedAt?: number; id?: string; label?: string; owner?: string; blockedBy?: string[] }[];

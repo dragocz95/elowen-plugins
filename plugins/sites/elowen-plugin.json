@@ -5,6 +5,7 @@
   "requiresCore": "0.28.45",
   "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
   "entry": "dist/index.js",
+  "consumesControls": ["sandbox", "browserCapture", "publishedSitesGateway"],
   "provides": {
     "tools": [
       "SiteCreate",
@@ -18,6 +19,7 @@
       "SiteUnshare",
       "SiteDelete"
     ],
+    "readOnlyTools": ["SiteList", "SiteGet"],
     "httpRoutes": [
       "s"
     ],

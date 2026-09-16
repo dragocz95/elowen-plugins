@@ -62,6 +62,7 @@
     "BrowserScreenshot",
     "BrowserAudit"
   ],
+  "readOnlyTools": ["BrowserSnapshot", "BrowserTabs", "BrowserScreenshot", "BrowserAudit"],
   "icons": {
     "Browser*": "🌐"
   },

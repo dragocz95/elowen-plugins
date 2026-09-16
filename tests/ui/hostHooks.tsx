@@ -276,6 +276,9 @@ export const useConfig = () => useQuery({ queryKey: QUERY_KEYS.config, queryFn: 
 
 export const useProjects = () => useQuery({ queryKey: ['projects'], queryFn: elowenClient.projects });
 
+export const useProjectEnvironmentState = (id: number | null) =>
+  useQuery({ queryKey: ['project-environment-state', id], queryFn: () => elowenClient.projectEnvironmentState(id as number), enabled: !!id });
+
 export const useProjectGit = (id: number | null) =>
   useQuery({ queryKey: ['project-git', id], queryFn: () => elowenClient.projectGit(id as number), enabled: !!id });
 

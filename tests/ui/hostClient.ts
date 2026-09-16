@@ -165,6 +165,7 @@ export const elowenClient = {
   },
 
   projects: () => req<Project[]>('/projects'),
+  projectEnvironmentState: (id: number) => req<{ environment: { state: string } }>(`/plugins/sandbox/api/projects/${id}/environment`),
   projectGit: (id: number) => req<{ isRepo: boolean; status: { dirty: number } | null; commits: CommitLogEntry[] }>(`/projects/${id}/git`),
   projectCommits: (id: number, limit = 30) => req<{ commits: CommitLogEntry[] }>(`/projects/${id}/commits?limit=${limit}`),
   /** Raw file bytes for a project's icon. Same-origin, cookie-authenticated, returned as a Blob the

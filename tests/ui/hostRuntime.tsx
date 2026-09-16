@@ -110,7 +110,7 @@ export function ensurePluginUiRuntime(): void {
       usePersistentState: H.usePersistentState, useProjectFilter: H.useProjectFilter, useFillHeight: H.useFillHeight,
       // Config, project and usage data stay on the HOST so plugin pages and core surfaces share ONE
       // react-query cache and ONE invalidation path.
-      useConfig: H.useConfig, useUpdateConfig: H.useUpdateConfig, useProjects: H.useProjects,
+      useConfig: H.useConfig, useUpdateConfig: H.useUpdateConfig, useProjects: H.useProjects, useProjectEnvironmentState: H.useProjectEnvironmentState,
       useActivity: H.useActivity, useModelUsage: H.useModelUsage, useUsageByDay: H.useUsageByDay,
       useUsageByOrigin: H.useUsageByOrigin, useResetUsage: H.useResetUsage,
       usePluginDetail: H.usePluginDetail, useSavePluginConfig: H.useSavePluginConfig,

@@ -6,6 +6,7 @@
   "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
   "entry": "dist/index.js",
   "icon": "icon.svg",
+  "consumesControls": ["sandbox"],
   "provides": {
     "tools": [
       "GithubConnectionStatus",
@@ -18,6 +19,7 @@
       "GithubSubmitReview",
       "GithubMergePullRequest"
     ],
+    "readOnlyTools": ["GithubConnectionStatus", "GithubRepositoryStatus", "GithubListPullRequests", "GithubGetPullRequest", "GithubPullRequestChecks"],
     "apiRoutes": [
       "status",
       "auth/start",

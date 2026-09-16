@@ -8,7 +8,7 @@ import { ConversationHistoryBranch } from './ConversationHistoryBranch';
 import { weekUrl } from './CalendarTab';
 import { runtime, registerCronUi, type CronWeekResponse } from './runtime';
 
-function CronNextRunMetric({ locale }: DashboardMetricProps) {
+export function CronNextRunMetric({ locale }: DashboardMetricProps) {
   const { hooks } = runtime();
   const strings = hooks.usePluginStrings('cronjob');
   const me = hooks.useMe();

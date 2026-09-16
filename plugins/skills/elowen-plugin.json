@@ -15,6 +15,7 @@
       "ListSkills",
       "DeleteSkill"
     ],
+    "readOnlyTools": ["SkillLoad", "ListSkills"],
     "apiRoutes": [
       "/plugins/skills",
       "/plugins/skills/list",

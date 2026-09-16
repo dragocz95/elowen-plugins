@@ -10,6 +10,7 @@
   },
   "provides": {
     "tools": ["TaskCreate", "TaskGet", "TaskUpdate", "TaskDelete", "TaskList"],
+    "readOnlyTools": ["TaskGet", "TaskList"],
     "apiRoutes": ["tasks", "task"]
   },
   "planSafe": ["TaskGet", "TaskList"],
