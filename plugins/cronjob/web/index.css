@@ -34,23 +34,11 @@
   .right-2\.5 {
     right: calc(var(--spacing, 0.25rem) * 2.5);
   }
-  .mt-0\.5 {
-    margin-top: calc(var(--spacing, 0.25rem) * 0.5);
-  }
-  .mt-2 {
-    margin-top: calc(var(--spacing, 0.25rem) * 2);
-  }
   .mb-4 {
     margin-bottom: calc(var(--spacing, 0.25rem) * 4);
   }
   .ml-auto {
     margin-left: auto;
-  }
-  .line-clamp-4 {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 4;
   }
   .block {
     display: block;
@@ -163,9 +151,6 @@
   .grid-cols-7 {
     grid-template-columns: repeat(7, minmax(0, 1fr));
   }
-  .grid-cols-\[3\.5rem_0\.5rem_minmax\(0\,1fr\)_auto\] {
-    grid-template-columns: 3.5rem 0.5rem minmax(0,1fr) auto;
-  }
   .flex-col {
     flex-direction: column;
   }
@@ -198,9 +183,6 @@
   }
   .gap-3 {
     gap: calc(var(--spacing, 0.25rem) * 3);
-  }
-  .gap-4 {
-    gap: calc(var(--spacing, 0.25rem) * 4);
   }
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
@@ -255,12 +237,6 @@
       border-color: color-mix(in oklab, var(--color-border, #242424) 50%, transparent);
     }
   }
-  .border-border\/60 {
-    border-color: color-mix(in srgb, #242424 60%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--color-border, #242424) 60%, transparent);
-    }
-  }
   .border-border\/70 {
     border-color: color-mix(in srgb, #242424 70%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -278,9 +254,6 @@
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-destructive, #e94d42) 40%, transparent);
     }
-  }
-  .border-muted-foreground {
-    border-color: var(--color-muted-foreground, #9d948e);
   }
   .border-muted-foreground\/60 {
     border-color: color-mix(in srgb, #9d948e 60%, transparent);
@@ -366,9 +339,6 @@
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
   }
-  .p-4 {
-    padding: calc(var(--spacing, 0.25rem) * 4);
-  }
   .px-1\.5 {
     padding-inline: calc(var(--spacing, 0.25rem) * 1.5);
   }
@@ -402,9 +372,6 @@
   .pt-3 {
     padding-top: calc(var(--spacing, 0.25rem) * 3);
   }
-  .pt-4 {
-    padding-top: calc(var(--spacing, 0.25rem) * 4);
-  }
   .pr-7 {
     padding-right: calc(var(--spacing, 0.25rem) * 7);
   }
@@ -425,10 +392,6 @@
   }
   .font-mono {
     font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
-  }
-  .text-base {
-    font-size: var(--text-base, 1rem);
-    line-height: var(--tw-leading, var(--text-base--line-height, calc(1.5 / 1)));
   }
   .text-lg {
     font-size: var(--text-lg, 1.125rem);
@@ -585,33 +548,6 @@
     }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  @media (width >= 64rem) {
-    .lg\:grid-cols-\[minmax\(0\,1fr\)_minmax\(18rem\,24rem\)\] {
-      grid-template-columns: minmax(0,1fr) minmax(18rem,24rem);
-    }
-  }
-  @media (width >= 80rem) {
-    .xl\:sticky {
-      position: sticky;
-    }
-    .xl\:top-4 {
-      top: calc(var(--spacing, 0.25rem) * 4);
-    }
-    .xl\:max-h-\[calc\(100dvh-6rem\)\] {
-      max-height: calc(100dvh - 6rem);
-    }
-    .xl\:grid-cols-\[minmax\(0\,1fr\)_22rem\] {
-      grid-template-columns: minmax(0,1fr) 22rem;
-    }
-    .xl\:overflow-y-auto {
-      overflow-y: auto;
-    }
-  }
-  @media (width >= 96rem) {
-    .\32 xl\:grid-cols-\[minmax\(0\,1fr\)_24rem\] {
-      grid-template-columns: minmax(0,1fr) 24rem;
     }
   }
   @media (pointer: coarse) {

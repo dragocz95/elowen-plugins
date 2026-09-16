@@ -47,7 +47,7 @@ var require_jsx_runtime = __commonJS({
 });
 
 // plugins/cronjob/web-src/index.tsx
-var import_react12 = __toESM(require_react(), 1);
+var import_react11 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -277,10 +277,10 @@ var X = createLucideIcon("X", [
 ]);
 
 // plugins/cronjob/web-src/AutomationPage.tsx
-var import_react11 = __toESM(require_react(), 1);
+var import_react10 = __toESM(require_react(), 1);
 
 // plugins/cronjob/web-src/CalendarTab.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 
 // plugins/cronjob/web-src/runtime.ts
 function runtime() {
@@ -399,158 +399,40 @@ function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggl
   );
 }
 
-// plugins/cronjob/web-src/DayPanel.tsx
+// plugins/cronjob/web-src/IntervalsStrip.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
-var parseDate = (label) => {
-  const [year, month, day] = label.split("-").map(Number);
-  return new Date(year, month - 1, day);
-};
-var dayTitle = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "long", day: "numeric", month: "long" }).format(parseDate(label));
-var status = (outcome, s) => ({
-  waiting: s.runWaiting || "Waiting",
-  running: s.runRunning || "Running",
-  ok: s.runOk || "Succeeded",
-  error: s.runErrorState || "Failed",
-  skipped: s.runSkipped || "Skipped"
-})[outcome];
-var tone = (outcome) => outcome === "ok" ? "success" : outcome === "error" ? "danger" : outcome === "running" ? "accent" : "muted";
-function DayPanel({ day, todayLocalDate, intervals, jobs, runs, loading, hasMore, onLoadMore, selectedJobId, onSelectJob, onOpenRun, onOpenJob, onPreviousDay, onNextDay, mobile = false }) {
-  const { components: C, hooks } = runtime();
+function IntervalsStrip({ intervals, jobs, referenceDate, onOpenJob }) {
+  const { hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
-  const { locale } = hooks.useTranslation();
-  const waiting = day.cards.filter((card) => card.state === "waiting" || card.state === "paused").map((card) => ({ key: `card-${card.jobId}`, job: jobs.get(card.jobId), time: card.localTime })).filter((row) => row.job).sort((a, b) => a.time.localeCompare(b.time));
-  const ongoing = intervals.filter((row) => jobs.has(row.jobId));
-  const selectedJob = selectedJobId ? jobs.get(selectedJobId) : void 0;
-  const plannedCount = day.dayTotal + intervals.filter((row) => row.enabled).length;
-  const countCopy = plannedCount === 1 ? s.dayScheduledOne || "1 scheduled task" : (s.dayScheduledCount || "{n} scheduled tasks").replace("{n}", String(plannedCount));
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-    "aside",
-    {
-      className: mobile ? "flex min-w-0 flex-col gap-4" : "flex min-w-0 flex-col gap-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto",
-      "data-testid": "cron-day-panel",
-      children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "flex items-start justify-between gap-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { className: "text-lg font-semibold capitalize text-foreground", children: dayTitle(day.localDate, locale) }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-xs text-muted-foreground", children: countCopy })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex gap-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.IconButton, { icon: ChevronLeft, label: s.dayPrevious || "Previous day", onClick: onPreviousDay }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.IconButton, { icon: ChevronRight, label: s.dayNext || "Next day", onClick: onNextDay })
-          ] })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "border-t border-border/60 pt-3", children: [
-          loading && runs.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.LoadingState, { variant: "list" }) : runs.length === 0 && waiting.length === 0 && ongoing.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            C.EmptyState,
-            {
-              title: s.dayNothing || "Nothing ran or is scheduled for this day",
-              description: day.localDate < todayLocalDate ? s.dayBeforeHistory || "Run history is recorded from this upgrade onward." : void 0
-            }
-          ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(C.EntityList, { children: [
-            runs.map((run) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.EntityRow, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-              "button",
-              {
-                type: "button",
-                className: "grid min-h-[44px] w-full min-w-0 grid-cols-[3.5rem_0.5rem_minmax(0,1fr)_auto] items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
-                onClick: () => {
-                  onSelectJob(run.jobId);
-                  onOpenRun(run);
-                },
-                "data-testid": `cron-run-${run.id}`,
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-mono text-xs tabular-nums", children: run.localTime }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `size-2 rounded-full ${run.outcome === "ok" ? "bg-emerald-500" : run.outcome === "error" ? "bg-destructive" : run.outcome === "running" ? "animate-pulse bg-primary" : "border border-muted-foreground"}` }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "truncate text-sm", children: [
-                    run.owner?.name || s.ownerSystem || "System",
-                    " \xB7 ",
-                    run.jobName
-                  ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Badge, { tone: tone(run.outcome), children: status(run.outcome, s) })
-                ]
-              }
-            ) }, run.id)),
-            waiting.map((row) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.EntityRow, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-              "button",
-              {
-                type: "button",
-                className: "grid min-h-[44px] w-full min-w-0 grid-cols-[3.5rem_0.5rem_minmax(0,1fr)_auto] items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
-                onClick: () => {
-                  onSelectJob(row.job.id);
-                  onOpenJob(row.job.id);
-                },
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-mono text-xs tabular-nums", children: row.time }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "size-2 rounded-full border border-muted-foreground" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "truncate text-sm", children: [
-                    row.job.owner?.name || s.ownerSystem || "System",
-                    " \xB7 ",
-                    row.job.name
-                  ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Badge, { tone: "muted", children: row.job.enabled === false ? s.paused : s.runWaiting })
-                ]
-              }
-            ) }, row.key))
-          ] }),
-          hasMore ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Button, { variant: "ghost", className: "mt-2 w-full", onClick: onLoadMore, children: s.loadOlder || "Load older" }) : null
-        ] }),
-        ongoing.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "flex min-w-0 flex-col gap-2 border-t border-border/60 pt-3", "data-testid": "cron-intervals-strip", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground", children: s.intervalsTitle || "Recurring jobs" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex flex-wrap gap-1.5", children: ongoing.map((row) => {
-            const job = jobs.get(row.jobId);
-            const nextHere = row.nextLocalTime && row.nextLocalDate === day.localDate ? row.nextLocalTime : null;
-            const state = row.enabled ? "" : ` \xB7 ${s.paused}`;
-            return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-              "button",
-              {
-                type: "button",
-                onClick: () => {
-                  onSelectJob(row.jobId);
-                  onOpenJob(row.jobId);
-                },
-                className: `flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? "text-foreground" : "text-muted-foreground opacity-70"}`,
-                "aria-label": `${(s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name)} \xB7 ${row.intervalLabel}${nextHere ? ` \xB7 ${s.nextRun || "Next run"} ${nextHere}` : ""}${state}`,
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: job.name }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-mono text-[11px] text-muted-foreground", children: row.intervalLabel }),
-                  nextHere ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex items-center gap-0.5 font-mono text-[11px] tabular-nums text-muted-foreground", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ArrowRight, { size: 11, "aria-hidden": true }),
-                    nextHere
-                  ] }) : null,
-                  row.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-[11px]", children: s.paused })
-                ]
-              },
-              row.jobId
-            );
-          }) })
-        ] }) : null,
-        selectedJob ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "flex min-w-0 flex-col gap-3 border-t border-border/60 pt-4", "data-testid": "cron-selected-job", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Avatar, { name: selectedJob.owner?.name || s.ownerSystem || "System", src: selectedJob.owner?.avatar || void 0 }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "min-w-0", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "truncate text-base font-semibold", children: selectedJob.name }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "truncate text-xs text-muted-foreground", children: selectedJob.owner?.name || s.ownerSystem || "System" })
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("dl", { className: "grid gap-2 text-sm", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { className: "text-xs text-muted-foreground", children: s.schedule }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: selectedJob.schedule })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { className: "text-xs text-muted-foreground", children: s.nextRun }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("dd", { children: [
-                selectedJob.nextOccurrence?.localDate,
-                " ",
-                selectedJob.nextOccurrence?.localTime || "\u2014"
-              ] })
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "line-clamp-4 text-sm text-muted-foreground", children: selectedJob.prompt }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Button, { variant: "outline", icon: ExternalLink, onClick: () => onOpenJob(selectedJob.id), children: s.runOpenJob || "Open job" })
-        ] }) : null
-      ]
-    }
-  );
+  const rows = intervals.filter((row) => jobs.has(row.jobId));
+  if (rows.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "flex min-w-0 flex-col gap-2", "data-testid": "cron-intervals-strip", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground", children: s.intervalsTitle || "Recurring jobs" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex flex-wrap gap-1.5", children: rows.map((row) => {
+      const job = jobs.get(row.jobId);
+      const nextHere = row.nextLocalTime && row.nextLocalDate === referenceDate ? row.nextLocalTime : null;
+      const state = row.enabled ? "" : ` \xB7 ${s.paused}`;
+      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => onOpenJob(row.jobId),
+          className: `flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? "text-foreground" : "text-muted-foreground opacity-70"}`,
+          "aria-label": `${(s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name)} \xB7 ${row.intervalLabel}${nextHere ? ` \xB7 ${s.nextRun || "Next run"} ${nextHere}` : ""}${state}`,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: job.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-mono text-[11px] text-muted-foreground", children: row.intervalLabel }),
+            nextHere ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex items-center gap-0.5 font-mono text-[11px] tabular-nums text-muted-foreground", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ArrowRight, { size: 11, "aria-hidden": true }),
+              nextHere
+            ] }) : null,
+            row.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-[11px]", children: s.paused })
+          ]
+        },
+        row.jobId
+      );
+    }) })
+  ] });
 }
 
 // plugins/cronjob/web-src/RunResultModal.tsx
@@ -582,7 +464,7 @@ var statusLabel = (run, s) => ({
   error: s.runErrorState || "Failed",
   skipped: s.runSkipped || "Skipped"
 })[run.outcome];
-var tone2 = (run) => run.outcome === "ok" ? "success" : run.outcome === "error" ? "danger" : run.outcome === "running" ? "accent" : "muted";
+var tone = (run) => run.outcome === "ok" ? "success" : run.outcome === "error" ? "danger" : run.outcome === "running" ? "accent" : "muted";
 function RunResultModal({ run: initial, job, onClose, onOpenJob, onRun }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
@@ -619,7 +501,7 @@ function RunResultModal({ run: initial, job, onClose, onOpenJob, onRun }) {
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalBody, { gap: 5, children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: tone2(run), children: statusLabel(run, s) }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: tone(run), children: statusLabel(run, s) }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-xs text-muted-foreground", children: run.trigger })
           ] }),
           run.errorMessage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive", children: run.errorMessage }) : null,
@@ -679,23 +561,17 @@ function RunResultModal({ run: initial, job, onClose, onOpenJob, onRun }) {
 // plugins/cronjob/web-src/WeekGrid.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
-var MAX_CARDS_PER_DAY = 3;
-var parseDate2 = (label) => {
+var parseDate = (label) => {
   const [year, month, day] = label.split("-").map(Number);
   return new Date(year, month - 1, day);
 };
-var weekdayLabel = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short" }).format(parseDate2(label));
-var dayNumber = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { day: "numeric" }).format(parseDate2(label));
-var shortDay = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short", day: "numeric", month: "numeric" }).format(parseDate2(label));
+var weekdayLabel = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short" }).format(parseDate(label));
+var dayNumber = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { day: "numeric" }).format(parseDate(label));
+var shortDay = (label, locale) => new Intl.DateTimeFormat(locale || void 0, { weekday: "short", day: "numeric", month: "numeric" }).format(parseDate(label));
 function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOpenJob, onRun, onToggle, onShowResult, onAddAt }) {
   const { hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { locale } = hooks.useTranslation();
-  const [expandedDate, setExpandedDate] = (0, import_react4.useState)(null);
-  const windowStart = days[0]?.localDate;
-  (0, import_react4.useEffect)(() => {
-    setExpandedDate(null);
-  }, [windowStart]);
   const selectOffset = (offset) => {
     const index = days.findIndex((day) => day.localDate === selectedDate);
     const next = days[Math.min(Math.max(index + offset, 0), days.length - 1)];
@@ -714,9 +590,6 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
         children: days.map((day) => {
           const selected = day.localDate === selectedDate;
           const today = day.localDate === todayLocalDate;
-          const expanded = expandedDate === day.localDate;
-          const shown = expanded ? day.cards : day.cards.slice(0, MAX_CARDS_PER_DAY);
-          const folded = day.dayTotal - shown.length;
           return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
             "section",
             {
@@ -754,7 +627,7 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
                   }
                 ) }),
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-h-[13rem] min-w-0 flex-1 flex-col gap-0.5 border-t border-border/50 p-1", children: [
-                  shown.map((card) => {
+                  day.cards.map((card) => {
                     const job = jobs.get(card.jobId);
                     return job ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                       DayCard,
@@ -771,30 +644,6 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
                       card.jobId
                     ) : null;
                   }),
-                  folded > 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                    "button",
-                    {
-                      type: "button",
-                      className: "mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
-                      "data-testid": `cron-day-more-${day.localDate}`,
-                      "aria-expanded": false,
-                      onClick: () => {
-                        setExpandedDate(day.localDate);
-                        onSelectDate(day.localDate);
-                      },
-                      children: (s.dayMoreCards || "+{n} more").replace("{n}", String(folded))
-                    }
-                  ) : null,
-                  expanded && day.dayTotal > MAX_CARDS_PER_DAY ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                    "button",
-                    {
-                      type: "button",
-                      className: "mt-0.5 w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]",
-                      "aria-expanded": true,
-                      onClick: () => setExpandedDate(null),
-                      children: s.dayShowLess || "Show less"
-                    }
-                  ) : null,
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                     "button",
                     {
@@ -856,66 +705,23 @@ function MobileDayStrip({ days, selectedDate, todayLocalDate, onSelectDate }) {
   }) });
 }
 
-// plugins/cronjob/web-src/useRunFeed.ts
-var import_react5 = __toESM(require_react(), 1);
+// plugins/cronjob/web-src/runsApi.ts
 var runsUrl = (params) => {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== void 0) query.set(key, String(value));
   const suffix = query.toString();
   return `/plugins/cronjob/api/runs${suffix ? `?${suffix}` : ""}`;
 };
-function useRunFeed(date) {
-  const { hooks } = runtime();
-  const [cursor, setCursor] = (0, import_react5.useState)(null);
-  const [olderRows, setOlderRows] = (0, import_react5.useState)([]);
-  (0, import_react5.useEffect)(() => {
-    setCursor(null);
-    setOlderRows([]);
-  }, [date]);
-  const latest = hooks.useQuery({
-    queryKey: ["cron-runs-day-latest", date],
-    queryFn: () => runtime().api(runsUrl({ date: date ?? void 0, limit: 50 })),
-    enabled: date !== null,
-    staleTime: 5e3,
-    refetchInterval: 3e4
-  });
-  const older = hooks.useQuery({
-    queryKey: ["cron-runs-day-older", date, cursor],
-    queryFn: () => runtime().api(runsUrl({ date: date ?? void 0, limit: 50, cursor: cursor ?? void 0 })),
-    enabled: date !== null && cursor !== null,
-    staleTime: Infinity
-  });
-  (0, import_react5.useEffect)(() => {
-    if (!older.data || cursor === null) return;
-    setOlderRows((current) => {
-      const ids = new Set(current.map((row) => row.id));
-      return [...current, ...older.data.runs.filter((row) => !ids.has(row.id))];
-    });
-  }, [cursor, older.data]);
-  const rows = (0, import_react5.useMemo)(() => {
-    const newest = latest.data?.runs ?? [];
-    const ids = new Set(newest.map((row) => row.id));
-    return [...newest, ...olderRows.filter((row) => !ids.has(row.id))];
-  }, [latest.data, olderRows]);
-  const nextCursor = cursor === null ? latest.data?.nextCursor : older.data?.nextCursor;
-  return {
-    ...latest,
-    rows,
-    total: latest.data?.total ?? rows.length,
-    isLoading: latest.isLoading || cursor !== null && older.isLoading,
-    isError: latest.isError || older.isError,
-    hasMore: Boolean(nextCursor),
-    loadMore: () => {
-      if (nextCursor) setCursor(nextCursor);
-    }
-  };
-}
 
 // plugins/cronjob/web-src/CalendarTab.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var shiftDate = (date, days) => {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
+var dayTitle = (label, locale) => {
+  const [year, month, day] = label.split("-").map(Number);
+  return new Intl.DateTimeFormat(locale || void 0, { weekday: "long", day: "numeric", month: "long" }).format(new Date(year, month - 1, day));
 };
 var weekUrl = (start, days = 7) => {
   const query = new URLSearchParams();
@@ -927,13 +733,12 @@ var weekUrl = (start, days = 7) => {
 function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onSelectedDate, onData, onWindowShift, onOpenJob, onRun, onToggle, onAddAt }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
-  const { t } = hooks.useTranslation();
+  const { t, locale } = hooks.useTranslation();
   const { toast } = hooks.useToast();
   const me = hooks.useMe();
   const mobile = hooks.useMobile();
-  const [selectedJobId, setSelectedJobId] = (0, import_react6.useState)(null);
-  const [openRun, setOpenRun] = (0, import_react6.useState)(null);
-  const showResult = (0, import_react6.useCallback)(async (job, localDate, localTime) => {
+  const [openRun, setOpenRun] = (0, import_react5.useState)(null);
+  const showResult = (0, import_react5.useCallback)(async (job, localDate, localTime) => {
     let response;
     try {
       response = await runtime().api(runsUrl({ date: localDate, jobId: job.id, limit: 50 }));
@@ -952,7 +757,7 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
     refetchInterval: 3e4
   });
   const data = week.data;
-  (0, import_react6.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (!data) return;
     onData(data);
     if (!selectedDate || !data.days.some((day) => day.localDate === selectedDate)) {
@@ -960,8 +765,7 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
     }
   }, [data, onData, onSelectedDate, selectedDate]);
   const actualDate = selectedDate && data?.days.some((day) => day.localDate === selectedDate) ? selectedDate : data?.days[0]?.localDate ?? null;
-  const feed = useRunFeed(actualDate);
-  const filtered = (0, import_react6.useMemo)(() => {
+  const filtered = (0, import_react5.useMemo)(() => {
     if (!data) return null;
     const myId = me.data?.user?.id ?? null;
     const needle = query.trim().toLowerCase();
@@ -996,88 +800,55 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
   const showWeek = view === "week" && !mobile;
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-6", "aria-busy": week.isLoading, "data-testid": "cron-calendar-tab", children: [
     mobile ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(MobileDayStrip, { days: filtered.days, selectedDate: selectedDay.localDate, todayLocalDate: data.todayLocalDate, onSelectDate: onSelectedDate }) : null,
-    showWeek ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-6", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-        WeekGrid,
-        {
-          days: filtered.days,
-          jobs: filtered.jobs,
-          selectedDate: selectedDay.localDate,
-          todayLocalDate: data.todayLocalDate,
-          onSelectDate: (date) => {
-            onSelectedDate(date);
-            setSelectedJobId(null);
-          },
-          onOpenJob,
-          onRun,
-          onToggle,
-          onShowResult: (job, date, time) => void showResult(job, date, time),
-          onAddAt
-        }
-      ) }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "rounded-lg border border-border/80 bg-document p-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-        DayPanel,
-        {
-          day: selectedDay,
-          todayLocalDate: data.todayLocalDate,
-          intervals: filtered.intervals,
-          jobs: filtered.jobs,
-          runs: feed.rows,
-          loading: feed.isLoading,
-          hasMore: feed.hasMore,
-          onLoadMore: feed.loadMore,
-          selectedJobId,
-          onSelectJob: setSelectedJobId,
-          onOpenRun: setOpenRun,
-          onOpenJob,
-          onPreviousDay: () => moveDay(-1),
-          onNextDay: () => moveDay(1)
-        }
-      ) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "flex min-w-0 flex-col gap-3", "data-testid": "cron-day-cards", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center justify-between gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-lg font-semibold", children: s.viewDay || "Day" }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: Plus, onClick: () => onAddAt(selectedDay.localDate), "data-testid": "cron-day-add-selected", children: s.addJob || "Add job" })
+    showWeek ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      WeekGrid,
+      {
+        days: filtered.days,
+        jobs: filtered.jobs,
+        selectedDate: selectedDay.localDate,
+        todayLocalDate: data.todayLocalDate,
+        onSelectDate: onSelectedDate,
+        onOpenJob,
+        onRun,
+        onToggle,
+        onShowResult: (job, date, time) => void showResult(job, date, time),
+        onAddAt
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "flex min-w-0 flex-col gap-3", "data-testid": "cron-day-cards", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center justify-between gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center gap-1", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.IconButton, { icon: ChevronLeft, label: s.dayPrevious || "Previous day", onClick: () => moveDay(-1) }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-lg font-semibold capitalize", children: dayTitle(selectedDay.localDate, locale) }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.IconButton, { icon: ChevronRight, label: s.dayNext || "Next day", onClick: () => moveDay(1) })
         ] }),
-        selectedDay.cards.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.EmptyState, { title: s.dayNothing || "No fixed-time jobs", icon: CalendarDays }) : selectedDay.cards.map((card) => {
-          const job = filtered.jobs.get(card.jobId);
-          return job ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-            DayCard,
-            {
-              card,
-              job,
-              localDate: selectedDay.localDate,
-              onOpen: onOpenJob,
-              onRun,
-              onToggle,
-              onShowResult: (target, date, time) => void showResult(target, date, time)
-            },
-            card.jobId
-          ) : null;
-        })
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: Plus, onClick: () => onAddAt(selectedDay.localDate), "data-testid": "cron-day-add-selected", children: s.addJob || "Add job" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "rounded-lg border border-border/80 bg-document p-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-        DayPanel,
-        {
-          day: selectedDay,
-          todayLocalDate: data.todayLocalDate,
-          intervals: filtered.intervals,
-          jobs: filtered.jobs,
-          runs: feed.rows,
-          loading: feed.isLoading,
-          hasMore: feed.hasMore,
-          onLoadMore: feed.loadMore,
-          selectedJobId,
-          onSelectJob: setSelectedJobId,
-          onOpenRun: setOpenRun,
-          onOpenJob,
-          onPreviousDay: () => moveDay(-1),
-          onNextDay: () => moveDay(1),
-          mobile
-        }
-      ) })
+      selectedDay.cards.length === 0 && filtered.intervals.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.EmptyState, { title: s.dayNothing || "No fixed-time jobs", icon: CalendarDays }) : selectedDay.cards.map((card) => {
+        const job = filtered.jobs.get(card.jobId);
+        return job ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+          DayCard,
+          {
+            card,
+            job,
+            localDate: selectedDay.localDate,
+            onOpen: onOpenJob,
+            onRun,
+            onToggle,
+            onShowResult: (target, date, time) => void showResult(target, date, time)
+          },
+          card.jobId
+        ) : null;
+      })
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      IntervalsStrip,
+      {
+        intervals: filtered.intervals,
+        jobs: filtered.jobs,
+        referenceDate: selectedDay.localDate,
+        onOpenJob
+      }
+    ),
     openRun ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       RunResultModal,
       {
@@ -1095,10 +866,10 @@ function CalendarTab({ start, selectedDate, view, query, owner, state, kind, onS
 }
 
 // plugins/cronjob/web-src/CreateJobDialog.tsx
-var import_react8 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
 
 // plugins/cronjob/web-src/fields.tsx
-var import_react7 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 
 // plugins/cronjob/web-src/scheduleBuilder.ts
 var WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -1170,7 +941,7 @@ function DestinationField({ value, onChange, destinations }) {
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
   const s = hooks.usePluginStrings("cronjob");
-  const [open, setOpen] = (0, import_react7.useState)(false);
+  const [open, setOpen] = (0, import_react6.useState)(false);
   const selected = destinations.find((destination) => destination.value === value);
   const icon = (kind) => kind === "channel" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Hash, { size: 12, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(MessageSquare, { size: 12, "aria-hidden": true });
   const items = [
@@ -1215,8 +986,8 @@ function ConversationField({ value, saved, unresolved, owner, myId, required, mi
   const { components: C, hooks } = runtime();
   const { t } = hooks.useTranslation();
   const s = hooks.usePluginStrings("cronjob");
-  const [open, setOpen] = (0, import_react7.useState)(false);
-  const [picked, setPicked] = (0, import_react7.useState)(null);
+  const [open, setOpen] = (0, import_react6.useState)(false);
+  const [picked, setPicked] = (0, import_react6.useState)(null);
   const query = owner === null ? "?scope=instance" : owner === myId ? "" : `?owner=${encodeURIComponent(String(owner))}`;
   const list = hooks.useQuery({
     queryKey: ["cronjob-conversations", query],
@@ -1275,9 +1046,9 @@ function ScheduleField({ schedule, onChange }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const parsed = parseBuilderSchedule(schedule);
-  const [mode, setMode] = (0, import_react7.useState)(parsed?.mode ?? "advanced");
-  const emitted = (0, import_react7.useRef)(null);
-  (0, import_react7.useEffect)(() => {
+  const [mode, setMode] = (0, import_react6.useState)(parsed?.mode ?? "advanced");
+  const emitted = (0, import_react6.useRef)(null);
+  (0, import_react6.useEffect)(() => {
     if (emitted.current === schedule) {
       emitted.current = null;
       return;
@@ -1466,21 +1237,21 @@ function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose, onCre
   const s = hooks.usePluginStrings("cronjob");
   const { toast } = hooks.useToast();
   const models = hooks.useBrainModels();
-  const requestIdRef = (0, import_react8.useRef)(crypto.randomUUID());
-  const [name, setName] = (0, import_react8.useState)("");
-  const [prompt, setPrompt] = (0, import_react8.useState)("");
-  const [schedule, setSchedule] = (0, import_react8.useState)("every 1h");
-  const [localRun, setLocalRun] = (0, import_react8.useState)({ date: initialDate ?? "", time: "" });
-  const [conversationSessionId, setConversationSessionId] = (0, import_react8.useState)("");
-  const [hours, setHours] = (0, import_react8.useState)(void 0);
-  const [enabled, setEnabled] = (0, import_react8.useState)(true);
-  const [scope, setScope] = (0, import_react8.useState)("mine");
-  const [projectRef] = (0, import_react8.useState)(void 0);
-  const [model, setModel] = (0, import_react8.useState)(void 0);
-  const [notifyChannelId] = (0, import_react8.useState)(void 0);
-  const [submitting, setSubmitting] = (0, import_react8.useState)(false);
+  const requestIdRef = (0, import_react7.useRef)(crypto.randomUUID());
+  const [name, setName] = (0, import_react7.useState)("");
+  const [prompt, setPrompt] = (0, import_react7.useState)("");
+  const [schedule, setSchedule] = (0, import_react7.useState)("every 1h");
+  const [localRun, setLocalRun] = (0, import_react7.useState)({ date: initialDate ?? "", time: "" });
+  const [conversationSessionId, setConversationSessionId] = (0, import_react7.useState)("");
+  const [hours, setHours] = (0, import_react7.useState)(void 0);
+  const [enabled, setEnabled] = (0, import_react7.useState)(true);
+  const [scope, setScope] = (0, import_react7.useState)("mine");
+  const [projectRef] = (0, import_react7.useState)(void 0);
+  const [model, setModel] = (0, import_react7.useState)(void 0);
+  const [notifyChannelId] = (0, import_react7.useState)(void 0);
+  const [submitting, setSubmitting] = (0, import_react7.useState)(false);
   const check = void 0;
-  const [plain, setPlain] = (0, import_react8.useState)(void 0);
+  const [plain, setPlain] = (0, import_react7.useState)(void 0);
   const oneShot = lifecycle === "oneShot";
   const presets = [
     { id: "digest", label: s.presetDigest, name: s.presetDigestName, prompt: s.presetDigestPrompt, schedule: "daily 08:00" },
@@ -1667,7 +1438,7 @@ function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose, onCre
 }
 
 // plugins/cronjob/web-src/HistoryTab.tsx
-var import_react9 = __toESM(require_react(), 1);
+var import_react8 = __toESM(require_react(), 1);
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 var statusLabel2 = (run, s) => ({
   waiting: s.runWaiting || "Waiting",
@@ -1676,15 +1447,15 @@ var statusLabel2 = (run, s) => ({
   error: s.runErrorState || "Failed",
   skipped: s.runSkipped || "Skipped"
 })[run.outcome];
-var tone3 = (run) => run.outcome === "ok" ? "success" : run.outcome === "error" ? "danger" : run.outcome === "running" ? "accent" : "muted";
+var tone2 = (run) => run.outcome === "ok" ? "success" : run.outcome === "error" ? "danger" : run.outcome === "running" ? "accent" : "muted";
 function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpenJob, onRun }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("cronjob");
   const { t, locale } = hooks.useTranslation();
-  const [page, setPage] = (0, import_react9.useState)(0);
-  const [pageSize, setPageSize] = (0, import_react9.useState)(25);
-  const [selected, setSelected] = (0, import_react9.useState)(null);
-  (0, import_react9.useEffect)(() => {
+  const [page, setPage] = (0, import_react8.useState)(0);
+  const [pageSize, setPageSize] = (0, import_react8.useState)(25);
+  const [selected, setSelected] = (0, import_react8.useState)(null);
+  (0, import_react8.useEffect)(() => {
     setPage(0);
   }, [query, owner, outcome, range, todayLocalDate]);
   const from = range === "today" ? todayLocalDate : shiftDate(todayLocalDate, -(Number(range) - 1));
@@ -1702,7 +1473,7 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
     staleTime: 1e4
   });
   const rows = request.data?.runs ?? [];
-  const format = (0, import_react9.useMemo)(() => new Intl.DateTimeFormat(locale || void 0, {
+  const format = (0, import_react8.useMemo)(() => new Intl.DateTimeFormat(locale || void 0, {
     dateStyle: "medium",
     timeStyle: "short"
   }), [locale]);
@@ -1738,7 +1509,7 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", children: run.owner?.name || s.ownerSystem || "System" }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.durationMs === null ? "\u2014" : `${Math.round(run.durationMs / 100) / 10} s` }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Badge, { tone: tone3(run), children: statusLabel2(run, s) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Badge, { tone: tone2(run), children: statusLabel2(run, s) }) }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.model || "\u2014" }),
             /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Ellipsis, { size: 14, "aria-hidden": true }) })
           ] }, run.id))
@@ -1776,7 +1547,7 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
 }
 
 // plugins/cronjob/web-src/JobDrawer.tsx
-var import_react10 = __toESM(require_react(), 1);
+var import_react9 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 var textareaClass = "w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring";
 var writablePayload = (job) => {
@@ -1806,16 +1577,16 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
   const save = hooks.useSaveCronJob();
   const del = hooks.useDeleteCronJob();
   const projects = hooks.useQuery({ queryKey: ["projects"], queryFn: () => runtime().api("/projects") });
-  const [draft, setDraft] = (0, import_react10.useState)(job);
-  const [confirming, setConfirming] = (0, import_react10.useState)(false);
-  const [runPending, setRunPending] = (0, import_react10.useState)(false);
-  const [togglePending, setTogglePending] = (0, import_react10.useState)(false);
-  const [editVersion, setEditVersion] = (0, import_react10.useState)(0);
-  const draftRef = (0, import_react10.useRef)(draft);
+  const [draft, setDraft] = (0, import_react9.useState)(job);
+  const [confirming, setConfirming] = (0, import_react9.useState)(false);
+  const [runPending, setRunPending] = (0, import_react9.useState)(false);
+  const [togglePending, setTogglePending] = (0, import_react9.useState)(false);
+  const [editVersion, setEditVersion] = (0, import_react9.useState)(0);
+  const draftRef = (0, import_react9.useRef)(draft);
   draftRef.current = draft;
-  const dirty = (0, import_react10.useRef)(false);
-  const inFlight = (0, import_react10.useRef)(null);
-  const everSaved = (0, import_react10.useRef)(true);
+  const dirty = (0, import_react9.useRef)(false);
+  const inFlight = (0, import_react9.useRef)(null);
+  const everSaved = (0, import_react9.useRef)(true);
   const ownerOf = (j) => adminFields ? j.ownerUserId ?? null : myId;
   const isSavable = (j) => j.name.trim() !== "" && j.prompt.trim() !== "";
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
@@ -1836,7 +1607,7 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
     }
   }, { savable: isSavable(draft), delay: 900 });
   const serverCopy = JSON.stringify(job);
-  (0, import_react10.useEffect)(() => {
+  (0, import_react9.useEffect)(() => {
     if (dirty.current) return;
     setDraft(job);
   }, [serverCopy]);
@@ -1910,7 +1681,7 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
     }
   };
   const oneShot = draft.runAt !== void 0 && draft.runAt !== null;
-  const localRun = (0, import_react10.useMemo)(() => localRunOf(draft), [draft]);
+  const localRun = (0, import_react9.useMemo)(() => localRunOf(draft), [draft]);
   const enabled = draft.enabled !== false;
   const mayPatch = adminFields || job.ownerUserId != null && job.ownerUserId === myId;
   const name = draft.name || s.jobNew;
@@ -2089,7 +1860,7 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
 
 // plugins/cronjob/web-src/AutomationPage.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-var parseDate3 = (label) => {
+var parseDate2 = (label) => {
   const [year, month, day] = label.split("-").map(Number);
   return new Date(year, month - 1, day);
 };
@@ -2113,44 +1884,44 @@ function AutomationPage() {
   const models = hooks.useBrainModels();
   const save = hooks.useSaveCronJob();
   const queryClient = hooks.useQueryClient();
-  const [tab, setTab] = (0, import_react11.useState)("calendar");
-  const [view, setView] = (0, import_react11.useState)("week");
-  const [start, setStart] = (0, import_react11.useState)(null);
-  const [selectedDate, setSelectedDate] = (0, import_react11.useState)(null);
-  const [meta, setMeta] = (0, import_react11.useState)(null);
-  const [query, setQuery] = (0, import_react11.useState)("");
-  const [owner, setOwner] = (0, import_react11.useState)("all");
-  const [state, setState] = (0, import_react11.useState)("all");
-  const [kind, setKind] = (0, import_react11.useState)("all");
-  const [outcome, setOutcome] = (0, import_react11.useState)("all");
-  const [range, setRange] = (0, import_react11.useState)("7");
-  const [opening, setOpening] = (0, import_react11.useState)(null);
-  const [openJobId, setOpenJobId] = (0, import_react11.useState)(jobParam());
-  const [missingLink, setMissingLink] = (0, import_react11.useState)(false);
-  (0, import_react11.useEffect)(() => {
+  const [tab, setTab] = (0, import_react10.useState)("calendar");
+  const [view, setView] = (0, import_react10.useState)("week");
+  const [start, setStart] = (0, import_react10.useState)(null);
+  const [selectedDate, setSelectedDate] = (0, import_react10.useState)(null);
+  const [meta, setMeta] = (0, import_react10.useState)(null);
+  const [query, setQuery] = (0, import_react10.useState)("");
+  const [owner, setOwner] = (0, import_react10.useState)("all");
+  const [state, setState] = (0, import_react10.useState)("all");
+  const [kind, setKind] = (0, import_react10.useState)("all");
+  const [outcome, setOutcome] = (0, import_react10.useState)("all");
+  const [range, setRange] = (0, import_react10.useState)("7");
+  const [opening, setOpening] = (0, import_react10.useState)(null);
+  const [openJobId, setOpenJobId] = (0, import_react10.useState)(jobParam());
+  const [missingLink, setMissingLink] = (0, import_react10.useState)(false);
+  (0, import_react10.useEffect)(() => {
     if (mobile) setView("day");
   }, [mobile]);
-  const jobs = (0, import_react11.useMemo)(() => new Map((meta?.jobs ?? []).map((job) => [job.id, job])), [meta?.jobs]);
-  (0, import_react11.useEffect)(() => {
+  const jobs = (0, import_react10.useMemo)(() => new Map((meta?.jobs ?? []).map((job) => [job.id, job])), [meta?.jobs]);
+  (0, import_react10.useEffect)(() => {
     if (!meta || !openJobId) return;
     setMissingLink(!jobs.has(openJobId));
   }, [jobs, meta, openJobId]);
-  const invalidate = (0, import_react11.useCallback)(() => {
+  const invalidate = (0, import_react10.useCallback)(() => {
     void queryClient.invalidateQueries({ queryKey: ["cron-week"] });
     void queryClient.invalidateQueries({ queryKey: ["cron-runs-day"] });
     void queryClient.invalidateQueries({ queryKey: ["cron-runs-history"] });
   }, [queryClient]);
-  const openJob = (0, import_react11.useCallback)((id) => {
+  const openJob = (0, import_react10.useCallback)((id) => {
     setOpenJobId(id);
     setMissingLink(false);
     writeJobParam(id);
   }, []);
-  const closeJob = (0, import_react11.useCallback)(() => {
+  const closeJob = (0, import_react10.useCallback)(() => {
     setOpenJobId(null);
     setMissingLink(false);
     writeJobParam(null);
   }, []);
-  const runJob = (0, import_react11.useCallback)(async (job) => {
+  const runJob = (0, import_react10.useCallback)(async (job) => {
     await runtime().api(`/plugins/cronjob/jobs/${encodeURIComponent(job.id)}/run`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -2158,15 +1929,15 @@ function AutomationPage() {
     });
     invalidate();
   }, [invalidate]);
-  const toggleJob = (0, import_react11.useCallback)((job) => {
+  const toggleJob = (0, import_react10.useCallback)((job) => {
     save.mutate({ ...job, enabled: job.enabled === false, expectedRevision: job.revision ?? 0 }, {
       onSuccess: invalidate
     });
   }, [invalidate, save]);
-  const onData = (0, import_react11.useCallback)((data) => {
+  const onData = (0, import_react10.useCallback)((data) => {
     setMeta(data);
   }, []);
-  const shiftWindow = (0, import_react11.useCallback)((amount) => {
+  const shiftWindow = (0, import_react10.useCallback)((amount) => {
     const base = meta?.window.startLocalDate ?? start;
     if (base) setStart(shiftDate(base, amount));
     setSelectedDate((current) => current ? shiftDate(current, amount) : current);
@@ -2174,8 +1945,8 @@ function AutomationPage() {
   const rangeLabel = meta ? new Intl.DateTimeFormat(locale || void 0, {
     day: "numeric",
     month: "short",
-    ...parseDate3(meta.window.startLocalDate).getFullYear() !== parseDate3(shiftDate(meta.window.endLocalDateExclusive, -1)).getFullYear() ? { year: "numeric" } : {}
-  }).formatRange(parseDate3(meta.window.startLocalDate), parseDate3(shiftDate(meta.window.endLocalDateExclusive, -1))) : "\u2026";
+    ...parseDate2(meta.window.startLocalDate).getFullYear() !== parseDate2(shiftDate(meta.window.endLocalDateExclusive, -1)).getFullYear() ? { year: "numeric" } : {}
+  }).formatRange(parseDate2(meta.window.startLocalDate), parseDate2(shiftDate(meta.window.endLocalDateExclusive, -1))) : "\u2026";
   const calendarFields = [
     ...me.data?.user?.is_admin ? [{
       id: "owner",
@@ -2375,8 +2146,8 @@ function AutomationDeck() {
   const me = hooks.useMe();
   const destinations = hooks.useNotificationDestinations();
   const models = hooks.useBrainModels();
-  const [opening, setOpening] = (0, import_react12.useState)(null);
-  const [openJobId, setOpenJobId] = (0, import_react12.useState)(null);
+  const [opening, setOpening] = (0, import_react11.useState)(null);
+  const [openJobId, setOpenJobId] = (0, import_react11.useState)(null);
   const board = hooks.useQuery({
     queryKey: ["cron-week", null],
     queryFn: () => runtime().api(weekUrl(null)),
