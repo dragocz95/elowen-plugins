@@ -530,7 +530,6 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
             detail={globalSettingsDetail(detail)}
             draft={draft}
             mode="all"
-            showAppPackage={false}
             fieldLabel={fieldLabel}
             fieldHint={fieldHint}
             fieldOptions={fieldOptions}

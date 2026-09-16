@@ -652,7 +652,6 @@ function LoadedWorkspace({ detail }) {
           detail: globalSettingsDetail(detail),
           draft,
           mode: "all",
-          showAppPackage: false,
           fieldLabel,
           fieldHint,
           fieldOptions,
