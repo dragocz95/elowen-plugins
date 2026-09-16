@@ -50,7 +50,16 @@
       "scopeFieldPersonal": "Jen pro mě",
       "scopeFieldInstance": "Pro všechny",
       "scopeFieldHint": "Osobní dovednost se načítá jen do vašich konverzací. Instanční se načítá všem.",
-      "scopeMoveHint": "Změnou se soubor dovednosti přesune do druhé sady."
+      "scopeMoveHint": "Změnou se soubor dovednosti přesune do druhé sady.",
+      "pickerTitle": "Dovednosti",
+      "pickerFilter": "Filtrovat dovednosti",
+      "pickerLoad": "Načíst do konverzace",
+      "pickerDelete": "Smazat dovednost",
+      "pickerEmpty": "Žádné dovednosti",
+      "pickerEmptyDesc": "Přidané dovednosti se objeví zde a načtete je jedním kliknutím.",
+      "pickerDeleteTitle": "Smazat dovednost?",
+      "pickerDeleteDesc": "Dovednost „{name}“ bude trvale odstraněna.",
+      "unavailable": "Plugin dovedností není k dispozici."
     }
   }
 }

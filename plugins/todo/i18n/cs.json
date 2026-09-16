@@ -1,3 +1,26 @@
 {
-  "description": "Seznam úkolů: agent si u vícekrokové práce vede živý kontrolní seznam a průběžně vám ho zobrazuje."
+  "description": "Seznam úkolů: agent si u vícekrokové práce vede živý kontrolní seznam a průběžně vám ho zobrazuje.",
+  "web": {
+    "strings": {
+      "title": "Úkoly",
+      "filter": "Filtrovat úkoly",
+      "pending": "Čeká",
+      "inProgress": "Probíhá",
+      "completed": "Hotovo",
+      "rename": "Přejmenovat",
+      "delete": "Smazat",
+      "actions": "Akce úkolu",
+      "open": "Otevřít seznam úkolů",
+      "clearCompleted": "Smazat hotové",
+      "clearAll": "Smazat vše",
+      "deleteTitle": "Smazat tento úkol?",
+      "clearCompletedTitle": "Smazat hotové úkoly?",
+      "clearCompletedDesc": "Hotové úkoly budou trvale odstraněny.",
+      "clearAllTitle": "Smazat všechny úkoly?",
+      "clearAllDesc": "Všechny úkoly budou trvale odstraněny.",
+      "empty": "Žádné úkoly",
+      "emptyDesc": "V této konverzaci nejsou žádné úkoly.",
+      "unavailable": "Plugin úkolů není k dispozici."
+    }
+  }
 }

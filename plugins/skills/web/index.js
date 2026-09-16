@@ -130,6 +130,18 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/book-open.js
+var BookOpen = createLucideIcon("BookOpen", [
+  ["path", { d: "M12 7v14", key: "1akyts" }],
+  [
+    "path",
+    {
+      d: "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z",
+      key: "ruj8y"
+    }
+  ]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/hand.js
 var Hand = createLucideIcon("Hand", [
   ["path", { d: "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2", key: "1fvzgz" }],
@@ -158,6 +170,11 @@ var Package = createLucideIcon("Package", [
   ["path", { d: "m7.5 4.27 9 5.15", key: "1c824w" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/play.js
+var Play = createLucideIcon("Play", [
+  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
@@ -174,6 +191,15 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
     }
   ],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
+var Trash2 = createLucideIcon("Trash2", [
+  ["path", { d: "M3 6h18", key: "d0wm0j" }],
+  ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
+  ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
+  ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
+  ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/user.js
@@ -535,11 +561,77 @@ function SkillsSettings({ surface }) {
   );
 }
 
+// plugins/skills/web-src/SkillsPicker.tsx
+var import_react4 = __toESM(require_react(), 1);
+var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+function SkillsPicker({ send, close }) {
+  const { components: C, hooks, utils } = runtime();
+  const strings = hooks.usePluginStrings("skills");
+  const skills = hooks.usePluginSkills();
+  const remove = hooks.useDeletePluginSkill();
+  const { toast } = hooks.useToast();
+  const [filter, setFilter] = (0, import_react4.useState)("");
+  const [pending, setPending] = (0, import_react4.useState)(null);
+  const deleting = (0, import_react4.useRef)(false);
+  const rows = (0, import_react4.useMemo)(() => {
+    const needle = filter.trim().toLowerCase();
+    const all = skills.data ?? [];
+    return needle ? all.filter((skill) => skill.name.toLowerCase().includes(needle) || skill.description.toLowerCase().includes(needle)) : all;
+  }, [filter, skills.data]);
+  const deleteSkill = async () => {
+    if (!pending || deleting.current) return;
+    deleting.current = true;
+    try {
+      await remove.mutateAsync({ name: pending.name, owner: pending.owner });
+      setPending(null);
+    } catch (error) {
+      toast(utils.apiErrorMessage(error), "error");
+    } finally {
+      deleting.current = false;
+    }
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Modal, { title: strings.pickerTitle, onClose: close, size: "md", icon: BookOpen, intent: "inspect", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(C.ModalBody, { gap: 4, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Input, { value: filter, onChange: (event) => setFilter(event.target.value), placeholder: strings.pickerFilter, "aria-label": strings.pickerFilter }),
+      skills.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.LoadingState, { variant: "list" }) : skills.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.ErrorState, { message: strings.unavailable, onRetry: () => skills.refetch() }) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.EmptyState, { title: strings.pickerEmpty, description: strings.pickerEmptyDesc, icon: BookOpen }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex flex-col gap-px overflow-hidden rounded-md border border-border bg-border/50", children: rows.map((skill) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-2 bg-card px-3 py-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "truncate font-mono text-xs text-foreground", children: [
+            "/skill:",
+            skill.name
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-muted-foreground", children: [skill.scope ?? skill.source, skill.description].filter(Boolean).join(" \xB7 ") })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.IconButton, { icon: Play, label: strings.pickerLoad, disabled: skill.active === false, onClick: () => {
+          send("/skill:" + skill.name);
+          close();
+        } }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.IconButton, { icon: Trash2, label: strings.pickerDelete, variant: "danger", disabled: !skill.canDelete, onClick: () => setPending(skill) })
+      ] }, skill.name + ":" + String(skill.owner ?? "shared"))) })
+    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      C.ConfirmDialog,
+      {
+        open: pending !== null,
+        title: strings.pickerDeleteTitle,
+        description: pending ? strings.pickerDeleteDesc.replace("{name}", "/skill:" + pending.name) : void 0,
+        onConfirm: deleteSkill,
+        pending: remove.isPending || deleting.current,
+        onClose: () => {
+          if (!deleting.current) setPending(null);
+        }
+      }
+    )
+  ] });
+}
+
 // plugins/skills/web-src/index.tsx
 registerSkillsUi({
   requiresApiVersion: 8,
   settings: {
     "skills": SkillsSettings
+  },
+  chatPickers: {
+    skills: SkillsPicker
   },
   ownsPageFrame: ["skills"]
 });

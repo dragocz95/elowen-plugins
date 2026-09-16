@@ -50,7 +50,16 @@
       "scopeFieldPersonal": "Len pre mňa",
       "scopeFieldInstance": "Pre všetkých",
       "scopeFieldHint": "Osobná zručnosť sa načítava len do vašich konverzácií. Inštančná sa načítava všetkým.",
-      "scopeMoveHint": "Zmenou sa súbor zručnosti presunie do druhej sady."
+      "scopeMoveHint": "Zmenou sa súbor zručnosti presunie do druhej sady.",
+      "pickerTitle": "Zručnosti",
+      "pickerFilter": "Filtrovať zručnosti",
+      "pickerLoad": "Načítať do konverzácie",
+      "pickerDelete": "Vymazať zručnosť",
+      "pickerEmpty": "Žiadne zručnosti",
+      "pickerEmptyDesc": "Pridané zručnosti sa objavia tu a načítate ich jedným kliknutím.",
+      "pickerDeleteTitle": "Vymazať zručnosť?",
+      "pickerDeleteDesc": "Zručnosť „{name}“ bude natrvalo odstránená.",
+      "unavailable": "Plugin zručností nie je k dispozícii."
     }
   }
 }

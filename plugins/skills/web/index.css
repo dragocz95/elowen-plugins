@@ -11,8 +11,14 @@
   .max-w-sm {
     max-width: var(--container-sm, 24rem);
   }
+  .min-w-0 {
+    min-width: 0px;
+  }
   .min-w-\[12rem\] {
     min-width: 12rem;
+  }
+  .flex-1 {
+    flex: 1;
   }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
@@ -25,6 +31,45 @@
   }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .gap-px {
+    gap: 1px;
+  }
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .overflow-hidden {
+    overflow: hidden;
+  }
+  .rounded-md {
+    border-radius: var(--radius-md, 0.625rem);
+  }
+  .border {
+    border-style: var(--tw-border-style);
+    border-width: 1px;
+  }
+  .border-border {
+    border-color: var(--color-border, #242424);
+  }
+  .bg-border\/50 {
+    background-color: color-mix(in srgb, #242424 50%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-border, #242424) 50%, transparent);
+    }
+  }
+  .bg-card {
+    background-color: var(--color-card, #070707);
+  }
+  .px-3 {
+    padding-inline: calc(var(--spacing, 0.25rem) * 3);
+  }
+  .py-2 {
+    padding-block: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .font-mono {
+    font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
   }
   .text-sm {
     font-size: var(--text-sm, 0.875rem);
@@ -61,6 +106,11 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-border-style {
+  syntax: "*";
+  inherits: false;
+  initial-value: solid;
+}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -69,6 +119,7 @@
       --tw-rotate-z: initial;
       --tw-skew-x: initial;
       --tw-skew-y: initial;
+      --tw-border-style: solid;
     }
   }
 }

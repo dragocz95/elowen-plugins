@@ -7,11 +7,15 @@
  */
 import { registerSkillsUi } from './runtime';
 import { SkillsSettings } from './SkillsSettings';
+import { SkillsPicker } from './SkillsPicker';
 
 registerSkillsUi({
   requiresApiVersion: 8,
   settings: {
     'skills': SkillsSettings,
+  },
+  chatPickers: {
+    skills: SkillsPicker,
   },
   ownsPageFrame: ['skills'],
 });

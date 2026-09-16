@@ -4,6 +4,14 @@
  *  the signature the moved skills editor was written against in the core app. The narrowing is a
  *  local structural CONTRACT, not a source import — the bundle must not compile against `web/`. */
 import type { ComponentType } from 'react';
+export interface PluginChatPickerProps {
+  plugin: string;
+  command: string;
+  sessionId: string | null;
+  argument?: string;
+  send(text: string): void;
+  close(): void;
+}
 
 // ---- data shapes (structural mirrors of the daemon's wire types) --------------------------------
 
@@ -25,6 +33,8 @@ export interface PluginSkill {
   version: number | null;
   revision?: number;
   content?: string;
+  scope?: string;
+  active?: boolean;
 }
 
 export interface SkillAccount { id: number; username: string; name?: string }
@@ -63,7 +73,8 @@ type AnyComponent = ComponentType<any>;
 interface SkillsComponents {
   Badge: AnyComponent; Toggle: AnyComponent; SettingsGroup: AnyComponent; PluginSection: AnyComponent;
   MarkdownAssetEditor: AnyComponent; Button: AnyComponent; Field: AnyComponent; Segmented: AnyComponent; SelectMenu: AnyComponent;
-  ControlSurfaceDocument: AnyComponent;
+  ControlSurfaceDocument: AnyComponent; Modal: AnyComponent; ModalBody: AnyComponent; ConfirmDialog: AnyComponent;
+  Input: AnyComponent; IconButton: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent; EmptyState: AnyComponent;
   WorkspaceShell: AnyComponent; WorkspaceMetric: AnyComponent;
 }
 
@@ -79,6 +90,7 @@ interface SkillsRegistration {
   requiresApiVersion: number;
   pages?: Record<string, PluginPageComponent>;
   settings?: Record<string, PluginPageComponent>;
+  chatPickers?: Record<string, ComponentType<PluginChatPickerProps>>;
   /** Settings sections that draw their OWN page frame. The host wraps a section in its page column and
    *  module header by default, which nests two frames around one that already brings its own. */
   ownsPageFrame?: string[];

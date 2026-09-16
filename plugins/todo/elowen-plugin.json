@@ -13,6 +13,34 @@
     "apiRoutes": ["tasks", "task"]
   },
   "planSafe": ["TaskGet", "TaskList"],
+  "web": {
+    "entry": "web/index.js",
+    "css": "web/index.css",
+    "requiresApiVersion": 17,
+    "chatPickers": true,
+    "chatCards": true,
+    "strings": {
+      "title": "Tasks",
+      "filter": "Filter tasks",
+      "pending": "Pending",
+      "inProgress": "In progress",
+      "completed": "Completed",
+      "rename": "Rename",
+      "delete": "Delete",
+      "actions": "Task actions",
+      "open": "Open task list",
+      "clearCompleted": "Clear completed",
+      "clearAll": "Clear all",
+      "deleteTitle": "Delete this task?",
+      "clearCompletedTitle": "Clear completed tasks?",
+      "clearCompletedDesc": "Completed tasks will be permanently removed.",
+      "clearAllTitle": "Clear all tasks?",
+      "clearAllDesc": "All tasks will be permanently removed.",
+      "empty": "No tasks",
+      "emptyDesc": "No tasks in this conversation.",
+      "unavailable": "The todo plugin is unavailable."
+    }
+  },
   "icons": {
     "Task*": "📋"
   }

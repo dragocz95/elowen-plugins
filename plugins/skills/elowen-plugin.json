@@ -51,6 +51,7 @@
     "entry": "web/index.js",
     "css": "web/index.css",
     "requiresApiVersion": 8,
+    "chatPickers": true,
     "settings": [
       {
         "id": "skills",
@@ -104,7 +105,16 @@
       "scopeFieldHint": "A personal skill is loaded only into your own conversations. An instance skill is loaded into everyone’s.",
       "scopeMoveHint": "Changing this moves the skill file to the other set.",
       "workspaceEyebrow": "Skills",
-      "workspaceReady": "Skills loaded"
+      "workspaceReady": "Skills loaded",
+      "pickerTitle": "Skills",
+      "pickerFilter": "Filter skills",
+      "pickerLoad": "Load into conversation",
+      "pickerDelete": "Delete skill",
+      "pickerEmpty": "No skills",
+      "pickerEmptyDesc": "Skills you add appear here and load with one click.",
+      "pickerDeleteTitle": "Delete skill?",
+      "pickerDeleteDesc": "The skill “{name}” will be removed permanently.",
+      "unavailable": "The skills plugin is unavailable."
     }
   }
 }
