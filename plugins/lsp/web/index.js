@@ -158,7 +158,7 @@ function LspRail({ variant, data }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Braces, { size: 11, "aria-hidden": true }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: strings.railTitle })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: enabled ? "success" : "muted", children: enabled ? strings.active : strings.inactive })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "flex items-center gap-1.5 text-xs", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: enabled ? "success" : "muted", className: "px-1 py-0 text-[10px]", children: enabled ? strings.active : strings.inactive }) })
   ] });
 }
 
