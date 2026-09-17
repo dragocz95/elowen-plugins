@@ -536,7 +536,7 @@ export function registerTools(deps) {
                     throw new ToolError('That file release is not retained for this site.');
                 if (site.ownerUserId !== userId)
                     throw new ToolError('Only the site owner may roll back a file release.');
-                store.updateSite(site.id, { currentReleaseId: release.id, status: 'live', lastError: null });
+                deps.activateRelease(site, release.id);
                 return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
             }
             catch (error) {
@@ -562,6 +562,7 @@ export function registerTools(deps) {
                 return text(`${person.name} could already open "${site.title}".`, { siteId: site.id, userId: person.id, changed: false });
             }
             store.addMember(site.id, person.id);
+            store.bumpAccessGeneration(site.id);
             const address = siteUrl(deps.config(), site.slug);
             return text([
                 `${person.name} can now open "${site.title}".`,

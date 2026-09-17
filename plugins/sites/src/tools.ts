@@ -23,6 +23,7 @@ export interface ToolDeps {
   /** The picture half of the register. A publish asks for one; a refusal is never a publish failure. */
   previewImages?: { request(siteId: string, cause: PreviewRequestCause): PreviewRequestOutcome };
   deleteSite(siteId: string): Promise<void>;
+  activateRelease(site: Site, releaseId: string): void;
   /** The transport half of a proxy publication: asking the Project's environment for it, reading through
    *  it, and remembering where it answered. */
   publications: Pick<ProjectPublicationService, 'establish' | 'probe' | 'adopt'>;
@@ -577,7 +578,7 @@ export function registerTools(deps: ToolDeps): void {
         const release = store.release(site.id, input.releaseId);
         if (!release || release.kind === 'environment-snapshot') throw new ToolError('That file release is not retained for this site.');
         if (site.ownerUserId !== userId) throw new ToolError('Only the site owner may roll back a file release.');
-        store.updateSite(site.id, { currentReleaseId: release.id, status: 'live', lastError: null });
+        deps.activateRelease(site, release.id);
         return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
       } catch (error) {
         throw isRefusal(error) ? error : new Error(String(error));
@@ -602,6 +603,7 @@ export function registerTools(deps: ToolDeps): void {
         return text(`${person.name} could already open "${site.title}".`, { siteId: site.id, userId: person.id, changed: false });
       }
       store.addMember(site.id, person.id);
+      store.bumpAccessGeneration(site.id);
       const address = siteUrl(deps.config(), site.slug);
       return text([
         `${person.name} can now open "${site.title}".`,

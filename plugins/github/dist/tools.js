@@ -6,14 +6,17 @@ async function confirmedMutation(ctx, service, action) {
     if (!ctx.currentSessionId() || !ctx.currentIdentity())
         return result('GitHub: mutating tools require an interactive verified conversation. Delegated, scheduled and unattended work may only read GitHub state.');
     try {
-        const preview = await service.preview(service.currentUserId(), action, false);
+        const userId = service.currentUserId();
+        const preview = await service.preview(userId, action);
         const answers = await ctx.askUser([{
                 header: 'GitHub action', question: `${preview.title}\n\n${preview.description}`, multiSelect: false,
                 options: [{ label: 'Confirm', description: 'Perform this external GitHub action once.' }, { label: 'Cancel', description: 'Leave GitHub unchanged.' }],
             }]);
         if (!answers[0]?.selected.includes('Confirm'))
             return result('GitHub: cancelled.');
-        return result(await service.executePreview(service.currentUserId(), preview));
+        if (!preview.confirmationToken)
+            throw new Error('The GitHub confirmation could not be persisted.');
+        return result(await service.confirm(userId, action, preview.confirmationToken));
     }
     catch (error) {
         return failure(error);

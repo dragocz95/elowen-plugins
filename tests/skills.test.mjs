@@ -899,6 +899,23 @@ test('bundled skills plugin', async (t) => {
     assert.ok(reloaded.skills.map((s) => s.name).includes('ship-it'));
   });
 
+  await t.test('CreateSkill rejects empty descriptions and content before writing', async () => {
+    const dataRoot = tmpDir('skills');
+    const reg = loadPlugin({ dataRoot });
+
+    const emptyDescription = asText(await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', {
+      name: 'empty-description', scope: 'instance', description: '   ', content: 'steps',
+    })));
+    const emptyContent = asText(await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', {
+      name: 'empty-content', scope: 'instance', description: 'when testing', content: '   ',
+    })));
+
+    assert.match(emptyDescription, /^Error: description and content must be non-empty/);
+    assert.match(emptyContent, /^Error: description and content must be non-empty/);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'empty-description.md')), false);
+    assert.equal(existsSync(join(dataRoot, 'skills', 'empty-content.md')), false);
+  });
+
   await t.test('CreateSkill keeps a description containing ": " parseable, so the skill has its trigger', async () => {
     // Regression: the tool interpolated `description: ${text}` by hand. A colon-space inside the text made
     // the frontmatter invalid YAML and the skill loaded with an empty description — listed, never triggered.

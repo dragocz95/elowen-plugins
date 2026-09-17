@@ -510,10 +510,6 @@ export class GitHubService {
     return this.execute(userId, action, record.target, record.expected);
   }
 
-  async executePreview(userId: number, preview: MutationPreview): Promise<unknown> {
-    return this.execute(userId, preview.action, preview.target, preview.expected);
-  }
-
   private async buildPreview(userId: number, action: MutationAction): Promise<MutationPreview> {
     if (action.type === 'disconnect') {
       const account = this.store.account(userId);

@@ -934,7 +934,7 @@ export function register(ctx) {
   });
 
   // ── Admin jobs API (root mounts, grandfathered core URLs): jobs.json is a SHARED list — the
-  // scheduler stamps runs into it, CronAdd/CronRemove write it, and the settings deck edits it here.
+  // scheduler stamps runs into it, CronAdd/ScheduleWakeup/CronRemove write it, and the settings deck edits it here.
   // So a write names exactly ONE job and the file is read-modify-written around it: taking the whole
   // array from a client whose snapshot predates someone else's new job would delete that job on save.
   // The scheduler re-reads the file every tick, so an edit applies live — no restart. ──
@@ -942,7 +942,7 @@ export function register(ctx) {
   /** The jobs on disk, STRICT: throws when the file is present but unreadable. A caller about to
    *  write the list back must abort, not rebuild it from an empty base — a truncated read must never
    *  be mistaken for "there are no jobs". Only the read-only GET may treat that as empty (the
-   *  scheduler's own JobStore stays tolerant for ticks; this strictness is the API's). */
+   *  scheduler's own JobStore stays tolerant for ticks; every route or tool about to write uses this). */
   const readJobsStrict = () => {
     if (!existsSync(jobsFile)) return [];
     const parsed = JSON.parse(readFileSync(jobsFile, 'utf-8'));
@@ -2144,7 +2144,7 @@ export function register(ctx) {
       try {
         const owner = toolOwner(p.scope);
         if (!parseSchedule(p.schedule)) return ok('Error: invalid schedule — use "every 15m", "every 2h", "daily 07:30", "weekly sun 20:00", or a 5-field cron expression like "0 9 * * 1-5".');
-        const jobs = store.all();
+        const jobs = readJobsStrict();
         const id = newId();
         // "provider/model" → the stored pair. An empty value means "no preference" and runs the server
         // default; a value that NAMES a model but not its provider (or the other way round) is refused
@@ -2213,7 +2213,7 @@ export function register(ctx) {
         const owner = toolOwner(callerId() === null ? 'instance' : 'personal');
         const runAt = parseOneShot(p.when, Date.now(), ctx.timezone());
         if (!runAt) return ok('Error: invalid time — use "in 30s", "in 20m", "in 2h" or "at 18:30".');
-        const jobs = store.all();
+        const jobs = readJobsStrict();
         const id = newId();
         // A wake-up scheduled where exactly ONE person reads records its origin: owner chat resumes the
         // bound conversation, while a direct platform chat carries its opaque delivery target back to core.
@@ -2314,7 +2314,7 @@ export function register(ctx) {
     parameters: Type.Object({ id: Type.String({ description: 'The job id to cancel, exactly as shown by CronList or returned by CronAdd / ScheduleWakeup' }) }),
     execute: async (_id, p) => {
       try {
-        const jobs = store.all();
+        const jobs = readJobsStrict();
         // Unknown and not-yours read the same, so this can never be used to probe what else is scheduled.
         if (!visibleJobs(jobs).some((j) => j.id === p.id)) return ok(`Error: no job with id ${p.id}.`);
         store.save(jobs.filter((j) => j.id !== p.id));

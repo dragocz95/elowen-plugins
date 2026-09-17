@@ -11,7 +11,7 @@ describe('shared API v4 registry contract', () => {
   // what the case guards is that the manifest and the registry entry carry ONE version and still declare
   // shared API v4, so a bump that reaches only one of the two files fails here.
   const versions = {
-    cronjob: '0.6.3',
+    cronjob: '0.6.4',
     discord: '0.3.21',
     telegram: '0.2.15',
     msteams: '0.7.3',

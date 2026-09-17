@@ -16,7 +16,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
 const ADMIN: Policy = { allowedProjectIds: 'all', allowedPaths: () => [] };
 const OWNER: TurnIdentity = { platform: 'elowen', userId: '1', elowenUserId: 1, admin: true, owner: true };
-const asText = (r: { content: { text?: string }[] }) => (r.content[0] as { text: string }).text;
+const asText = (r: unknown) => ((r as { content: { text: string }[] }).content[0]).text;
 
 interface CronTurnEvent { type: string; sessionId?: string }
 interface CronAdapterUnderTest {
@@ -160,7 +160,7 @@ describe('cron state durability (Tier 2 #22)', () => {
     const { reg, logger } = await loadCron(dataRoot, async () => {});
     const list = reg.tools.find((t) => t.name === 'CronList')!;
     const text = await runWithPolicy(ADMIN, async () =>
-      asText(await list.execute('t', {}, undefined as never, undefined as never)),
+      asText(await list.execute('t', {}, undefined as never, undefined as never, undefined as never)),
     { identity: OWNER, sessionId: 'brain-1' });
     expect(text).toBe('No scheduled jobs.'); // corruption is recoverable, not fatal
     expect(logger.error.mock.calls.some((c) => String(c[0]).includes('corrupt jobs file'))).toBe(true);
@@ -204,12 +204,57 @@ describe('cron state durability (Tier 2 #22)', () => {
     expect(JSON.parse(readFileSync(pendingFile(dataRoot), 'utf-8'))).toEqual([]); // delivered, so nothing left pending
   });
 
+  it('cron mutation tools refuse to write over an unreadable jobs.json', async () => {
+    const dataRoot = freshDataRoot();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    const corrupt = '{not valid json';
+    writeFileSync(jobsFile(dataRoot), corrupt);
+    const { reg } = await loadCron(dataRoot, async () => {});
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+    const wakeup = reg.tools.find((t) => t.name === 'ScheduleWakeup')!;
+    const remove = reg.tools.find((t) => t.name === 'CronRemove')!;
+
+    const added = await runWithPolicy(ADMIN, async () =>
+      asText(await add.execute('t', { name: 'daily', scope: 'personal', schedule: 'daily 07:30', prompt: 'go', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never, undefined as never)),
+    { identity: OWNER, sessionId: 'brain-1' });
+    expect(added).toMatch(/^Error:/);
+    expect(readFileSync(jobsFile(dataRoot), 'utf-8')).toBe(corrupt);
+
+    const scheduled = await runWithPolicy(ADMIN, async () =>
+      asText(await wakeup.execute('t', { name: 'later', when: 'in 20m', prompt: 'check' }, undefined as never, undefined as never, undefined as never)),
+    { identity: OWNER, sessionId: 'brain-1' });
+    expect(scheduled).toMatch(/^Error:/);
+    expect(readFileSync(jobsFile(dataRoot), 'utf-8')).toBe(corrupt);
+
+    const removed = await runWithPolicy(ADMIN, async () =>
+      asText(await remove.execute('t', { id: 'anything' }, undefined as never, undefined as never, undefined as never)),
+    { identity: OWNER, sessionId: 'brain-1' });
+    expect(removed).toMatch(/^Error:/);
+    expect(readFileSync(jobsFile(dataRoot), 'utf-8')).toBe(corrupt);
+  });
+
+  it('CronAdd preserves malformed rows instead of silently writing them away', async () => {
+    const dataRoot = freshDataRoot();
+    mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+    writeFileSync(jobsFile(dataRoot), JSON.stringify([null]));
+    const { reg } = await loadCron(dataRoot, async () => {});
+    const add = reg.tools.find((t) => t.name === 'CronAdd')!;
+
+    await runWithPolicy(ADMIN, async () =>
+      add.execute('t', { name: 'daily', scope: 'personal', schedule: 'daily 07:30', prompt: 'go', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never, undefined as never),
+    { identity: OWNER, sessionId: 'brain-1' });
+
+    const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as unknown[];
+    expect(jobs[0]).toBeNull();
+    expect(jobs).toHaveLength(2);
+  });
+
   it('jobs.json is written atomically: CronAdd never leaves a half-written file behind', async () => {
     const dataRoot = freshDataRoot();
     const { reg } = await loadCron(dataRoot, async () => {});
     const add = reg.tools.find((t) => t.name === 'CronAdd')!;
     await runWithPolicy(ADMIN, async () =>
-      add.execute('t', { name: 'daily', schedule: 'daily 07:30', prompt: 'go', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never),
+      add.execute('t', { name: 'daily', schedule: 'daily 07:30', prompt: 'go', conversationSessionId: STUB_CONVERSATION_ID }, undefined as never, undefined as never, undefined as never),
     { identity: OWNER, sessionId: 'brain-1' });
     const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as { name: string }[];
     expect(jobs).toHaveLength(1);
