@@ -135,10 +135,6 @@
     --tw-leading: var(--leading-tight, 1.25);
     line-height: var(--leading-tight, 1.25);
   }
-  .tracking-wide {
-    --tw-tracking: var(--tracking-wide, 0.025em);
-    letter-spacing: var(--tracking-wide, 0.025em);
-  }
   .break-words {
     overflow-wrap: break-word;
   }
@@ -154,14 +150,8 @@
   .text-primary {
     color: var(--color-primary, #ff5236);
   }
-  .text-subtle-foreground {
-    color: var(--color-subtle-foreground, #827974);
-  }
   .text-success {
     color: var(--color-success, #32c986);
-  }
-  .uppercase {
-    text-transform: uppercase;
   }
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;
@@ -241,10 +231,6 @@
   initial-value: solid;
 }
 @property --tw-leading {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-tracking {
   syntax: "*";
   inherits: false;
 }
@@ -396,7 +382,6 @@
       --tw-skew-y: initial;
       --tw-border-style: solid;
       --tw-leading: initial;
-      --tw-tracking: initial;
       --tw-ordinal: initial;
       --tw-slashed-zero: initial;
       --tw-numeric-figure: initial;

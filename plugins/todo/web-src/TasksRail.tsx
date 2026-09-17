@@ -46,8 +46,11 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
     { label: strings.inProgress, onSelect: () => onStatus('in_progress') },
     { label: strings.completed, onSelect: () => onStatus('completed') },
   ];
+  // The row carries `text-xs`, not the button inside it: the host's reset gives a button
+  // `font: inherit` and outranks a bundle's utility class, so a size set on the button itself is
+  // dropped and the row renders at the 16px body size, larger than every other rail section.
   return (
-    <li className="flex min-w-0 items-center gap-1.5" data-testid="telemetry-row">
+    <li className="flex min-w-0 items-center gap-1.5 text-xs" data-testid="telemetry-row">
       {active ? <CircleDot size={11} aria-hidden className="shrink-0 text-primary" /> : task.status === 'completed' ? <CheckCircle2 size={11} aria-hidden className="shrink-0 text-success" /> : <Circle size={11} aria-hidden className="shrink-0 text-muted-foreground" />}
       <button type="button" onClick={open} className="min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary" title={task.subject}>{label}</button>
       {elapsed ? <span className="shrink-0 font-mono text-tiny text-muted-foreground">{elapsed}</span> : null}
@@ -83,11 +86,11 @@ export function TasksRail({ variant, data, sessionId, open }: PluginChatRailSect
   };
   return (
     <section data-testid="telemetry-tasks" className="flex flex-col gap-1">
-      <div className="flex w-full min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground">
-        <ListChecks size={11} aria-hidden />
-        <span className="min-w-0 truncate">{strings.railTitle ?? strings.title}</span>
-        <span className="ml-auto shrink-0 rounded bg-muted px-1 py-0 text-tiny tabular-nums">{done}/{parsed.tasks.length}</span>
-      </div>
+      <C.RailSectionHead
+        label={strings.railTitle ?? strings.title}
+        icon={<ListChecks size={11} aria-hidden />}
+        meta={<span className="rounded bg-muted px-1 py-0 text-tiny tabular-nums">{done}/{parsed.tasks.length}</span>}
+      />
       {variant === 'expanded' ? <C.Progress className="h-1" value={(done / parsed.tasks.length) * 100} aria-label={strings.railTitle ?? strings.title} /> : null}
       <ul className="flex flex-col gap-0.5">
         {shown.map((task) => <RailTaskRow key={task.id} task={task} now={now} onStatus={(status) => setStatus(task, status)} open={() => open('tasks')} strings={strings} busy={update.isPending} ActionMenu={C.ActionMenu} />)}

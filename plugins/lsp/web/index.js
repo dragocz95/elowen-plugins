@@ -145,7 +145,7 @@ var Braces = createLucideIcon("Braces", [
 // plugins/lsp/web-src/LspRail.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 function LspRail({ variant, data }) {
-  const { hooks } = runtime();
+  const { components: C, hooks } = runtime();
   const strings = hooks.usePluginStrings("lsp");
   if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.enabled !== "boolean") return null;
   const enabled = data.enabled;
@@ -154,10 +154,7 @@ function LspRail({ variant, data }) {
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-[9px] leading-none text-muted-foreground", children: enabled ? strings.active : strings.inactive })
   ] });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { "data-testid": "telemetry-lsp", className: "flex flex-col gap-1", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Braces, { size: 11, "aria-hidden": true }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate", children: strings.railTitle })
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.RailSectionHead, { label: strings.railTitle, icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Braces, { size: 11, "aria-hidden": true }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "flex min-w-0 items-center gap-1.5 text-xs", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `shrink-0 ${enabled ? "text-success" : "text-subtle-foreground"}`, "aria-hidden": true, children: "\u25CF" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 truncate text-foreground", children: enabled ? strings.active : strings.inactive })

@@ -1,5 +1,5 @@
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 interface BrainCard {
   id: string;
   title?: string;
@@ -36,6 +36,8 @@ export interface SessionTask {
 interface Query<T> { data?: T; isLoading: boolean; isError: boolean; refetch(): void }
 interface Mutation<T> { mutate(vars: T, cb?: { onSuccess?: (value: any) => void; onError?: (error: unknown) => void }): void; isPending: boolean }
 interface Components {
+  /** The host's shared rail heading; a bundle must not rebuild its markup, because the skin styles it by class. */
+  RailSectionHead: ComponentType<{ label: string; icon?: ReactNode; meta?: ReactNode }>;
   Modal: ComponentType<any>; ModalBody: ComponentType<any>; ModalFooter: ComponentType<any>; ConfirmDialog: ComponentType<any>;
   Input: ComponentType<any>; Button: ComponentType<any>; Badge: ComponentType<any>; Checkbox: ComponentType<any>;
   ActionMenu: ComponentType<any>; Progress: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;

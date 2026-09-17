@@ -388,7 +388,7 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
     { label: strings.inProgress, onSelect: () => onStatus("in_progress") },
     { label: strings.completed, onSelect: () => onStatus("completed") }
   ];
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex min-w-0 items-center gap-1.5", "data-testid": "telemetry-row", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex min-w-0 items-center gap-1.5 text-xs", "data-testid": "telemetry-row", children: [
     active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleDot, { size: 11, "aria-hidden": true, className: "shrink-0 text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: "min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary", title: task.subject, children: label }),
     elapsed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "shrink-0 font-mono text-tiny text-muted-foreground", children: elapsed }) : null,
@@ -426,15 +426,18 @@ function TasksRail({ variant, data, sessionId, open }) {
     setNow(Date.now());
   };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { "data-testid": "telemetry-tasks", className: "flex flex-col gap-1", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex w-full min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ListChecks, { size: 11, "aria-hidden": true }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate", children: strings.railTitle ?? strings.title }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "ml-auto shrink-0 rounded bg-muted px-1 py-0 text-tiny tabular-nums", children: [
-        done,
-        "/",
-        parsed.tasks.length
-      ] })
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      C.RailSectionHead,
+      {
+        label: strings.railTitle ?? strings.title,
+        icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ListChecks, { size: 11, "aria-hidden": true }),
+        meta: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "rounded bg-muted px-1 py-0 text-tiny tabular-nums", children: [
+          done,
+          "/",
+          parsed.tasks.length
+        ] })
+      }
+    ),
     variant === "expanded" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Progress, { className: "h-1", value: done / parsed.tasks.length * 100, "aria-label": strings.railTitle ?? strings.title }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-0.5", children: shown.map((task) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RailTaskRow, { task, now, onStatus: (status) => setStatus(task, status), open: () => open("tasks"), strings, busy: update.isPending, ActionMenu: C.ActionMenu }, task.id)) }),
     active.length > shown.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", onClick: () => setExpanded((value) => !value), className: "self-start px-1 text-tiny text-muted-foreground hover:text-foreground", children: [
