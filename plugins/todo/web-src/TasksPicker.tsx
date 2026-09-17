@@ -69,7 +69,9 @@ export function TasksPicker({ sessionId, close }: PluginChatPickerProps) {
                     {renaming === task.id ? <C.Input autoFocus value={draft} onChange={(event: { target: { value: string } }) => setDraft(event.target.value)} onBlur={() => { if (draft.trim()) patch(task, { subject: draft.trim() }); setRenaming(null); }} onKeyDown={(event: { key: string; preventDefault(): void }) => { if (event.key === 'Enter') { event.preventDefault(); if (draft.trim()) patch(task, { subject: draft.trim() }); setRenaming(null); } }} /> : <span className={task.status === 'completed' ? 'text-sm text-muted-foreground line-through' : 'text-sm text-foreground'}>{task.subject}</span>}
                     {task.description ? <div className="text-xs text-muted-foreground">{task.description}</div> : null}
                   </div>
-                  <C.ActionMenu items={taskActions(task)} label={strings.actions + ': ' + task.subject} trigger={<MoreHorizontal size={15} aria-hidden />} />
+                  {/* A kebab: these are ordinary per-task actions, not the one dangerous action the
+                      host's default destructive trigger is shaped for. */}
+                  <C.ActionMenu variant="kebab" items={taskActions(task)} label={strings.actions + ': ' + task.subject} trigger={<MoreHorizontal size={15} aria-hidden />} />
                 </div>
               ))}
             </div>

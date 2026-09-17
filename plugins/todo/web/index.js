@@ -257,7 +257,7 @@ function TasksPicker({ sessionId, close }) {
             } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: task.status === "completed" ? "text-sm text-muted-foreground line-through" : "text-sm text-foreground", children: task.subject }),
             task.description ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "text-xs text-muted-foreground", children: task.description }) : null
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { items: taskActions(task), label: strings.actions + ": " + task.subject, trigger: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Ellipsis, { size: 15, "aria-hidden": true }) })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ActionMenu, { variant: "kebab", items: taskActions(task), label: strings.actions + ": " + task.subject, trigger: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Ellipsis, { size: 15, "aria-hidden": true }) })
         ] }, task.id)) })
       ] }),
       query.data?.tasks.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalFooter, { children: [
@@ -330,9 +330,13 @@ function TodoCard({ card, sessionId, live, open }) {
         {
           items: taskActions(task),
           label: strings.actions + ": " + label,
-          trigger: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent", children: [
-            task.status === "in_progress" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Spinner, { size: "xs" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `min-w-0 flex-1 truncate ${task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}`, children: label }),
+          align: "left",
+          openOnHover: false,
+          className: "min-w-0 flex-1",
+          triggerClassName: "flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent",
+          trigger: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+            task.status === "in_progress" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Spinner, { size: "xs", tone: "text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { title: label, className: `min-w-0 flex-1 truncate ${task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}`, children: label }),
             elapsed ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "shrink-0 tabular-nums text-primary", children: [
               "\xB7 ",
               elapsed
@@ -388,7 +392,7 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
     active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleDot, { size: 11, "aria-hidden": true, className: "shrink-0 text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: "min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary", title: task.subject, children: label }),
     elapsed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "shrink-0 font-mono text-tiny text-muted-foreground", children: elapsed }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { variant: "kebab", items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy })
   ] });
 }
 function TasksRail({ variant, data, sessionId, open }) {

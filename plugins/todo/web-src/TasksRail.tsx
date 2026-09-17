@@ -51,7 +51,9 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
       {active ? <CircleDot size={11} aria-hidden className="shrink-0 text-primary" /> : task.status === 'completed' ? <CheckCircle2 size={11} aria-hidden className="shrink-0 text-success" /> : <Circle size={11} aria-hidden className="shrink-0 text-muted-foreground" />}
       <button type="button" onClick={open} className="min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary" title={task.subject}>{label}</button>
       {elapsed ? <span className="shrink-0 font-mono text-tiny text-muted-foreground">{elapsed}</span> : null}
-      <ActionMenu items={actions} label={strings.actions + ': ' + label} trigger={<MoreHorizontal size={13} aria-hidden />} disabled={busy} />
+      {/* A kebab, not the host's default destructive shape: this menu only changes a status, and the
+          filled red square both shouts and takes width the subject needs. */}
+      <ActionMenu variant="kebab" items={actions} label={strings.actions + ': ' + label} trigger={<MoreHorizontal size={13} aria-hidden />} disabled={busy} />
     </li>
   );
 }

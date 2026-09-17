@@ -60,11 +60,19 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
               <C.ActionMenu
                 items={taskActions(task)}
                 label={strings.actions + ': ' + label}
-                trigger={<span className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent">
-                  {task.status === 'in_progress' ? <C.Spinner size="xs" /> : task.status === 'completed' ? <CheckCircle2 size={11} aria-hidden className="shrink-0 text-success" /> : <Circle size={11} aria-hidden className="shrink-0 text-muted-foreground" />}
-                  <span className={`min-w-0 flex-1 truncate ${task.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{label}</span>
+                align="left"
+                openOnHover={false}
+                // Without these the host styles the trigger as its DEFAULT icon button — a fixed 32x32
+                // destructive square — which squeezes the subject to zero width and pushes the elapsed
+                // time past the card's edge. The row is a full-width line, so it claims the column
+                // (`min-w-0 flex-1` on the wrapper, `w-full` on the trigger) and only the subject gives.
+                className="min-w-0 flex-1"
+                triggerClassName="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent"
+                trigger={<>
+                  {task.status === 'in_progress' ? <C.Spinner size="xs" tone="text-primary" /> : task.status === 'completed' ? <CheckCircle2 size={11} aria-hidden className="shrink-0 text-success" /> : <Circle size={11} aria-hidden className="shrink-0 text-muted-foreground" />}
+                  <span title={label} className={`min-w-0 flex-1 truncate ${task.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{label}</span>
                   {elapsed ? <span className="shrink-0 tabular-nums text-primary">· {elapsed}</span> : null}
-                </span>}
+                </>}
               />
             </li>
           );
