@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ChangeEvent, ComponentType, ReactNode } from 'react';
 import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
 
@@ -29,77 +30,7 @@ type WorkspaceShellComponent = ComponentType<{
 }>;
 
 interface StatsRuntime {
-  components: {
-    Button: AnyComponent;
-    ControlSurfaceDocument: AnyComponent;
-    ControlSurfaceRegister: AnyComponent;
-    ControlSurfaceState: AnyComponent;
-    ControlSurfaceToolbar: AnyComponent;
-    DataTable: AnyComponent;
-    DataTableCell: AnyComponent;
-    DataTableChevronCell: AnyComponent;
-    DataTableRow: AnyComponent;
-    DateRangeFilter: DateRangeComponent;
-    EmptyState: AnyComponent;
-    ErrorState: AnyComponent;
-    HelpTip: AnyComponent;
-    Input: InputComponent;
-    LoadingState: AnyComponent;
-    Modal: AnyComponent;
-    ModalBody: AnyComponent;
-    ModalFooter: AnyComponent;
-    ModelIcon: AnyComponent;
-    ModuleHeader: AnyComponent;
-    /** The one pager of the app. It derives the page count and the range text itself and reads its
-     *  labels from the host `pagination` namespace, so this bundle ships none of that copy. */
-    Pager: ComponentType<{
-      /** Zero-based. */
-      page: number;
-      pageSize: number;
-      total: number;
-      onPageChange(page: number): void;
-      /** Supplying it is what MAKES the rows-per-page select appear, exactly as in the host's own pager;
-       *  the register footer passes it, so the declaration has to admit it. */
-      onPageSizeChange?(pageSize: number): void;
-      pageSizeOptions?: readonly number[];
-      ariaLabel?: string;
-      className?: string;
-    }>;
-    RegisterSearch: ComponentType<{
-      value: string;
-      onChange(value: string): void;
-      placeholder?: string;
-      label?: string;
-      onClear?(): void;
-      clearLabel?: string;
-      count?: number;
-      countLabel?: string;
-      className?: string;
-    }>;
-    /** Single-choice dropdown — the shape every list filter in the app takes, with one glyph per option
-     *  so the neutral entry reads as an option and not as the absence of one. */
-    SelectMenu: ComponentType<{
-      value: string;
-      onChange(value: string): void;
-      options: { value: string; label: string; icon?: ReactNode }[];
-      label: string;
-      variant?: 'default' | 'line';
-      className?: string;
-    }>;
-    Segmented: SegmentedComponent;
-    /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the
-     *  app and loads lazily there, so this bundle never carries a charting library. */
-    TimeSeriesChart: ComponentType<{
-      data: { label: string; [key: string]: string | number | null }[];
-      series: { key: string; label: string; colour: string; variant?: 'bar' | 'line'; axis?: 'left' | 'right'; format: (value: number) => string }[];
-      height?: number;
-      emptyText?: string;
-      ariaLabel?: string;
-    }>;
-    WorkspaceDetailRail: AnyComponent;
-    WorkspaceMetric: AnyComponent;
-    WorkspaceShell: WorkspaceShellComponent;
-  };
+  components: Pick<StatsComponents, PublishedNames>;
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
     useModelUsage(window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
@@ -126,6 +57,82 @@ interface StatsRuntime {
     serializeRange(range: DateRange): string;
   };
 }
+
+/** The host components this bundle mounts. Every key must be one the runtime really publishes:
+ *  it hands over an object, not a type, so an invented name compiles here and reaches React as
+ *  `undefined` at render time. */
+interface StatsComponents {
+  Button: AnyComponent;
+  ControlSurfaceDocument: AnyComponent;
+  ControlSurfaceRegister: AnyComponent;
+  ControlSurfaceState: AnyComponent;
+  ControlSurfaceToolbar: AnyComponent;
+  DataTable: AnyComponent;
+  DataTableCell: AnyComponent;
+  DataTableChevronCell: AnyComponent;
+  DataTableRow: AnyComponent;
+  DateRangeFilter: DateRangeComponent;
+  EmptyState: AnyComponent;
+  ErrorState: AnyComponent;
+  HelpTip: AnyComponent;
+  Input: InputComponent;
+  LoadingState: AnyComponent;
+  Modal: AnyComponent;
+  ModalBody: AnyComponent;
+  ModalFooter: AnyComponent;
+  ModelIcon: AnyComponent;
+  ModuleHeader: AnyComponent;
+  /** The one pager of the app. It derives the page count and the range text itself and reads its
+   *  labels from the host `pagination` namespace, so this bundle ships none of that copy. */
+  Pager: ComponentType<{
+    /** Zero-based. */
+    page: number;
+    pageSize: number;
+    total: number;
+    onPageChange(page: number): void;
+    /** Supplying it is what MAKES the rows-per-page select appear, exactly as in the host's own pager;
+     *  the register footer passes it, so the declaration has to admit it. */
+    onPageSizeChange?(pageSize: number): void;
+    pageSizeOptions?: readonly number[];
+    ariaLabel?: string;
+    className?: string;
+  }>;
+  RegisterSearch: ComponentType<{
+    value: string;
+    onChange(value: string): void;
+    placeholder?: string;
+    label?: string;
+    onClear?(): void;
+    clearLabel?: string;
+    count?: number;
+    countLabel?: string;
+    className?: string;
+  }>;
+  /** Single-choice dropdown — the shape every list filter in the app takes, with one glyph per option
+   *  so the neutral entry reads as an option and not as the absence of one. */
+  SelectMenu: ComponentType<{
+    value: string;
+    onChange(value: string): void;
+    options: { value: string; label: string; icon?: ReactNode }[];
+    label: string;
+    variant?: 'default' | 'line';
+    className?: string;
+  }>;
+  Segmented: SegmentedComponent;
+  /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the
+   *  app and loads lazily there, so this bundle never carries a charting library. */
+  TimeSeriesChart: ComponentType<{
+    data: { label: string; [key: string]: string | number | null }[];
+    series: { key: string; label: string; colour: string; variant?: 'bar' | 'line'; axis?: 'left' | 'right'; format: (value: number) => string }[];
+    height?: number;
+    emptyText?: string;
+    ariaLabel?: string;
+  }>;
+  WorkspaceDetailRail: AnyComponent;
+  WorkspaceMetric: AnyComponent;
+  WorkspaceShell: WorkspaceShellComponent;
+}
+type PublishedNames = AssertPublished<keyof StatsComponents>;
 
 type PluginPage = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
 interface HostWindow {

@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
 interface Registration { requiresApiVersion: number; chatRailSections?: Record<string, ComponentType<PluginChatRailSectionProps>> }
-interface HostWindow { __elowenRegisterPluginUi?: (plugin: string, registration: Registration) => void; ElowenUiRuntime?: { components: { Badge: ComponentType<any> }; hooks: { usePluginStrings(plugin: string): Record<string, string> } } }
+interface HostWindow { __elowenRegisterPluginUi?: (plugin: string, registration: Registration) => void; ElowenUiRuntime?: { hooks: { usePluginStrings(plugin: string): Record<string, string> } } }
 export function runtime() {
   const value = (window as HostWindow).ElowenUiRuntime;
   if (!value) throw new Error('ElowenUiRuntime is not installed');

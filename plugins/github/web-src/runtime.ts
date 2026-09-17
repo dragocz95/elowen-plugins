@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ComponentType } from 'react';
 
 type AnyComponent = ComponentType<any>;
@@ -54,7 +55,11 @@ interface RuntimeComponents {
   // building this out of an avatar and a card of its own is what made it the odd row out.
   LinkedAccountRow: AnyComponent; SummaryChip: AnyComponent;
 }
-interface GitHubRuntime { components: RuntimeComponents; hooks: RuntimeHooks; utils: { apiErrorMessage(error: unknown): string }; api(path: string, init?: RequestInit): Promise<unknown>; navigate(href: string): void }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof RuntimeComponents>;
+interface GitHubRuntime { components: Pick<RuntimeComponents, PublishedNames>; hooks: RuntimeHooks; utils: { apiErrorMessage(error: unknown): string }; api(path: string, init?: RequestInit): Promise<unknown>; navigate(href: string): void }
 interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (plugin: string, registration: { requiresApiVersion: number; account?: Record<string, ComponentType<any>>; accountChip?: Record<string, ComponentType<any>>; project?: Record<string, ComponentType<any>> }) => void }
 
 export function runtime(): GitHubRuntime {

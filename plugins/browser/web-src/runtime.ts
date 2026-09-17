@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import type { PluginPageProps } from 'elowen-plugin-ui-kit';
+import type { PluginPageProps, AssertPublished } from 'elowen-plugin-ui-kit';
 
 export interface BrowserArtifactProps {
   plugin: string;
@@ -128,9 +128,13 @@ interface RuntimeComponents {
     className?: string;
   }>;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof RuntimeComponents>;
 
 export interface BrowserRuntime {
-  components: RuntimeComponents;
+  components: Pick<RuntimeComponents, PublishedNames>;
   hooks: RuntimeHooks;
   utils: {
     apiErrorMessage(error: unknown): string;

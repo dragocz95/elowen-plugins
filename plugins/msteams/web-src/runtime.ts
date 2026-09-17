@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+import type { PluginUiRegistration, AssertPublished } from 'elowen-plugin-ui-kit';
 import type { AutoSaveStatusProps, PluginConfigDraft } from '../../autoSaveContract';
 
 interface TeamsIdentityUser {
@@ -117,9 +117,13 @@ interface TeamsComponents {
   Toggle: AnyComponent;
   SelectMenu: AnyComponent;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof TeamsComponents>;
 
 interface TeamsRuntime {
-  components: TeamsComponents;
+  components: Pick<TeamsComponents, PublishedNames>;
   hooks: TeamsHooks;
   utils: { apiErrorMessage(error: unknown): string };
   api(path: string, init?: RequestInit): Promise<unknown>;

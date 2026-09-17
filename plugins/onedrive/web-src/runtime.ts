@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
 
 /** Lucide-shaped icon: what every host component means by `icon`. */
@@ -92,9 +93,13 @@ interface RuntimeComponents {
     onClose(): void;
   }>;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof RuntimeComponents>;
 
 interface OneDriveRuntime {
-  components: RuntimeComponents;
+  components: Pick<RuntimeComponents, PublishedNames>;
   hooks: RuntimeHooks;
   utils: { apiErrorMessage(error: unknown): string };
   api(path: string, init?: RequestInit): Promise<unknown>;

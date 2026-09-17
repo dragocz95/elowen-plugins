@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ComponentType, ReactNode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -38,9 +39,13 @@ interface EditorComponents {
   SelectMenu: AnyComponent; ControlSurfaceDocument: AnyComponent;
   WorkspacePage: AnyComponent; WorkspaceHero: AnyComponent; WorkspaceTakeover: AnyComponent;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof EditorComponents>;
 
 interface EditorRuntime {
-  components: EditorComponents;
+  components: Pick<EditorComponents, PublishedNames>;
   hooks: {
     useQueryClient(): Pick<QueryClient, 'setQueryData' | 'invalidateQueries'>;
     useTranslation(): { t: Dict };

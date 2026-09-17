@@ -6,9 +6,9 @@
  *  (it builds standalone via elowen-plugin-ui-kit).
  */
 import type { ComponentType, ReactNode } from 'react';
-import type { PluginUiRegistration } from 'elowen-plugin-ui-kit';
+import type { PluginUiRegistration, PluginHistoryBranchProps, AssertPublished } from 'elowen-plugin-ui-kit';
+export type { PluginHistoryBranchProps };
 export interface DashboardMetricProps { now: number; locale: string; monthCostUsd: number | null; monthTokens: number }
-export interface PluginHistoryBranchProps { parent: { id: string; title: string; model: string; updated_at: string; running: boolean; kind: string; tokens?: number }; items: readonly unknown[]; expanded: boolean; toggle: () => void; open: (target: string) => void }
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
 
@@ -384,9 +384,13 @@ interface CronComponents {
   WorkspaceDetailRail: AnyComponent;
   SettingsGroup: AnyComponent;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof CronComponents>;
 
 interface CronRuntime {
-  components: CronComponents;
+  components: Pick<CronComponents, PublishedNames>;
   hooks: CronHooks;
   utils: CronUtils;
   api(path: string, init?: RequestInit): Promise<unknown>;

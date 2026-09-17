@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ComponentType } from 'react';
 interface BrainCard {
   id: string;
@@ -39,6 +40,10 @@ interface Components {
   Input: ComponentType<any>; Button: ComponentType<any>; Badge: ComponentType<any>; Checkbox: ComponentType<any>;
   ActionMenu: ComponentType<any>; Progress: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof Components>;
 interface Hooks {
   useTranslation(): { t: Record<string, any> };
   usePluginStrings(plugin: string): Record<string, string>;
@@ -48,8 +53,8 @@ interface Hooks {
   useDeleteSessionTask(): Mutation<{ sessionId: string; taskId: string }>;
   useClearSessionTasks(): Mutation<{ sessionId: string; scope: 'completed' | 'all' }>;
 }
-export interface TodoRuntime { components: Components; hooks: Hooks; utils: { formatDuration(value: number): string; apiErrorMessage(error: unknown): string } }
-interface HostWindow { ElowenUiRuntime?: { components: Components; hooks: Hooks; utils: TodoRuntime['utils'] }; __elowenRegisterPluginUi?: (plugin: string, registration: TodoRegistration) => void }
+export interface TodoRuntime { components: Pick<Components, PublishedNames>; hooks: Hooks; utils: { formatDuration(value: number): string; apiErrorMessage(error: unknown): string } }
+interface HostWindow { ElowenUiRuntime?: { components: Pick<Components, PublishedNames>; hooks: Hooks; utils: TodoRuntime['utils'] }; __elowenRegisterPluginUi?: (plugin: string, registration: TodoRegistration) => void }
 export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
 export interface TodoRegistration {
   requiresApiVersion: number;

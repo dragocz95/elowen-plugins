@@ -11,6 +11,9 @@
   .min-w-0 {
     min-width: 0px;
   }
+  .shrink-0 {
+    flex-shrink: 0;
+  }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
@@ -57,6 +60,9 @@
   .tracking-wide {
     --tw-tracking: var(--tracking-wide, 0.025em);
     letter-spacing: var(--tracking-wide, 0.025em);
+  }
+  .text-foreground {
+    color: var(--color-foreground, #f7f3f0);
   }
   .text-muted-foreground {
     color: var(--color-muted-foreground, #9d948e);

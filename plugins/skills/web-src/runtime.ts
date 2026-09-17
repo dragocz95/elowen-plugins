@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 /** Typed access to the host's window.ElowenUiRuntime for the skills plugin bundle.
  *
  *  The runtime hands over untyped `components`/`hooks` records; this module narrows each entry to
@@ -87,9 +88,13 @@ interface SkillsComponents {
   Input: AnyComponent; IconButton: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent; EmptyState: AnyComponent;
   WorkspaceShell: AnyComponent; WorkspaceMetric: AnyComponent;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof SkillsComponents>;
 
 interface SkillsRuntime {
-  components: SkillsComponents;
+  components: Pick<SkillsComponents, PublishedNames>;
   hooks: SkillsHooks;
   utils: { apiErrorMessage(e: unknown): string };
   api(path: string, init?: RequestInit): Promise<unknown>;

@@ -1,3 +1,4 @@
+import type { AssertPublished } from 'elowen-plugin-ui-kit';
 /** Typed access to the host's window.ElowenUiRuntime for the whatsapp plugin bundle.
  *
  *  The runtime hands over untyped `components`/`hooks` records; this module narrows each entry to
@@ -18,9 +19,13 @@ interface WhatsAppComponents {
   // `ownsPageFrame`: the host's WorkspacePage + ModuleHeader wrapper is the frame this section wants.
   ConfirmDialog: AnyComponent; PluginSection: AnyComponent;
 }
+/** Every key of the interface above has to be a component the host really publishes. The runtime
+ *  hands over an object, not a type, so a name invented here compiles and then reaches React as
+ *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
+type PublishedNames = AssertPublished<keyof WhatsAppComponents>;
 
 interface WhatsAppRuntime {
-  components: WhatsAppComponents;
+  components: Pick<WhatsAppComponents, PublishedNames>;
   hooks: { usePluginStrings(plugin: string): Record<string, string> };
   api(path: string, init?: RequestInit): Promise<unknown>;
 }

@@ -2376,3 +2376,6 @@ registerCronUi({
   dashboardMetrics: { "next-run": CronNextRunMetric },
   historyBranches: { cronjob: ConversationHistoryBranch }
 });
+export {
+  CronNextRunMetric
+};
