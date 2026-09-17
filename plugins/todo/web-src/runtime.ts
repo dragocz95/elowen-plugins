@@ -55,7 +55,20 @@ interface Hooks {
   useDeleteSessionTask(): Mutation<{ sessionId: string; taskId: string }>;
   useClearSessionTasks(): Mutation<{ sessionId: string; scope: 'completed' | 'all' }>;
 }
-export interface TodoRuntime { components: Pick<Components, PublishedNames>; hooks: Hooks; utils: { formatDuration(value: number): string; apiErrorMessage(error: unknown): string } }
+/** The host's own card-preview rule and its cap (`web/lib/chatPresentation.ts`), published so a bundle
+ *  cannot grow a second opinion of which rows a card shows. Picks recent progress plus the work that
+ *  matters next, then restores source order. */
+type TodoPreviewItem = { readonly status?: 'pending' | 'in_progress' | 'completed' };
+export interface TodoRuntime {
+  components: Pick<Components, PublishedNames>;
+  hooks: Hooks;
+  utils: {
+    formatDuration(value: number): string;
+    apiErrorMessage(error: unknown): string;
+    todoPreviewItems<T extends TodoPreviewItem>(items: readonly T[], limit: number): T[];
+    TODO_PREVIEW_ITEMS: number;
+  };
+}
 interface HostWindow { ElowenUiRuntime?: { components: Pick<Components, PublishedNames>; hooks: Hooks; utils: TodoRuntime['utils'] }; __elowenRegisterPluginUi?: (plugin: string, registration: TodoRegistration) => void }
 export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
 export interface TodoRegistration {
