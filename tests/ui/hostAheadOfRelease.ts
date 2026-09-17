@@ -20,7 +20,11 @@
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: [],
+  // `Progress` arrived with the same seam batch: the host publishes the plain determinate meter from
+  // web/lib/pluginUi.tsx and the pinned release predates it. The todo rail section draws its done/total
+  // bar with it, and now the card draws the same meter, so the stand-in has to carry it. Delete when the
+  // devDependency moves to the release that ships it.
+  components: ['Progress'],
   // The session-task hooks arrived with the seam batch that moved the task surfaces out of the core and
   // into this repository's `todo` plugin: the core publishes all four from web/lib/pluginUi.tsx and the
   // pinned 0.28.47 predates them. They are what TasksPicker/TasksRail/TodoCard read, so the stand-in has
@@ -30,11 +34,17 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
     'useProjectEnvironmentState',
     'useSessionTasks', 'useUpdateSessionTask', 'useDeleteSessionTask', 'useClearSessionTasks',
   ],
-  utils: [],
+  // The card-preview rule and its cap. The todo card used to keep its own copy of "which four rows a
+  // card shows"; the host now publishes the one the CLI panel and the host's own card run, and the
+  // bundle reads it from `runtime().utils` so `slice(0, 4)` cannot come back. Delete both when the
+  // devDependency moves to the release that ships them.
+  utils: ['TODO_PREVIEW_ITEMS', 'todoPreviewItems'],
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
 export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
 
-/** The plugin UI API version targeted by the stand-in, shipped by core 0.28.47. */
-export const AHEAD_OF_RELEASE_API_VERSION = 17;
+/** The plugin UI API version targeted by the stand-in. The todo card requires it: it draws its rows
+ *  through `utils.todoPreviewItems`, which the in-development core publishes under API 18, so a host
+ *  stamped lower refuses the bundle and keeps rendering its own card. */
+export const AHEAD_OF_RELEASE_API_VERSION = 18;

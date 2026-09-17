@@ -130,6 +130,11 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/chevron-right.js
+var ChevronRight = createLucideIcon("ChevronRight", [
+  ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/circle-check.js
 var CircleCheck = createLucideIcon("CircleCheck", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
@@ -287,6 +292,7 @@ function TodoCard({ card, sessionId, live, open }) {
   const strings = hooks.usePluginStrings("todo");
   const query = hooks.useSessionTasks(sessionId);
   const update = hooks.useUpdateSessionTask();
+  const [collapsed, setCollapsed] = (0, import_react4.useState)(false);
   const tasks = query.data?.tasks ?? (card.items ?? []).flatMap((item) => item.id ? [{
     id: item.id,
     subject: item.label ?? item.text,
@@ -309,20 +315,43 @@ function TodoCard({ card, sessionId, live, open }) {
   ];
   if (tasks.length > 0 && tasks.every((task) => task.status === "completed")) return null;
   const done = tasks.filter((task) => task.status === "completed").length;
+  const previewable = tasks.length > utils.TODO_PREVIEW_ITEMS;
+  const shown = collapsed ? [] : utils.todoPreviewItems(tasks, utils.TODO_PREVIEW_ITEMS);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { "data-testid": "chat-card", className: "flex max-w-[min(100%,28rem)] flex-col self-start leading-tight", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-1.5 text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", onClick: () => open("tasks"), className: "flex min-w-0 items-center gap-1.5 text-left hover:text-foreground", "aria-label": strings.title, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ListChecks, { size: 12, "aria-hidden": true }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: strings.title }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "tabular-nums opacity-70", children: [
-          done,
-          "/",
-          tasks.length
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", onClick: () => open("tasks"), className: "ml-auto rounded px-1 text-xs hover:bg-accent", "aria-label": strings.open, title: strings.open, children: "\u2197" })
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-1.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        "button",
+        {
+          type: "button",
+          onClick: () => setCollapsed((value) => !value),
+          "aria-expanded": !collapsed,
+          className: "flex min-w-0 items-center gap-1.5 text-left text-muted-foreground transition-colors hover:text-foreground",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ChevronRight, { size: 11, "aria-hidden": true, className: `shrink-0 opacity-60 transition-transform ${collapsed ? "" : "rotate-90"}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: strings.title }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "shrink-0 tabular-nums opacity-70", children: [
+              done,
+              "/",
+              tasks.length
+            ] })
+          ]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Progress, { className: "h-0.5 w-10 shrink-0", value: done / tasks.length * 100, "aria-label": strings.title }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        C.Button,
+        {
+          variant: "ghost",
+          size: "icon",
+          onClick: () => open("tasks"),
+          "aria-label": strings.open,
+          title: strings.open,
+          className: "size-6 shrink-0 rounded",
+          children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ListChecks, { size: 12, "aria-hidden": true })
+        }
+      )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: "flex flex-col", children: tasks.slice(0, 4).map((task) => {
+    shown.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: "flex flex-col", children: shown.map((task) => {
       const label = task.status === "in_progress" && task.activeForm ? task.activeForm : task.subject;
       const elapsed = task.status === "in_progress" && task.startedAt != null ? utils.formatDuration(now - task.startedAt) : null;
       return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { className: "flex min-w-0 items-center gap-1", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -337,20 +366,21 @@ function TodoCard({ card, sessionId, live, open }) {
           trigger: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
             task.status === "in_progress" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Spinner, { size: "xs", tone: "text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { title: label, className: `min-w-0 flex-1 truncate ${task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}`, children: label }),
-            elapsed ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "shrink-0 tabular-nums text-primary", children: [
+            elapsed ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { "data-testid": "chat-card-elapsed", className: "shrink-0 tabular-nums text-primary", children: [
               "\xB7 ",
               elapsed
             ] }) : null
           ] })
         }
       ) }, task.id);
-    }) }),
-    tasks.length > 4 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", onClick: () => open("tasks"), className: "self-start px-1 text-xs text-muted-foreground hover:text-foreground", children: [
+    }) }) : null,
+    !collapsed && previewable ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", onClick: () => open("tasks"), className: "self-start px-1 text-xs text-muted-foreground hover:text-foreground", children: [
       "+",
-      tasks.length - 4,
-      " more"
+      tasks.length - utils.TODO_PREVIEW_ITEMS,
+      " ",
+      strings.more
     ] }) : null,
-    card.body ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "whitespace-pre-wrap break-words text-muted-foreground", children: card.body }) : null
+    !collapsed && card.body ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "whitespace-pre-wrap break-words text-muted-foreground", children: card.body }) : null
   ] });
 }
 
@@ -451,7 +481,7 @@ function TasksRail({ variant, data, sessionId, open }) {
 
 // plugins/todo/web-src/index.tsx
 registerTodoUi({
-  requiresApiVersion: 17,
+  requiresApiVersion: 18,
   chatPickers: { tasks: TasksPicker },
   chatCards: { todos: TodoCard },
   chatRailSections: { todo: TasksRail }

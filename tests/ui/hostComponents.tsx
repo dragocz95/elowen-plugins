@@ -813,6 +813,23 @@ export function Spinner({ size = 'sm', label }: { size?: keyof typeof SPINNER_PX
   return <Loader2 size={SPINNER_PX[size]} className="spinner" {...(label ? { role: 'status' as const, 'aria-label': label } : { 'aria-hidden': true })} />;
 }
 
+/** Ported from web/components/ui/shadcn/progress.tsx (the shadcn primitive on Radix). The behaviour a
+ *  suite can stand on is Radix's ARIA: a `progressbar` with min/max/now, and an indicator element whose
+ *  box is the fraction it reports. The chat card and the rail section both draw their done/total meter
+ *  with it. */
+export function Progress({ value = 0, className = '', indicatorClassName = '', ...rest }: {
+  value?: number;
+  className?: string;
+  indicatorClassName?: string;
+} & Omit<HTMLAttributes<HTMLDivElement>, 'value'>) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className={className} {...rest}>
+      <div data-slot="progress-indicator" className={indicatorClassName} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
 /** Ported from web/components/ui/AutoSaveStatus.tsx. Idle renders an EMPTY live region rather than
  *  nothing — the row keeps one stable `role="status"` node, so the first "Saving…" is announced instead
  *  of arriving with a brand-new region a screen reader may not read. The error is `role="alert"` and

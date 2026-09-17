@@ -211,4 +211,66 @@ describe('the todo chat card', () => {
     fireEvent.click(await screen.findByText('Completed'));
     await waitFor(() => expect(received.patches).toEqual([{ taskId: 't1', status: 'completed' }]));
   });
+
+  it('folds the rows away on a click on the head and still says how much is done', async () => {
+    tasks = [
+      task({ id: 't1', subject: 'Read the code', status: 'completed' }),
+      task({ id: 't2', subject: 'Run the suite', status: 'in_progress', startedAt: Date.now() - 60_000 }),
+    ];
+    mount(<TodoCard card={{ id: 'c1', title: 'Tasks', items: [] }} sessionId={SESSION} live open={() => {}} />);
+
+    // The head is the fold's only trigger, and it starts unfolded.
+    const head = await screen.findByRole('button', { expanded: true });
+    fireEvent.click(head);
+    await waitFor(() => expect(screen.queryByText('Run the suite')).toBeNull());
+    // A folded card still reports what it is holding.
+    expect(screen.getByText('1/2')).toBeTruthy();
+
+    fireEvent.click(head);
+    expect(await screen.findByText('Run the suite')).toBeTruthy();
+  });
+
+  it('keeps finished and waiting work in view instead of a flat first four', async () => {
+    // Four finished rows sit at the head of the list; the work that matters now is behind them.
+    tasks = [
+      task({ id: 't1', subject: 'Read the code', status: 'completed' }),
+      task({ id: 't2', subject: 'Draft the notes', status: 'completed' }),
+      task({ id: 't3', subject: 'Write the migration', status: 'completed' }),
+      task({ id: 't4', subject: 'Add the index', status: 'completed' }),
+      task({ id: 't5', subject: 'Run the suite', status: 'in_progress', startedAt: Date.now() - 65_000 }),
+      task({ id: 't6', subject: 'Ship the release', status: 'pending' }),
+    ];
+    mount(<TodoCard card={{ id: 'c1', title: 'Tasks', items: [] }} sessionId={SESSION} live open={() => {}} />);
+
+    // Exactly four rows, and they are the host rule's four: the two most recent finished rows, the
+    // running one and the waiting one — in source order. A plain first-four preview renders the first
+    // two finished rows here instead, which is the regression this guards.
+    await screen.findByText('Run the suite');
+    expect(screen.getAllByRole('button', { name: /^Task actions: / })).toHaveLength(4);
+    expect(screen.getByText('Write the migration')).toBeTruthy();
+    expect(screen.getByText('Add the index')).toBeTruthy();
+    expect(screen.getByText('Run the suite')).toBeTruthy();
+    expect(screen.getByText('Ship the release')).toBeTruthy();
+    expect(screen.queryByText('Read the code')).toBeNull();
+    expect(screen.queryByText('Draft the notes')).toBeNull();
+    // And the card still offers the rest through the list.
+    expect(screen.getByRole('button', { name: '+2 more' })).toBeTruthy();
+  });
+
+  it('shows the running clock on the in-progress row, ticking', async () => {
+    tasks = [
+      task({ id: 't1', subject: 'Read the code', status: 'completed' }),
+      task({ id: 't2', subject: 'Draft the notes', status: 'completed' }),
+      task({ id: 't3', subject: 'Write the migration', status: 'completed' }),
+      task({ id: 't4', subject: 'Add the index', status: 'completed' }),
+      task({ id: 't5', subject: 'Run the suite', status: 'in_progress', startedAt: Date.now() - 65_000 }),
+    ];
+    mount(<TodoCard card={{ id: 'c1', title: 'Tasks', items: [] }} sessionId={SESSION} live open={() => {}} />);
+
+    const clock = await screen.findByTestId('chat-card-elapsed');
+    expect(clock).toHaveTextContent(/· 1m \d+s/);
+    // It is a clock, not a timestamp: a live turn's row keeps counting.
+    const first = clock.textContent;
+    await waitFor(() => expect(clock.textContent).not.toBe(first), { timeout: 3_000 });
+  });
 });

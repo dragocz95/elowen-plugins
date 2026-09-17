@@ -1,6 +1,6 @@
 {
   "name": "todo",
-  "version": "0.14.12",
+  "version": "0.14.13",
   "apiVersion": "1",
   "requiresCore": "0.28.49",
   "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
@@ -17,7 +17,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 17,
+    "requiresApiVersion": 18,
     "chatPickers": true,
     "chatCards": true,
     "chatRailSections": true,

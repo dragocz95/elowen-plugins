@@ -3,10 +3,11 @@
  *
  *  Everything below the formatting block is ported FUNCTION FOR FUNCTION from the Elowen package
  *  (web/lib/{format,agentUtils,taskTree,dateRange,execPresets,usageBars,modelProvider,taskMeta,
- *  statusTone,eventMeta,fileIcon,filePath}.ts). These are pure helpers whose exact behaviour the moved
- *  suites assert on — a mission's rolled-up elapsed time, an epic's effective status, the model list a
- *  picker offers — so a plausible-looking reimplementation would quietly change what the tests measure.
- *  Only the app's `types.ts` import is replaced by the structural shapes in hostClient. */
+ *  statusTone,eventMeta,fileIcon,filePath,chatPresentation}.ts). These are pure helpers whose exact
+ *  behaviour the moved suites assert on — a mission's rolled-up elapsed time, an epic's effective
+ *  status, the model list a picker offers — so a plausible-looking reimplementation would quietly
+ *  change what the tests measure. Only the app's `types.ts` import is replaced by the structural
+ *  shapes in hostClient. */
 import { Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image,
   ListChecks, Palette, Radio, Rocket, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
 import type { ModelUsage } from './hostClient';
@@ -304,4 +305,38 @@ export function buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary 
     avgSpeedLabel: measuredSeconds > 0 ? formatSpeed(measuredOutput / measuredSeconds) : DASH,
     hasAnyUsage: totalTokens > 0 || costs.some((cost) => cost > 0),
   };
+}
+
+/** How many rows a chat card previews (`web/lib/chatPresentation.ts`). */
+export const TODO_PREVIEW_ITEMS = 4;
+
+/** Pick recent progress plus the work that matters next, then restore source order — the host's own
+ *  card-preview rule, which the todo bundle now calls through the runtime instead of keeping a copy. */
+export function todoPreviewItems<T extends { readonly status?: 'pending' | 'in_progress' | 'completed' }>(items: readonly T[], limit: number): T[] {
+  if (limit <= 0) return [];
+  if (items.length <= limit) return [...items];
+  const completed = items.map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status === 'completed');
+  const remaining = items.map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status !== 'completed');
+
+  let completedCount = Math.min(2, completed.length, limit);
+  let remainingCount = Math.min(2, remaining.length, limit - completedCount);
+  let spare = limit - completedCount - remainingCount;
+  const extraRemaining = Math.min(spare, remaining.length - remainingCount);
+  remainingCount += extraRemaining;
+  spare -= extraRemaining;
+  completedCount += Math.min(spare, completed.length - completedCount);
+
+  const selectedCompleted = completed.slice(-completedCount);
+  const selectedRemaining = [...remaining]
+    .sort((a, b) => {
+      const activeDelta = Number(b.item.status === 'in_progress') - Number(a.item.status === 'in_progress');
+      return activeDelta || a.index - b.index;
+    })
+    .slice(0, remainingCount);
+
+  return [...selectedCompleted, ...selectedRemaining]
+    .sort((a, b) => a.index - b.index)
+    .map(({ item }) => item);
 }

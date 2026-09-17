@@ -68,6 +68,9 @@ export function ensurePluginUiRuntime(): void {
       ExecutorPicker: C.ExecutorPicker, IconButton: C.IconButton, LiveTail: C.LiveTail, ModuleHeader: C.ModuleHeader,
       MotionLayout: C.MotionLayout, MotionLayoutItem: C.MotionLayoutItem, MotionPresence: C.MotionPresence,
       OutcomeBadge: C.OutcomeBadge, PatchView: C.PatchView, ProgressRibbon: C.ProgressRibbon,
+      // The plain determinate meter, which the rail section and the chat card both draw their
+      // done/total bar with.
+      Progress: C.Progress,
       ProjectFilterPills: C.ProjectFilterPills, ProjectIcon: C.ProjectIcon, ProjectPill: C.ProjectPill,
       ChangeStrip: C.ChangeStrip,
       // The settings-extraction surface (the moved CLI-agents / autopilot / GitHub sections).
@@ -121,6 +124,9 @@ export function ensurePluginUiRuntime(): void {
       isStoredRange: U.isStoredRange, rangeBounds: U.rangeBounds,
       // Formatting + presentation vocabulary shared with the core surfaces.
       formatCost: U.formatCost, formatDuration: U.formatDuration,
+      // The host's card-preview rule and its cap, published so the transcript card, the host's own
+      // fallback card and the CLI panel cannot drift on which four rows a card shows.
+      TODO_PREVIEW_ITEMS: U.TODO_PREVIEW_ITEMS, todoPreviewItems: U.todoPreviewItems,
       baseName: U.baseName, dirName: U.dirName, fileIcon: U.fileIcon, eventIcon: U.eventIcon,
       contextMenuDivider: U.DIVIDER,
       // Models + usage.
