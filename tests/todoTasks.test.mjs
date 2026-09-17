@@ -18,7 +18,9 @@ function harness(t, options = {}) {
   options.beforeRegister?.(rawDb);
   const pluginDb = makePluginDb(rawDb, 'todo', { canMigrate: true });
   const tools = [];
+  const toolOptions = [];
   const cards = [];
+  const cardWrites = [];
   const warnings = [];
   const prompts = [];
   const routes = [];
@@ -39,10 +41,11 @@ function harness(t, options = {}) {
       return pluginDb;
     },
     emitCard: (card) => cards.push(card),
+    writeCard: (targetSessionId, card) => cardWrites.push({ sessionId: targetSessionId, card }),
     logger: { info() {}, warn: (message) => warnings.push(message) },
     registerApiRoute: (route) => routes.push(route),
     registerSystemPromptFragment: (fragment) => prompts.push(fragment),
-    registerTool: (tool) => tools.push(tool),
+    registerTool: (tool, options) => { tools.push(tool); toolOptions.push({ name: tool.name, options }); },
     registerTurnContext: (render, options) => { turnContext = render; turnContextOptions = options; },
     // Omitted entirely by the `noStepContext` harness: that is what a core older than the seam looks like,
     // and the plugin must degrade instead of throwing inside register().
@@ -53,7 +56,9 @@ function harness(t, options = {}) {
   register(ctx);
   return {
     tools,
+    toolOptions,
     cards,
+    cardWrites,
     warnings,
     prompts,
     routes,
@@ -74,6 +79,13 @@ function harness(t, options = {}) {
 test('Task V2 exposes incremental tools and keeps private data out of the Todo panel', async (t) => {
   const h = harness(t);
   assert.deepEqual(h.tools.map((tool) => tool.name).sort(), ['TaskCreate', 'TaskDelete', 'TaskGet', 'TaskList', 'TaskUpdate']);
+  assert.deepEqual(h.toolOptions.map(({ name, options }) => ({ name, neverDefer: options?.neverDefer })), [
+    { name: 'TaskCreate', neverDefer: true },
+    { name: 'TaskGet', neverDefer: true },
+    { name: 'TaskList', neverDefer: true },
+    { name: 'TaskUpdate', neverDefer: true },
+    { name: 'TaskDelete', neverDefer: true },
+  ]);
   assert.doesNotMatch(h.prompts.join('\n'), /TodoWrite|TodoRead/);
   assert.match(h.prompts.join('\n'), /Mark work in_progress when it starts and completed immediately/);
 
@@ -650,9 +662,24 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
 
   const updated = await route('PATCH', 'task').handler(request({ taskId: '1', body: { status: 'completed' } }));
   assert.equal(updated.body.task.status, 'completed');
+  assert.deepEqual(h.cardWrites.at(-1), {
+    sessionId: 'brain-7-a',
+    card: {
+      id: 'todos', title: 'Todos', pinned: true,
+      items: [
+        { text: '#1 Inspect auth', status: 'completed', id: '1', label: 'Inspect auth' },
+        { text: '#2 Ship fix', status: 'pending', id: '2', label: 'Ship fix' },
+      ],
+    },
+  });
   assert.equal((await route('PATCH', 'task').handler(request({ taskId: '1', body: { status: 'deleted' } }))).status, 400);
 
+  const writesBeforeDelete = h.cardWrites.length;
   const removed = await route('DELETE', 'task').handler(request({ taskId: '1' }));
+  assert.equal(h.cardWrites.length, writesBeforeDelete + 1);
+  assert.deepEqual(h.cardWrites.at(-1).card.items, [
+    { text: '#2 Ship fix', status: 'pending', id: '2', label: 'Ship fix' },
+  ]);
   assert.equal(removed.status, 200);
   assert.equal(removed.body.success, true);
   assert.equal(removed.body.taskId, '1');
@@ -810,7 +837,9 @@ test('bulk clear removes the requested rows without resetting the conversation i
   });
 
   assert.equal((await clear.handler(request('unknown'))).status, 400);
+  const writesBeforeCompletedClear = h.cardWrites.length;
   const completed = await clear.handler(request('completed'));
+  assert.equal(h.cardWrites.length, writesBeforeCompletedClear + 1);
   assert.equal(completed.body.success, true);
   assert.equal(completed.body.removed, 1);
   assert.deepEqual(completed.body.tasks.map((task) => ({ id: task.id, subject: task.subject, blockedBy: task.blockedBy })), [
@@ -822,7 +851,13 @@ test('bulk clear removes the requested rows without resetting the conversation i
     tasks: [{ subject: 'New work', description: 'after completed clear' }],
   })).tasks, [{ id: '3', subject: 'New work' }]);
 
+  const writesBeforeAllClear = h.cardWrites.length;
   const all = await clear.handler(request('all'));
+  assert.equal(h.cardWrites.length, writesBeforeAllClear + 1);
+  assert.deepEqual(h.cardWrites.at(-1), {
+    sessionId: 'brain-7-a',
+    card: { id: 'todos', title: 'Todos', pinned: true, items: [] },
+  });
   assert.equal(all.body.removed, 2);
   assert.deepEqual(all.body.tasks, []);
   assert.equal(h.rawDb.prepare('SELECT next_id FROM p_todo_task_lists WHERE list_key = ?').get('u7#brain-7-a').next_id, 4);
