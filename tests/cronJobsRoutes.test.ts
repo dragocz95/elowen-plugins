@@ -190,6 +190,16 @@ describe('cron jobs routes', () => {
     expect(onDisk(dataRoot)[0].prompt).toBe('Server copy.');
   });
 
+  it('treats a legacy job without a revision as revision 0 on conditional save', async () => {
+    const { app, dataRoot, adminTok } = setup();
+    seed(dataRoot, [job({ prompt: 'Legacy copy.' })]);
+    const res = await save(app, adminTok, job({ prompt: 'Edited.', expectedRevision: 0 }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ revision: 1, job: { revision: 1, prompt: 'Edited.' } });
+    expect(onDisk(dataRoot)[0]).toMatchObject({ revision: 1, prompt: 'Edited.' });
+  });
+
   it('increments the revision after a conditional save', async () => {
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, [job({ revision: 4 })]);

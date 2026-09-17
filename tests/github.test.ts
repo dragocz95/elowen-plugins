@@ -509,7 +509,7 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.17');
+    expect(manifest.version).toBe('0.1.18');
     // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
     // because the HOST reads that off the manifest and an older one just falls back to a rail section.
     // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also
@@ -923,6 +923,36 @@ describe('GitHub plugin', () => {
       expect(h.service.store.account(1)).toBeNull();
       expect(h.service.store.mapping(1, 1)).toBeNull();
     } finally { fake.server.close(); }
+  });
+
+  it('routes confirmed tool mutations through the persisted confirmation flow', async () => {
+    const registered: any[] = [];
+    const calls: { name: string; args: unknown[] }[] = [];
+    const action = { type: 'review' as const, projectId: 1, number: 7, event: 'APPROVE' as const, body: 'Looks good' };
+    const service = {
+      currentUserId: () => 1,
+      preview: async (...args: unknown[]) => {
+        calls.push({ name: 'preview', args });
+        return { action, title: 'Submit review', description: 'Approve #7', target: { projectId: 1, number: 7 }, expected: { headSha: 'a'.repeat(40) }, confirmationToken: 'confirm-once', expiresAt: Date.now() + 60_000 };
+      },
+      confirm: async (...args: unknown[]) => { calls.push({ name: 'confirm', args }); return { reviewed: true }; },
+      executePreview: async () => { throw new Error('tool bypassed the persisted confirmation'); },
+    } as unknown as GitHubService;
+    const ctx = {
+      currentSessionId: () => 'brain-1', currentIdentity: () => ({ elowenUserId: 1 }),
+      askUser: async () => [{ selected: ['Confirm'] }], registerTool: (tool: unknown) => registered.push(tool),
+    } as unknown as PluginContext;
+    registerGitHubTools(ctx, service);
+
+    const output = await registered.find((tool) => tool.name === 'GithubSubmitReview').execute('call', {
+      projectId: 1, number: 7, event: 'APPROVE', body: 'Looks good',
+    });
+
+    expect(output.content[0].text).toContain('reviewed');
+    expect(calls).toEqual([
+      { name: 'preview', args: [1, action] },
+      { name: 'confirm', args: [1, action, 'confirm-once'] },
+    ]);
   });
 
   it('allows reads but refuses unattended tool mutations before any GitHub write', async () => {

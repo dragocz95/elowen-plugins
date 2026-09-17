@@ -7,12 +7,12 @@ test('todo manifest and marketplace registry expose the same release', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
 
-  // 0.14.10 carries the current task-card and deletion contracts while keeping the core floor that ships
-  // `ctx.registerStepContext`. `apiVersion` stays exactly '1': it is an EXACT match against core's
+  // 0.14.12 isolates route card refresh failures from successful task mutations and pins its task tools
+  // through registration metadata. `apiVersion` stays exactly '1': it is an EXACT match against core's
   // PLUGIN_API_VERSION, so raising it would refuse this plugin on every core, including a newer one.
-  assert.equal(manifest.version, '0.14.10');
+  assert.equal(manifest.version, '0.14.12');
   assert.equal(manifest.apiVersion, '1');
-  assert.equal(manifest.requiresCore, '0.28.47');
+  assert.equal(manifest.requiresCore, '0.28.49');
   assert.equal(catalog?.version, manifest.version);
   assert.equal(catalog?.requiresCore, manifest.requiresCore);
   assert.equal(catalog?.provides.tools, 5);

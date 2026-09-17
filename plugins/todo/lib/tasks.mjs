@@ -1,7 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fail, hasControlCharacters, keyFor, ok, parseObject } from './common.mjs';
-import { pushTaskCard, renderStepReminder, renderTaskContext } from './render.mjs';
+import { pushTaskCard, renderStepReminder, renderTaskContext, taskCard } from './render.mjs';
 
 const TASK_STATUSES = ['pending', 'in_progress', 'completed'];
 const TASK_STATUS_SCHEMA = Type.Union(TASK_STATUSES.map((status) => Type.Literal(status)));
@@ -472,6 +472,14 @@ function syncCard(ctx, store, key) {
   return tasks;
 }
 
+function syncRouteCard(ctx, tasks, sessionId) {
+  try { ctx.writeCard(sessionId, taskCard(tasks)); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.warn(`session task panel write failed: ${message}`);
+  }
+}
+
 const SAFE_ERRORS = new Set([
   'a task list belongs to a conversation, and this turn has none',
   'tasks must be a non-empty array of tasks to create',
@@ -573,7 +581,8 @@ export function registerTaskMode(ctx, db) {
       return { error: jsonRes({ error: 'forbidden' }, 403) };
     }
     const key = apiListKey(req);
-    return key ? { key } : { error: jsonRes({ error: 'session is required' }, 400) };
+    const sessionId = String(req.query.session ?? '').trim();
+    return key ? { key, sessionId } : { error: jsonRes({ error: 'session is required' }, 400) };
   };
 
   ctx.registerApiRoute({
@@ -595,14 +604,20 @@ export function registerTaskMode(ctx, db) {
       try { body = await req.json(); } catch { return jsonRes({ error: 'invalid JSON' }, 400); }
       const patch = routePatch(body);
       if (patch.error) return jsonRes({ error: patch.error }, 400);
+      let taskId;
+      let task;
+      let tasks;
       try {
-        const taskId = String(body?.taskId ?? '');
+        taskId = String(body?.taskId ?? '');
         store.update(resolved.key, taskId, patch.value);
-        return jsonRes({ task: store.get(resolved.key, taskId), tasks: store.list(resolved.key) });
+        task = store.get(resolved.key, taskId);
+        tasks = store.list(resolved.key);
       } catch (error) {
         const message = safeError(ctx, error);
         return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ task, tasks });
     },
   });
 
@@ -611,14 +626,18 @@ export function registerTaskMode(ctx, db) {
     handler: async (req) => {
       const resolved = routeKey(req);
       if (resolved.error) return resolved.error;
+      let result;
+      let tasks;
       try {
-        const result = store.delete(resolved.key, req.query.taskId);
-        return jsonRes({ ...result, tasks: store.list(resolved.key) });
+        result = store.delete(resolved.key, req.query.taskId);
+        tasks = store.list(resolved.key);
       }
       catch (error) {
         const message = safeError(ctx, error);
         return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ ...result, tasks });
     },
   });
 
@@ -629,12 +648,16 @@ export function registerTaskMode(ctx, db) {
       if (resolved.error) return resolved.error;
       const scope = String(req.query.scope ?? '');
       if (scope !== 'completed' && scope !== 'all') return jsonRes({ error: 'invalid clear scope' }, 400);
+      let removed;
+      let tasks;
       try {
-        const removed = store.clear(resolved.key, scope);
-        return jsonRes({ success: true, removed, tasks: store.list(resolved.key) });
+        removed = store.clear(resolved.key, scope);
+        tasks = store.list(resolved.key);
       } catch (error) {
         return jsonRes({ error: safeError(ctx, error) }, 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ success: true, removed, tasks });
     },
   });
 
@@ -677,7 +700,7 @@ export function registerTaskMode(ctx, db) {
         return ok({ tasks });
       } catch (error) { return fail(safeError(ctx, error)); }
     },
-  }));
+  }), { neverDefer: true });
 
   ctx.registerTool(defineTool({
     name: 'TaskGet',
@@ -690,7 +713,7 @@ export function registerTaskMode(ctx, db) {
         return ok({ task: key ? taskForGet(store.get(key, taskId)) : null });
       } catch (error) { return fail(safeError(ctx, error)); }
     },
-  }));
+  }), { neverDefer: true });
 
   ctx.registerTool(defineTool({
     name: 'TaskList',
@@ -704,7 +727,7 @@ export function registerTaskMode(ctx, db) {
         return ok({ tasks: tasksForList(tasks) });
       } catch (error) { return fail(safeError(ctx, error)); }
     },
-  }));
+  }), { neverDefer: true });
 
   ctx.registerTool(defineTool({
     name: 'TaskUpdate',
@@ -744,7 +767,7 @@ export function registerTaskMode(ctx, db) {
         });
       }
     },
-  }));
+  }), { neverDefer: true });
 
   ctx.registerTool(defineTool({
     name: 'TaskDelete',
@@ -772,7 +795,7 @@ export function registerTaskMode(ctx, db) {
         });
       }
     },
-  }));
+  }), { neverDefer: true });
 
   ctx.registerTurnContext(() => {
     try {

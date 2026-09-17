@@ -234,7 +234,7 @@ export function register(published: PluginContext): void {
   ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
 
   registerTools({
-    ctx, store, access, config, deleteSite,
+    ctx, store, access, config, deleteSite, activateRelease,
     publications, people, previews, previewImages,
     certificates: {
       publish: (site) => certificates.publish(site, certificateHost(site)),

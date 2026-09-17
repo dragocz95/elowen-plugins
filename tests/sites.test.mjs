@@ -853,7 +853,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db);
   const registered = new Map();
@@ -883,6 +883,9 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
     people: () => new Map(accounts.map((person) => [person.id, person])),
     deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
+    activateRelease: activateRelease ?? ((target, releaseId) => {
+      store.updateSite(target.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
+    }),
     // A test that does not stub the publication transport must FAIL loudly if it reaches for one: the
     // default refuses, so a static path that suddenly asked for a transport would not pass quietly.
     publications: publications ?? {
@@ -1167,9 +1170,11 @@ test('an agent can share a site with a person by name, and take it back', async 
   const { store, call } = toolHarness(t);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', ownerUserId: 1, status: 'live' }));
 
+  const beforeShare = store.siteById('id-1').accessGeneration;
   const shared = await call('SiteShare', { site: 'report-a1b2c3', person: 'josef.kvitek' });
   assert.equal(shared.details.changed, true);
   assert.deepEqual(store.memberIds('id-1'), [3]);
+  assert.ok(store.siteById('id-1').accessGeneration > beforeShare, 'granting access must invalidate earlier access decisions');
 
   const again = await call('SiteShare', { site: 'report-a1b2c3', person: 'Josef Kvítek' });
   assert.equal(again.details.changed, false, 'sharing twice is not an error, it is already true');
@@ -1460,6 +1465,26 @@ test('SiteGet tells the agent which managed Project transport serves a proxy pub
   assert.equal(detail.details.target, '3000');
   assert.equal(detail.details.degraded, true);
   assert.deepEqual(detail.details.project, { id: 7, slug: 'kolin', executionKind: 'managed' });
+});
+
+test('SiteRollback delegates activation to the shared release function', async (t) => {
+  const activations = [];
+  const harness = toolHarness(t, {
+    activateRelease: (target, releaseId) => {
+      activations.push([target.id, releaseId]);
+      harness.store.updateSite(target.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
+    },
+  });
+  harness.store.insertSite(site({ id: 'static-1', slug: 'static-a1b2c3', status: 'failed', lastError: 'broken' }));
+  harness.store.insertRelease({
+    id: 'rel-2', siteId: 'static-1', createdAt: '2026-09-17T12:00:00.000Z', model: 'test/model',
+    fileCount: 1, sizeBytes: 1, note: '', kind: 'files',
+  });
+
+  await harness.call('SiteRollback', { site: 'static-a1b2c3', releaseId: 'rel-2' });
+
+  assert.deepEqual(activations, [['static-1', 'rel-2']]);
+  assert.equal(harness.store.siteById('static-1').currentReleaseId, 'rel-2');
 });
 
 test('the retired per-site lifecycle tools and update fields are absent', async (t) => {

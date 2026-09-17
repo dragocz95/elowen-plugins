@@ -38,8 +38,8 @@ function formatCoarseElapsed(ms) {
  *  `owner` and `blockedBy` repeat the same information as separate fields, so a renderer that can lay the
  *  row out — the web card, the CLI rail — places the id, the owner chip and the blocked marker itself
  *  instead of parsing them back out of the text. Private description and metadata stay out of both. */
-export function pushTaskCard(ctx, tasks) {
-  ctx.emitCard({
+export function taskCard(tasks) {
+  return {
     id: 'todos',
     title: 'Todos',
     pinned: true,
@@ -59,7 +59,11 @@ export function pushTaskCard(ctx, tasks) {
         ...(blockers.length ? { blockedBy: blockers } : {}),
       };
     }),
-  });
+  };
+}
+
+export function pushTaskCard(ctx, tasks) {
+  ctx.emitCard(taskCard(tasks));
 }
 
 /** Work still to do: everything the model needs in order to carry it out. */

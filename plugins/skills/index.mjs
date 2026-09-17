@@ -460,6 +460,17 @@ export function register(ctx) {
     const file = skillFileIn(target.dir, name);
     return file !== null && escapesOwnScope(target, file) ? null : file;
   };
+  /** Resolve one deletable skill path and apply the same containment guards for routes and tools. */
+  const deletionTargetIn = (target, name) => {
+    const file = targetFileIn(target, name);
+    if (file === null) return null;
+    const directoryForm = basename(file).toLowerCase() === 'skill.md';
+    const candidate = directoryForm ? dirname(file) : file;
+    const base = resolve(target.dir);
+    const path = resolve(candidate);
+    if (path === base || !path.startsWith(base + sep)) return { error: 'skill path is outside the skills directory' };
+    return { file, path, directoryForm };
+  };
   /** Why this name may not be written into `target`, or null when it may. A name must be unique across
    *  the sets a single session sees, in BOTH directions: a personal skill may not shadow an instance one,
    *  and an instance skill may not shadow somebody's personal one — either way two files would register
@@ -550,6 +561,9 @@ export function register(ctx) {
     fm.metadata = meta;
   };
   const buildSkillBody = (front, content) => `---\n${stringifyYaml(front).trimEnd()}\n---\n\n${content}\n`;
+  const skillFieldError = (description, content) =>
+    typeof description !== 'string' || description.trim() === '' || typeof content !== 'string' || content.trim() === ''
+      ? 'description and content must be non-empty' : null;
   const jsonRes = (body, status = 200) => ({ status, body });
 
   // HTTP compatibility for clients that omit `?owner=`: preserve the route's historical auth-based target.
@@ -729,7 +743,8 @@ export function register(ctx) {
       const disableModelInvocation = b?.disableModelInvocation === true;
       if (!NAME_RE.test(name)) return jsonRes({ error: 'name must be kebab-case (a-z, 0-9, dashes), max 64 chars' }, 400);
       if (RESERVED_NAMES.has(name)) return jsonRes({ error: `"${name}" is reserved (it collides with a core /plugins route)` }, 400);
-      if (description === '' || content.trim() === '') return jsonRes({ error: 'description and content must be non-empty' }, 400);
+      const fieldsError = skillFieldError(description, content);
+      if (fieldsError) return jsonRes({ error: fieldsError }, 400);
       const collision = nameCollision(name, target.owner);
       if (collision) return jsonRes({ error: collision }, 400);
       // An overwrite is a legitimate part of this route, but only of the caller's OWN file: writing
@@ -771,7 +786,8 @@ export function register(ctx) {
       const description = typeof b?.description === 'string' ? b.description.trim() : cur.description;
       const content = typeof b?.content === 'string' ? b.content : cur.content;
       const disableModelInvocation = typeof b?.disableModelInvocation === 'boolean' ? b.disableModelInvocation : cur.disableModelInvocation;
-      if (description === '' || content.trim() === '') return jsonRes({ error: 'description and content must be non-empty' }, 400);
+      const fieldsError = skillFieldError(description, content);
+      if (fieldsError) return jsonRes({ error: fieldsError }, 400);
       const fm = applyManagedFields(cur.front, name, description, disableModelInvocation);
       if (description !== cur.description || content !== cur.content) bumpVersion(fm);
       bumpRevision(fm, currentRevision);
@@ -790,13 +806,13 @@ export function register(ctx) {
       if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be deleted' }, 400);
       const target = resolveTarget(req);
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
-      const file = targetFileIn(target, name);
-      if (!file) return jsonRes({ error: 'unknown skill' }, 404);
-      unlinkSync(file);
+      const deletion = deletionTargetIn(target, name);
+      if (!deletion) return jsonRes({ error: 'unknown skill' }, 404);
+      if (deletion.error) return jsonRes({ error: deletion.error }, 409);
+      unlinkSync(deletion.file);
       // A directory-form skill leaves its folder behind; drop it if now empty, but keep it (with any
       // references/scripts support files) if something remains.
-      const parent = dirname(file);
-      if (parent !== target.dir) { try { rmdirSync(parent); } catch { /* not empty → keep */ } }
+      if (deletion.directoryForm) { try { rmdirSync(deletion.path); } catch { /* not empty → keep */ } }
       ctx.requestReload?.();
       return jsonRes({ ok: true });
     },
@@ -835,9 +851,8 @@ export function register(ctx) {
       const editedContent = edit && typeof edit.content === 'string' ? edit.content : current?.content;
       const editedDisableModelInvocation = edit && typeof edit.disableModelInvocation === 'boolean'
         ? edit.disableModelInvocation : current?.disableModelInvocation;
-      if (edit && (!editedDescription || !editedContent?.trim())) {
-        return jsonRes({ error: 'description and content must be non-empty' }, 400);
-      }
+      const fieldsError = edit ? skillFieldError(editedDescription, editedContent) : null;
+      if (fieldsError) return jsonRes({ error: fieldsError }, 400);
       const dest = resolveOwnerSpec(raw, req.auth);
       if (dest === null || !dest.ok) return jsonRes({ error: dest?.invalid ? 'invalid owner' : 'forbidden' }, dest?.invalid ? 400 : 403);
       if (sameDir(source.dir, dest.dir)) return jsonRes({ error: 'the skill already belongs to that owner' }, 400);
@@ -922,6 +937,8 @@ export function register(ctx) {
         const dir = target.dir;
         if (!NAME_RE.test(p.name)) return ok('Error: name must be kebab-case (a-z, 0-9, dashes), max 64 chars.');
         if (RESERVED_NAMES.has(p.name)) return ok(`Error: "${p.name}" is reserved.`);
+        const fieldsError = skillFieldError(p.description, p.content);
+        if (fieldsError) return ok(`Error: ${fieldsError}.`);
         // Refuse rather than shadow: a personal skill with an instance skill's name would register twice
         // and the two would fight over the same slot in the prompt.
         const collision = nameCollision(p.name, target.owner);
@@ -980,31 +997,20 @@ export function register(ctx) {
       try {
         if (!NAME_RE.test(p.name)) return ok('Error: invalid skill name.');
         const me = callerId();
-        // Resolve via the loader so BOTH forms are deletable: a flat `<name>.md` (unlink the file) and a
-        // `<name>/SKILL.md` directory skill (remove the whole skill root). Personal first — an instance
-        // skill of the same name cannot exist (writes refuse it), so the order only decides which dir is
-        // searched first, not which of two copies is hit.
-        const personalDir = me === null ? null : userSkillsDir(me);
-        let dir = null;
-        let skill = me === null ? undefined : personalSkillsOf(me).find((sk) => sk.name === p.name);
-        if (skill) dir = personalDir;
-        else {
-          skill = loadSkills(instanceDir, 'elowen-user:skills')
-            .filter((sk) => !isPersonalPath(sk.filePath))
-            .find((sk) => sk.name === p.name);
-          if (skill) { adminOnly(); dir = instanceDir; }
+        // Personal first — an instance skill of the same name cannot exist (writes refuse it), so the order
+        // only decides which directory is searched first, not which of two copies is hit.
+        const personalTarget = me === null ? null : { owner: me, dir: userSkillsDir(me) };
+        let deletion = personalTarget === null ? null : deletionTargetIn(personalTarget, p.name);
+        if (deletion === null) {
+          const instanceTarget = { owner: null, dir: instanceDir };
+          deletion = deletionTargetIn(instanceTarget, p.name);
+          if (deletion?.file && isPersonalPath(deletion.file)) deletion = null;
+          if (deletion !== null) adminOnly();
         }
-        if (!skill || !dir) return ok(`Error: no skill named "${p.name}" that you can delete.`);
-        const isDirForm = basename(skill.filePath).toLowerCase() === 'skill.md';
-        const target = isDirForm ? dirname(skill.filePath) : skill.filePath;
-        // Guard the resolved path stays inside the dir we chose, so a crafted frontmatter name can never
-        // point the delete outside it.
-        const base = resolve(dir);
-        const abs = resolve(target);
-        if (abs !== base && !abs.startsWith(base + sep)) return ok('Error: skill path is outside the skills directory.');
-        if (abs === base) return ok('Error: refusing to delete the skills root.');
-        if (isDirForm && statSync(abs).isDirectory()) rmSync(abs, { recursive: true, force: true });
-        else unlinkSync(abs);
+        if (!deletion) return ok(`Error: no skill named "${p.name}" that you can delete.`);
+        if (deletion.error) return ok(`Error: ${deletion.error}.`);
+        if (deletion.directoryForm && statSync(deletion.path).isDirectory()) rmSync(deletion.path, { recursive: true, force: true });
+        else unlinkSync(deletion.file);
         ctx.requestReload?.(); // apply live, same as CreateSkill — the skill leaves the prompt next message
         return ok(`Skill "${p.name}" deleted.`);
       } catch (e) { return fail(e); }

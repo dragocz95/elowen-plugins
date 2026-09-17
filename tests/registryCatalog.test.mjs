@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 /** `registry.json` is the catalog a daemon reads to decide what it may install: a name absent from it
  *  cannot be installed at all, and the version shown there is what the UI offers as an update.
@@ -23,6 +24,37 @@ const folders = readdirSync(pluginsDir)
 
 const manifestOf = (name) =>
   JSON.parse(readFileSync(join(pluginsDir, name, 'elowen-plugin.json'), 'utf8'));
+
+function registeredControls(dir) {
+  const controls = [];
+  const collect = (path) => {
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const full = join(path, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') collect(full);
+        continue;
+      }
+      if (!/\.(mjs|js|ts)$/.test(entry.name)) continue;
+      const source = ts.createSourceFile(full, readFileSync(full, 'utf8'), ts.ScriptTarget.Latest, true,
+        entry.name.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+      const visit = (node) => {
+        if (ts.isCallExpression(node)
+          && ts.isPropertyAccessExpression(node.expression)
+          && node.expression.name.text === 'registerControl') {
+          const key = node.arguments[0];
+          if (!key || (!ts.isStringLiteral(key) && !ts.isNoSubstitutionTemplateLiteral(key))) {
+            throw new Error(`${full}: registerControl must use a literal key so the manifest can declare it`);
+          }
+          controls.push(key.text);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+  };
+  collect(dir);
+  return controls;
+}
 
 test('the catalog and the plugin folders are read from disk, not assumed', () => {
   // Both sides feed every assertion below; if either came back empty the whole file would pass while
@@ -181,27 +213,17 @@ for (const [name, expected] of Object.entries(EXPECTED_CAPABILITIES)) {
 }
 
 // A manifest that DECLARES a control it never registers is a lie the daemon now acts on: the dependency
-// gate would accept a provider that publishes nothing, and the consumer would enable into silence.
+// gate would accept a provider that publishes nothing, and the consumer would enable into silence. The
+// reverse drift matters too: an undeclared registration bypasses the manifest dependency contract.
 for (const name of folders) {
-  const declared = manifestOf(name).provides?.controls ?? [];
-  if (declared.length === 0) continue;
-  test(`${name}: registers every control it declares`, () => {
-    const dir = join(pluginsDir, name);
-    const sources = [];
-    const collect = (path) => {
-      for (const entry of readdirSync(path, { withFileTypes: true })) {
-        const full = join(path, entry.name);
-        if (entry.isDirectory()) { if (entry.name !== 'node_modules') collect(full); continue; }
-        if (/\.(mjs|js|ts)$/.test(entry.name)) sources.push(readFileSync(full, 'utf8'));
-      }
-    };
-    collect(dir);
-    const source = sources.join('\n');
+  test(`${name}: registered controls and manifest declarations agree`, () => {
+    const declared = manifestOf(name).provides?.controls ?? [];
+    const registered = registeredControls(join(pluginsDir, name));
     for (const key of declared) {
-      assert.ok(
-        source.includes(`registerControl('${key}'`) || source.includes(`registerControl("${key}"`),
-        `${name} declares control ${key} but never registers it`,
-      );
+      assert.ok(registered.includes(key), `${name} declares control ${key} but never registers it`);
+    }
+    for (const key of registered) {
+      assert.ok(declared.includes(key), `${name} registers undeclared control ${key}`);
     }
   });
 }

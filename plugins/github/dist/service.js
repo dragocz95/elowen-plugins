@@ -557,9 +557,6 @@ export class GitHubService {
         assertActionBound(action, record.target);
         return this.execute(userId, action, record.target, record.expected);
     }
-    async executePreview(userId, preview) {
-        return this.execute(userId, preview.action, preview.target, preview.expected);
-    }
     async buildPreview(userId, action) {
         if (action.type === 'disconnect') {
             const account = this.store.account(userId);

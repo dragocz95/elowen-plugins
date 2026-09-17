@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "apiVersion": "1",
   "requiresCore": "0.28.46",
   "requiresSharedApi": 4,
@@ -24,6 +24,7 @@
       "CronConversations"
     ],
     "readOnlyTools": ["CronList", "CronConversations"],
+    "controls": ["cron"],
     "platforms": [
       "cron"
     ],
