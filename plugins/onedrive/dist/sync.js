@@ -10,6 +10,8 @@ const LEASE_MS = 5 * 60 * 1000;
  *  and a counter cannot see that happening. */
 const RENEW_AFTER_MS = LEASE_MS / 3;
 const SETTLE_MS = 2_000;
+/** How long a mirror waits out an environment that is busy with its own lifecycle work. */
+const PENDING_BACKOFF_MS = 60_000;
 const MAX_FILES = 20_000;
 /** Refuse a cycle that would delete more than this share of what it could actually account for. */
 const DELETION_CEILING = 0.34;
@@ -73,6 +75,12 @@ export class SyncEngine {
      *  disk. The per-link claim does not see that, so both workers would write the same file and the last
      *  rename would win, silently overwriting the other person's version with no trash copy anywhere. */
     rootLocks = new Map();
+    /** Mirrors whose environment reported lifecycle work in progress, and the moment each may be tried
+     *  again. Asking on the very next tick cannot succeed any better - a start, a limits change or a
+     *  snapshot takes far longer than one interval - and every attempt costs the environment a rejected
+     *  request while it is already busy. A person choosing "Sync now" is asking explicitly and is never
+     *  held back by this. */
+    deferredUntil = new Map();
     owner = `${process.pid}-${randomUUID().slice(0, 8)}`;
     constructor(deps) {
         this.deps = deps;
@@ -119,10 +127,25 @@ export class SyncEngine {
         const requested = this.deps.store.linksForUser(userId)
             .filter((row) => row.enabled && (!options.only || options.only.has(row.id)));
         for (const link of requested) {
+            const deferred = this.deferredUntil.get(link.id);
+            if (deferred !== undefined && !options.only) {
+                if (deferred > Date.now())
+                    continue;
+                this.deferredUntil.delete(link.id);
+            }
             try {
                 await this.syncLink(link, drive, options.confirmDeletions?.has(link.id) === true);
+                this.deferredUntil.delete(link.id);
             }
             catch (error) {
+                // A busy environment is not a broken mirror, and saying so in red would be wrong: the folder is
+                // intact, the cycle simply could not run yet. It steps aside for a backoff window instead.
+                if (isEnvironmentPending(error)) {
+                    this.deferredUntil.set(link.id, Date.now() + PENDING_BACKOFF_MS);
+                    this.deps.store.setStatus(link.id, 'idle');
+                    this.deps.log.info(`onedrive mirror ${link.id}: environment busy, retrying in ${Math.round(PENDING_BACKOFF_MS / 1000)}s`);
+                    continue;
+                }
                 this.deps.log.warn(`onedrive mirror ${link.id}: ${message(error)}`);
                 this.deps.store.setStatus(link.id, 'error', message(error));
             }
@@ -225,9 +248,24 @@ export class SyncEngine {
             let local = { present: false };
             let version;
             if (scanned) {
-                const hashed = await fs.hash(rel);
-                local = { present: true, size: hashed.size, mtimeMs: scanned.mtimeMs, sha256: hashed.sha256 };
-                version = hashed.version;
+                // Hashing a managed file means reading its whole content back out of the container, one guest
+                // execution per chunk. Asking that of every file on every cycle made an idle mirror re-read its
+                // entire tree through the guest for ever - the walk has already reported size and mtime, and the
+                // baseline holds the hash those exact two values were recorded for. `applyCycle` has always
+                // trusted that pair for local mirrors; the managed path simply never did.
+                const unchanged = known !== undefined
+                    && known.localSize === scanned.size
+                    && known.localMtimeMs === scanned.mtimeMs;
+                if (unchanged && known) {
+                    local = { present: true, size: scanned.size, mtimeMs: scanned.mtimeMs, sha256: known.localSha256 };
+                }
+                else {
+                    const hashed = await fs.hash(rel);
+                    local = { present: true, size: hashed.size, mtimeMs: scanned.mtimeMs, sha256: hashed.sha256 };
+                    // Pinned only for content this cycle actually read. An upload is decided from a CHANGED file,
+                    // so the version guard still covers every path that sends bytes to OneDrive.
+                    version = hashed.version;
+                }
             }
             const item = listing.files.get(rel);
             if (item && item.size > maxBytes)
@@ -751,4 +789,9 @@ async function localUnchanged(absolute, local) {
 }
 function message(error) {
     return error instanceof Error ? error.message : String(error);
+}
+/** The environment's own answer that a start, a limits change or a snapshot is under way. Recognised by
+ *  the code the sandbox seam attaches, not by the prose, which is a sentence meant for a person. */
+function isEnvironmentPending(error) {
+    return error?.code === 'environment_pending';
 }

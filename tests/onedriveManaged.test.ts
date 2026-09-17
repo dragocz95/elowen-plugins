@@ -22,6 +22,85 @@ function pluginDb(): PluginDb {
 }
 
 describe('OneDrive managed Project transport', () => {
+  it('re-reads a managed file only when the walk says it changed', async () => {
+    const store = new OneDriveStore(pluginDb());
+    const link = store.createLink({ subpath: '', userId: 7, projectId: 41, workspaceId: null, workspaceLabel: null, remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null });
+    store.putItem({ linkId: link.id, rel: 'README.md', localSize: 12, localMtimeMs: 1_000, localSha256: 'sha-readme', remoteItemId: 'item-1', remoteEtag: 'tag-1', state: 'synced', conflictCopy: null });
+    let mtimeMs = 1_000;
+    const hash = vi.fn(async () => ({ sha256: 'sha-readme', size: 12, version: 'v1' }));
+    const managed = {
+      root: '/demo',
+      lockKey: 'managed:41:project',
+      walk: vi.fn(async () => ({ entries: [{ rel: 'README.md', path: '/demo/README.md', kind: 'file' as const, size: 12, mtimeMs }], complete: true })),
+      git: vi.fn(async () => ({ stdout: 'README.md\0', stderr: '', code: 0 })),
+      hash,
+    } as unknown as ManagedMirror;
+    const graph = {
+      json: vi.fn(async (method: string, path: string) => {
+        if (path.startsWith('/me/drive')) return { id: 'drive-1' };
+        if (method === 'GET' && path.includes('/children')) {
+          return { value: [{ id: 'item-1', name: 'README.md', eTag: 'tag-1', size: 12, file: {} }] };
+        }
+        return { id: 'folder-1' };
+      }),
+      binary: vi.fn(),
+      request: vi.fn(),
+    };
+    const engine = new SyncEngine({
+      store,
+      identity: () => ({ driveGraphFor: async () => graph, identityFor: () => ({ linked: true }) }),
+      rootFor: () => null,
+      baseFor: () => null,
+      managedFor: async () => managed,
+      settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: [], applyRemoteDeletions: true }),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    // An idle mirror: the guest already answered size and mtime, and the baseline holds the hash those
+    // two values were recorded for. Reading the file back out of the container adds nothing.
+    await engine.syncUser(7);
+    expect(hash).not.toHaveBeenCalled();
+    expect(store.linkById(link.id)?.status).toBe('idle');
+
+    // A file the walk reports as touched is read again, because now the baseline cannot answer for it.
+    mtimeMs = 2_000;
+    await engine.syncUser(7);
+    expect(hash).toHaveBeenCalledTimes(1);
+    expect(store.linkById(link.id)?.status).toBe('idle');
+  });
+
+  it('waits out an environment that is busy with lifecycle work instead of asking every cycle', async () => {
+    const store = new OneDriveStore(pluginDb());
+    const link = store.createLink({ subpath: '', userId: 7, projectId: 41, workspaceId: null, workspaceLabel: null, remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null });
+    const managedFor = vi.fn(async () => {
+      throw Object.assign(new Error('Environment lifecycle work is pending; retry after the operation completes'), { code: 'environment_pending', status: 503 });
+    });
+    const graph = {
+      json: vi.fn(async (_method: string, path: string) => (path.startsWith('/me/drive') ? { id: 'drive-1' } : { id: 'folder-1' })),
+      binary: vi.fn(),
+      request: vi.fn(),
+    };
+    const engine = new SyncEngine({
+      store,
+      identity: () => ({ driveGraphFor: async () => graph, identityFor: () => ({ linked: true }) }),
+      rootFor: () => null,
+      baseFor: () => null,
+      managedFor: managedFor as never,
+      settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: [], applyRemoteDeletions: true }),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await engine.syncUser(7);
+    await engine.syncUser(7);
+    expect(managedFor).toHaveBeenCalledTimes(1);
+    // A busy environment is not a broken mirror, so nothing is reported as an error.
+    expect(store.linkById(link.id)?.status).toBe('idle');
+
+    // "Sync now" names the mirror explicitly and is never held back by the backoff.
+    await engine.syncUser(7, { only: new Set([link.id]) });
+    expect(managedFor).toHaveBeenCalledTimes(2);
+  });
+
   it('syncs a managed link without requesting or using a host project path', async () => {
     const store = new OneDriveStore(pluginDb());
     const link = store.createLink({ subpath: '', userId: 7, projectId: 41, workspaceId: null, workspaceLabel: null, remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null });
