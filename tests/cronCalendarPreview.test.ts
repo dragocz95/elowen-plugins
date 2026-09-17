@@ -1,6 +1,6 @@
 // @vitest-environment node
 // The schedule draft preview endpoint.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +19,11 @@ import { stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 let dirs: string[] = [];
 const tmpDir = (): string => { const p = mkdtempSync(join(tmpdir(), `elowen-cal-`)); dirs.push(p); return p; };
-afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true }); dirs = []; });
+afterEach(() => {
+  vi.useRealTimers();
+  for (const p of dirs) rmSync(p, { recursive: true, force: true });
+  dirs = [];
+});
 
 const pluginsDir = join(process.cwd(), 'plugins');
 const PRAGUE = 'Europe/Prague';
@@ -64,6 +68,8 @@ describe('the schedule draft preview endpoint', () => {
   });
 
   it('answers validity, kind, hours validity and forward occurrences from the server', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-15T10:00:00Z'));
     const { app, dataRoot, adminTok } = setup();
     seed(dataRoot, []);
     const res = await app.request(`/plugins/cronjob/api/schedule-preview`,
