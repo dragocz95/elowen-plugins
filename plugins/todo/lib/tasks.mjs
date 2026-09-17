@@ -472,10 +472,12 @@ function syncCard(ctx, store, key) {
   return tasks;
 }
 
-function syncRouteCard(ctx, store, key, sessionId) {
-  const tasks = store.list(key);
-  ctx.writeCard(sessionId, taskCard(tasks));
-  return tasks;
+function syncRouteCard(ctx, tasks, sessionId) {
+  try { ctx.writeCard(sessionId, taskCard(tasks)); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.warn(`session task panel write failed: ${message}`);
+  }
 }
 
 const SAFE_ERRORS = new Set([
@@ -602,15 +604,20 @@ export function registerTaskMode(ctx, db) {
       try { body = await req.json(); } catch { return jsonRes({ error: 'invalid JSON' }, 400); }
       const patch = routePatch(body);
       if (patch.error) return jsonRes({ error: patch.error }, 400);
+      let taskId;
+      let task;
+      let tasks;
       try {
-        const taskId = String(body?.taskId ?? '');
+        taskId = String(body?.taskId ?? '');
         store.update(resolved.key, taskId, patch.value);
-        const tasks = syncRouteCard(ctx, store, resolved.key, resolved.sessionId);
-        return jsonRes({ task: store.get(resolved.key, taskId), tasks });
+        task = store.get(resolved.key, taskId);
+        tasks = store.list(resolved.key);
       } catch (error) {
         const message = safeError(ctx, error);
         return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ task, tasks });
     },
   });
 
@@ -619,15 +626,18 @@ export function registerTaskMode(ctx, db) {
     handler: async (req) => {
       const resolved = routeKey(req);
       if (resolved.error) return resolved.error;
+      let result;
+      let tasks;
       try {
-        const result = store.delete(resolved.key, req.query.taskId);
-        const tasks = syncRouteCard(ctx, store, resolved.key, resolved.sessionId);
-        return jsonRes({ ...result, tasks });
+        result = store.delete(resolved.key, req.query.taskId);
+        tasks = store.list(resolved.key);
       }
       catch (error) {
         const message = safeError(ctx, error);
         return jsonRes({ error: message }, message === 'task not found' ? 404 : 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ ...result, tasks });
     },
   });
 
@@ -638,13 +648,16 @@ export function registerTaskMode(ctx, db) {
       if (resolved.error) return resolved.error;
       const scope = String(req.query.scope ?? '');
       if (scope !== 'completed' && scope !== 'all') return jsonRes({ error: 'invalid clear scope' }, 400);
+      let removed;
+      let tasks;
       try {
-        const removed = store.clear(resolved.key, scope);
-        const tasks = syncRouteCard(ctx, store, resolved.key, resolved.sessionId);
-        return jsonRes({ success: true, removed, tasks });
+        removed = store.clear(resolved.key, scope);
+        tasks = store.list(resolved.key);
       } catch (error) {
         return jsonRes({ error: safeError(ctx, error) }, 503);
       }
+      syncRouteCard(ctx, tasks, resolved.sessionId);
+      return jsonRes({ success: true, removed, tasks });
     },
   });
 

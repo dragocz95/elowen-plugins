@@ -1534,7 +1534,7 @@ export function register(ctx) {
       const prev = jobs.find((j) => j.id === job.id);
       const authedNow = authorize(prev);
       if (authedNow) return authedNow;
-      if (prev && expectedRevision !== undefined && expectedRevision !== prev.revision) {
+      if (prev && expectedRevision !== undefined && expectedRevision !== (Number.isSafeInteger(prev.revision) ? prev.revision : 0)) {
         return jsonRes({
           error: 'job changed on the server; reload it before saving',
           conflict: true,

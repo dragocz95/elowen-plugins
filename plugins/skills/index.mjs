@@ -1004,6 +1004,7 @@ export function register(ctx) {
         if (deletion === null) {
           const instanceTarget = { owner: null, dir: instanceDir };
           deletion = deletionTargetIn(instanceTarget, p.name);
+          if (deletion?.file && isPersonalPath(deletion.file)) deletion = null;
           if (deletion !== null) adminOnly();
         }
         if (!deletion) return ok(`Error: no skill named "${p.name}" that you can delete.`);

@@ -28,7 +28,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.4",
+      "version": "0.6.5",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
@@ -37,7 +37,8 @@
       "provides": {
         "tools": 5,
         "apiRoutes": 5,
-        "skills": 1
+        "skills": 1,
+        "controls": 1
       },
       "requiresSharedApi": 4
     },
@@ -110,7 +111,7 @@
     },
     {
       "name": "lsp",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "requiresCore": "0.28.48",
       "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
       "category": "tools",
@@ -118,7 +119,8 @@
       "apiVersion": "1",
       "provides": {
         "tools": 6,
-        "apiRoutes": 3
+        "apiRoutes": 3,
+        "controls": 1
       }
     },
     {
@@ -156,7 +158,7 @@
     },
     {
       "name": "skills",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "requiresCore": "0.28.48",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
@@ -207,7 +209,7 @@
     },
     {
       "name": "todo",
-      "version": "0.14.11",
+      "version": "0.14.12",
       "requiresCore": "0.28.49",
       "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
       "category": "automation",

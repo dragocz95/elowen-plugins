@@ -41,7 +41,7 @@ function harness(t, options = {}) {
       return pluginDb;
     },
     emitCard: (card) => cards.push(card),
-    writeCard: (targetSessionId, card) => cardWrites.push({ sessionId: targetSessionId, card }),
+    writeCard: options.writeCard ?? ((targetSessionId, card) => cardWrites.push({ sessionId: targetSessionId, card })),
     logger: { info() {}, warn: (message) => warnings.push(message) },
     registerApiRoute: (route) => routes.push(route),
     registerSystemPromptFragment: (fragment) => prompts.push(fragment),
@@ -688,6 +688,32 @@ test('TaskDelete and user API routes keep session tasks tenant-scoped and clear 
   const deleted = json(await h.tool('TaskDelete').execute('2', { taskId: '2' }));
   assert.deepEqual(deleted, { success: true, taskId: '2' });
   assert.deepEqual((await route('GET', 'tasks').handler(request())).body, { tasks: [] });
+});
+
+test('a refused route card write does not turn a successful task mutation into a failure', async (t) => {
+  const h = harness(t, {
+    writeCard: () => { throw new Error('card write refused for channel session'); },
+  });
+  h.setSession('brain-ch-discord-123');
+  await h.tool('TaskCreate').execute('1', {
+    tasks: [{ subject: 'Inspect auth', description: 'Private API detail' }],
+  });
+  const patch = h.routes.find((item) => item.method === 'PATCH' && item.path === 'task');
+  assert.ok(patch);
+
+  const response = await patch.handler({
+    auth: { userId: 7, admin: false, tokenScope: 'user' },
+    query: { session: 'brain-ch-discord-123' },
+    params: {},
+    json: async () => ({ taskId: '1', status: 'completed' }),
+  });
+  const persisted = json(await h.tool('TaskGet').execute('2', { taskId: '1' }));
+
+  assert.deepEqual({ status: response.status, taskStatus: persisted.task.status }, {
+    status: 200,
+    taskStatus: 'completed',
+  });
+  assert.match(h.warnings.at(-1), /task panel write failed: card write refused for channel session/);
 });
 
 test('PATCH task renames and re-owns a task, and refuses a patch it cannot apply', async (t) => {

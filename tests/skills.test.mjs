@@ -703,6 +703,23 @@ test('bundled skills plugin', async (t) => {
     assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'private-linked' })), /Body of private-linked/);
   });
 
+  await t.test('DeleteSkill never treats a link into the personal tree as an instance skill', async () => {
+    const dataRoot = tmpDir('skills');
+    const skillsDir = join(dataRoot, 'skills');
+    const privateDir = join(skillsDir, 'users', '7', 'private-linked');
+    const victim = join(privateDir, 'SKILL.md');
+    const instanceLink = join(skillsDir, 'private-linked');
+    mkdirSync(privateDir, { recursive: true });
+    writeFileSync(victim, skillMd('private-linked', 'account seven only'));
+    symlinkSync(privateDir, instanceLink, 'dir');
+    const reg = loadPlugin({ dataRoot });
+
+    const result = asText(await asTurn(reg, OWNER_TURN, () => runTool(reg, 'DeleteSkill', { name: 'private-linked' })));
+    assert.match(result, /^Error/, `DeleteSkill accepted a personal path as instance scope: ${result}`);
+    assert.equal(existsSync(victim), true);
+    assert.equal(existsSync(instanceLink), true);
+  });
+
   await t.test('a symlink out of one account\'s skills folder never reaches another account\'s skill', async () => {
     // The instance-scope guard above only ever asked "is this file under users/?", so a link from one
     // PERSONAL folder into another passed it untouched: the loader follows the link, the skill is
