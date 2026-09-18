@@ -7,10 +7,11 @@ test('todo manifest and marketplace registry expose the same release', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
 
-  // 0.14.12 isolates route card refresh failures from successful task mutations and pins its task tools
+  // 0.14.13 folds the chat task card, shares one preview rule with the rail and clocks the running row.
+  // 0.14.12 isolated route card refresh failures from successful task mutations and pinned its task tools
   // through registration metadata. `apiVersion` stays exactly '1': it is an EXACT match against core's
   // PLUGIN_API_VERSION, so raising it would refuse this plugin on every core, including a newer one.
-  assert.equal(manifest.version, '0.14.12');
+  assert.equal(manifest.version, '0.14.13');
   assert.equal(manifest.apiVersion, '1');
   assert.equal(manifest.requiresCore, '0.28.49');
   assert.equal(catalog?.version, manifest.version);
