@@ -7,21 +7,18 @@ const root = join(__dirname, '..');
 const json = (path: string) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Record<string, unknown>;
 
 describe('shared API v4 registry contract', () => {
-  // The version each of these plugins currently ships at, re-pinned whenever one of them is released:
-  // what the case guards is that the manifest and the registry entry carry ONE version and still declare
-  // shared API v4, so a bump that reaches only one of the two files fails here.
-  const versions = {
-    cronjob: '0.6.5',
-    discord: '0.3.21',
-    telegram: '0.2.15',
-    msteams: '0.8.0',
-    whatsapp: '0.2.18',
-  } as const;
+  // What the case guards is that the manifest and the registry entry carry ONE version and still declare
+  // shared API v4, so a release that reaches only one of the two files fails here. The version itself is
+  // read from the manifest rather than pinned: a literal here only ever means a hand edit after every
+  // release, which is how this case went red for two plugins at once without anything being wrong.
+  const plugins = ['cronjob', 'discord', 'telegram', 'msteams', 'whatsapp'] as const;
 
-  it.each(Object.entries(versions))('%s manifest and registry entry agree on v4 and the patch version', (name, version) => {
+  it.each(plugins)('%s manifest and registry entry agree on v4 and the patch version', (name) => {
     const manifest = json(`plugins/${name}/elowen-plugin.json`);
     const registry = json('registry.json').plugins as Record<string, unknown>[];
-    expect(manifest).toMatchObject({ name, version, requiresSharedApi: 4 });
+    const version = manifest.version;
+    expect(typeof version).toBe('string');
+    expect(manifest).toMatchObject({ name, requiresSharedApi: 4 });
     expect(registry.find((entry) => entry.name === name)).toMatchObject({ name, version });
   });
 
