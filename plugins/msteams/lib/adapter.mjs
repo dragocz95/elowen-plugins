@@ -19,7 +19,7 @@ import { PICKER_CONTEXT, applyPickerChoice, botControlCommandsFrom, controlComma
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, imageMimeType } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageMimeType, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
@@ -70,6 +70,9 @@ const MAX_ROSTER_SWEEP = 25;
  *  under that, because the bytes wait in memory between the offer and the answer. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_TTL_MS = 900000;
+/** Shared files (ShareFile) offered from one turn — no config key, deliberately: core already caps a turn
+ *  at four, and a fifth offer would only be a card the model did not ask for. */
+const MAX_UPLOAD_FILES = 4;
 const SHARED_SIGN_IN_TTL_MS = 15 * 60 * 1000;
 const REACTION_PROCESSING = '1f440_eyes';
 const REACTION_DONE = '2705_whiteheavycheckmark';
@@ -122,7 +125,7 @@ function cfgNum(cfg, key, def, min, max) {
 
 export class MsTeamsAdapter {
   name = 'msteams';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null) {
+  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null, chatFilesDir = '') {
     this.cfg = cfg;
     this.accountLinking = accountLinking;
     this.log = logger;
@@ -130,6 +133,7 @@ export class MsTeamsAdapter {
     this.listModels = listModels;
     this.resolveProvider = resolveProvider;
     this.imageDirs = imageDirs;
+    this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion;
     this.chatCommands = chatCommands;
     this.handler = null;
@@ -1016,6 +1020,46 @@ export class MsTeamsAdapter {
   /** Generated-image files (by name, from the image plugins' data dirs) as upload-ready buffers. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+  }
+
+  /** The bytes behind this turn's `file` events — the counterpart of {@link resolveImageFiles} for a file
+   *  the agent shared on purpose (ShareFile), whose `ref` is a relative daemon URL and therefore dead text
+   *  in a Teams chat. Without a configured dir there is nothing to read and the answer text goes out alone. */
+  resolveSharedFiles(refs) {
+    if (!this.chatFilesDir) return [];
+    return resolveSharedFiles(this.chatFilesDir, refs, MAX_UPLOAD_FILES);
+  }
+
+  /** Offer the files a turn shared (ShareFile) to a 1:1 chat — the file half of the shared live-message
+   *  transport (`lib/stream.mjs`), which calls this once, at the end of a turn, with the bytes already
+   *  resolved. Delegates to {@link offerFile}, so the consent card, the 20 MB cap, the TTL and the upload
+   *  itself stay in one place; nothing about that protocol is duplicated here. */
+  async offerSharedFiles(conversationId, files, caption) {
+    const id = String(conversationId);
+    // Personal scope only, decided from the conversation type this adapter tracks — never from a failed
+    // upload. Microsoft's file consent APIs do not work in a channel or a group chat, where an offer would
+    // be a card that can never complete: a shared room therefore keeps exactly the behaviour it had before
+    // this existed, with the answer text landing and no card appearing.
+    if (this.state.get(id).ref?.conversationType !== 'personal') return;
+    const description = String(caption ?? '').trim();
+    for (const file of files) {
+      // Core's ShareFile allows 25 MB where one consent upload takes 20. Saying so is the difference
+      // between a person fetching the file another way and one waiting for something that never arrives.
+      if (file.data.length > MAX_FILE_BYTES) {
+        // Best-effort like the notice below: a mention path inside tmSend can still throw, and one
+        // un-sendable notice must not abandon the files behind it.
+        await this.tmSend(id, this.msg.fileTooLarge(file.name, Math.round(MAX_FILE_BYTES / 1048576))).catch(() => {});
+        continue;
+      }
+      try {
+        await this.offerFile(id, file.name, file.data, description || undefined);
+      } catch (e) {
+        // One refused file must not cost the others or the answer: the engine posts every attachment
+        // best-effort, so this reports the loss in the chat instead of throwing out of the turn.
+        this.log.error(`msteams shared file offer failed for ${file.name}: ${e?.message ?? e}`);
+        await this.tmSend(id, this.msg.fileFailed(file.name)).catch(() => {});
+      }
+    }
   }
 
   /** Attach images as inline data-URI attachments (Teams renders these in the message body). */

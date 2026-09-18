@@ -193,6 +193,8 @@ the app) counts as success (`lib/graph.mjs:88`).
 | `msteams roster lookup failed for <id>: …` (`:509`) | warn | Membership could not be refreshed; the previous roster is reused, so mentions still resolve for up to 5 minutes. |
 | `image download failed: …` (`:482`) | error | An inbound image exceeded `maxImageBytes` or the download failed; the turn continues with `[Attachment: image (download failed or too large)]`. |
 | `image upload failed: …` (`:630`) | error | An outbound generated image could not be attached; the text still went out. |
+| `msteams shared file offer failed for <name>: …` (`:1059`) | error | A file the agent shared (`ShareFile`) could not be offered in a 1:1 chat. The chat is told, the other files in the turn and the answer still go out. |
+| `msteams file upload failed for <name>: …` (`:573`) | error | The recipient accepted an offer and the upload to their OneDrive URL failed; the card is replaced with `⚠️ <name> could not be uploaded`. |
 | `msteams directory: could not persist <key>: …` (`lib/directory.mjs:86`) | warn | The people directory could not be written. Harmless in itself — it is re-learned from the next roster read. |
 | `stateStore: failed to persist …` (`elowen-plugin-shared/stateStore.mjs:27`) | error | The state file could not be written; this one is re-thrown, so the command that caused it fails visibly rather than confirming a change that never stuck. |
 

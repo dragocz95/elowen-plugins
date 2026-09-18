@@ -174,6 +174,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
     linkedAccountFor?: (objectId: string, verifiedEmail?: string) => { id: number } | null;
     runWithActivity?: (activity: unknown, fn: () => Promise<string | undefined>) => Promise<string | undefined>;
   };
+  chatFilesDir?: string;
 } = {}) {
   const { MsTeamsAdapter } = await import(join(repoRoot, 'plugins/msteams/lib/adapter.mjs')) as AdapterModule;
   const state = new MemoryState();
@@ -191,6 +192,7 @@ async function makeAdapter(cfg: Record<string, unknown> = {}, opts: {
     (id, answers) => { (opts.answers ??= []).push({ id, answers }); return true; },
     () => opts.chatCommands ?? MSTEAMS_CHAT_COMMANDS,
     opts.accountLinking ?? null,
+    opts.chatFilesDir ?? '',
   );
   // Quiet transport for unit tests: no network, capture the outbound calls.
   const calls: { kind: string; args: unknown[] }[] = [];
@@ -1795,6 +1797,140 @@ describe('msteams interleaved final ordering', () => {
     await ordered.adapter.onActivity(activity({ id: 'in-1' }));
     expect(ordered.calls.filter((c) => c.kind === 'reply')).toHaveLength(1);
     expect((ordered.calls.filter((c) => c.kind === 'update').at(-1)?.args[3] as { text?: string }).text).toBe('Final answer.');
+  });
+});
+
+describe('msteams shared-file delivery (ShareFile)', () => {
+  const loadLiveMessage = async () => (await import(join(repoRoot, 'plugins/msteams/lib/stream.mjs'))) as {
+    LiveMessage: new (a: unknown, c: string, r?: string, k?: string, d?: unknown) => {
+      onEvent: (e: Record<string, unknown>) => void;
+      finalize: (reply?: string) => Promise<void>;
+    };
+  };
+  /** The stored name core writes for a shared file: `<sha256>.bin` under the daemon's `chat-files` dir. */
+  const STORED = `${'ab'.repeat(32)}.bin`;
+  const STORED_2 = `${'cd'.repeat(32)}.bin`;
+  const ref = (stored: string) => `/api/brain/chat-files/${stored}`;
+  const CONSENT = 'application/vnd.microsoft.teams.card.file.consent';
+  /** Every line of text the adapter posted, whichever Connector call carried it: a free-standing send
+   *  carries the activity third, a threaded reply fourth (it takes the trigger id third). */
+  const textsOf = (calls: { kind: string; args: unknown[] }[]) => calls
+    .filter((c) => c.kind === 'send' || c.kind === 'reply')
+    .map((c) => String((c.args[c.kind === 'reply' ? 3 : 2] as { text?: string })?.text ?? ''));
+  const cardsOf = (calls: { kind: string; args: unknown[] }[]) => calls
+    .filter((c) => c.kind === 'send')
+    .map((c) => c.args[2] as { attachments?: { contentType: string; name: string; content: Record<string, unknown> }[] } | undefined)
+    .flatMap((activity) => activity?.attachments ?? []);
+
+  /** A real `chat-files` directory holding a sparse file of `bytes` each, removed with the test. */
+  const withStoredFiles = async (sizes: Record<string, number>, run: (dir: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'msteams-chat-files-'));
+    try {
+      for (const [name, bytes] of Object.entries(sizes)) {
+        const path = join(dir, name);
+        writeFileSync(path, '');
+        const fd = openSync(path, 'r+');
+        ftruncateSync(fd, bytes);
+        closeSync(fd);
+      }
+      await run(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('offers a file the agent shared as a consent card in a 1:1 chat', async () => {
+    // Before this, a `file` event reached the shared engine and died there: the Teams transport declared
+    // no file pair, so a shared document stayed a daemon URL nobody outside the daemon can open.
+    await withStoredFiles({ [STORED]: 12 }, async (dir) => {
+      const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { chatFilesDir: dir });
+      state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test', conversationType: 'personal' } });
+      const { LiveMessage } = await loadLiveMessage();
+      const lm = new LiveMessage(adapter, 'a:conv1', 'question-1');
+      lm.onEvent({ type: 'file', ref: ref(STORED), name: 'quarterly report.txt', size: 12, caption: 'the quarterly report' });
+      await lm.finalize('Here is the report.');
+
+      const offer = cardsOf(calls).find((a) => a.contentType === CONSENT);
+      expect(offer).toBeTruthy();
+      expect(offer!.name).toBe('quarterly report.txt');
+      expect(offer!.content).toMatchObject({ description: 'the quarterly report', sizeInBytes: 12 });
+      // The bytes wait for the acceptance, which is the only moment Teams hands over an upload URL.
+      expect(adapter.pendingFiles.size).toBe(1);
+      // …and the answer still lands under the offer.
+      expect(textsOf(calls).some((t) => t.includes('Here is the report.'))).toBe(true);
+    });
+  });
+
+  it('stays quiet for a room it has never seen and for a targeted reply inside a channel', async () => {
+    // The two edges the scope check has to keep closed: a conversation with NO stored type (the check must
+    // fail closed rather than guess), and a targeted message in a channel — targeting changes who SEES the
+    // answer, never what kind of room it is.
+    await withStoredFiles({ [STORED]: 12 }, async (dir) => {
+      const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { chatFilesDir: dir });
+      state.patch('19:chan@thread.tacv2', { ref: { serviceUrl: 'https://smba.test', conversationType: 'channel' } });
+      const { LiveMessage } = await loadLiveMessage();
+      const file = { type: 'file', ref: ref(STORED), name: 'quarterly report.txt', size: 12, caption: 'the quarterly report' };
+
+      await adapter.targetedTurn.run({ recipient: { id: '29:enc' }, messageId: 'in-9' }, async () => {
+        const lm = new LiveMessage(adapter, '19:chan@thread.tacv2');
+        lm.onEvent(file);
+        await lm.finalize('Here is the report.');
+      });
+      const unseen = new LiveMessage(adapter, 'a:never-seen');
+      unseen.onEvent(file);
+      await unseen.finalize('Here is the report.');
+
+      expect(cardsOf(calls).filter((a) => a.contentType === CONSENT)).toHaveLength(0);
+      expect(adapter.pendingFiles.size).toBe(0);
+      // The channel answer still lands. The unseen conversation has no stored route at all, so there is
+      // nowhere to send one — which is the point: the file is refused, and nothing else changes.
+      expect(textsOf(calls).filter((t) => t.includes('Here is the report.'))).toHaveLength(1);
+    });
+  });
+
+  it('keeps a shared file out of a channel or group chat and still answers', async () => {
+    // File consent is a 1:1 protocol: an offer in a shared room is a card nobody can complete. The room
+    // keeps exactly the behaviour it had before this existed — no offer, nothing thrown, and the answer
+    // unaffected.
+    await withStoredFiles({ [STORED]: 12 }, async (dir) => {
+      const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { chatFilesDir: dir });
+      state.patch('19:team@thread.tacv2', { ref: { serviceUrl: 'https://smba.test', conversationType: 'channel' } });
+      state.patch('19:group@thread.v2', { ref: { serviceUrl: 'https://smba.test', conversationType: 'groupChat' } });
+      const { LiveMessage } = await loadLiveMessage();
+
+      for (const conversationId of ['19:team@thread.tacv2', '19:group@thread.v2']) {
+        const lm = new LiveMessage(adapter, conversationId);
+        lm.onEvent({ type: 'file', ref: ref(STORED), name: 'quarterly report.txt', size: 12, caption: 'the quarterly report' });
+        await lm.finalize('Here is the report.');
+      }
+
+      expect(cardsOf(calls).filter((a) => a.contentType === CONSENT)).toHaveLength(0);
+      expect(adapter.pendingFiles.size).toBe(0);
+      expect(textsOf(calls).filter((t) => t.includes('Here is the report.'))).toHaveLength(2);
+      // The bytes ARE reachable — the room stays quiet because of the conversation type, not because the
+      // transport is missing half of itself.
+      expect(adapter.resolveSharedFiles([{ ref: ref(STORED), name: 'quarterly report.txt', size: 12 }]))
+        .toEqual([{ name: 'quarterly report.txt', data: expect.any(Buffer) }]);
+    });
+  });
+
+  it('says a shared file is too large instead of leaving the person waiting for it', async () => {
+    // Core's ShareFile allows 25 MB, a single consent upload takes 20. Silence here would be a file that
+    // never arrives for no stated reason — and one refused file must not cost the others.
+    await withStoredFiles({ [STORED]: 21 * 1024 * 1024, [STORED_2]: 12 }, async (dir) => {
+      const { adapter, state, calls } = await makeAdapter({ rolePolicies: [{ roleId: 'aad-1', projectIds: [] }] }, { chatFilesDir: dir });
+      state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test', conversationType: 'personal' } });
+      const { LiveMessage } = await loadLiveMessage();
+      const lm = new LiveMessage(adapter, 'a:conv1');
+      lm.onEvent({ type: 'file', ref: ref(STORED), name: 'huge.zip', size: 21 * 1024 * 1024, caption: 'the archive' });
+      lm.onEvent({ type: 'file', ref: ref(STORED_2), name: 'small.txt', size: 12, caption: 'the archive' });
+      await lm.finalize('Here is the report.');
+
+      const offers = cardsOf(calls).filter((a) => a.contentType === CONSENT);
+      expect(offers).toHaveLength(1);
+      expect(offers[0]!.name).toBe('small.txt');
+      expect(textsOf(calls).some((t) => t.includes('huge.zip') && t.includes('20 MB'))).toBe(true);
+    });
   });
 });
 
