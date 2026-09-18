@@ -710,6 +710,10 @@ export function register(ctx) {
     inFlight.set(repo, pass);
     const result = await pass;
     setMeta(database, `reindex:${repo}`, String(Date.now()));
+    // reindexRepo never throws — a provider failure comes back as `{ error }`, not a rejection, so this is
+    // the only place both auto-paths (this search-triggered pass and ScheduledIndexer.tick's runPass) learn
+    // a pass failed. Without this, a down provider or a walk failure vanished with no trace anywhere.
+    if (result?.error) ctx.logger.warn(`auto-reindex of ${repo} failed: ${result.error}`);
     return result ?? null;
   };
 
@@ -778,7 +782,8 @@ export function register(ctx) {
         let kickedReindex = false;
         if (cfg.autoReindex && ctx.isAdminSession()) {
           kickedReindex = true;
-          void maybeAutoReindex(database, indexSources(ctx, p.repo)).catch(() => {});
+          void maybeAutoReindex(database, indexSources(ctx, p.repo))
+            .catch((e) => ctx.logger.warn(`auto-reindex on search failed: ${e?.message ?? e}`));
         }
 
         const qv = await ctx.embeddings.embed(query);

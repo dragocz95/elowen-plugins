@@ -16,6 +16,9 @@
 ## todo 0.14.14 - 2026-09-18
 
 - An unreadable metadata column now survives on disk. The old read swallowed a parse failure into an empty object, so the next unrelated update serialised that empty object back and wrote NULL over the corrupt value, destroying the one piece of evidence of what was stored. A row nobody can parse is now reported instead: the task id is logged once, the read answers empty with a `metadataCorrupt` marker, and updates that do not name metadata leave the column exactly as it is. An explicit metadata write stays the deliberate way to replace it, the same way cronjob refuses to rebuild a shared list from a truncated read.
+## codebase 0.1.6 - 2026-09-18
+
+- Report a swallowed auto-reindex failure with a logger warning instead of vanishing silently
 
 ## skills 0.4.8 - 2026-09-18
 
