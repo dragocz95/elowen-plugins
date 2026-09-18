@@ -35,4 +35,23 @@ describe('cron schedule grammar (plugin ⋅ frozen contract)', () => {
     for (const spec of Object.keys(grammar.accepts)) actual[spec] = plugin.parseSchedule(spec) !== null;
     expect(actual).toEqual(grammar.accepts);
   });
+
+  // The web schedule builder (web-src/scheduleBuilder.ts) hand-mirrored the every/daily/weekly patterns
+  // from this same authority until both were pulled into plugins/cronjob/scheduleGrammar.mjs, which the
+  // builder now imports directly. This is the other half of that fix: if the builder ever stops importing
+  // the shared module — a hand-written regex creeping back in, or one of the three drifting from it — a
+  // grammar corpus entry the plugin accepts as 'every'/'daily'/'weekly' would silently render "Advanced"
+  // in the UI, which is exactly the failure this plugin's grammar contract exists to make impossible.
+  it('the builder accepts every corpus entry the plugin parses as every/daily/weekly', async () => {
+    const plugin = await import(pluginPath) as { parseSchedule(spec: string): { kind: string } | null };
+    const builderPath = resolve(here, '..', 'plugins/cronjob/web-src/scheduleBuilder.ts');
+    const builder = await import(builderPath) as {
+      parseBuilderSchedule(spec: string): { mode: string } | null;
+    };
+    for (const spec of Object.keys(grammar.accepts)) {
+      const kind = plugin.parseSchedule(spec)?.kind;
+      if (kind !== 'interval' && kind !== 'daily' && kind !== 'weekly') continue; // cron stays Advanced by design
+      expect(builder.parseBuilderSchedule(spec), spec).not.toBeNull();
+    }
+  });
 });

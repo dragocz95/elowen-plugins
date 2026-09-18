@@ -947,12 +947,17 @@ var import_react7 = __toESM(require_react(), 1);
 // plugins/cronjob/web-src/fields.tsx
 var import_react6 = __toESM(require_react(), 1);
 
+// plugins/cronjob/scheduleGrammar.mjs
+var EVERY_PATTERN = /^every\s+(\d+)\s*(m|h)$/i;
+var DAILY_PATTERN = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i;
+var WEEKLY_PATTERN = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i;
+
 // plugins/cronjob/web-src/scheduleBuilder.ts
 var WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 var timeValue = (hour, minute) => `${String(Number(hour)).padStart(2, "0")}:${minute}`;
 function parseBuilderSchedule(value) {
   const text = String(value ?? "").trim();
-  let match = /^every\s+(\d+)\s*(m|h)$/i.exec(text);
+  let match = EVERY_PATTERN.exec(text);
   if (match) {
     const amount = Number(match[1]);
     if (Number.isSafeInteger(amount) && amount >= 1) {
@@ -960,9 +965,9 @@ function parseBuilderSchedule(value) {
     }
     return null;
   }
-  match = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  match = DAILY_PATTERN.exec(text);
   if (match) return { mode: "daily", time: timeValue(match[1], match[2]) };
-  match = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  match = WEEKLY_PATTERN.exec(text);
   if (match) {
     return {
       mode: "weekly",

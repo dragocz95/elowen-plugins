@@ -1,3 +1,5 @@
+import { EVERY_PATTERN, DAILY_PATTERN, WEEKLY_PATTERN } from '../scheduleGrammar.mjs';
+
 export const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 
 type Weekday = typeof WEEKDAYS[number];
@@ -14,7 +16,7 @@ const timeValue = (hour: string, minute: string): string =>
 
 export function parseBuilderSchedule(value: string): ScheduleBuilder | null {
   const text = String(value ?? '').trim();
-  let match = /^every\s+(\d+)\s*(m|h)$/i.exec(text);
+  let match = EVERY_PATTERN.exec(text);
   if (match) {
     const amount = Number(match[1]);
     if (Number.isSafeInteger(amount) && amount >= 1) {
@@ -22,9 +24,9 @@ export function parseBuilderSchedule(value: string): ScheduleBuilder | null {
     }
     return null;
   }
-  match = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  match = DAILY_PATTERN.exec(text);
   if (match) return { mode: 'daily', time: timeValue(match[1]!, match[2]!) };
-  match = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  match = WEEKLY_PATTERN.exec(text);
   if (match) {
     return {
       mode: 'weekly',
