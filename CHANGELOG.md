@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.4.7 - 2026-09-18
+
+- A contributed skill now names its plugin in the owner column, which is what owns it and has the width for a name. Beside the source badge it shared one 16rem cell with the badge and clipped, so a row for a skill from a plugin ended in a bare ellipsis instead of saying who it belongs to. The source cell is left with the badge alone.
+
 ## skills 0.4.6 - 2026-09-18
 
 - A register row marks only what is wrong and what it cannot otherwise say. The switch at the row's edge already states whether the model may invoke a skill, and the scope filter already names its catalogue, so the Active, manual-only and bundled capsules restated what was on screen and together clipped the source cell into a bare ellipsis. What is left is the plugin a contributed skill comes from, and the reason a skill cannot be used. The count that read Effective now reads Active, because effective availability is not a phrase anyone outside the code uses.

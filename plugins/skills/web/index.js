@@ -380,7 +380,7 @@ function SkillsSettings({ surface }) {
     return account?.name || account?.username || `#${id}`;
   };
   const ownerLabel = (skill) => {
-    if (skill.catalogSource === "plugin") return s.scopePlugin;
+    if (skill.catalogSource === "plugin") return skill.contributorPlugin || s.scopePlugin;
     if (skill.catalogSource === "bundled") return s.scopeBundled;
     if (skill.catalogSource === "instance") return s.ownerInstance;
     return accountName(skill.owner);
@@ -482,7 +482,6 @@ function SkillsSettings({ surface }) {
       },
       extraFilters: accountFilter ? [accountFilter] : void 0,
       renderBadges: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        skill.catalogSource === "plugin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-muted-foreground", title: skill.contributorPlugin, children: skill.contributorPlugin }) : null,
         skill.unavailableReason === "disabled-for-account" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusDisabled }) : null,
         skill.unavailableReason === "plugin-unavailable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusUnavailable }) : null,
         skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusShadowed }) : null

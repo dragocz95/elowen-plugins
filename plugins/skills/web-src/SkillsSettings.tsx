@@ -131,7 +131,10 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
   };
 
   const ownerLabel = (skill: PluginSkill): string => {
-    if (skill.catalogSource === 'plugin') return s.scopePlugin;
+    // A contributed skill is OWNED by the plugin that ships it, so the owner column — which has the width
+    // for a name — is where that name belongs. Beside the source badge it shared a 16rem cell and clipped,
+    // which is how a row ended in a bare ellipsis instead of saying who owns the skill.
+    if (skill.catalogSource === 'plugin') return skill.contributorPlugin || s.scopePlugin;
     if (skill.catalogSource === 'bundled') return s.scopeBundled;
     if (skill.catalogSource === 'instance') return s.ownerInstance;
     return accountName(skill.owner);
@@ -251,18 +254,14 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           ],
         }}
         extraFilters={accountFilter ? [accountFilter] : undefined}
-        // A register row marks what is WRONG and what the row cannot say for itself; it does not repeat
-        // what is already on screen. The row's switch states whether the model may invoke the skill, the
-        // source column states where it comes from, and the scope filter states its catalogue — so
-        // "effective", "manual only" and "bundled" were three capsules restating three things the reader
-        // could already see, and together they clipped the cell into a bare ellipsis. What is left: where a
-        // contributed skill comes from (a plugin name the row has nowhere else), and a reason it is NOT
-        // usable, which nothing else on the row can tell.
+        // A register row marks what is WRONG and nothing else. The row's switch states whether the model
+        // may invoke the skill, the owner column names the account or the plugin it belongs to, and the
+        // scope filter names its catalogue — so "effective", "manual only", "bundled" and the contributor's
+        // name were four marks restating what the row already said, and together they overran the source
+        // cell, which then clipped into a bare ellipsis. What is left is the reason a skill cannot be used,
+        // which nothing else on the row can tell.
         renderBadges={(skill: PluginSkill) => (
           <>
-            {skill.catalogSource === 'plugin'
-              ? <span className="truncate text-xs text-muted-foreground" title={skill.contributorPlugin}>{skill.contributorPlugin}</span>
-              : null}
             {skill.unavailableReason === 'disabled-for-account' ? <C.Badge tone="warning">{s.statusDisabled}</C.Badge> : null}
             {skill.unavailableReason === 'plugin-unavailable' ? <C.Badge tone="warning">{s.statusUnavailable}</C.Badge> : null}
             {skill.unavailableReason === 'shadowed' ? <C.Badge tone="warning">{s.statusShadowed}</C.Badge> : null}

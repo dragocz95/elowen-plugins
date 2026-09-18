@@ -89,6 +89,16 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(within(row).queryByText(strings.manualOnlyBadge!)).toBeNull();
   });
 
+  // The plugin that ships a skill IS its owner, and the owner column has the width for a name. Beside the
+  // source badge it shared a 16rem cell and clipped, so the row ended in a bare ellipsis.
+  it('names the contributing plugin in the owner column', async () => {
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json([pluginRow('salon-operations', 'sarah-hair')])));
+    mount();
+
+    const row = (await screen.findByText('salon-operations')).closest('[role="row"]') as HTMLElement;
+    expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toContain('sarah-hair');
+  });
+
   it('flips the clicked row immediately and disables only that row while the PATCH is in flight', async () => {
     let alphaDisabled = false;
     let resolvePatch!: () => void;
