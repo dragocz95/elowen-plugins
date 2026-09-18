@@ -480,10 +480,15 @@ export function register(ctx) {
   /** Delete only the skill definition. Directory-form support files are user-authored data and survive. */
   const removeSkill = (deletion, mode) => {
     if (mode !== NON_RECURSIVE_DELETE) throw new Error(`unsupported skill deletion mode: ${mode}`);
-    if (skillFileIn(bundledDir, deletion.name)) {
-      return { error: 'bundled skills cannot be deleted', status: 400 };
+    // The refusal is about the RESOLVED target, not the name: a personal (or instance) file that merely
+    // shares a name with a bundled skill is the caller's own file, not the bundled copy, and stays
+    // deletable. Only when neither door resolved anything of the caller's own do we fall back to the name
+    // to tell "this name is the read-only bundled skill" apart from "this name does not exist at all".
+    if (deletion.target === null) {
+      return skillFileIn(bundledDir, deletion.name)
+        ? { error: 'bundled skills cannot be deleted', status: 400 }
+        : { error: 'unknown skill', status: 404 };
     }
-    if (deletion.target === null) return { error: 'unknown skill', status: 404 };
     if (deletion.target.error) return { error: deletion.target.error, status: 409 };
     unlinkSync(deletion.target.file);
     if (deletion.target.directoryForm) {
