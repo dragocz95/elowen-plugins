@@ -20,6 +20,20 @@ export function resolveCallTimeoutMs(raw) {
   return Math.min(MAX_CALL_TIMEOUT_S, Math.max(MIN_CALL_TIMEOUT_S, Math.floor(seconds))) * 1000;
 }
 
+/** The hourly call cap is the only brake on repeated calls to real phones, so it needs the same clamp
+ *  as the call timeout: a value written straight to the config API bypasses the settings form, and a
+ *  cap with no ceiling lets a looping agent dial unbounded. These are the manifest's min/max/default
+ *  for `maxCallsPerHour`, declared once here; the voice-bot test asserts the manifest stays in step. */
+export const DEFAULT_CALLS_PER_HOUR = 10;
+export const MIN_CALLS_PER_HOUR = 1;
+export const MAX_CALLS_PER_HOUR = 200;
+
+export function resolveMaxCallsPerHour(raw) {
+  const limit = Number(raw);
+  if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_CALLS_PER_HOUR;
+  return Math.min(MAX_CALLS_PER_HOUR, Math.max(MIN_CALLS_PER_HOUR, Math.floor(limit)));
+}
+
 /** Only network endpoints are accepted. Rejecting malformed values before registration avoids a saved
  * configuration that can never activate the tool and prevents accidental non-HTTP transports. */
 export function resolveApiUrl(raw) {
@@ -69,8 +83,7 @@ export function registerVoiceCall(ctx, store) {
     return;
   }
 
-  const rawLimit = Number(ctx.config.maxCallsPerHour);
-  const maxCallsPerHour = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.floor(rawLimit) : 10;
+  const maxCallsPerHour = resolveMaxCallsPerHour(ctx.config.maxCallsPerHour);
   const defaultInitMessage = text(ctx.config.defaultInitMessage);
   const callTimeoutMs = resolveCallTimeoutMs(ctx.config.callTimeoutSeconds);
 

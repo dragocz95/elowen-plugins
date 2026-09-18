@@ -1,5 +1,9 @@
 # Changelog
 
+## voice-bot 0.1.2 - 2026-09-19
+
+- The hourly call cap can no longer be lifted past the maximum the plugin declares. `maxCallsPerHour` written straight to the config API bypassed the settings form, and the runtime only rejected nonsense below 1, so a large value became the limit in full: the one brake on a repeating agent dialling real phones was whatever number the config said. It now clamps to the manifest's min/max/default — 1..200, fallback 10 — declared once in the code and asserted against the manifest in the tests, the same way the longest-call deadline has always been resolved.
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.

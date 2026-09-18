@@ -222,7 +222,7 @@
     },
     {
       "name": "voice-bot",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "requiresCore": "0.28.1",
       "description": "Outbound telephone calls: the agent dials a real phone number through a configurable voice API and briefs the voice agent that speaks on the call.",
       "category": "automation",
