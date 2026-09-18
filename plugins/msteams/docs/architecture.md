@@ -241,13 +241,13 @@ feeds the people directory (`notePeople`, `:195`).
 `lib/stream.mjs` is a thin Teams binding for the shared engine `elowen-plugin-shared/liveMessage.mjs`. It
 supplies:
 
-- the transport closures (`create`/`edit`/`remove`/`postImages`) that call the adapter's `tm*` helpers
-  (`lib/stream.mjs:28-35`) — which is also the seam the plugin tests mock;
+- the transport closures (`create`/`edit`/`remove`/`postImages`/`postFiles`) that call the adapter's `tm*`
+  helpers (`lib/stream.mjs:30-52`) — which is also the seam the plugin tests mock;
 - a markdown style: bold tool names, struck-through failures, plain subtext (Teams has no small text for
-  bot messages), and **`lineBreak: '\n\n'`** (`:51`) — Teams treats a single newline as a soft wrap, so
+  bot messages), and **`lineBreak: '\n\n'`** (`:69`) — Teams treats a single newline as a soft wrap, so
   without this the whole tool trace renders as one run-on paragraph. Pinned by
   `tests/plugins/msteamsPlugin.test.ts:556`;
-- `postWithImages` (`:12`), which turns generated-image links into real attachments, strips the links,
+- `postWithImages` (`:13`), which turns generated-image links into real attachments, strips the links,
   and sends the images ahead of the (possibly split) text.
 
 Sizing lives in `lib/format.mjs`: `CHUNK = 20000` (`:7`) against Teams' ~28 KB payload cap, and the
@@ -262,6 +262,49 @@ files are attached. They go out as inline data-URI attachments with **one** cont
 the attachment and the URI (`:618-631`) — declaring a `.gif` as png in one field and jpeg in the other
 produced a picture Teams could not render. A failed upload logs `image upload failed: …` and is
 swallowed (`:630`).
+
+### 3.4 Files the agent shares: `ShareFile` → the file consent card
+
+A general file cannot ride a Bot Connector message the way an image can — Teams takes one only through its
+**file consent handshake** — so the engine's file half is a different Teams protocol, not a second copy of
+the image path. `lib/stream.mjs:51-52` declares the `hasFiles`/`postFiles` pair the engine calls at the end
+of a turn:
+
+1. The engine collects a `file` brain event's `{ ref, name, size }` (`liveMessage.mjs`, `fileRefs`) and
+   calls `adapter.resolveSharedFiles(refs)` — the counterpart of `resolveImageFiles`, reading
+   `<config dir>/chat-files/<sha256>.bin` off the daemon's `chat-files` dir (`lib/adapter.mjs:1028`,
+   `platformChatFilesDir(dataDir)` passed from `index.mjs:220`, capped at four per turn, the same number
+   core's `ShareFile` allows).
+2. `adapter.offerSharedFiles` (`:1037`) delegates to the existing `offerFile` (`:517`), which posts the
+   `file.consent` card and parks the bytes in `pendingFiles` for the acceptance. Nothing about the card,
+   the 20 MB `MAX_FILE_BYTES` cap, the 15-minute `FILE_TTL_MS` or the upload is duplicated — the same
+   method `TeamsSendFile` (`lib/tools.mjs:204`, calling `offerFile` at `:250`) already drives in production.
+3. The engine posts attachments **before** the answer text, so the card arrives above the reply and the
+   reply stays the conversation's last message.
+
+**Personal scope only, and the check lives in the adapter** (`:1043`), read from
+`state.get(id).ref.conversationType` — never from a failed upload: Microsoft's file consent APIs do not
+work in channels or group chats, where an offer would be a card nobody could complete. In a shared room
+the call returns immediately, so the behaviour is exactly what it was before this pair existed: no card,
+no error, and the answer text unaffected. `hasFiles` deliberately does not carry that decision — it sees
+no conversation.
+
+Two limits are surfaced to the person rather than swallowed, because a shared file makes them visible:
+a file over the 20 MB upload cap is answered in the chat with `fileTooLarge` (core's `ShareFile` allows
+25 MB, `lib/adapter.mjs:1051`), and a refused offer is logged as `msteams shared file offer failed for …`
+and answered with `fileFailed` (`:1059`) instead of throwing out of the turn.
+
+One limit is NOT surfaced, and cannot be from here: a stored file the shared resolver cannot read is
+dropped inside `elowen-plugin-shared/images.mjs:87` — the ref fails its shape check, the blob is missing,
+or the read throws — and the engine then calls no transport at all (`liveMessage.mjs:582-585`), so the
+plugin is never handed the conversation id and has nothing to answer into. Re-deriving which ref failed
+in the plugin would mean a second copy of the resolver's per-ref rules, and the same silence exists on
+Discord, Telegram and WhatsApp for that reason. A `file` event's ref is always a stored
+`/brain/chat-files/<sha256>.bin` written before the tool returned, so this needs a broken store or disk
+rather than ordinary use.
+
+Cards park their bytes in process memory, so a **daemon restart loses an unaccepted offer** — the card
+stays, and clicking it answers "that file offer is no longer available" (`fileExpired`, `onFileConsent`).
 
 ---
 

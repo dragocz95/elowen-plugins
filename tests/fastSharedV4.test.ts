@@ -14,7 +14,7 @@ describe('shared API v4 registry contract', () => {
     cronjob: '0.6.5',
     discord: '0.3.21',
     telegram: '0.2.15',
-    msteams: '0.7.3',
+    msteams: '0.8.0',
     whatsapp: '0.2.18',
   } as const;
 

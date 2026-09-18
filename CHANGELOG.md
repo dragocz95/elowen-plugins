@@ -1,5 +1,10 @@
 # Changelog
 
+## msteams 0.8.0 - 2026-09-18
+
+- A file the agent shares with `ShareFile` now reaches a 1:1 Teams chat. Teams refuses a general file inside a Bot Connector message, so the shared document arrives as the file consent card the owner-only `TeamsSendFile` already posts, and the bytes upload into the recipient's own OneDrive once they accept — the shared live-message engine's file half, wired into the same transport seam that already carried images, with the adapter's existing `offerFile` doing the work rather than a second delivery path. A channel or a group chat keeps exactly its previous behaviour: Microsoft's consent APIs do not work there, so no offer is made, nothing throws, and the answer text still lands.
+- Two limits that a shared file makes visible are now named in the chat instead of being swallowed: a file over the 20 MB upload cap, which core's `ShareFile` allows at 25 MB, and an offer Teams refuses. Neither costs the other files in the turn or the answer. A stored file the shared resolver cannot read is still dropped before this plugin sees it — the same silence as on Discord, Telegram and WhatsApp, because the engine's file seam only ever hands a surface the bytes it managed to read. An offer nobody has accepted still lives only in memory, so a daemon restart loses it — the card is then answered with "that file offer is no longer available".
+
 ## sites 0.14.3 - 2026-09-18
 
 - A picture the register is about to renew no longer carries a caveat. Opening the register takes a new picture of anything past its age, so the "Stale" badge on the card and in the drawer only reported work already under way; the previous picture stays until the new one arrives. A capture that failed still says so, because nothing resolves that on its own.

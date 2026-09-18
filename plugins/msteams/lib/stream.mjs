@@ -1,7 +1,8 @@
 // Teams binding for the shared live-message engine (elowen-plugin-shared/liveMessage): the Bot Connector
-// transport (adapter.tmSend / tmEdit / tmDelete), a markdown render style, and the final-answer image
-// strategy (attachments ahead of the text). The throttled editable message, the streaming answer and the
-// brain-event reducer all live in the shared engine — only the genuinely Teams-specific pieces are here.
+// transport (adapter.tmSend / tmEdit / tmDelete), a markdown render style, and the final-answer attachment
+// strategy (images and shared files ahead of the text). The throttled editable message, the streaming
+// answer and the brain-event reducer all live in the shared engine — only the genuinely Teams-specific
+// pieces are here.
 import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { extractImageRefs } from 'elowen-plugin-shared/format';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
@@ -35,14 +36,20 @@ const transport = {
   replyRef: (replyToId) => ({ replyToId }),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
   postImages: (a, conversationId, data, _replyToId, caption) => a.sendImages(conversationId, data, caption),
-  // No hasFiles/postFiles pair, deliberately — the shared engine's contract is that a surface which cannot
-  // upload a kind of attachment OMITS the pair rather than owning a degraded copy of the delivery path.
-  // An image rides a Bot Connector message as an inline data URI (see sendImages), but Teams will not
-  // accept a general file that way: it takes a `file.consent` card, the user's acceptance, an upload to
-  // the OneDrive URL their tenant hands back, and a follow-up card — a stateful multi-turn protocol that
-  // only works in 1:1 chats, not the channels this plugin mostly runs in. That is a separate feature with
-  // its own consent surface, not a transport closure, so a shared file stays a link in the answer text
-  // here until it is built.
+  // Files the agent shared (ShareFile) travel the OTHER Teams protocol, and the difference is the whole
+  // reason the pair resolves bytes itself: an image rides a Bot Connector message as an inline data URI
+  // (see sendImages), while Teams refuses a general file that way and takes one only through its file
+  // consent handshake — a `file.consent` card, the recipient's acceptance, an upload to the one-shot
+  // OneDrive URL their tenant hands back, then a file card. That protocol already exists in the adapter
+  // (`offerFile`/`onFileConsent`, the path `TeamsSendFile` drives), so this pair names it rather than
+  // re-implementing any part of it.
+  //
+  // The SCOPE decision is deliberately NOT here: `hasFiles` sees no conversation, and consent does not
+  // work in a channel or a group chat. The adapter owns that check, from the conversation type it already
+  // tracks, so a shared room keeps the behaviour it had before this pair existed — the answer lands and
+  // no card appears — instead of offering something nobody could ever complete.
+  hasFiles: (a) => typeof a.resolveSharedFiles === 'function' && typeof a.offerSharedFiles === 'function',
+  postFiles: (a, conversationId, data, _replyToId, caption) => a.offerSharedFiles(conversationId, data, caption),
 };
 
 // Teams renders a markdown subset, so the style leans on it: bold tool names, struck-through failures,
