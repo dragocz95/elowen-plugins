@@ -102,6 +102,17 @@
    resizes the box nor makes the tile jump in the transcript. */
 .browser-artifact__canvas > .browser-artifact__vnc-slot,
 .browser-artifact__canvas > .browser-artifact__waiting { grid-area: 1 / 1; }
+/* The docked tile below the boundary draws the session's screen as a still rather than connecting to it.
+   Same cell as the two above, so the placeholder and the picture are one box of one size; fitted rather
+   than cropped, because the still IS the whole page and a crop would hide the half the agent is reading.
+   Its shape comes from `--browser-aspect`, which the card sets from the still's own dimensions. */
+.browser-artifact__canvas > .browser-artifact__still {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .browser-artifact__vnc-slot,
 .browser-artifact__vnc { width: 100%; height: 100%; }
 /* noVNC scales its own canvas to the container through scaleViewport, preserving the framebuffer's
@@ -422,6 +433,15 @@
    size the image needs the room, and the thumbnail's caption already names the site. */
 @media (max-width: 767px) {
   .browser-artifact { max-width: none; }
+  /* Over the LIVE canvas on a phone the mark is recomputed on every frame the remote page paints — a
+     backdrop-filter over an animation is exactly what a phone has no headroom for, and the panel's own
+     measurements put the docked stream at 5.7 to 15 Mbit/s before a single pixel is blurred. It gets the
+     same glass as a plain translucent fill instead, which costs nothing to keep. Every other place it
+     appears has a still under it that changes a couple of times a second, not a framebuffer. */
+  .browser-artifact__canvas[data-interactive='true'] .browser-artifact__activity {
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--color-background, #000) 92%, transparent);
+  }
   .browser-artifact__overlay { padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px)); }
   .browser-artifact__surface { width: min(100%, calc(92dvh * var(--browser-aspect, 1.6))); }
   .browser-artifact__controls .browser-artifact__site { display: none; }

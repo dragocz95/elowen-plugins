@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, Expand, Hand, MessageCircleQuestion, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Expand, Hand, ImageOff, MessageCircleQuestion, MessageSquareText, Power, RotateCw, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { BrowserArtifactProps } from './runtime';
 import { apiError, jsonRequest, runtime } from './runtime';
 import { useBrowserStream } from './useBrowserStream';
+import { useStillPreview } from './useStillPreview';
 import { useVncSurface, type VncTicketResult } from './VncSurface';
 
 interface ArtifactData {
@@ -17,6 +18,26 @@ interface ArtifactData {
 interface Lease { leaseId: string; expiresAt: number; controlRevision: number }
 
 const NARRATION_VISIBLE_MS = 10_000;
+
+/** The one width at which this card is a monitor over the composer rather than an object in the
+ *  transcript. It is the boundary `browser.css` floats the card above and the width at which the tile
+ *  stops being the column and becomes a square. Declared once so the layout and the behavior derived from
+ *  it cannot answer the same question two ways. */
+const DESKTOP_QUERY = '(min-width: 768px)';
+
+/** Whether the viewport is at or above that boundary, kept current. */
+function useDesktopLayout(): boolean {
+  const [desktop, setDesktop] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(DESKTOP_QUERY).matches));
+  useEffect(() => {
+    const query = window.matchMedia(DESKTOP_QUERY);
+    const publish = (): void => setDesktop(query.matches);
+    // Read on mount as well: the query may already have changed between the first render and this effect.
+    publish();
+    query.addEventListener('change', publish);
+    return () => query.removeEventListener('change', publish);
+  }, []);
+  return desktop;
+}
 
 const asData = (value: unknown): ArtifactData | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -163,6 +184,8 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const data = asData(artifact.data);
   const stream = useBrowserStream(artifact.media?.path);
   const [expanded, setExpanded] = useState(false);
+  /** Which of the two layouts this card is in. See {@link DESKTOP_QUERY}. */
+  const desktop = useDesktopLayout();
   const [confirmClose, setConfirmClose] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const initialSessionId = data?.browserSessionId ?? '';
@@ -184,6 +207,13 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   /** A host `reveal` waiting for this canvas to actually get out of the way — see the effect below. */
   const pendingReveal = useRef<(() => void) | null>(null);
   const sessionId = data?.browserSessionId ?? '';
+  /** Whether this card is showing the LIVE view. Below the boundary the docked tile is a still, and only
+   *  the raised surface dials VNC — the connection is what costs a phone 5.7 to 15 Mbit/s of
+   *  whole-framebuffer video and what swallows every gesture on it. Above the boundary this is true
+   *  throughout, exactly as before. */
+  const liveView = desktop || expanded;
+  /** The docked still's own cadence, from the server; asked only while that is what the reader sees. */
+  const still = useStillPreview(sessionId, !liveView && !stream.closed);
   const title = data?.title || strings.sessionTitle || 'Browser session';
   const url = data?.url || '';
   const site = url ? siteName(url) : '';
@@ -301,22 +331,19 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
     const node = anchor.current;
     const surface = node?.closest<HTMLElement>('.chat-surface-full');
     if (!node || !surface) return;
-    const docked = window.matchMedia('(min-width: 768px)');
     const publish = (): void => {
       // Expanded, the canvas is portalled to <body> and this anchor is hidden: it occupies nothing.
-      if (!docked.matches || expanded) surface.style.removeProperty('--chat-dock-height');
+      if (!desktop || expanded) surface.style.removeProperty('--chat-dock-height');
       else surface.style.setProperty('--chat-dock-height', `${Math.ceil(node.getBoundingClientRect().height)}px`);
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(node);
-    docked.addEventListener('change', publish);
     return () => {
       observer.disconnect();
-      docked.removeEventListener('change', publish);
       surface.style.removeProperty('--chat-dock-height');
     };
-  }, [expanded]);
+  }, [desktop, expanded]);
   /** One connection for both surfaces. The canvas node is moved between the thumbnail and the expanded
    *  view rather than duplicated: a second view-only RFB connection was measured at +207 kB/s while
    *  scrolling, because the VNC server encodes the full framebuffer per client and cannot scale it down
@@ -347,12 +374,19 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const vnc = useVncSurface({
     slot: expanded ? overlaySlot : thumbSlot,
     ticket: mintTicket,
-    // The raised canvas is the working surface and always takes input; the thumbnail is a picture and
-    // a button, so a stray wheel or key over the transcript never reaches the remote page.
-    interactive: expanded,
-    enabled: !!sessionId && !stream.closed,
+    // The raised canvas is the working surface on a WIDE screen, and takes input; the thumbnail is a
+    // picture and a button, so a stray wheel or key over the transcript never reaches the remote page.
+    //
+    // On a phone the raised surface is a LOOK at the session instead: a finger cannot aim a desktop
+    // Chrome, and the surface still owns its gestures, so input would be swallowed by a canvas the reader
+    // cannot steer. The view is told to watch rather than drive, and the way out is a labelled control.
+    interactive: expanded && desktop,
+    // Below the boundary, docked, nothing connects at all: the tile is a still until the reader opens the
+    // live view. Above it nothing about this changes.
+    enabled: !!sessionId && !stream.closed && liveView,
   });
-  const aspectStyle = vnc.aspect ? { '--browser-aspect': String(vnc.aspect) } as CSSProperties : undefined;
+  const aspect = vnc.aspect ?? still.aspect;
+  const aspectStyle = aspect ? { '--browser-aspect': String(aspect) } as CSSProperties : undefined;
   /** Until the RFB handshake finishes there is nothing on the glass, so the card says so rather than
    *  showing an empty box that looks like a session which failed to start. */
   const painting = vnc.state === 'connected';
@@ -370,15 +404,23 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
   const status = useMemo(() => {
     if (stream.closed || state === 'closed') return { tone: 'muted' as const, label: strings.closed || 'Closed' };
     // The viewer limit is a property of the FRAMEBUFFER connections now, so it is the live view that
-    // reports it rather than the event stream.
-    if (vnc.state === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
-    if (stream.error || vnc.state === 'failed') return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
+    // reports it rather than the event stream — and only while the live view is what this card is showing.
+    // Below the boundary, docked, the picture is a still: a full room or a broken viewer for a connection
+    // this card never opened is not something the reader is looking at.
+    if (liveView) {
+      if (vnc.state === 'viewer_limit') return { tone: 'warning' as const, label: strings.viewerLimit || 'Too many viewers' };
+      if (vnc.state === 'failed') return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
+    }
+    if (stream.error) return { tone: 'danger' as const, label: strings.disconnected || 'Disconnected' };
+    // A still that could not be renewed is not a session in trouble, so it is not the same red as one: the
+    // dot and this line say only which of the two the reader is being shown.
+    if (!liveView && still.state === 'stalled') return { tone: 'warning' as const, label: strings.previewStalled || 'The preview is not updating' };
     if (state === 'user') return { tone: 'accent' as const, label: lease ? strings.youControl || 'You control' : strings.userControl || 'User control' };
     // A handoff the agent asked for is a STATE, not a passing action: the thumbnail carries no action
     // copy, so this is what turns its dot amber and tells a screen reader why the button is waiting.
     if (takeoverRequested) return { tone: 'warning' as const, label: strings.waitingForUser || 'Waiting for user input' };
     return { tone: stream.connected ? 'success' as const : 'warning' as const, label: stream.connected ? strings.agentControl || 'Agent control' : strings.connecting || 'Connecting' };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
+  }, [lease, liveView, state, still.state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
 
   const run = async <T,>(name: string, operation: () => Promise<T>): Promise<T | undefined> => {
     setPending(name);
@@ -415,28 +457,51 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
    *  The agent's pointer is gone with them. It was drawn from the CDP events the agent's own clicks
    *  emitted, and the page now paints its real cursor into the framebuffer, so there is one pointer
    *  again instead of a synthetic arrow beside a real one. */
-  const canvas = (interactive: boolean) => (
+  /** The mark on the glass: the session's state in one dot, and — on the surface the reader is actually
+   *  working on — what the agent is doing to it right now. */
+  const activity = (raised: boolean): ReactNode => (
+    <div className={`browser-artifact__activity ${raised && action ? 'has-action' : ''}`}>
+      <span className="browser-artifact__dot" data-tone={status.tone} aria-hidden />
+      <span className="sr-only">{status.label}</span>
+      {/* Only the surface you are actually working on gets the running commentary. On the thumbnail a
+          line of action copy is the loudest thing in the transcript, and it says less than the dot. */}
+      {raised && action ? <span className="truncate">{action}</span> : null}
+    </div>
+  );
+
+  const canvas = (raised: boolean) => (
     <div
       className="browser-artifact__canvas"
-      data-interactive={interactive ? 'true' : undefined}
+      data-interactive={raised ? 'true' : undefined}
       aria-label={strings.browserViewport || 'Live browser view'}
     >
       {/* Where the one noVNC canvas is parked while this surface is the visible one. Always rendered,
           because the client needs somewhere to mount before it can connect. */}
-      <div className="browser-artifact__vnc-slot" ref={interactive ? setOverlaySlot : setThumbSlot} />
+      <div className="browser-artifact__vnc-slot" ref={raised ? setOverlaySlot : setThumbSlot} />
       {painting ? null : (
         <div className="browser-artifact__waiting" role="status" aria-live="polite">
           <Spinner size="lg" />
           <span>{connectingLabel}</span>
         </div>
       )}
-      <div className={`browser-artifact__activity ${interactive && action ? 'has-action' : ''}`}>
-        <span className="browser-artifact__dot" data-tone={status.tone} aria-hidden />
-        <span className="sr-only">{status.label}</span>
-        {/* Only the surface you are actually working on gets the running commentary. On the thumbnail a
-            line of action copy is the loudest thing in the transcript, and it says less than the dot. */}
-        {interactive && action ? <span className="truncate">{action}</span> : null}
-      </div>
+      {activity(raised)}
+    </div>
+  );
+
+  /** The docked tile below the boundary: the session's screen as a still, on the window the server names,
+   *  in the two states this card already has for a picture — none yet, and one that could not be taken.
+   *  The picture that is on the glass is always one that arrived since the last attempt: a still that
+   *  cannot be renewed is dropped rather than left reading as the session's screen. */
+  const stillCanvas = () => (
+    <div className="browser-artifact__canvas" aria-label={strings.browserViewport || 'Live browser view'}>
+      {still.dataUrl ? <img className="browser-artifact__still" src={still.dataUrl} alt="" /> : null}
+      {still.state === 'ready' ? null : (
+        <div className="browser-artifact__waiting" role="status" aria-live="polite">
+          {still.state === 'stalled' ? <ImageOff size={16} aria-hidden /> : <Spinner size="lg" />}
+          <span>{still.state === 'stalled' ? strings.previewStalled || 'The preview is not updating' : strings.connectingImage || 'Connecting to the browser image…'}</span>
+        </div>
+      )}
+      {activity(false)}
     </div>
   );
 
@@ -476,9 +541,10 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       aria-hidden={expanded ? true : undefined}
       aria-label={strings.sessionTitle || 'Browser session'}
     >
-      {/* The thumbnail is the control that opens the canvas: one target, no chrome around it. */}
+      {/* The thumbnail is the control that opens the canvas: one target, no chrome around it. Below the
+          boundary it is a still of the session; on a wide screen it is the live view itself. */}
       <button type="button" className="browser-artifact__tile" onClick={() => setExpanded(true)} aria-label={strings.enlarge || 'Enlarge browser'}>
-        {canvas(false)}
+        {liveView ? canvas(false) : stillCanvas()}
         <span className="browser-artifact__expand" aria-hidden><Expand size={13} /></span>
       </button>
       <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
@@ -487,7 +553,7 @@ export function BrowserArtifact({ artifact, narration, pendingInput }: BrowserAr
       </div>
 
       {expanded ? (
-        <CanvasOverlay label={title} aspect={vnc.aspect} onClose={() => setExpanded(false)}>
+        <CanvasOverlay label={title} aspect={aspect} onClose={() => setExpanded(false)}>
           {canvas(true)}
           <GlassButton icon={X} label={strings.closeView || 'Close view'} onClick={() => setExpanded(false)} className="browser-artifact__dismiss" />
           {/* One bottom column, so the narration and the controls stack without either one being placed

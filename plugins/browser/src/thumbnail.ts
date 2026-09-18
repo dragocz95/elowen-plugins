@@ -3,12 +3,30 @@ import type { BrowserClock, BrowserLogger } from './types.js';
 
 /** How long one capture stands in for the session's screen.
  *
- *  The account panel polls, and a list of sessions polls once per session. Without a cache, N sessions on
- *  screen with a second tab open on the same page is 2N rasterizations of live Chrome every interval, all
- *  of them competing with the agent's own CDP traffic. Four seconds is under the panel's five second
- *  interval — so a reader still gets a fresh picture on every poll — while a second reader, a remount or
- *  a refetch triggered by a window regaining focus is served from what was already taken. */
-export const THUMBNAIL_TTL_MS = 4_000;
+ *  Two readers draw this still and they want opposite things from the window. The account panel refreshes
+ *  once per five seconds, and a still that outlives its own window is a picture of the past. The
+ *  transcript's card, below the width where its live view floats, draws this still as the session's
+ *  SCREEN, and it asks again on exactly this window — the route names it back (`refreshMs`), so the
+ *  card's cadence is this one value rather than a second constant in a bundle that could drift from it.
+ *
+ *  What is being spent here is not bytes but a rasterization of a live Chrome, so this is the fastest the
+ *  preview may be renewed rather than a free knob: a second and a half reads as live without the capture
+ *  competing with the page the agent is working on. It stays under the panel's five second poll, so a
+ *  reader of either surface still gets a fresh picture on every ask, and the cache is what keeps the cost
+ *  from multiplying — a list of sessions with a second tab open on the same page, a remount, or a refetch
+ *  triggered by a window regaining focus is served from what was already taken. */
+export const THUMBNAIL_TTL_MS = 1_500;
+
+/** How long an answer a client has already been handed may still be shown as the session's screen.
+ *
+ *  The window above says how OFTEN to ask; this says how long an ANSWER stays good, and they are different
+ *  questions. Taking the picture is not instant and it cannot be cancelled: the session's own capture gives
+ *  up after five seconds (`BrowserSession.thumbnail`), so an answer can describe the screen as it was that
+ *  long ago, and the next answer is one window away on top of it. A client that cannot renew its picture
+ *  inside this bound is not looking at the session any more — so the bound is the server's to name, and it
+ *  is named here rather than guessed in a browser bundle, which is also what keeps a merely SLOW capture
+ *  from being called a dead one. */
+export const THUMBNAIL_LIVE_MS = 7_000;
 
 /** A ceiling on how many sessions' stills are held at once. Every entry is one 480 pixel wide JPEG —
  *  tens of kilobytes — so this is a few tens of megabytes at the very worst, and the ordinary case is a

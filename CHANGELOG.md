@@ -1,5 +1,12 @@
 # Changelog
 
+## browser 0.4.3 - 2026-09-18
+
+- Below 768px — the same boundary the floating card uses — the docked card in the transcript no longer opens a live view, and shows a still of the session's screen instead. Measured on a real instance, that connection was 708 kB/s while the remote page scrolled and 1923 kB/s while it animated, for a picture a few hundred pixels wide, and noVNC attaches its own gesture handlers to its canvas the moment it connects: touchstart and touchmove are cancelled there, so pinch-zoom stopped working over the whole transcript the moment the agent opened a browser. The still is the route the account panel already uses, refreshed on a timer; above 768px nothing about the docked card changes.
+- The still route now names the window it stands for (the cache's `THUMBNAIL_TTL_MS`, lowered from 4 s to 1.5 s) in every answer, and the card refreshes on that value rather than carrying an interval of its own — one number, server-side, that the preview cannot drift away from. The timer stops while the raised canvas is covering the card, while the document is hidden, and once the session has closed, because every ask costs the session's Chrome a rasterization. A still that cannot be renewed is dropped rather than left on the glass as a picture of the past, and the card says which of the two it is showing.
+- Opening the card on a phone gives the live view as WATCH-ONLY: the client is told not to send input and is not given the keyboard, because a finger cannot aim a desktop Chrome. The surface still owns its gestures and keeps its labelled way back out. Over that live canvas the state mark is a plain translucent fill instead of a backdrop blur, which was recomputed on every frame the remote page painted; where it only ever sits over a still, it keeps the blur.
+
+
 ## onedrive 0.2.8 - 2026-09-18
 
 - Both registers now carry the tracks their always-visible cells land in. The compact template asked for a single column, so from 40rem to 56rem a conflict or a workspace stacked one record over three lines instead of closing ranks the way every host register does.
@@ -15,7 +22,6 @@
 ## cronjob 0.6.6 - 2026-09-18
 
 - The run history is the host's register: the same document, the same frame for a pending or failed read, the same padded register, and a compact template that keeps the receipt, its state and the open affordance on the three tracks its cells occupy. Its trailing three-dot cell promised a menu that never existed and is replaced by the register's own chevron, and a page beyond the end of a shortened register is no longer a dead end.
-
 ## msteams 0.8.0 - 2026-09-18
 
 - A file the agent shares with `ShareFile` now reaches a 1:1 Teams chat. Teams refuses a general file inside a Bot Connector message, so the shared document arrives as the file consent card the owner-only `TeamsSendFile` already posts, and the bytes upload into the recipient's own OneDrive once they accept — the shared live-message engine's file half, wired into the same transport seam that already carried images, with the adapter's existing `offerFile` doing the work rather than a second delivery path. A channel or a group chat keeps exactly its previous behaviour: Microsoft's consent APIs do not work there, so no offer is made, nothing throws, and the answer text still lands.
