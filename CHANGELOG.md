@@ -13,6 +13,9 @@
 ## voice-bot 0.1.2 - 2026-09-19
 
 - The hourly call cap can no longer be lifted past the maximum the plugin declares. `maxCallsPerHour` written straight to the config API bypassed the settings form, and the runtime only rejected nonsense below 1, so a large value became the limit in full: the one brake on a repeating agent dialling real phones was whatever number the config said. It now clamps to the manifest's min/max/default — 1..200, fallback 10 — declared once in the code and asserted against the manifest in the tests, the same way the longest-call deadline has always been resolved.
+## todo 0.14.14 - 2026-09-19
+
+- An unreadable metadata column now survives on disk. The old read swallowed a parse failure into an empty object, so the next unrelated update serialised that empty object back and wrote NULL over the corrupt value, destroying the one piece of evidence of what was stored. A row nobody can parse is now reported instead: the task id is logged once, the read answers empty with a `metadataCorrupt` marker, and updates that do not name metadata leave the column exactly as it is. An explicit metadata write stays the deliberate way to replace it, the same way cronjob refuses to rebuild a shared list from a truncated read.
 
 ## skills 0.4.8 - 2026-09-18
 
