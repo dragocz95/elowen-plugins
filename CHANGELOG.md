@@ -1,5 +1,9 @@
 # Changelog
 
+## codebase 0.1.6 - 2026-09-18
+
+- Report a swallowed auto-reindex failure with a logger warning instead of vanishing silently
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.

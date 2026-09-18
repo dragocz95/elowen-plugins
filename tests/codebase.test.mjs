@@ -59,7 +59,7 @@ const within = (abs, root) => {
 /** Mirrors the host's isEmbeddingConfigured: a usable model plus somewhere to send it. */
 const isEmbeddingConfigured = (cfg) => !!cfg && cfg.model.trim() !== '' && (!!cfg.providerId || !!cfg.baseUrl);
 
-const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox = null }) => {
+const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox = null, logger = log }) => {
   const tools = [];
   const platforms = [];
   const projectRemoved = [];
@@ -79,7 +79,7 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox 
 
   const ctx = {
     config,
-    logger: log,
+    logger,
     dataDir: () => {
       const dir = join(dataRoot, 'codebase');
       mkdirSync(dir, { recursive: true });
@@ -574,6 +574,28 @@ describe('codebase plugin — batch3 fixes', () => {
     assert.ok(text.includes('... [truncated]'));
     // No U+FFFD replacement char: the multibyte '€' sequence was never cut mid-byte.
     assert.ok(!text.includes('\uFFFD'));
+  });
+
+  // RBUG-06 — a failing auto-reindex pass must be reported, not swallowed: the scheduled path already
+  // logs a failed pass (ScheduledIndexer.connect()'s tick().catch), but the search-triggered auto path
+  // discarded the same kind of failure with no trace anywhere.
+  it('RBUG-06 a failing auto-reindex pass logs a warning instead of vanishing silently', async () => {
+    const dataRoot = tmpDir('cb-rbug06-data');
+    const repo = tmpDir('cb-rbug06-repo');
+    writeFileSync(join(repo, 'x.ts'), 'export function x() { return 1; } // cosine similarity vector\n');
+    const cfg = { providerId: 'p', model: 'fake-1', dimensions: VOCAB.length };
+    const embedder = {
+      embed: async (_c, t) => fakeVec(t),
+      embedBatch: async () => { throw new Error('provider down'); }, // every auto-reindex pass fails
+    };
+    const warnings = [];
+    const spyLog = { info() {}, warn: (msg) => warnings.push(msg), error() {} };
+    const host = makeHost({ dataRoot, embeddings: embedder, embeddingConfig: () => cfg, logger: spyLog });
+    host.asAdmin(repo);
+
+    await host.runTool('CodebaseSearch', { query: 'cosine similarity vector' });
+    await waitFor(() => warnings.length > 0);
+    assert.ok(warnings.some((w) => w.toLowerCase().includes('reindex') && w.includes('provider down')));
   });
 });
 
