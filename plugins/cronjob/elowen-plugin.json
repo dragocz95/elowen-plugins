@@ -1,12 +1,14 @@
 {
   "name": "cronjob",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "apiVersion": "1",
   "requiresCore": "0.28.46",
   "requiresSharedApi": 4,
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\"). Personal schedules run with their owner's rights and report in a conversation of their own, or back into the direct chat they were created in; instance automation runs with owner powers and reports through the notification channel.",
   "entry": "index.mjs",
-  "consumesControls": ["sandbox"],
+  "consumesControls": [
+    "sandbox"
+  ],
   "capabilities": {
     "reads": [
       "stores",
@@ -23,8 +25,13 @@
       "CronRemove",
       "CronConversations"
     ],
-    "readOnlyTools": ["CronList", "CronConversations"],
-    "controls": ["cron"],
+    "readOnlyTools": [
+      "CronList",
+      "CronConversations"
+    ],
+    "controls": [
+      "cron"
+    ],
     "platforms": [
       "cron"
     ],
@@ -405,8 +412,7 @@
       "presetReminderName": "reminder",
       "presetReminderPrompt": "Remind me about the task below and tell me what its current state is.",
       "runLoadError": "The run could not be loaded",
-      "historyBranch": "Scheduled jobs",
-      "paused": "Paused"
+      "historyBranch": "Scheduled jobs"
     }
   }
 }
