@@ -7,6 +7,9 @@
 ## editor 0.4.7 - 2026-09-18
 
 - A git read that fails for a real reason — a locked index, a missing git binary, a corrupt object — no longer answers the same as a clean or empty tree. `status`, `diff`, `show` and `log` swallowed every failure alike; only "not a repository" is still a legitimate empty answer, and everything else now reaches the client as 503 with the daemon's own wording. The Git file tree, the working diff, the commit diff and the file-at-HEAD diff each show that refusal, with a retry, instead of quietly reading as nothing changed.
+## browser 0.4.4 - 2026-09-18
+
+- The API route derived a session's HTTP status by matching the exact wording of its error message, so rewording either sentence silently turned a 404 or 409 into a 400 with nothing failing at the throw site. The takeover conflict now throws the plugin's typed access error with its status attached, read at the route instead of guessed from the message.
 
 ## skills 0.4.8 - 2026-09-18
 

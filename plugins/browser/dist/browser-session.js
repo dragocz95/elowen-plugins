@@ -7,6 +7,7 @@ import { NavigationPolicy } from './navigation-policy.js';
 import { readPageFavicon } from './page-favicon.js';
 import { PageDiagnostics, } from './page-diagnostics.js';
 import { capturePerformanceMetrics, TraceRecorder, } from './performance-probe.js';
+import { BrowserAccessError } from './ownership.js';
 import { boundText } from './redaction.js';
 /** The evaluate tool's own budget for a page's answer. Larger than a console argument because the caller
  *  chose the expression and can aim it; small enough that a `document.body.innerHTML` on a heavy page
@@ -369,7 +370,7 @@ export class BrowserSession {
     async claimTakeover() {
         this.assertOpen();
         if (this.lease && this.lease.expiresAt > this.deps.clock.now())
-            throw new Error('Browser is already under user control.');
+            throw new BrowserAccessError('Browser is already under user control.', 409);
         const now = this.deps.clock.now();
         const controlRevision = ++this.controlRevisionValue;
         // A takeover that ANSWERS the agent's own hand-off keeps saying so. Clearing the reason here would

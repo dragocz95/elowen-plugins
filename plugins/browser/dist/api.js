@@ -15,7 +15,7 @@ function responseError(error) {
     if (error instanceof BrowserAccessError)
         return { status: error.status, body: { error: error.message } };
     const message = error instanceof Error ? error.message : 'Browser operation failed.';
-    const status = message === 'Browser session not found.' ? 404 : message === 'Browser is already under user control.' ? 409 : 400;
+    const status = message === 'Browser session not found.' ? 404 : 400;
     return { status, body: { error: message } };
 }
 /** The accessor, or nothing at all.
