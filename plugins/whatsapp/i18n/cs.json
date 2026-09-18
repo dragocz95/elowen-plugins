@@ -88,7 +88,7 @@
     },
     "senderPolicies": {
       "label": "Pravidla odesílatelů",
-      "hint": "Vyhrává první odpovídající odesílatel; odesílatelé bez pravidla jsou ignorováni. ID je telefonní číslo (420777123456), JID (…@s.whatsapp.net) nebo celá skupina (…@g.us) — ID skupiny dá přístup všem v ní. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje pouze sdílené výběry /model a /reasoning. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
+      "hint": "Vyhrává první odpovídající odesílatel; odesílatelé bez pravidla jsou ignorováni. ID je telefonní číslo (420777123456), JID (…@s.whatsapp.net) nebo celá skupina (…@g.us) — ID skupiny dá přístup všem v ní. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje sdílené výběry /model, /reasoning a /context a řídicí příkazy místnosti /stop, /stats, /compact a /restart — /restart restartuje démona pro všechny. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
     }
   },
   "web": {

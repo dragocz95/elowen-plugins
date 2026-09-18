@@ -1,5 +1,13 @@
 # Changelog
 
+## telegram 0.2.17 - 2026-09-19
+
+- The policy hint now states what the `admin` key really grants. It named two pickers, while the same flag also admits the /context picker and the room control commands /stop, /stats, /compact and /restart — and /restart restarts the daemon for everyone in reach of the room. An operator reading the old sentence could grant far more than they meant to.
+
+## whatsapp 0.2.20 - 2026-09-19
+
+- The policy hint now states what the `admin` key really grants. It named two pickers, while the same flag also admits the /context picker and the room control commands /stop, /stats, /compact and /restart — and /restart restarts the daemon for everyone in reach of the room. An operator reading the old sentence could grant far more than they meant to.
+
 ## cronjob 0.6.8 - 2026-09-18
 
 - The web schedule builder hand-copied the every/daily/weekly regexes from the plugin's parseSchedule grammar; both now import them from one `scheduleGrammar.mjs`, and a new cronGrammar.test.ts case fails if the builder ever stops recognizing a shape the grammar accepts.

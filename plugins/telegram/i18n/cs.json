@@ -128,7 +128,7 @@
     },
     "rolePolicies": {
       "label": "Pravidla rolí",
-      "hint": "Vyhrává první odpovídající pravidlo; odesílatelé bez namapovaného pravidla jsou ignorováni. ID je Telegram user ID (123456789), @username, nebo celé chat ID (u skupin záporné) — chat ID zpřístupní bota všem v něm. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje pouze sdílené výběry /model a /reasoning. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
+      "hint": "Vyhrává první odpovídající pravidlo; odesílatelé bez namapovaného pravidla jsou ignorováni. ID je Telegram user ID (123456789), @username, nebo celé chat ID (u skupin záporné) — chat ID zpřístupní bota všem v něm. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje sdílené výběry /model, /reasoning a /context a řídicí příkazy místnosti /stop, /stats, /compact a /restart — /restart restartuje démona pro všechny. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
     }
   }
 }

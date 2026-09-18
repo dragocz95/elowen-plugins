@@ -1,6 +1,6 @@
 {
   "name": "whatsapp",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 4,
@@ -194,7 +194,7 @@
       "key": "senderPolicies",
       "label": "Sender policies",
       "type": "rolePolicies",
-      "hint": "First matching sender wins; senders with no mapped policy are ignored. The ID is a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us) — a group ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. `admin` enables the shared /model and /reasoning pickers only. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "First matching sender wins; senders with no mapped policy are ignored. The ID is a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us) — a group ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. `admin` enables the shared /model, /reasoning and /context pickers and the room control commands /stop, /stats, /compact and /restart — /restart restarts the daemon for everyone. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ],
   "web": {
