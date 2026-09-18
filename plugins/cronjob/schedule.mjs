@@ -10,6 +10,11 @@
 // injected date/time context uses). The host default is the machine's own zone, which reproduces exactly
 // the behaviour these schedules had before the setting existed.
 
+// The three human-readable shapes ("every 15m", "daily 07:30", "weekly sun 20:00") live in their own
+// module so the browser schedule builder (web-src/scheduleBuilder.ts) can import the SAME patterns
+// instead of hand-copying them — see scheduleGrammar.mjs.
+import { EVERY_PATTERN, DAILY_PATTERN, WEEKLY_PATTERN } from './scheduleGrammar.mjs';
+
 /** The machine's own zone — the host default, carried over from the pre-setting scheduler unchanged. */
 export const systemZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -193,15 +198,15 @@ export function lastCronOccurrence(sched, now, after, timezone = systemZone(), l
  *  it did before. */
 export function parseSchedule(spec) {
   const text = typeof spec === 'string' ? spec.trim() : '';
-  let m = /^every\s+(\d+)\s*(m|h)$/i.exec(text);
+  let m = EVERY_PATTERN.exec(text);
   if (m) {
     const ms = Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000);
     if (ms < 60_000) return null;
     return { kind: 'interval', ms };
   }
-  m = /^daily\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  m = DAILY_PATTERN.exec(text);
   if (m) return { kind: 'daily', hour: Number(m[1]), minute: Number(m[2]) };
-  m = /^weekly\s+(sun|mon|tue|wed|thu|fri|sat)\s+([01]?\d|2[0-3]):([0-5]\d)$/i.exec(text);
+  m = WEEKLY_PATTERN.exec(text);
   if (m) return { kind: 'weekly', day: WEEKDAYS.indexOf(m[1].toLowerCase()), hour: Number(m[2]), minute: Number(m[3]) };
   return parseCron(text);
 }

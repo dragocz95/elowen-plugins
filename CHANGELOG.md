@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.6.8 - 2026-09-18
+
+- The web schedule builder hand-copied the every/daily/weekly regexes from the plugin's parseSchedule grammar; both now import them from one `scheduleGrammar.mjs`, and a new cronGrammar.test.ts case fails if the builder ever stops recognizing a shape the grammar accepts.
+
 ## msteams 0.8.1 - 2026-09-18
 
 - Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.
