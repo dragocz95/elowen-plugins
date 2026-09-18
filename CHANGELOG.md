@@ -13,6 +13,13 @@
 ## skills 0.4.10 - 2026-09-18
 
 - Both skill-creating doors now refuse a bad name with the same sentence. The HTTP create route and the CreateSkill tool each carried a hand-written copy of the kebab-case refusal: the wording happened to agree, but it could drift silently, and neither version told the caller which string was rejected. One `nameError(name)` now builds the sentence — `name "Bad Name" must be kebab-case (a-z, 0-9, dashes), max 64 chars` — and both paths use it, the tool inside its uniform `Error: ….` envelope like every other refusal. A test pins the two paths to the same sentence for the same bad name.
+## whatsapp 0.2.19 - 2026-09-18
+
+- The `admin` sender-policy hint said an admin sender may "use the group tools", implying the flag gates tool reach. It only gates the shared `/model` and `/reasoning` pickers (`lib/adapter.mjs`); tool access always comes from the sender's linked Elowen account, as the hint's own next sentence already said. Reworded to the truthful formula discord and msteams already use. Text only, all three locales.
+
+## telegram 0.2.16 - 2026-09-18
+
+- The `admin` role-policy hint said an admin sender may "use the chat tools", implying the flag gates tool reach. It only gates the shared `/model` and `/reasoning` pickers (`lib/adapter.mjs`, see the `isAdmin` doc comment); tool access always comes from the sender's linked Elowen account, as the hint's own next sentence already said. Reworded to the truthful formula discord and msteams already use. Text only, all three locales.
 
 ## msteams 0.8.1 - 2026-09-18
 
