@@ -61,7 +61,9 @@ function requiredString(value: unknown): string | null { return typeof value ===
  *  its message carries the project's absolute path on the server, and it answers "does this path exist?"
  *  for a caller probing outside the tree. */
 function fileError(error: unknown): PluginHttpResponse {
-  return { status: 400, body: { error: error instanceof EditorFileError ? error.message : 'invalid path' } };
+  return error instanceof EditorFileError
+    ? { status: error.status, body: { error: error.message } }
+    : { status: 400, body: { error: 'invalid path' } };
 }
 
 function byteRange(value: string, size: number): { start: number; end: number } | null {
@@ -179,12 +181,22 @@ export function registerEditorApi(ctx: PluginContext): void {
   route('/projects/:id/entry', 'DELETE', (req, project, safe) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { deleteProjectEntry(safe, project.path, path); return { body: { ok: true } }; } catch (error) { return fileError(error); } });
   onePath('/projects/:id/diff', projectFileDiff, 'diff');
   onePath('/projects/:id/head', projectFileAtHead, 'content');
-  route('/projects/:id/commit/:hash', 'GET', async (req, project) => ({ body: { diff: await projectCommitDiff(project.path, req.params.hash ?? ''), files: await projectCommitFiles(project.path, req.params.hash ?? '') } }));
+  route('/projects/:id/commit/:hash', 'GET', async (req, project) => {
+    try { return { body: { diff: await projectCommitDiff(project.path, req.params.hash ?? ''), files: await projectCommitFiles(project.path, req.params.hash ?? '') } }; }
+    catch (error) { return fileError(error); }
+  });
   route('/projects/:id/commit/:hash/diff', 'GET', async (req, project, safe) => { const path = requiredString(req.query.path); if (!path) return { status: 400, body: { error: 'path required' } }; try { return { body: { diff: await projectCommitFileDiff(safe, project.path, req.params.hash ?? '', path) } }; } catch (error) { return fileError(error); } });
   // `?limit` is clamped to [1,500] with a fallback of 30 — the contract the core route had. Clamping
   // rather than rejecting keeps a nonsense value (0, -5, 0.5) returning the newest commit instead of
   // silently falling back to a full page of them.
-  route('/projects/:id/commits', 'GET', async (req, project) => { const parsed = Number(req.query.limit); const limit = Number.isFinite(parsed) ? Math.min(500, Math.max(1, Math.floor(parsed))) : 30; return { body: { commits: await projectCommitLog(project.path, limit) } }; });
-  route('/projects/:id/changed', 'GET', async (_req, project) => ({ body: { changed: await projectChangedFiles(project.path) } }));
-  route('/projects/:id/changes', 'GET', async (_req, project) => ({ body: { diff: await projectWorkingDiff(project.path) } }));
+  route('/projects/:id/commits', 'GET', async (req, project) => {
+    const parsed = Number(req.query.limit); const limit = Number.isFinite(parsed) ? Math.min(500, Math.max(1, Math.floor(parsed))) : 30;
+    try { return { body: { commits: await projectCommitLog(project.path, limit) } }; } catch (error) { return fileError(error); }
+  });
+  route('/projects/:id/changed', 'GET', async (_req, project) => {
+    try { return { body: { changed: await projectChangedFiles(project.path) } }; } catch (error) { return fileError(error); }
+  });
+  route('/projects/:id/changes', 'GET', async (_req, project) => {
+    try { return { body: { diff: await projectWorkingDiff(project.path) } }; } catch (error) { return fileError(error); }
+  });
 }

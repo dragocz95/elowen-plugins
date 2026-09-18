@@ -30,7 +30,7 @@ const { hooks, components, utils } = runtime();
 const { useProjects, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useMobile, useToast, useTranslation, usePluginStrings, usePersistentState } = hooks;
 // PatchView is the host's own diff renderer — the editor carried a verbatim copy of it until the
 // runtime started publishing it.
-const { Button, LoadingState, EmptyState, ContextMenu, PatchView, WorkspaceTakeover } = components;
+const { Button, LoadingState, EmptyState, ErrorState, ContextMenu, PatchView, WorkspaceTakeover } = components;
 
 type Tab = 'edit' | 'diff' | 'preview';
 type Dialog =
@@ -161,14 +161,19 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
   const commitData = useProjectCommit(gitId, commit);
   const changesData = useProjectChanges(gitId, working);
   const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
-  // Keep the raw query value (stable ref) out of the memo deps; default to [] inside the callback so a
-  // fresh `?? []` doesn't change the deps on every render.
-  const workingChanged = useProjectChanged(gitId).data?.changed;
+  // Kept as the full query (not just `.data?.changed`) so a real git failure — a locked index, a missing
+  // git binary, a corrupt object — can be told apart from "nothing changed" below (RBUG-02). Swallowing
+  // it here would read back exactly like a clean tree, which is the bug this query result exists to end.
+  const changedQuery = useProjectChanged(gitId);
+  const workingChanged = changedQuery.data?.changed;
   // In commit mode highlight the files that commit touched; otherwise the uncommitted working set.
   const changedSet = useMemo(
     () => new Set(commit ? (commitData.data?.files ?? []) : (workingChanged ?? [])),
     [commit, commitData.data?.files, workingChanged],
   );
+  // 503 is the one status the daemon answers when git itself is unavailable (files.ts `recoverGit`); any
+  // other status is an ordinary refusal, shown with the daemon's own wording like every other error here.
+  const gitErrorMessage = (error: unknown) => ((error as { status?: number } | undefined)?.status === 503 ? s.gitUnavailable : utils.apiErrorMessage(error));
 
   // The root listing plus every level opened under it. Both roots are read one directory at a time: a
   // project is not small enough to arrive whole, and a depth bound that holds for a repository with a
@@ -634,7 +639,22 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                   </button>
                 </div>
               ) : files.isLoading ? <LoadingState />
-                : <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />}
+                : (
+                  <>
+                    {/* The tree itself loaded fine; only the Git read that marks changed files failed. A
+                        real git failure (a locked index, a missing binary, a corrupt object) must not
+                        read back as "nothing changed" — the dots would simply be absent and the tree
+                        would look clean (RBUG-02) — so it is named here instead of swallowed. */}
+                    {!commit && changedQuery.isError ? (
+                      <p role="alert" className="mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
+                        <AlertTriangle size={12} className="shrink-0" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">{gitErrorMessage(changedQuery.error)}</span>
+                        <button type="button" onClick={() => changedQuery.refetch()} className="shrink-0 underline decoration-dotted underline-offset-2 hover:no-underline">{s.treeRetry}</button>
+                      </p>
+                    ) : null}
+                    <FileTree tree={tree} expanded={expanded} onToggle={toggle} selected={selected} onSelect={(p) => { selectInTree(p); if (mobile && fullscreen) setShowTree(false); }} changed={changedSet} onContextMenu={onContextMenu} emptyLabel={s.noFiles} treeLabel={s.editorTitle} />
+                  </>
+                )}
             </div>
             {/* Only the way IN. A takeover has exactly one exit — its own back control — and a second
                 button carrying the same label from inside it made "Exit fullscreen" ambiguous. */}
@@ -658,9 +678,11 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
         <div className="flex min-w-0 flex-1 flex-col">
           {!commit && !working ? <Tabs tabs={openTabs} active={selected} dirty={dirtyPaths} onSelect={setSelected} onClose={closeTab} closeLabel={t.common.close} /> : null}
           <div className="min-h-0 flex-1">
-            {working ? <PatchView diff={changesData.data?.diff ?? ''} loading={changesData.isLoading} empty={s.noChanges} />
-              : commit && selected ? <PatchView diff={commitFileDiff.data?.diff ?? ''} loading={commitFileDiff.isLoading} empty={s.noChanges} />
-              : commit ? <PatchView diff={commitData.data?.diff ?? ''} loading={commitData.isLoading} empty={s.noChanges} />
+            {/* A failed git read is shown, not rendered as an empty (so "no changes") patch — the same
+                masking RBUG-02 fixed for the file tree's dots applies here to the diff itself. */}
+            {working ? (changesData.isError ? <ErrorState message={gitErrorMessage(changesData.error)} onRetry={() => changesData.refetch()} /> : <PatchView diff={changesData.data?.diff ?? ''} loading={changesData.isLoading} empty={s.noChanges} />)
+              : commit && selected ? (commitFileDiff.isError ? <ErrorState message={gitErrorMessage(commitFileDiff.error)} onRetry={() => commitFileDiff.refetch()} /> : <PatchView diff={commitFileDiff.data?.diff ?? ''} loading={commitFileDiff.isLoading} empty={s.noChanges} />)
+              : commit ? (commitData.isError ? <ErrorState message={gitErrorMessage(commitData.error)} onRetry={() => commitData.refetch()} /> : <PatchView diff={commitData.data?.diff ?? ''} loading={commitData.isLoading} empty={s.noChanges} />)
               : !selected ? <EmptyState title={s.selectFile} icon={FileIcon} />
               : fileKind === 'image' && fileSize <= MAX_BUFFERED_BYTES ? <ImagePreview projectId={projectId} root={root} path={selected} />
               : fileKind === 'pdf' && fileSize <= MAX_BUFFERED_BYTES ? <PdfPreview projectId={projectId} root={root} path={selected} failedLabel={s.previewFailed} />
@@ -670,7 +692,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                 ? <BinaryPreview projectId={projectId} root={root} path={selected} size={fileSize} message={fileKind === 'binary' ? s.binaryFile : s.previewTooLarge} downloadLabel={s.download} sizeLabel={s.fileSize} typeLabel={s.fileType} downloadAvailable={fileSize <= MAX_BUFFERED_BYTES} downloadUnavailableLabel={s.downloadUnavailable} />
               : fileData.isLoading ? <LoadingState />
               : fileData.data?.truncated ? <p className="p-4 text-center text-sm text-muted-foreground">{s.fileTooBig}</p>
-              : effTab === 'diff' ? (headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} prefs={prefs} />)
+              : effTab === 'diff' ? (headData.isError ? <ErrorState message={gitErrorMessage(headData.error)} onRetry={() => headData.refetch()} /> : headData.isLoading ? <LoadingState /> : <DiffEditorPane path={selected} original={headData.data?.content ?? ''} modified={value} prefs={prefs} />)
               : effTab === 'preview' && fileKind === 'csv' ? <CsvPreview source={value} invalidLabel={s.csvInvalid} limitedLabel={s.csvLimited} />
               : effTab === 'preview' ? <MarkdownPreview source={value} />
               : <EditorPane path={selected} value={value} onChange={onChange} onSave={save} prefs={prefs} onCursor={setCursor} />}

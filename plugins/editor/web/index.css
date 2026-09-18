@@ -103,6 +103,9 @@
   .mr-1 {
     margin-right: var(--spacing, 0.25rem);
   }
+  .mb-1\.5 {
+    margin-bottom: calc(var(--spacing, 0.25rem) * 1.5);
+  }
   .mb-2 {
     margin-bottom: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -331,6 +334,12 @@
   .border-primary {
     border-color: var(--color-primary, #ff5236);
   }
+  .border-warning\/40 {
+    border-color: color-mix(in srgb, #edae49 40%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-warning, #edae49) 40%, transparent);
+    }
+  }
   .bg-accent {
     background-color: var(--color-accent, color-mix(in srgb, #f7f3f0 10%, transparent));
     @supports (color: color-mix(in lab, red, red)) {
@@ -369,6 +378,12 @@
   }
   .bg-warning {
     background-color: var(--color-warning, #edae49);
+  }
+  .bg-warning\/10 {
+    background-color: color-mix(in srgb, #edae49 10%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-warning, #edae49) 10%, transparent);
+    }
   }
   .fill-warning {
     fill: var(--color-warning, #edae49);
@@ -521,6 +536,15 @@
     --tw-numeric-spacing: tabular-nums;
     font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
   }
+  .underline {
+    text-decoration-line: underline;
+  }
+  .decoration-dotted {
+    text-decoration-style: dotted;
+  }
+  .underline-offset-2 {
+    text-underline-offset: 2px;
+  }
   .shadow {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -594,6 +618,9 @@
     }
     .hover\:text-primary:hover {
       color: var(--color-primary, #ff5236);
+    }
+    .hover\:no-underline:hover {
+      text-decoration-line: none;
     }
   }
   .focus-visible\:ring-2:focus-visible {
