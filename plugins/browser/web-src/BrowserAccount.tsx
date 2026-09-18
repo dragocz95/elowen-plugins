@@ -232,8 +232,12 @@ export function BrowserAccount({ surface }: PluginPageProps) {
                 >
                   {live.map((session) => {
                     // The session id is the record's name and is deliberately clipped: it identifies the
-                    // tab to whoever is closing it and is not something anyone reads in full.
-                    const name = `${session.id.slice(0, 12)}…`;
+                    // tab to whoever is closing it and is not something anyone reads in full. What it no
+                    // longer carries is a hand-written ellipsis after the twelfth character — the row is
+                    // a register row, and the register is where a value clipped at its column edge is
+                    // said so. This panel shortens the id deliberately rather than letting the column do
+                    // it, so the glyph only ever repeated the clip the reader can already see.
+                    const name = session.id.slice(0, 12);
                     const held = session.state === 'user';
                     return (
                       <DataTableRow key={session.id} height="tall">

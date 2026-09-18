@@ -374,6 +374,11 @@ interface CronComponents {
     className?: string;
   }>;
   EntityList: AnyComponent; EntityRow: AnyComponent;
+  /** The register's own chrome: the bordered document the history tab sits on, the padded register that
+   *  holds its table, and the state block a load or a failure stands in with. Published as one set
+   *  because a table that takes the register without the document around it is the look that made this
+   *  page's table read as a bare grid on the page background. */
+  ControlSurfaceDocument: AnyComponent; ControlSurfaceRegister: AnyComponent; ControlSurfaceState: AnyComponent;
   DataTable: AnyComponent; DataTableRow: AnyComponent; DataTableCell: AnyComponent; DataTableChevronCell: AnyComponent;
   RegisterSearch: AnyComponent; Pager: AnyComponent; ActionMenu: AnyComponent;
   Modal: ComponentType<ModalProps>; ModalBody: ComponentType<ModalBodyProps>; ModalFooter: ComponentType<ModalFooterProps>;

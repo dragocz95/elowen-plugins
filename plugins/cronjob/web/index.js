@@ -241,13 +241,6 @@ var Clock = createLucideIcon("Clock", [
   ["polyline", { points: "12 6 12 12 16 14", key: "68esgv" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/ellipsis.js
-var Ellipsis = createLucideIcon("Ellipsis", [
-  ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
-  ["circle", { cx: "19", cy: "12", r: "1", key: "1wjl8i" }],
-  ["circle", { cx: "5", cy: "12", r: "1", key: "1pcz8c" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
@@ -1556,63 +1549,75 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
     staleTime: 1e4
   });
   const rows = request.data?.runs ?? [];
+  const lastPage = request.data ? Math.max(0, Math.ceil(request.data.total / pageSize) - 1) : 0;
+  (0, import_react8.useEffect)(() => {
+    if (!request.data || rows.length > 0 || page <= lastPage) return;
+    setPage(lastPage);
+  }, [lastPage, page, request.data, rows.length]);
   const format = (0, import_react8.useMemo)(() => new Intl.DateTimeFormat(locale || void 0, {
     dateStyle: "medium",
     timeStyle: "short"
   }), [locale]);
-  if (request.isError) return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => request.refetch() });
-  if (!request.data) return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.LoadingState, { variant: "list" });
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", "data-testid": "cron-history-tab", children: [
-    rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-      C.EmptyState,
-      {
-        title: s.historyEmpty || "No run history",
-        description: s.historyEmptyHint || "Run history is recorded from this upgrade onward."
-      }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
-      C.DataTable,
-      {
-        ariaLabel: s.tabHistory,
-        columns: "11rem minmax(0,2fr) minmax(0,1fr) 6rem 8rem minmax(0,1fr) 3rem",
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableRow, { header: true, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colTime || "Time" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colOwner || "Owner" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colDuration || "Duration" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.colState || "Status" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colModel || "Model" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, "aria-hidden": true })
-          ] }),
-          rows.map((run) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableRow, { height: "tall", onOpen: () => setSelected(run), openLabel: run.jobName, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "font-mono text-xs", children: format.format(new Date(run.startedAt)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableCell, { lines: "auto", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "font-medium", children: run.jobName }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "text-[11px] text-muted-foreground", children: run.schedule || s.badgeOneShot })
+  if (request.isError) {
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ErrorState, { message: t.common.daemonUnreachable, onRetry: () => request.refetch() }) }) });
+  }
+  if (!request.data) {
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ControlSurfaceDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.LoadingState, { variant: "cards" }) }) });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.ControlSurfaceDocument, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.ControlSurfaceRegister, { className: "flex flex-col gap-3", "data-testid": "cron-history-tab", children: [
+      rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+        C.EmptyState,
+        {
+          title: s.historyEmpty || "No run history",
+          description: s.historyEmptyHint || "Run history is recorded from this upgrade onward."
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+        C.DataTable,
+        {
+          ariaLabel: s.tabHistory,
+          columns: "11rem minmax(0,2fr) minmax(0,1fr) 6rem 8rem minmax(0,1fr) 1.25rem",
+          compactColumns: "minmax(0,1fr) 6rem 1.25rem",
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableRow, { header: true, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colTime || "Time" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colOwner || "Owner" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colDuration || "Duration" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.colState || "Status" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.colModel || "Model" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { header: true, lines: 1, "aria-hidden": true, children: null })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", children: run.owner?.name || s.ownerSystem || "System" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.durationMs === null ? "\u2014" : `${Math.round(run.durationMs / 100) / 10} s` }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Badge, { tone: tone2(run), children: statusLabel2(run, s) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.model || "\u2014" }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Ellipsis, { size: 14, "aria-hidden": true }) })
-          ] }, run.id))
-        ]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-      C.Pager,
-      {
-        page,
-        pageSize,
-        total: request.data.total,
-        onPageChange: setPage,
-        onPageSizeChange: (size) => {
-          setPage(0);
-          setPageSize(size);
-        },
-        ariaLabel: s.tabHistory
-      }
-    ),
+            rows.map((run) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableRow, { height: "tall", onOpen: () => setSelected(run), openLabel: run.jobName, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "font-mono text-xs", children: format.format(new Date(run.startedAt)) }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableCell, { lines: "auto", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "font-medium", children: run.jobName }),
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "text-[11px] text-muted-foreground", children: run.schedule || s.badgeOneShot })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", children: run.owner?.name || s.ownerSystem || "System" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.durationMs === null ? "\u2014" : `${Math.round(run.durationMs / 100) / 10} s` }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Badge, { tone: tone2(run), children: statusLabel2(run, s) }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.model || "\u2014" }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableChevronCell, {})
+            ] }, run.id))
+          ]
+        }
+      ),
+      request.data.total > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+        C.Pager,
+        {
+          page,
+          pageSize,
+          total: request.data.total,
+          onPageChange: setPage,
+          onPageSizeChange: (size) => {
+            setPage(0);
+            setPageSize(size);
+          },
+          ariaLabel: s.tabHistory
+        }
+      ) : null
+    ] }),
     selected ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       RunResultModal,
       {
@@ -2245,18 +2250,18 @@ function ConversationHistoryBranch({ parent, items, expanded, toggle, open }) {
   if (!jobs || jobs.length === 0) return null;
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "jobs", "data-parent-session": parent.id, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", className: "flex items-center gap-1.5", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", onClick: toggle, "aria-expanded": expanded, className: "flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { "aria-hidden": true, children: expanded ? "\u2304" : "\u203A" }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ChevronRight, { size: 12, "aria-hidden": true, className: expanded ? "rotate-90" : "" }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: strings.historyBranch }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "font-mono tabular-nums", children: jobs.length })
     ] }) }) }),
     expanded ? jobs.map((job) => job.run ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "job", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", onClick: () => open("session:" + encodeURIComponent(job.run?.sessionId ?? "") + ":" + (job.run?.continuable === true ? "1" : "0")), className: "flex min-w-0 items-center gap-1.5 text-left text-xs hover:text-primary", children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Clock, { size: 12, "aria-hidden": true }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: job.name }),
-      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "shrink-0 rounded bg-muted px-1.5 py-0.5 text-tiny text-muted-foreground", children: strings.paused })
+      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.Badge, { tone: "muted", children: strings.paused })
     ] }) }) }, job.jobId) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableRow, { "data-tree-row": "job", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", style: { gridColumn: "1 / -1" }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("a", { href: job.href, className: "flex min-w-0 items-center gap-1.5 text-left text-xs hover:text-primary", children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Clock, { size: 12, "aria-hidden": true }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "truncate", children: job.name }),
-      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "shrink-0 rounded bg-muted px-1.5 py-0.5 text-tiny text-muted-foreground", children: strings.paused })
+      job.enabled ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.Badge, { tone: "muted", children: strings.paused })
     ] }) }) }, job.jobId)) : null
   ] });
 }
