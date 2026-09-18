@@ -350,12 +350,7 @@ function SkillsSettings({ surface }) {
     const before = skills;
     const pendingKey = `${account}:${skill.pluginKey}`;
     setAvailabilityKey(pendingKey);
-    setSkills((current) => current?.map((item) => item.pluginKey === skill.pluginKey ? enabled ? { ...item, enabledForAccount: true } : {
-      ...item,
-      enabledForAccount: false,
-      effective: false,
-      unavailableReason: "disabled-for-account"
-    } : item));
+    setSkills((current) => current?.map((item) => item.pluginKey === skill.pluginKey ? { ...item, enabledForAccount: enabled, effective: enabled && !item.disableModelInvocation } : item));
     try {
       await api("/plugins/skills/plugin-availability", {
         method: "PATCH",
@@ -482,7 +477,6 @@ function SkillsSettings({ surface }) {
       },
       extraFilters: accountFilter ? [accountFilter] : void 0,
       renderBadges: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        skill.unavailableReason === "disabled-for-account" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusDisabled }) : null,
         skill.unavailableReason === "plugin-unavailable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusUnavailable }) : null,
         skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusShadowed }) : null
       ] }),

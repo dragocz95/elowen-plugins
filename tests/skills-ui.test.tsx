@@ -161,9 +161,11 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
 
     expect(await screen.findByText('salon-operations')).toBeInTheDocument();
     fireEvent.change(await screen.findByRole('combobox', { name: strings.accountLabel }), { target: { value: '9' } });
-    await waitFor(() => expect(screen.getByText(strings.statusDisabled)).toBeInTheDocument());
-    const toggle = screen.getByRole('switch', { name: `${strings.pluginAvailability}: salon-operations` });
-    expect(toggle).not.toBeChecked();
+    // The switch IS the statement that this account has the contribution turned off; the badge that used to
+    // repeat it beside the source is gone.
+    const toggle = await screen.findByRole('switch', { name: `${strings.pluginAvailability}: salon-operations` });
+    await waitFor(() => expect(toggle).not.toBeChecked());
+    expect(screen.queryByText('Disabled for account')).toBeNull();
     fireEvent.click(toggle);
     await waitFor(() => expect(write).toEqual({ userId: 9, key: 'v1:sarah-hair:salon-operations', enabled: true }));
   });

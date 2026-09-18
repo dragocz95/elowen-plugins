@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.4.8 - 2026-09-18
+
+- A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.
+
 ## skills 0.4.7 - 2026-09-18
 
 - A contributed skill now names its plugin in the owner column, which is what owns it and has the width for a name. Beside the source badge it shared one 16rem cell with the badge and clipped, so a row for a skill from a plugin ended in a bare ellipsis instead of saying who it belongs to. The source cell is left with the badge alone.

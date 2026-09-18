@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "apiVersion": "1",
   "requiresCore": "0.28.48",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
@@ -104,7 +104,6 @@
       "accountHint": "Choose the account whose effective skill catalog you want to review.",
       "pluginAvailability": "Available for this account",
       "statusEffective": "Active",
-      "statusDisabled": "Disabled for account",
       "statusUnavailable": "Plugin unavailable or not granted",
       "statusShadowed": "Shadowed by precedence",
       "scopeFieldLabel": "Visible to",

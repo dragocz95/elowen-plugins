@@ -42,7 +42,6 @@
       "accountHint": "Vyberte účet, ktorého efektívny katalóg skillov chcete skontrolovať.",
       "pluginAvailability": "Dostupný pre tento účet",
       "statusEffective": "Aktívne",
-      "statusDisabled": "Zakázaný pre účet",
       "statusUnavailable": "Plugin nie je dostupný alebo udelený",
       "statusShadowed": "Prekrytý prioritou",
       "scopeFieldLabel": "Viditeľné pre",

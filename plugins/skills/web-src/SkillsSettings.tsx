@@ -101,10 +101,11 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
     const before = skills;
     const pendingKey = `${account}:${skill.pluginKey}`;
     setAvailabilityKey(pendingKey);
+    // The switch is what states this, so the optimistic row only moves the switch's own fact and the
+    // effectiveness that follows from it; `unavailableReason` is the server's to decide and arrives with
+    // the reload below.
     setSkills((current) => current?.map((item) => item.pluginKey === skill.pluginKey
-      ? enabled ? { ...item, enabledForAccount: true } : {
-        ...item, enabledForAccount: false, effective: false, unavailableReason: 'disabled-for-account',
-      }
+      ? { ...item, enabledForAccount: enabled, effective: enabled && !item.disableModelInvocation }
       : item));
     try {
       await api('/plugins/skills/plugin-availability', {
@@ -258,11 +259,11 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
         // may invoke the skill, the owner column names the account or the plugin it belongs to, and the
         // scope filter names its catalogue — so "effective", "manual only", "bundled" and the contributor's
         // name were four marks restating what the row already said, and together they overran the source
-        // cell, which then clipped into a bare ellipsis. What is left is the reason a skill cannot be used,
-        // which nothing else on the row can tell.
+        // cell, which then clipped into a bare ellipsis. "Disabled for account" went the same way: the
+        // switch beside it IS that fact, so the badge only said it twice. What is left is the reason a
+        // skill cannot be used that the row cannot otherwise tell — an absent plugin, a shadowed name.
         renderBadges={(skill: PluginSkill) => (
           <>
-            {skill.unavailableReason === 'disabled-for-account' ? <C.Badge tone="warning">{s.statusDisabled}</C.Badge> : null}
             {skill.unavailableReason === 'plugin-unavailable' ? <C.Badge tone="warning">{s.statusUnavailable}</C.Badge> : null}
             {skill.unavailableReason === 'shadowed' ? <C.Badge tone="warning">{s.statusShadowed}</C.Badge> : null}
           </>

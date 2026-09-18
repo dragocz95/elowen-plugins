@@ -721,7 +721,6 @@ export function register(ctx) {
       if (result.reason === 'forbidden') return jsonRes({ error: 'forbidden' }, 403);
       if (result.reason === 'unknown-user') return jsonRes({ error: 'unknown account' }, 404);
       if (result.reason === 'invalid-overrides') return jsonRes({ error: 'stored plugin skill overrides are invalid' }, 409);
-      if (result.reason === 'refresh-failed') return jsonRes({ error: 'saved, but the account session could not be refreshed' }, 503);
       return jsonRes({ error: 'unknown plugin skill' }, 400);
     },
   });
