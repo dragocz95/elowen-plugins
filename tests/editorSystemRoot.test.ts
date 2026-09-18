@@ -19,7 +19,7 @@ import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
-import { FakeClock } from 'elowen/dist/shared/clock.js';
+import { FakeClock } from './helpers/fakeClock.js';
 import { safeProjectPath } from 'elowen/dist/integrations/projectFiles.js';
 import type { PluginHostWiring } from 'elowen/dist/plugins/registry.js';
 import { deleteProjectEntry, listProjectFiles, safeSystemPath, writeProjectFile } from '../plugins/editor/src/files.js';

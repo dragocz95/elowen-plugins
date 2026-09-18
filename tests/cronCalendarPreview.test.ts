@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventBus } from 'elowen/dist/api/sse.js';
 import { createServer } from 'elowen/dist/api/server.js';
-import { FakeClock } from 'elowen/dist/shared/clock.js';
+import { FakeClock } from './helpers/fakeClock.js';
 import { ConfigStore } from 'elowen/dist/store/configStore.js';
 import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';

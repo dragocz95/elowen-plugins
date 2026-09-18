@@ -10,7 +10,7 @@ import { UserStore } from 'elowen/dist/store/userStore.js';
 import { ProjectStore } from 'elowen/dist/store/projectStore.js';
 import { UserProjectStore } from 'elowen/dist/store/userProjectStore.js';
 import { EventBus } from 'elowen/dist/api/sse.js';
-import { FakeClock } from 'elowen/dist/shared/clock.js';
+import { FakeClock } from './helpers/fakeClock.js';
 
 const PLUGINS_DIR = join(process.cwd(), 'plugins');
 const LSP_TOOLS = [
