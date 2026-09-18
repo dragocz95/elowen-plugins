@@ -12,6 +12,11 @@ import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, lstatSync, re
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
 const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+// One refusal sentence for the one NAME_RE rule. The HTTP create route returns it verbatim as its JSON
+// `error`; the CreateSkill tool wraps it in the plugin's uniform `Error: ….` envelope, exactly as the
+// `skillFieldError` and `nameCollision` sentences are wrapped at that tool. It used to be two
+// hand-written literals at the two sites, agreeing only by luck and free to drift.
+const nameError = (name) => `name "${name}" must be kebab-case (a-z, 0-9, dashes), max 64 chars`;
 // Names that collide with the core per-plugin route family under /plugins/skills/* (PATCH
 // /plugins/:name/config would eat PATCH /plugins/skills/config, and the rest are reserved for URL
 // hygiene). Core matched routes first, so a skill with one of these names could never be edited.
@@ -759,7 +764,7 @@ export function register(ctx) {
       const description = typeof b?.description === 'string' ? b.description.trim() : '';
       const content = typeof b?.content === 'string' ? b.content : '';
       const disableModelInvocation = b?.disableModelInvocation === true;
-      if (!NAME_RE.test(name)) return jsonRes({ error: 'name must be kebab-case (a-z, 0-9, dashes), max 64 chars' }, 400);
+      if (!NAME_RE.test(name)) return jsonRes({ error: nameError(name) }, 400);
       if (RESERVED_NAMES.has(name)) return jsonRes({ error: `"${name}" is reserved (it collides with a core /plugins route)` }, 400);
       const fieldsError = skillFieldError(description, content);
       if (fieldsError) return jsonRes({ error: fieldsError }, 400);
@@ -947,7 +952,7 @@ export function register(ctx) {
         // separate owner-only choice, so say both constraints rather than implying broad admin access helps.
         if (!target.ok) return ok('Error: this turn has no account behind it, so there is no personal skill set to write to — and writing the instance-wide set requires the instance owner.');
         const dir = target.dir;
-        if (!NAME_RE.test(p.name)) return ok('Error: name must be kebab-case (a-z, 0-9, dashes), max 64 chars.');
+        if (!NAME_RE.test(p.name)) return ok(`Error: ${nameError(p.name)}.`);
         if (RESERVED_NAMES.has(p.name)) return ok(`Error: "${p.name}" is reserved.`);
         const fieldsError = skillFieldError(p.description, p.content);
         if (fieldsError) return ok(`Error: ${fieldsError}.`);

@@ -10,6 +10,9 @@
 ## image-gen 0.2.5, image-edit 0.2.6 - 2026-09-18
 
 - Shared provider resolution, output registration, PNG saving and inline-markdown response plumbing now use one internal runtime implementation, mirrored only because the marketplace installs each plugin directory independently and protected by a byte-parity test. Their public tools and wording are unchanged, and their different size contracts remain explicit: generation falls back to its configured default while editing omits an invalid or `auto` size so the model chooses.
+## skills 0.4.10 - 2026-09-18
+
+- Both skill-creating doors now refuse a bad name with the same sentence. The HTTP create route and the CreateSkill tool each carried a hand-written copy of the kebab-case refusal: the wording happened to agree, but it could drift silently, and neither version told the caller which string was rejected. One `nameError(name)` now builds the sentence — `name "Bad Name" must be kebab-case (a-z, 0-9, dashes), max 64 chars` — and both paths use it, the tool inside its uniform `Error: ….` envelope like every other refusal. A test pins the two paths to the same sentence for the same bad name.
 
 ## msteams 0.8.1 - 2026-09-18
 

@@ -1244,6 +1244,32 @@ test('skills routes', async (t) => {
     assert.equal(raw.status, 400);
   });
 
+  // The HTTP create route and the CreateSkill tool each hand-wrote their own copy of the kebab-case
+  // refusal sentence (DUP-S): two literals that only ever agree by luck, and whose wording had already
+  // started to drift in punctuation. One shared `nameError(name)` now builds the sentence for both, so
+  // the same bad name produces the same sentence on both paths — the tool only adds the plugin-wide
+  // `Error: ….` envelope every other tool refusal uses.
+  await t.test('the create route and the CreateSkill tool refuse the same bad name with the same sentence', async () => {
+    const { app, adminTok, plugin } = setup();
+    const badName = 'Bad Name';
+
+    const response = await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: badName })));
+    assert.equal(response.status, 400);
+    const httpSentence = (await response.json()).error;
+
+    let toolMessage = '';
+    await asTurn(plugin, ADMIN_TURN, async () => {
+      toolMessage = asText(await runTool(plugin, 'CreateSkill', { name: badName, scope: 'instance', description: 'd', content: 'c' }));
+    });
+
+    // The refusal names the offending value: a caller told "name must be kebab-case" about a body with
+    // several fields still has to guess which string was rejected.
+    assert.equal(httpSentence, `name "${badName}" must be kebab-case (a-z, 0-9, dashes), max 64 chars`);
+    // The sentence is the SAME at both sites; `Error: ` and the final period are the tool's envelope,
+    // exactly as `skillFieldError` and `nameCollision` are wrapped at the tool.
+    assert.equal(toolMessage, `Error: ${httpSentence}.`);
+  });
+
   await t.test('POST refuses a name colliding with a bundled skill (400) but overwrites a user skill', async () => {
     const { app, adminTok } = setup();
     assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: BUNDLED })))).status, 400);
