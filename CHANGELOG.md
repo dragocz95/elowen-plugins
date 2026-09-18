@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.14.4 - 2026-09-18
+
+- `SiteGet` and `SiteRollback` carried their own owner-only gate on top of the admin-or-owner check already done to resolve the site, so an administrator reading or restoring a file site they do not own was refused by the tool while the API route granted the same actor full detail and rollback. The admin-or-owner rule now lives once, as `canManage` in `access.ts`, and both the tool door and the route call it; the tool's duplicate gate is gone.
+
 ## image-edit 0.2.5 - 2026-09-18
 
 - Remote source images now use the host's public-only HTTP transport, so loopback, private, link-local, cloud metadata and mixed public/private DNS destinations are refused before a socket opens. An operator who deliberately used an internal image host must expose it through a public address or use an allowed repository path.

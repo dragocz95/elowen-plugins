@@ -5,7 +5,7 @@ import { Type } from 'typebox';
 import type { SitesContext } from './coreSeams.js';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
-import { mayPublish, type AccessDeps } from './access.js';
+import { canManage, mayPublish, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, siteHost, siteUrl, type SitesConfig } from './config.js';
 import type { ProjectPreviewService } from './preview.js';
 import { publicationPort, type ProjectPublicationService } from './publication.js';
@@ -83,6 +83,16 @@ const slugify = (title: string): string => {
  *  agent naturally reaches for; accepting the internal id alone made the id a secret the tools never
  *  disclosed, and publishing was unreachable because of it. Both are unique, so accepting both is
  *  unambiguous rather than lenient. */
+/** What a refusal to resolve a site should say it would have accepted: this account's own sites, the
+ *  only ones an agent could plausibly have meant when it named one that did not resolve. Shared by both
+ *  resolvers below, so a model that guesses wrong is told the same thing whichever tool it asked. */
+const knownSitesHint = (deps: ToolDeps, userId: number): string => {
+  const owned = deps.store.sitesOwnedBy(userId);
+  return owned.length === 0
+    ? 'This account has no sites yet - create one with SiteCreate.'
+    : `This account's sites are: ${owned.map((entry) => `${entry.slug} (id ${entry.id})`).join(', ')}.`;
+};
+
 const requireOwned = (deps: ToolDeps, ref: string, userId: number): Site => {
   const wanted = ref.trim();
   const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
@@ -90,20 +100,20 @@ const requireOwned = (deps: ToolDeps, ref: string, userId: number): Site => {
   // back would let a publish write `live` over the durable marker and revive a site whose members and
   // tickets have been destroyed, while the slug it still holds waits to be swept.
   if (!site || site.status === 'deleting' || site.ownerUserId !== userId) {
-    const owned = deps.store.sitesOwnedBy(userId);
-    const known = owned.length === 0
-      ? 'This account has no sites yet - create one with SiteCreate.'
-      : `This account's sites are: ${owned.map((entry) => `${entry.slug} (id ${entry.id})`).join(', ')}.`;
-    throw new ToolError(`No site of yours matches "${wanted}". Give either the slug or the id. ${known}`);
+    throw new ToolError(`No site of yours matches "${wanted}". Give either the slug or the id. ${knownSitesHint(deps, userId)}`);
   }
   return site;
 };
 
+/** Resolve a site this account may MANAGE: the owner, or an administrator, matching `canManage` — the
+ *  one predicate the route also answers with. An administrator's own sites are not necessarily what they
+ *  meant by a bad reference, but they are the only identifiers this account is ever told about, and an
+ *  administrator resolving a real site never reaches this message at all. */
 const requireManaged = (deps: ToolDeps, ref: string, userId: number): Site => {
   const wanted = ref.trim();
   const site = deps.store.siteById(wanted) ?? deps.store.siteBySlug(wanted);
-  if (!site || site.status === 'deleting' || (site.ownerUserId !== userId && !deps.access.isAdmin(userId))) {
-    throw new ToolError(`No manageable site matches "${wanted}".`);
+  if (!site || site.status === 'deleting' || !canManage(site, userId, deps.access)) {
+    throw new ToolError(`No manageable site matches "${wanted}". Give either the slug or the id. ${knownSitesHint(deps, userId)}`);
   }
   return site;
 };
@@ -463,14 +473,10 @@ export function registerTools(deps: ToolDeps): void {
     execute: async (_id, input) => {
       try {
         const userId = ownerOf(ctx);
-        const site = deps.access.isAdmin(userId)
-          ? requireManaged(deps, input.site, userId)
-          : requireOwned(deps, input.site, userId);
-        // An administrator reads the operational detail of what an account published just as they do for
-        // an environment: helping with a page nobody can open is exactly when that is needed.
-        if (site.ownerUserId !== userId && site.kind !== 'proxy') {
-          throw new ToolError('Only the site owner may read this site detail.');
-        }
+        // `requireManaged` resolves through the shared `canManage` predicate (admin or owner), matching
+        // what the route grants the same actor: an administrator reads the operational detail of what an
+        // account published just as they do for an environment, for a file site precisely as for a proxy.
+        const site = requireManaged(deps, input.site, userId);
         const config = deps.config();
         const releases = site.kind === 'static' ? store.releases(site.id) : [];
         // What serves this publication, read through the account the Project belongs to rather than through
@@ -577,7 +583,6 @@ export function registerTools(deps: ToolDeps): void {
         if (site.kind === 'proxy') throw new ToolError('A proxy publication has no file releases to restore.');
         const release = store.release(site.id, input.releaseId);
         if (!release || release.kind === 'environment-snapshot') throw new ToolError('That file release is not retained for this site.');
-        if (site.ownerUserId !== userId) throw new ToolError('Only the site owner may roll back a file release.');
         deps.activateRelease(site, release.id);
         return text(`"${site.title}" now serves the release from ${release.createdAt}.`);
       } catch (error) {

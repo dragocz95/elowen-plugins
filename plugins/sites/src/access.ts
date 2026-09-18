@@ -35,6 +35,18 @@ export interface AccessDeps {
 export const publiclyReadable = (site: Site, deps: AccessDeps): boolean =>
   site.visibility === 'public' && deps.allowPublicSites();
 
+/** Whether this account may MANAGE this site: change it, delete it, restore a release, or read the
+ *  manager-only half of its detail (guests, source directory, last error, preview notice). Admin or
+ *  owner, always, whatever the site's kind — the instance's permission model is "admin sees everything;
+ *  everyone else is bounded by grants and projects", and this is the one predicate both doors call to
+ *  answer it, so a duplicate gate can never quietly disagree with it again.
+ *
+ *  Viewing what a PAGE shows is a different question, answered by `mayOpen`. Reading a site's operational
+ *  DETAIL is this one: an administrator repairing a page nobody can open needs it exactly as an owner
+ *  does, for a file site precisely as for a proxy. */
+export const canManage = (site: Site, userId: number | null, deps: AccessDeps): boolean =>
+  userId !== null && (deps.isAdmin(userId) || userId === site.ownerUserId);
+
 /** May this viewer open this site RIGHT NOW.
  *
  *  Deliberately re-derived on every request instead of being baked into the site session. A session can
