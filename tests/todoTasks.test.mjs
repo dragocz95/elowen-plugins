@@ -1286,3 +1286,57 @@ test('Task V2 task state is isolated per conversation', async (t) => {
 test('session-task DB failures propagate without registering a partial tool surface', (t) => {
   assert.throws(() => harness(t, { dbUnavailable: true }), /no database wired/);
 });
+
+test('unreadable stored metadata is marked, logged once, and never rewritten away by another update', async (t) => {
+  const h = harness(t);
+  await h.tool('TaskCreate').execute('1', {
+    tasks: [
+      { subject: 'Keep evidence', description: 'row whose metadata column is unreadable', metadata: { staged: true } },
+      { subject: 'Plain task', description: 'healthy row the reads must not flag' },
+    ],
+  });
+  // A truncated JSON document, as an interrupted write or a bit-rot would leave it: parseable by nobody,
+  // but still the evidence of what was there. Nothing in the plugin wrote this; it must not lose it.
+  const corrupt = '{"staged":tru';
+  const readStored = () => h.rawDb
+    .prepare('SELECT metadata_json AS m FROM p_todo_tasks WHERE list_key = ? AND id = 1')
+    .get('u7#brain-7-a').m;
+  h.rawDb.prepare('UPDATE p_todo_tasks SET metadata_json = ? WHERE list_key = ? AND id = 1').run(corrupt, 'u7#brain-7-a');
+  assert.equal(readStored(), corrupt);
+
+  // The read stays alive and SAYS SO: the task lists with empty metadata plus a corruption marker, while a
+  // healthy row's object keeps its exact shape.
+  const route = h.routes.find((item) => item.method === 'GET' && item.path === 'tasks');
+  assert.ok(route, 'GET tasks registered');
+  const request = () => ({
+    auth: { userId: 7, admin: false, tokenScope: 'user' },
+    query: { session: 'brain-7-a' },
+    params: {},
+  });
+  const listed = await route.handler(request());
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.tasks[0].metadataCorrupt, true);
+  assert.deepEqual(listed.body.tasks[0].metadata, {});
+  assert.equal('metadataCorrupt' in listed.body.tasks[1], false);
+
+  // An unrelated update succeeds and must leave the corrupt bytes exactly where they are: a read that
+  // returns {} may not be serialised back as if it were the stored value.
+  const completed = json(await h.tool('TaskUpdate').execute('2', { taskId: '1', status: 'completed' }));
+  assert.equal(completed.success, true);
+  assert.deepEqual(completed.updatedFields, ['status']);
+  assert.equal(readStored(), corrupt);
+
+  // The id is logged ONCE, not on every read: further reads of the same row add no new line.
+  await route.handler(request());
+  h.stepReminder();
+  const corruptLogs = h.warnings.filter((line) => /unreadable task metadata/.test(line));
+  assert.equal(corruptLogs.length, 1, h.warnings.join('\n'));
+  assert.match(corruptLogs[0], /\b1\b/);
+  assert.match(corruptLogs[0], /u7#brain-7-a/);
+
+  // An explicit metadata write stays the deliberate way out: it replaces the corrupt value and says so.
+  const repaired = json(await h.tool('TaskUpdate').execute('3', { taskId: '1', metadata: { repairedBy: 'TaskUpdate' } }));
+  assert.equal(repaired.success, true);
+  assert.deepEqual(repaired.updatedFields, ['metadata']);
+  assert.equal(readStored(), '{"repairedBy":"TaskUpdate"}');
+});

@@ -1,5 +1,9 @@
 # Changelog
 
+## todo 0.14.14 - 2026-09-19
+
+- An unreadable metadata column now survives on disk. The old read swallowed a parse failure into an empty object, so the next unrelated update serialised that empty object back and wrote NULL over the corrupt value, destroying the one piece of evidence of what was stored. A row nobody can parse is now reported instead: the task id is logged once, the read answers empty with a `metadataCorrupt` marker, and updates that do not name metadata leave the column exactly as it is. An explicit metadata write stays the deliberate way to replace it, the same way cronjob refuses to rebuild a shared list from a truncated read.
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.

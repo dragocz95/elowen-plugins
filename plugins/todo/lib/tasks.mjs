@@ -86,9 +86,23 @@ function numericId(value) {
   return Number.isSafeInteger(id) ? id : null;
 }
 
+/** Stored metadata, read tolerantly but never silently.
+ *
+ *  A value that cannot be parsed must not come back as a plain `{}`: every mutation serialises what it
+ *  read, so one swallowed failure turns the next unrelated update into a NULL write that destroys the
+ *  corrupt bytes — the only evidence of what was there. Corruption is therefore REPORTED and the caller
+ *  keeps the column on disk. Like cronjob's strict jobs read, a truncated value is never mistaken for
+ *  "there is nothing here". */
 function metadataFromJson(value) {
-  if (typeof value !== 'string' || !value) return {};
-  try { return parseObject(JSON.parse(value)); } catch { return {}; }
+  if (typeof value !== 'string' || !value) return { metadata: {}, corrupt: false };
+  try {
+    const parsed = JSON.parse(value);
+    // Anything the writers can store is a JSON object; a valid array or scalar is corruption too.
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return { metadata: {}, corrupt: true };
+    return { metadata: parsed, corrupt: false };
+  } catch {
+    return { metadata: {}, corrupt: true };
+  }
 }
 
 function metadataToJson(value) {
@@ -133,8 +147,13 @@ function addDependency(edges, blockerId, blockedId) {
 }
 
 class TaskStore {
-  constructor(db) {
+  #logger;
+  /** Task keys already sent to the log as unreadable, so a row says it once, not on every read. */
+  #corruptLogged = new Set();
+
+  constructor(db, logger) {
     this.db = db;
+    this.#logger = logger;
     this.insertList = db.prepare('INSERT OR IGNORE INTO p_todo_task_lists(list_key,next_id,completed_turns) VALUES (?,1,0)');
     this.readList = db.prepare('SELECT next_id,completed_turns FROM p_todo_task_lists WHERE list_key = ?');
     this.bumpList = db.prepare('UPDATE p_todo_task_lists SET next_id = ?, completed_turns = 0 WHERE list_key = ?');
@@ -143,6 +162,9 @@ class TaskStore {
     this.selectBlockers = db.prepare('SELECT task_id,blocker_id FROM p_todo_task_blockers WHERE list_key = ? ORDER BY task_id,blocker_id');
     this.insertTask = db.prepare('INSERT INTO p_todo_tasks(list_key,id,subject,description,active_form,status,owner,metadata_json,started_at) VALUES (?,?,?,?,?,?,?,?,?)');
     this.updateTask = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,metadata_json=?,started_at=? WHERE list_key=? AND id=?');
+    // The same write with metadata_json left out of the SET list, for the one case that must not touch
+    // that column: a stored value this build cannot read (see metadataFromJson).
+    this.updateTaskKeepMetadata = db.prepare('UPDATE p_todo_tasks SET subject=?,description=?,active_form=?,status=?,owner=?,started_at=? WHERE list_key=? AND id=?');
     this.deleteTask = db.prepare('DELETE FROM p_todo_tasks WHERE list_key = ? AND id = ?');
     this.deleteTaskEdges = db.prepare('DELETE FROM p_todo_task_blockers WHERE list_key = ? AND (task_id = ? OR blocker_id = ?)');
     this.deleteCompletedEdges = db.prepare(`
@@ -173,18 +195,32 @@ class TaskStore {
       blockedBy.get(taskId).push(blockerId);
       blocks.get(blockerId).push(taskId);
     }
-    return rows.map((row) => ({
-      id: String(row.id),
-      subject: String(row.subject),
-      description: String(row.description),
-      ...(row.active_form ? { activeForm: String(row.active_form) } : {}),
-      status: String(row.status),
-      ...(row.owner ? { owner: String(row.owner) } : {}),
-      ...(Number.isFinite(row.started_at) ? { startedAt: Number(row.started_at) } : {}),
-      metadata: metadataFromJson(row.metadata_json),
-      blockedBy: blockedBy.get(String(row.id)) ?? [],
-      blocks: blocks.get(String(row.id)) ?? [],
-    }));
+    return rows.map((row) => {
+      const { metadata, corrupt } = metadataFromJson(row.metadata_json);
+      if (corrupt) this.#logCorruptMetadata(key, row.id);
+      return {
+        id: String(row.id),
+        subject: String(row.subject),
+        description: String(row.description),
+        ...(row.active_form ? { activeForm: String(row.active_form) } : {}),
+        status: String(row.status),
+        ...(row.owner ? { owner: String(row.owner) } : {}),
+        ...(Number.isFinite(row.started_at) ? { startedAt: Number(row.started_at) } : {}),
+        metadata,
+        ...(corrupt ? { metadataCorrupt: true } : {}),
+        blockedBy: blockedBy.get(String(row.id)) ?? [],
+        blocks: blocks.get(String(row.id)) ?? [],
+      };
+    });
+  }
+
+  /** One line per unreadable row, not one per read: `list()` runs on every tool call, reminder and
+   *  route hit, and re-logging a row nobody has fixed yet would only bury the line that names it. */
+  #logCorruptMetadata(key, taskId) {
+    const seen = `${key}#${taskId}`;
+    if (this.#corruptLogged.has(seen)) return;
+    this.#corruptLogged.add(seen);
+    this.#logger.warn(`unreadable task metadata in list ${key} for task ${taskId}; the stored column is kept as it is and reads as empty`);
   }
 
   get(key, taskId) {
@@ -414,12 +450,22 @@ class TaskStore {
       }
       if (dependencyChanged) updatedFields.push('dependencies');
 
-      this.updateTask.run(
-        next.subject, next.description, next.activeForm ?? null, next.status,
-        // `owner || null`, not `?? null`: an empty owner is how a caller CLEARS one, and storing '' would
-        // leave a row that reads as owned by nobody yet is not NULL.
-        next.owner || null, metadataToJson(next.metadata), next.startedAt ?? null, key, taskId,
-      );
+      // `owner || null`, not `?? null`: an empty owner is how a caller CLEARS one, and storing '' would
+      // leave a row that reads as owned by nobody yet is not NULL.
+      if (task.metadataCorrupt && patch.metadata === undefined) {
+        // The stored column is unreadable and nobody asked to change it. Re-serialising the empty read
+        // would write NULL over the corrupt bytes and destroy the evidence, so the column is left out
+        // of the UPDATE entirely. An explicit `metadata` patch IS the way to replace it, deliberately.
+        this.updateTaskKeepMetadata.run(
+          next.subject, next.description, next.activeForm ?? null, next.status,
+          next.owner || null, next.startedAt ?? null, key, taskId,
+        );
+      } else {
+        this.updateTask.run(
+          next.subject, next.description, next.activeForm ?? null, next.status,
+          next.owner || null, metadataToJson(next.metadata), next.startedAt ?? null, key, taskId,
+        );
+      }
       if (statusChange) this.setCompletedTurns.run(0, key);
 
       return {
@@ -574,7 +620,7 @@ function apiListKey(req) {
 
 export function registerTaskMode(ctx, db) {
   db.migrate(TASK_MIGRATIONS);
-  const store = new TaskStore(db);
+  const store = new TaskStore(db, ctx.logger);
 
   const routeKey = (req) => {
     if (req.auth.tokenScope === 'agent' || !Number.isInteger(req.auth.userId)) {
