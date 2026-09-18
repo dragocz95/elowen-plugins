@@ -97,6 +97,7 @@
       "iconRemoved": "Ikonka odobraná",
       "iconMore": "Zobrazených prvých 300 obrázkov — zúžiť cez hľadanie.",
       "notGit": "Nie je git repozitár",
+      "gitUnavailable": "Git je momentálne nedostupný.",
       "gitLabel": "Git",
       "gitClean": "Čisté",
       "gitDirty": "{count} zmenené",

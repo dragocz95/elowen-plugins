@@ -22,8 +22,17 @@ const VIRTUAL_SYSTEM_ROOTS = ['/dev', '/proc', '/run', '/sys'];
 let activeOfficeConversions = 0;
 /** A refusal the operator is meant to read — "already exists", "source does not exist". Only these
  *  messages travel to the client: a raw fs error carries the absolute server path of the project (and
- *  tells the caller whether a path exists), so the route maps everything else to a flat 'invalid path'. */
+ *  tells the caller whether a path exists), so the route maps everything else to a flat 'invalid path'.
+ *
+ *  `status` defaults to 400, an operator mistake. A git read that fails for a real reason (a locked
+ *  index, a missing git binary, a corrupt object) is not a bad path — it is this one read unavailable —
+ *  and is raised at 503 instead, so it never reaches the client answered the same way "clean" is. */
 export class EditorFileError extends Error {
+    status;
+    constructor(message, status = 400) {
+        super(message);
+        this.status = status;
+    }
 }
 /** The path guard for the system root, with the same contract as the host's `safeProjectPath`.
  *
@@ -336,6 +345,22 @@ const gitUsable = (root) => {
         return false;
     }
 };
+/** Git's own verdict that a directory is not a repository at all — a legitimate, honest 200: a project
+ *  need not be a checkout, and reporting that as "nothing to show" is correct. It is the ONLY execFile
+ *  failure below that is recovered.
+ *
+ *  Every other failure — a locked index, a missing git binary, a corrupt object, `git` itself never
+ *  starting — throws instead of returning the same empty result, because that is indistinguishable from
+ *  a clean tree once swallowed (RBUG-02). One stable code travels for all of them, since what the client
+ *  needs to know is that THIS Git read is unavailable, not which internal command produced it. */
+const NOT_A_REPOSITORY = /fatal: not a git repository/i;
+const GIT_UNAVAILABLE = 'git unavailable';
+function recoverGit(error, empty) {
+    const stderr = error?.stderr;
+    if (typeof stderr === 'string' && NOT_A_REPOSITORY.test(stderr))
+        return empty;
+    throw new EditorFileError(GIT_UNAVAILABLE, 503);
+}
 export async function projectChangedFiles(root) {
     if (!gitUsable(root))
         return [];
@@ -343,8 +368,8 @@ export async function projectChangedFiles(root) {
         const { stdout } = await run('git', ['-C', gitRoot(root), 'status', '--porcelain'], { maxBuffer: 4 * 1024 * 1024 });
         return stdout.split('\n').map((line) => line.slice(3).trim()).filter(Boolean).map((path) => { const at = path.indexOf(' -> '); return at >= 0 ? path.slice(at + 4) : path; });
     }
-    catch {
-        return [];
+    catch (error) {
+        return recoverGit(error, []);
     }
 }
 export async function projectWorkingDiff(root) {
@@ -353,8 +378,8 @@ export async function projectWorkingDiff(root) {
     try {
         return (await run('git', ['-C', gitRoot(root), 'diff', 'HEAD'], { maxBuffer: 8 * 1024 * 1024 })).stdout;
     }
-    catch {
-        return '';
+    catch (error) {
+        return recoverGit(error, '');
     }
 }
 export async function projectFileAtHead(safe, root, rel) {
@@ -365,8 +390,8 @@ export async function projectFileAtHead(safe, root, rel) {
     try {
         return (await run('git', ['-C', resolvedRoot, 'show', `HEAD:${clean}`], { maxBuffer: 4 * 1024 * 1024 })).stdout;
     }
-    catch {
-        return '';
+    catch (error) {
+        return recoverGit(error, '');
     }
 }
 export async function projectFileDiff(safe, root, rel) {
@@ -377,8 +402,8 @@ export async function projectFileDiff(safe, root, rel) {
     try {
         return (await run('git', ['-C', resolvedRoot, 'diff', '--', clean], { maxBuffer: 4 * 1024 * 1024 })).stdout;
     }
-    catch {
-        return '';
+    catch (error) {
+        return recoverGit(error, '');
     }
 }
 /** Kept byte-identical to the host's `src/shared/gitSha.ts` (a plugin cannot import runtime code from
@@ -393,8 +418,8 @@ export async function projectCommitDiff(root, hash) {
     try {
         return (await run('git', ['-C', gitRoot(root), 'show', '--stat', '--patch', hash], { maxBuffer: 8 * 1024 * 1024 })).stdout;
     }
-    catch {
-        return '';
+    catch (error) {
+        return recoverGit(error, '');
     }
 }
 export async function projectCommitFiles(root, hash) {
@@ -403,8 +428,8 @@ export async function projectCommitFiles(root, hash) {
     try {
         return (await run('git', ['-C', gitRoot(root), 'show', '--name-only', '--pretty=format:', hash], { maxBuffer: 4 * 1024 * 1024 })).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
     }
-    catch {
-        return [];
+    catch (error) {
+        return recoverGit(error, []);
     }
 }
 export async function projectCommitFileDiff(safe, root, hash, rel) {
@@ -415,8 +440,8 @@ export async function projectCommitFileDiff(safe, root, hash, rel) {
     try {
         return (await run('git', ['-C', resolvedRoot, 'show', '--pretty=format:', hash, '--', clean], { maxBuffer: 4 * 1024 * 1024 })).stdout;
     }
-    catch {
-        return '';
+    catch (error) {
+        return recoverGit(error, '');
     }
 }
 export async function projectCommitLog(root, limit) {
@@ -428,8 +453,8 @@ export async function projectCommitLog(root, limit) {
         const { stdout } = await run('git', ['-C', gitRoot(root), 'log', '-n', String(n), '--numstat', '--pretty=format:\x01%h\x09%ct\x09%an\x09%s'], { maxBuffer: 8 * 1024 * 1024 });
         return parseProjectCommitLog(stdout);
     }
-    catch {
-        return [];
+    catch (error) {
+        return recoverGit(error, []);
     }
 }
 export function parseProjectCommitLog(stdout) {

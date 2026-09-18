@@ -5129,7 +5129,7 @@ function Tabs({ tabs, active, dirty, onSelect, onClose, closeLabel }) {
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var { hooks, components: components2, utils } = runtime();
 var { useProjects, useProjectFileAtHead, useProjectCommit, useProjectCommitFileDiff, useProjectChanged, useProjectChanges, useMobile, useToast, useTranslation: useTranslation2, usePluginStrings, usePersistentState } = hooks;
-var { Button: Button3, LoadingState, EmptyState, ContextMenu, PatchView, WorkspaceTakeover } = components2;
+var { Button: Button3, LoadingState, EmptyState, ErrorState, ContextMenu, PatchView, WorkspaceTakeover } = components2;
 var EDITOR_H_KEY = "elowen:editor:height";
 var PREFS_KEY = "elowen:editor:prefs";
 var ROOT_KEY = "elowen.editor.root";
@@ -5223,11 +5223,13 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
   const commitData = useProjectCommit(gitId, commit);
   const changesData = useProjectChanges(gitId, working);
   const commitFileDiff = useProjectCommitFileDiff(gitId, commit, commit ? selected : null);
-  const workingChanged = useProjectChanged(gitId).data?.changed;
+  const changedQuery = useProjectChanged(gitId);
+  const workingChanged = changedQuery.data?.changed;
   const changedSet = (0, import_react22.useMemo)(
     () => new Set(commit ? commitData.data?.files ?? [] : workingChanged ?? []),
     [commit, commitData.data?.files, workingChanged]
   );
+  const gitErrorMessage = (error) => error?.status === 503 ? s.gitUnavailable : utils.apiErrorMessage(error);
   const lazyDirs = useLazyDirs(projectId, root, rootReady, expanded, treeEpoch, systemRoot ? void 0 : (dir, error) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -5690,10 +5692,17 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
                   children: s.treeRetry
                 }
               )
-            ] }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
-              selectInTree(p);
-              if (mobile && fullscreen) setShowTree(false);
-            }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle }) }),
+            ] }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+              !commit && changedQuery.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { role: "alert", className: "mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TriangleAlert, { size: 12, className: "shrink-0", "aria-hidden": true }),
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "min-w-0 flex-1 truncate", children: gitErrorMessage(changedQuery.error) }),
+                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", onClick: () => changedQuery.refetch(), className: "shrink-0 underline decoration-dotted underline-offset-2 hover:no-underline", children: s.treeRetry })
+              ] }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(FileTree, { tree, expanded, onToggle: toggle, selected, onSelect: (p) => {
+                selectInTree(p);
+                if (mobile && fullscreen) setShowTree(false);
+              }, changed: changedSet, onContextMenu, emptyLabel: s.noFiles, treeLabel: s.editorTitle })
+            ] }) }),
             !fullscreen ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "shrink-0 border-t border-border p-1.5", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
               "button",
               {
@@ -5712,7 +5721,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
       ),
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: "flex min-w-0 flex-1 flex-col", children: [
         !commit && !working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Tabs, { tabs: openTabs, active: selected, dirty: dirtyPaths, onSelect: setSelected, onClose: closeTab, closeLabel: t.common.close }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "min-h-0 flex-1", children: working ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ImagePreview, { projectId, root, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MediaPreview, { projectId, root, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(BinaryPreview, { projectId, root, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "p-4 text-center text-sm text-muted-foreground", children: s.fileTooBig }) : effTab === "diff" ? headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value, prefs }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, prefs, onCursor: setCursor }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: "min-h-0 flex-1", children: working ? changesData.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ErrorState, { message: gitErrorMessage(changesData.error), onRetry: () => changesData.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: changesData.data?.diff ?? "", loading: changesData.isLoading, empty: s.noChanges }) : commit && selected ? commitFileDiff.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ErrorState, { message: gitErrorMessage(commitFileDiff.error), onRetry: () => commitFileDiff.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitFileDiff.data?.diff ?? "", loading: commitFileDiff.isLoading, empty: s.noChanges }) : commit ? commitData.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ErrorState, { message: gitErrorMessage(commitData.error), onRetry: () => commitData.refetch() }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PatchView, { diff: commitData.data?.diff ?? "", loading: commitData.isLoading, empty: s.noChanges }) : !selected ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EmptyState, { title: s.selectFile, icon: File2 }) : fileKind === "image" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ImagePreview, { projectId, root, path: selected }) : fileKind === "pdf" && fileSize <= MAX_BUFFERED_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed }) : fileKind === "office" && fileSize <= MAX_OFFICE_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PdfPreview, { projectId, root, path: selected, failedLabel: s.previewFailed, office: true }) : (fileKind === "video" || fileKind === "audio") && fileSize <= MAX_MEDIA_PREVIEW_BYTES ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MediaPreview, { projectId, root, path: selected, kind: fileKind }) : fileKind === "binary" || fileKind === "image" || fileKind === "pdf" || fileKind === "office" || fileKind === "video" || fileKind === "audio" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(BinaryPreview, { projectId, root, path: selected, size: fileSize, message: fileKind === "binary" ? s.binaryFile : s.previewTooLarge, downloadLabel: s.download, sizeLabel: s.fileSize, typeLabel: s.fileType, downloadAvailable: fileSize <= MAX_BUFFERED_BYTES, downloadUnavailableLabel: s.downloadUnavailable }) : fileData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : fileData.data?.truncated ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: "p-4 text-center text-sm text-muted-foreground", children: s.fileTooBig }) : effTab === "diff" ? headData.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ErrorState, { message: gitErrorMessage(headData.error), onRetry: () => headData.refetch() }) : headData.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(DiffEditorPane, { path: selected, original: headData.data?.content ?? "", modified: value, prefs }) : effTab === "preview" && fileKind === "csv" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(CsvPreview, { source: value, invalidLabel: s.csvInvalid, limitedLabel: s.csvLimited }) : effTab === "preview" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MarkdownPreview, { source: value }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(EditorPane, { path: selected, value, onChange, onSave: save, prefs, onCursor: setCursor }) }),
         selected && textFile && !commit && !working && effTab === "edit" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           StatusBar,
           {
@@ -5977,7 +5986,7 @@ var IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
 var MAX_SHOWN = 300;
 function ProjectIconPicker({ project, onClose }) {
   const { hooks: hooks3, components: C4, utils: utils3, api } = runtime();
-  const { AutoSaveStatus, Button: Button5, EmptyState: EmptyState3, ErrorState, Input: Input2, LoadingState: LoadingState2, Modal: Modal2, ModalBody: ModalBody2, ModalFooter: ModalFooter2, ProjectIcon: ProjectIcon2 } = C4;
+  const { AutoSaveStatus, Button: Button5, EmptyState: EmptyState3, ErrorState: ErrorState2, Input: Input2, LoadingState: LoadingState2, Modal: Modal2, ModalBody: ModalBody2, ModalFooter: ModalFooter2, ProjectIcon: ProjectIcon2 } = C4;
   const s = hooks3.usePluginStrings("editor");
   const host = hooks3.useTranslation().t;
   const { toast } = hooks3.useToast();
@@ -6030,9 +6039,9 @@ function ProjectIconPicker({ project, onClose }) {
   return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Modal2, { title: s.chooseIcon, description: project.slug, onClose, closeDisabled: update.isPending, size: "xl", icon: Image, children: [
     /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "border-b border-border px-5 py-3", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Input2, { value: query, onChange: (event) => setQuery(event.target.value), placeholder: s.iconSearch, autoFocus: true }) }),
     /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(ModalBody2, { gap: 6, children: [
-      managed && environment.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : managed && environment.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(environment.error), onRetry: () => {
+      managed && environment.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : managed && environment.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState2, { message: utils3.apiErrorMessage(environment.error), onRetry: () => {
         void environment.refetch();
-      } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.gitEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
+      } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.gitEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState2, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
         void files.refetch();
       } }) : images.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.noImages, icon: Image }) : groups.map(([dir, paths]) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: "flex flex-col gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "font-mono text-[11px] uppercase tracking-wide text-muted-foreground", children: dir }),

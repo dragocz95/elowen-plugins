@@ -1,5 +1,9 @@
 # Changelog
 
+## editor 0.4.7 - 2026-09-18
+
+- A git read that fails for a real reason — a locked index, a missing git binary, a corrupt object — no longer answers the same as a clean or empty tree. `status`, `diff`, `show` and `log` swallowed every failure alike; only "not a repository" is still a legitimate empty answer, and everything else now reaches the client as 503 with the daemon's own wording. The Git file tree, the working diff, the commit diff and the file-at-HEAD diff each show that refusal, with a retry, instead of quietly reading as nothing changed.
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.
