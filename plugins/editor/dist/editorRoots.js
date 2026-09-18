@@ -20,13 +20,18 @@ export const DEFAULT_EDITOR_ROOT = 'project';
 /** The guest directory the `system` root resolves to. The project root has no constant: it is derived
  *  per project from core's `managedGuestRoot`, which is the single rule the container mirrors. */
 export const GUEST_SYSTEM_ROOT = '/';
-/** Guest directories the system root does not serve.
+/** Directories no system root serves, guest or host.
  *
  *  Kernel interfaces, not files: walking `/proc` is a walk of the process table, and writing a device or
  *  a FIFO node blocks on a reader that never comes. None of them survive a restart either, so none of
- *  them is part of the persistent root filesystem this root exists to show. Mirrors the host system
- *  root's own exclusions in `files.ts`. */
-const VIRTUAL_GUEST_ROOTS = ['/dev', '/proc', '/run', '/sys'];
+ *  them is part of the persistent root filesystem a system root exists to show.
+ *
+ *  This is the ONE exclusion list. The managed guest rule below and the host system-root guard in
+ *  `files.ts` both consume it, so a path added here is refused on both roots; the list that used to be
+ *  copied between the two is how a root could serve something the other had already closed. It lives
+ *  here because this module is node-free and reaches the browser bundle — `files.ts` can import it, not
+ *  the other way round. */
+export const VIRTUAL_FS_ROOTS = ['/dev', '/proc', '/run', '/sys'];
 /** The root a request asked for, or null when it asked for something that is not a root.
  *
  *  An absent or empty selector is the default rather than a refusal, so a link saved before the selector
@@ -40,5 +45,5 @@ export function parseEditorRoot(value) {
 }
 /** Whether a guest path lies inside a kernel virtual filesystem the system root does not serve. */
 export function isVirtualGuestPath(path) {
-    return VIRTUAL_GUEST_ROOTS.some((blocked) => path === blocked || path.startsWith(`${blocked}/`));
+    return VIRTUAL_FS_ROOTS.some((blocked) => path === blocked || path.startsWith(`${blocked}/`));
 }

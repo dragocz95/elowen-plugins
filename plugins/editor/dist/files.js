@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileKindOf, MAX_BUFFERED_BYTES, MAX_OFFICE_BYTES } from './fileTypes.js';
+import { VIRTUAL_FS_ROOTS } from './editorRoots.js';
 import { isSystemRoot, SYSTEM_ROOT } from './systemRoot.js';
 const run = promisify(execFile);
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
@@ -15,10 +16,6 @@ const MAX_FILE = 2 * 1024 * 1024;
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
 const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;
 const MAX_OFFICE_CONVERSIONS = 2;
-/** Kernel-backed trees are not ordinary files. Traversing their self/root symlinks can reproduce the
- * whole filesystem indefinitely across lazy requests; writing a device, FIFO or proc node can block the
- * daemon's synchronous thread. The System editor is for persisted host files, not kernel interfaces. */
-const VIRTUAL_SYSTEM_ROOTS = ['/dev', '/proc', '/run', '/sys'];
 let activeOfficeConversions = 0;
 /** A refusal the operator is meant to read — "already exists", "source does not exist". Only these
  *  messages travel to the client: a raw fs error carries the absolute server path of the project (and
@@ -50,7 +47,7 @@ export function safeSystemPath(root, rel) {
     if (!isSystemRoot(root))
         throw new EditorFileError('invalid path');
     const absolute = resolve(SYSTEM_ROOT, rel);
-    if (VIRTUAL_SYSTEM_ROOTS.some((blocked) => absolute === blocked || absolute.startsWith(`${blocked}${sep}`))) {
+    if (VIRTUAL_FS_ROOTS.some((blocked) => absolute === blocked || absolute.startsWith(`${blocked}${sep}`))) {
         throw new EditorFileError('virtual filesystem paths are unavailable');
     }
     return absolute;
@@ -100,7 +97,7 @@ export function listProjectFiles(root, maxDepth = 8, from) {
                 continue;
             const abs = join(dir, entry.name);
             const path = relative(resolvedRoot, abs);
-            if (isSystemRoot(resolvedRoot) && VIRTUAL_SYSTEM_ROOTS.includes(`/${path.split(sep)[0]}`))
+            if (isSystemRoot(resolvedRoot) && VIRTUAL_FS_ROOTS.some((blocked) => blocked === `/${path.split(sep)[0]}`))
                 continue;
             // Classify by the resolved target so directory symlinks such as /bin remain browsable, but expose
             // ONLY regular files and directories. Sockets, FIFOs and devices are kernel interfaces, not files
