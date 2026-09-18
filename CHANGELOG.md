@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.4.10 - 2026-09-18
+
+- Both skill-creating doors now refuse a bad name with the same sentence. The HTTP create route and the CreateSkill tool each carried a hand-written copy of the kebab-case refusal: the wording happened to agree, but it could drift silently, and neither version told the caller which string was rejected. One `nameError(name)` now builds the sentence — `name "Bad Name" must be kebab-case (a-z, 0-9, dashes), max 64 chars` — and both paths use it, the tool inside its uniform `Error: ….` envelope like every other refusal. A test pins the two paths to the same sentence for the same bad name.
+
 ## msteams 0.8.1 - 2026-09-18
 
 - Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.
