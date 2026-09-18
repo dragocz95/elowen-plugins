@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.4.9 - 2026-09-18
+
+- Agent deletion no longer removes a directory-form skill's support files. Both the DeleteSkill tool and the HTTP route now remove only the skill definition, keep non-empty `references/` and `scripts/` folders, and refuse bundled skills through the same deletion rule.
+
 ## image-edit 0.2.5 - 2026-09-18
 
 - Remote source images now use the host's public-only HTTP transport, so loopback, private, link-local, cloud metadata and mixed public/private DNS destinations are refused before a socket opens. An operator who deliberately used an internal image host must expose it through a public address or use an allowed repository path.

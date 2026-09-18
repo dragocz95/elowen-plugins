@@ -7,7 +7,7 @@ import { Type } from 'typebox';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename, resolve, sep } from 'node:path';
-import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, statSync, lstatSync, readFileSync, readdirSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
+import { writeFileSync, unlinkSync, rmSync, rmdirSync, existsSync, lstatSync, readFileSync, readdirSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 
 const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
 const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -471,6 +471,25 @@ export function register(ctx) {
     if (path === base || !path.startsWith(base + sep)) return { error: 'skill path is outside the skills directory' };
     return { file, path, directoryForm };
   };
+  const NON_RECURSIVE_DELETE = 'non-recursive';
+  /** Delete only the skill definition. Directory-form support files are user-authored data and survive. */
+  const removeSkill = (deletion, mode) => {
+    if (mode !== NON_RECURSIVE_DELETE) throw new Error(`unsupported skill deletion mode: ${mode}`);
+    if (skillFileIn(bundledDir, deletion.name)) {
+      return { error: 'bundled skills cannot be deleted', status: 400 };
+    }
+    if (deletion.target === null) return { error: 'unknown skill', status: 404 };
+    if (deletion.target.error) return { error: deletion.target.error, status: 409 };
+    unlinkSync(deletion.target.file);
+    if (deletion.target.directoryForm) {
+      try {
+        rmdirSync(deletion.target.path);
+      } catch (error) {
+        if (error?.code !== 'ENOTEMPTY' && error?.code !== 'EEXIST') throw error;
+      }
+    }
+    return { ok: true };
+  };
   /** Why this name may not be written into `target`, or null when it may. A name must be unique across
    *  the sets a single session sees, in BOTH directions: a personal skill may not shadow an instance one,
    *  and an instance skill may not shadow somebody's personal one — either way two files would register
@@ -802,16 +821,10 @@ export function register(ctx) {
       if (req.path !== '') return jsonRes({ error: 'not found' }, 404);
       const name = req.params.name ?? '';
       if (!NAME_RE.test(name)) return jsonRes({ error: 'invalid skill name' }, 400);
-      if (skillFileIn(bundledDir, name)) return jsonRes({ error: 'bundled skills cannot be deleted' }, 400);
       const target = resolveTarget(req);
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
-      const deletion = deletionTargetIn(target, name);
-      if (!deletion) return jsonRes({ error: 'unknown skill' }, 404);
-      if (deletion.error) return jsonRes({ error: deletion.error }, 409);
-      unlinkSync(deletion.file);
-      // A directory-form skill leaves its folder behind; drop it if now empty, but keep it (with any
-      // references/scripts support files) if something remains.
-      if (deletion.directoryForm) { try { rmdirSync(deletion.path); } catch { /* not empty → keep */ } }
+      const removed = removeSkill({ name, target: deletionTargetIn(target, name) }, NON_RECURSIVE_DELETE);
+      if (removed.error) return jsonRes({ error: removed.error }, removed.status);
       ctx.requestReload?.();
       return jsonRes({ ok: true });
     },
@@ -988,8 +1001,8 @@ export function register(ctx) {
     description: [
       'Permanently delete a saved skill by name, removing that reusable procedure from the agent instructions from the next message onward.',
       'Use it when a stored workflow is obsolete, wrong or was superseded — for example after the user says to forget a procedure. To change a skill rather than drop it, call CreateSkill with the same name to overwrite it, and use ListSkills first to confirm the exact name.',
-      'Your own personal skills are removed directly; deleting an instance-wide skill that every session sees requires an admin session, and bundled skills that ship with the plugin cannot be deleted at all. Both flat "<name>.md" files and directory-form skills are handled — for a directory skill the whole folder, including its support files, is removed.',
-      'This is irreversible: the file is unlinked with no backup and no undo, so confirm before deleting somebody elses shared skill. A name you may not touch, and a name that does not exist, return the same refusal.',
+      'Your own personal skills are removed directly; deleting an instance-wide skill that every session sees requires an admin session, and bundled skills that ship with the plugin cannot be deleted at all. Both flat "<name>.md" files and directory-form skills are handled. For a directory skill, only SKILL.md is removed; support files in the folder are preserved.',
+      'Removing the skill definition is irreversible: it is unlinked with no backup and no undo, so confirm before deleting somebody elses shared skill. A name you may not touch, and a name that does not exist, return the same refusal.',
     ].join(' '),
     parameters: Type.Object({ name: Type.String({ description: 'The exact kebab-case skill name to delete, as shown by ListSkills, e.g. "deploy-checklist"' }) }),
     execute: async (_id, p) => {
@@ -1006,10 +1019,11 @@ export function register(ctx) {
           if (deletion?.file && isPersonalPath(deletion.file)) deletion = null;
           if (deletion !== null) adminOnly();
         }
-        if (!deletion) return ok(`Error: no skill named "${p.name}" that you can delete.`);
-        if (deletion.error) return ok(`Error: ${deletion.error}.`);
-        if (deletion.directoryForm && statSync(deletion.path).isDirectory()) rmSync(deletion.path, { recursive: true, force: true });
-        else unlinkSync(deletion.file);
+        const removed = removeSkill({ name: p.name, target: deletion }, NON_RECURSIVE_DELETE);
+        if (removed.error) {
+          const message = removed.status === 404 ? `no skill named "${p.name}" that you can delete` : removed.error;
+          return ok(`Error: ${message}.`);
+        }
         ctx.requestReload?.(); // apply live, same as CreateSkill — the skill leaves the prompt next message
         return ok(`Skill "${p.name}" deleted.`);
       } catch (e) { return fail(e); }

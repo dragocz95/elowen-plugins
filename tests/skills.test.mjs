@@ -957,6 +957,53 @@ test('bundled skills plugin', async (t) => {
     assert.equal(reloads, 1);
   });
 
+  await t.test('DeleteSkill matches HTTP deletion for support files and bundled-skill refusals', async () => {
+    const seedDirectorySkill = (skillsDir, name) => {
+      const skillDir = join(skillsDir, name);
+      mkdirSync(join(skillDir, 'references'), { recursive: true });
+      writeFileSync(join(skillDir, 'SKILL.md'), skillMd(name, 'Temporary directory skill.'));
+      writeFileSync(join(skillDir, 'references', 'notes.md'), 'keep me\n');
+      return skillDir;
+    };
+    const deletionState = (skillDir) => ({
+      directory: existsSync(skillDir),
+      skillFile: existsSync(join(skillDir, 'SKILL.md')),
+      supportFile: existsSync(join(skillDir, 'references', 'notes.md')),
+    });
+    const expectedState = { directory: true, skillFile: false, supportFile: true };
+
+    const toolRoot = tmpDir('skills');
+    const toolSkillsDir = join(toolRoot, 'skills');
+    const toolSkillDir = seedDirectorySkill(toolSkillsDir, 'tool-directory-skill');
+    const toolPlugin = loadPlugin({ dataRoot: toolRoot });
+    const toolResult = await asTurn(toolPlugin, OWNER_TURN, () => runTool(toolPlugin, 'DeleteSkill', { name: 'tool-directory-skill' }));
+    assert.match(asText(toolResult), /deleted/);
+
+    const routeSetup = setup();
+    const routeSkillDir = seedDirectorySkill(routeSetup.userDir, 'route-directory-skill');
+    const routeResult = await routeSetup.app.request('/plugins/skills/route-directory-skill?owner=instance', del(routeSetup.adminTok));
+    assert.equal(routeResult.status, 200);
+
+    assert.deepEqual(deletionState(toolSkillDir), expectedState);
+    assert.deepEqual(deletionState(routeSkillDir), expectedState);
+
+    const toolBundledCopy = join(toolSkillsDir, 'users', '7', `${BUNDLED}.md`);
+    mkdirSync(join(toolSkillsDir, 'users', '7'), { recursive: true });
+    writeFileSync(toolBundledCopy, skillMd(BUNDLED, 'Shadow copy.'));
+    const toolRefusal = await asTurn(toolPlugin, turnFor(7), () => runTool(toolPlugin, 'DeleteSkill', { name: BUNDLED }));
+    assert.match(asText(toolRefusal), /^Error: bundled skills cannot be deleted\./);
+    assert.equal(existsSync(toolBundledCopy), true);
+
+    routeSetup.users.setGrantedPlugins(routeSetup.amy.id, ['skills']);
+    const routeBundledCopy = join(routeSetup.dataRoot, 'skills', 'users', String(routeSetup.amy.id), `${BUNDLED}.md`);
+    mkdirSync(join(routeSetup.dataRoot, 'skills', 'users', String(routeSetup.amy.id)), { recursive: true });
+    writeFileSync(routeBundledCopy, skillMd(BUNDLED, 'Shadow copy.'));
+    const routeRefusal = await routeSetup.app.request(`/plugins/skills/${BUNDLED}`, del(routeSetup.amyTok));
+    assert.equal(routeRefusal.status, 400);
+    assert.deepEqual(await routeRefusal.json(), { error: 'bundled skills cannot be deleted' });
+    assert.equal(existsSync(routeBundledCopy), true);
+  });
+
   await t.test('lists AND deletes a directory-form <name>/SKILL.md user skill, not just flat .md', async () => {
     // ctx.dataDir() resolves to <dataRoot>/skills — seed a directory-form skill there (PI treats a dir
     // with a SKILL.md as a skill root). The old flat-*.md readdir catalog would miss it entirely.

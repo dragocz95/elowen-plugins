@@ -14,7 +14,7 @@
       "edit": "Upravit skill",
       "remove": "Smazat skill",
       "deleteTitle": "Smazat skill",
-      "deleteDesc": "Skill „{name}“ bude trvale odstraněn.",
+      "deleteDesc": "Skill „{name}“ bude odstraněn. Podpůrné soubory v jeho složce zůstanou zachovány.",
       "name": "Název",
       "description": "Popis",
       "content": "Obsah",
@@ -56,7 +56,7 @@
       "pickerEmpty": "Žádné dovednosti",
       "pickerEmptyDesc": "Přidané dovednosti se objeví zde a načtete je jedním kliknutím.",
       "pickerDeleteTitle": "Smazat dovednost?",
-      "pickerDeleteDesc": "Dovednost „{name}“ bude trvale odstraněna.",
+      "pickerDeleteDesc": "Dovednost „{name}“ bude odstraněna. Podpůrné soubory v její složce zůstanou zachovány.",
       "unavailable": "Plugin dovedností není k dispozici."
     }
   }
