@@ -1,5 +1,5 @@
 import { VISIBILITIES } from './store.js';
-import { mayOpen, mintTicket, normalizeReturnPath } from './access.js';
+import { canManage, mayOpen, mintTicket, normalizeReturnPath } from './access.js';
 import { SITE_BASE_PATH, siteUrl } from './config.js';
 const json = (status, body) => ({
     status,
@@ -7,8 +7,6 @@ const json = (status, body) => ({
     body: body,
 });
 const TICKET_TTL_MS = 60_000;
-/** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
-const canManage = (site, auth) => auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
 const toView = (site, deps, auth) => {
     const config = deps.config();
     return {
@@ -34,7 +32,7 @@ const toView = (site, deps, auth) => {
         kind: site.kind,
         target: site.target,
         preview: deps.previewImages?.view(site.id) ?? { state: 'none', version: 0, capturedAt: null, width: null, height: null },
-        canManage: canManage(site, auth),
+        canManage: canManage(site, auth.userId, deps.access),
     };
 };
 /** Sites the caller may see listed.
@@ -89,19 +87,20 @@ export function createApiHandlers(deps) {
         if (!target)
             return json(404, { error: 'not found' });
         const viewer = { userId: req.auth.userId };
-        if (!canManage(target, req.auth) && !mayOpen(target, viewer, deps.store, deps.access)) {
+        const manages = canManage(target, req.auth.userId, deps.access);
+        if (!manages && !mayOpen(target, viewer, deps.store, deps.access)) {
             return json(404, { error: 'not found' });
         }
         if (req.method === 'GET' && action === '') {
             const people = deps.people();
             const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
-            if (canManage(target, req.auth))
+            if (manages)
                 deps.previewImages?.ensureFresh([target]);
             return json(200, {
                 site: toView(target, deps, req.auth),
                 // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
                 // who else the owner shared with, which is the owner's business and not part of opening a page.
-                members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
+                members: !manages ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
                     ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
                 releases: target.kind === 'static'
                     ? deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
@@ -110,22 +109,22 @@ export function createApiHandlers(deps) {
                     }))
                     : [],
                 hits: deps.store.hits(target.id, since),
-                sourceDir: canManage(target, req.auth) && target.kind === 'static'
+                sourceDir: manages && target.kind === 'static'
                     ? deps.sourceDisplayPath?.(target) ?? target.sourceRel
                     : null,
                 // The stored publication failure is detail for somebody who may repair it. It stays out of the
                 // list response and away from guests, while the derived degraded flag remains safe to list.
-                lastError: canManage(target, req.auth) ? target.lastError : null,
+                lastError: manages ? target.lastError : null,
                 // Why there is no picture, or why the last one could not be taken. Manager-only for the same
                 // reason: it names what this instance did on the owner's Project.
-                previewNotice: canManage(target, req.auth) ? deps.previewImages?.notice(target) ?? null : null,
+                previewNotice: manages ? deps.previewImages?.notice(target) ?? null : null,
             });
         }
         // The picture of the published page. Whoever may OPEN the page may see this, and nobody else: it is
         // the page itself, rendered, so it carries exactly the access rule the page already has.
         if (req.method === 'GET' && action === 'preview')
             return previewImage(target);
-        if (!canManage(target, req.auth))
+        if (!manages)
             return json(403, { error: 'forbidden' });
         if (req.method === 'POST' && action === 'preview' && segments[2] === 'refresh')
             return refreshPreview(target);

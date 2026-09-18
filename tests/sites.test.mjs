@@ -1487,6 +1487,58 @@ test('SiteRollback delegates activation to the shared release function', async (
   assert.equal(harness.store.siteById('static-1').currentReleaseId, 'rel-2');
 });
 
+// The tool door and the route door must give the SAME actor the SAME answer. Before the fix, SiteGet and
+// SiteRollback carried their own second owner-only gate on top of `requireManaged`'s admin-or-owner check,
+// so an administrator who is not the owner of a FILE site was refused by the tool while the route (which
+// gates once, on `canManage` = admin-or-owner) granted detail and rollback for exactly that actor.
+test('SiteGet and SiteRollback answer exactly what the route answers, for admin, owner and an unrelated account', async (t) => {
+  for (const actor of [
+    { label: 'admin (not owner)', admin: true, ownerUserId: 2 },
+    { label: 'owner (not admin)', admin: false, ownerUserId: 1 },
+    { label: 'unrelated account', admin: false, ownerUserId: 2 },
+  ]) {
+    const harness = toolHarness(t, { admin: actor.admin });
+    harness.store.insertSite(site({
+      id: 'id-1', slug: 'file-a1b2c3', ownerUserId: actor.ownerUserId, kind: 'static', status: 'live',
+      currentReleaseId: 'rel-1', visibility: 'private',
+    }));
+    harness.store.insertRelease({
+      id: 'rel-1', siteId: 'id-1', createdAt: '2026-09-17T12:00:00.000Z', model: 'test/model',
+      fileCount: 1, sizeBytes: 1, note: '', kind: 'files',
+    });
+
+    let toolGetOk = true;
+    try { await harness.call('SiteGet', { site: 'file-a1b2c3' }); } catch { toolGetOk = false; }
+    let toolRollbackOk = true;
+    try { await harness.call('SiteRollback', { site: 'file-a1b2c3', releaseId: 'rel-1' }); } catch { toolRollbackOk = false; }
+
+    const handlers = createApiHandlers({
+      store: harness.store,
+      access: { isAdmin: () => actor.admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
+      config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+      people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
+      projectSlug: () => null,
+      deleteSite: async () => {},
+      activateRelease: () => {},
+      gatewayReadiness: async () => ({ ok: true, status: 'ready', detail: 'ready' }),
+      gatewayRecord: () => null,
+    });
+    const request = {
+      method: 'GET', query: {}, headers: {}, params: {}, body: async () => Buffer.from(''), json: async () => ({}),
+      auth: { userId: 1, admin: actor.admin, tokenScope: 'user', accessibleProjects: [] },
+    };
+    const detail = await handlers.site({ ...request, path: 'id-1' });
+    const routeGetOk = detail.status === 200;
+    const rollback = await handlers.site({
+      ...request, method: 'POST', path: 'id-1/rollback', json: async () => ({ releaseId: 'rel-1' }),
+    });
+    const routeRollbackOk = rollback.status === 200;
+
+    assert.equal(toolGetOk, routeGetOk, `SiteGet must agree with the route's detail answer for ${actor.label}`);
+    assert.equal(toolRollbackOk, routeRollbackOk, `SiteRollback must agree with the route's rollback answer for ${actor.label}`);
+  }
+});
+
 test('the retired per-site lifecycle tools and update fields are absent', async (t) => {
   const harness = toolHarness(t, { admin: true });
   for (const tool of ['SiteExec', 'SiteControl', 'SiteSnapshot', 'SiteLogs']) assert.equal(harness.registered.has(tool), false);

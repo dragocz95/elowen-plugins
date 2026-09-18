@@ -1,7 +1,7 @@
 import type { PluginApiRequest, PluginHttpResponse } from 'elowen/plugin-api';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
-import { mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
+import { canManage, mayOpen, mintTicket, normalizeReturnPath, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, siteUrl, type SitesConfig } from './config.js';
 import type { RequiredRecord, SiteGatewayReadiness } from './gateway.js';
 import type { PreviewImageView, PreviewRequestCause, PreviewRequestOutcome } from './previewImage.js';
@@ -50,11 +50,6 @@ const json = (status: number, body: unknown): PluginHttpResponse => ({
 });
 
 const TICKET_TTL_MS = 60_000;
-
-/** Whether the caller may change this site. Viewing is a different question, answered by `mayOpen`. */
-const canManage = (site: Site, auth: PluginApiRequest['auth']): boolean =>
-  auth.admin || (auth.userId !== null && auth.userId === site.ownerUserId);
-
 
 interface SiteView {
   id: string;
@@ -114,7 +109,7 @@ const toView = (site: Site, deps: ApiDeps, auth: PluginApiRequest['auth']): Site
     kind: site.kind,
     target: site.target,
     preview: deps.previewImages?.view(site.id) ?? { state: 'none', version: 0, capturedAt: null, width: null, height: null },
-    canManage: canManage(site, auth),
+    canManage: canManage(site, auth.userId, deps.access),
   };
 };
 
@@ -169,20 +164,21 @@ export function createApiHandlers(deps: ApiDeps) {
     if (!target) return json(404, { error: 'not found' });
 
     const viewer = { userId: req.auth.userId };
-    if (!canManage(target, req.auth) && !mayOpen(target, viewer, deps.store, deps.access)) {
+    const manages = canManage(target, req.auth.userId, deps.access);
+    if (!manages && !mayOpen(target, viewer, deps.store, deps.access)) {
       return json(404, { error: 'not found' });
     }
 
     if (req.method === 'GET' && action === '') {
       const people = deps.people();
       const since = new Date(Date.now() - 29 * 86400_000).toISOString().slice(0, 10);
-      if (canManage(target, req.auth)) deps.previewImages?.ensureFresh([target]);
+      if (manages) deps.previewImages?.ensureFresh([target]);
 
       return json(200, {
         site: toView(target, deps, req.auth),
         // Only somebody who can EDIT the guest list may read it. A guest seeing the whole list learns
         // who else the owner shared with, which is the owner's business and not part of opening a page.
-        members: !canManage(target, req.auth) ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
+        members: !manages ? [] : deps.store.memberIds(target.id).map((id) => people.get(id)
           ?? { id, username: `#${id}`, name: `#${id}`, avatar: '' }),
         releases: target.kind === 'static'
           ? deps.store.releases(target.id).filter((release) => release.kind !== 'environment-snapshot').map((release) => ({
@@ -191,15 +187,15 @@ export function createApiHandlers(deps: ApiDeps) {
             }))
           : [],
         hits: deps.store.hits(target.id, since),
-        sourceDir: canManage(target, req.auth) && target.kind === 'static'
+        sourceDir: manages && target.kind === 'static'
           ? deps.sourceDisplayPath?.(target) ?? target.sourceRel
           : null,
         // The stored publication failure is detail for somebody who may repair it. It stays out of the
         // list response and away from guests, while the derived degraded flag remains safe to list.
-        lastError: canManage(target, req.auth) ? target.lastError : null,
+        lastError: manages ? target.lastError : null,
         // Why there is no picture, or why the last one could not be taken. Manager-only for the same
         // reason: it names what this instance did on the owner's Project.
-        previewNotice: canManage(target, req.auth) ? deps.previewImages?.notice(target) ?? null : null,
+        previewNotice: manages ? deps.previewImages?.notice(target) ?? null : null,
       });
     }
 
@@ -207,7 +203,7 @@ export function createApiHandlers(deps: ApiDeps) {
     // the page itself, rendered, so it carries exactly the access rule the page already has.
     if (req.method === 'GET' && action === 'preview') return previewImage(target);
 
-    if (!canManage(target, req.auth)) return json(403, { error: 'forbidden' });
+    if (!manages) return json(403, { error: 'forbidden' });
 
     if (req.method === 'POST' && action === 'preview' && segments[2] === 'refresh') return refreshPreview(target);
 
