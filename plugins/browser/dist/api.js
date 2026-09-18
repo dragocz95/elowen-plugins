@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { BrowserAccessError, requireApiUser } from './ownership.js';
+import { THUMBNAIL_LIVE_MS, THUMBNAIL_TTL_MS } from './thumbnail.js';
 const object = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new BrowserAccessError('A JSON object is required.', 400);
@@ -104,20 +105,30 @@ export function registerBrowserApi(ctx, registry, dependencies, liveView) {
         },
     });
     ctx.registerApiRoute({
-        // One session's screen as a small still, for the account panel's list. `ownedSession` is the whole
-        // access story: an account may photograph a session it owns and cannot name one it does not, so this
-        // route hands out exactly what its caller could already see in the live view.
+        // One session's screen as a small still, for the account panel's list and for the transcript's card
+        // below the width where its live view floats. `ownedSession` is the whole access story: an account may
+        // photograph a session it owns and cannot name one it does not, so this route hands out exactly what
+        // its caller could already see in the live view.
         //
         // A picture that could not be taken is a 200 with no image, not a failure. The panel draws a
         // placeholder for a session whose page is mid-navigation or whose first capture has not landed, and a
         // red error row for that would be wrong every few seconds on a perfectly healthy session.
+        //
+        // `refreshMs` is the window this still stands for and `liveForMs` how long an answer stays good, both
+        // named here so the card that draws it as a live preview asks again at the server's own cadence and
+        // stops showing a picture the server can no longer stand behind. Neither is a cadence of the bundle's
+        // own, and both ride on every answer, the empty one included: a client that has never been told the
+        // window has nothing to poll on, and a reader of an empty still needs the next attempt just as much.
         path: 'thumbnail', method: 'GET', access: 'user', handler: async (req) => {
             try {
                 const thumbnail = await registry.thumbnail(ownedSession(registry, req));
                 // A picture of whatever the account is signed into, on a plain GET with the session id in the
                 // query. Every other route here answers with state; this one answers with page CONTENT, so it
                 // says explicitly that it must not be written to a disk cache or held by anything in between.
-                return { headers: { 'cache-control': 'private, no-store' }, body: thumbnail ?? { dataUrl: null } };
+                return {
+                    headers: { 'cache-control': 'private, no-store' },
+                    body: { ...thumbnail ?? { dataUrl: null }, refreshMs: THUMBNAIL_TTL_MS, liveForMs: THUMBNAIL_LIVE_MS },
+                };
             }
             catch (error) {
                 return responseError(error);

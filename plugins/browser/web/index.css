@@ -80,6 +80,13 @@
 .browser-artifact__canvas > .browser-artifact__waiting {
   grid-area: 1 / 1;
 }
+.browser-artifact__canvas > .browser-artifact__still {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .browser-artifact__vnc-slot,
 .browser-artifact__vnc {
   width: 100%;
@@ -383,6 +390,10 @@
 @media (max-width: 767px) {
   .browser-artifact {
     max-width: none;
+  }
+  .browser-artifact__canvas[data-interactive=true] .browser-artifact__activity {
+    backdrop-filter: none;
+    background: color-mix(in srgb, var(--color-background, #000) 92%, transparent);
   }
   .browser-artifact__overlay {
     padding: max(.5rem, var(--safe-top, 0px)) max(.5rem, var(--safe-right, 0px)) max(.5rem, var(--safe-bottom, 0px)) max(.5rem, var(--safe-left, 0px));

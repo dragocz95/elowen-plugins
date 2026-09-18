@@ -25,7 +25,7 @@ import { boundBytes, boundText, isTextualMime, pickResponseHeaders, sanitizeUrl,
 import {
   MAX_CAPTURE_CSS_AREA, MAX_FULL_PAGE_CSS_PX, MAX_SCREENSHOT_BYTES, THUMBNAIL_JPEG_QUALITY, THUMBNAIL_MAX_WIDTH,
 } from '../plugins/browser/src/capture.js';
-import { ThumbnailCache, THUMBNAIL_TTL_MS } from '../plugins/browser/src/thumbnail.js';
+import { ThumbnailCache, THUMBNAIL_LIVE_MS, THUMBNAIL_TTL_MS } from '../plugins/browser/src/thumbnail.js';
 import { CONSOLE_BUFFER_SIZE, MAX_BODY_BYTES } from '../plugins/browser/src/page-diagnostics.js';
 import { ProcessTraceLock, summarizeTraceEvents, TraceRecorder, TraceStateUnknownError } from '../plugins/browser/src/performance-probe.js';
 import { BrowserSession } from '../plugins/browser/src/browser-session.js';
@@ -288,7 +288,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.4.1, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.4.3, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -296,7 +296,7 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[]; controls?: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.4.1');
+    expect(manifest.version).toBe('0.4.3');
     // The capture seam is DECLARED, not merely registered: a control a sibling plugin resolves has to be
     // visible in the manifest, or an operator reading it cannot tell which plugins reach into which.
     expect(manifest.provides.controls).toEqual(['browserCapture']);
@@ -2394,7 +2394,10 @@ describe('browser session thumbnails', () => {
     });
 
     const mine = await route.handler(request(1, 'session-1'));
-    expect(mine.body).toEqual({ dataUrl: 'data:image/jpeg;base64,aGVsbG8=', width: 480, height: 300, capturedAt: 1_000 });
+    // The window the still stands for is the SERVER's to name, and it is named in the answer: the docked
+    // card in a phone transcript refreshes from this value rather than carrying a cadence of its own, so
+    // shortening the cache window moves the preview with it and nothing has to be kept in step by hand.
+    expect(mine.body).toEqual({ dataUrl: 'data:image/jpeg;base64,aGVsbG8=', width: 480, height: 300, capturedAt: 1_000, refreshMs: THUMBNAIL_TTL_MS, liveForMs: THUMBNAIL_LIVE_MS });
     // Page content on a plain GET. Nothing between the daemon and the reader may keep a copy, and the
     // reader's own disk cache must not either.
     expect(mine.headers).toMatchObject({ 'cache-control': 'private, no-store' });
@@ -2424,8 +2427,20 @@ describe('browser session thumbnails', () => {
       query: { sessionId: 'session-1' }, params: {}, method: 'GET', path: '', headers: {},
       body: async () => Buffer.alloc(0), json: async () => ({}),
     });
-    expect(empty.body).toEqual({ dataUrl: null });
+    expect(empty.body).toEqual({ dataUrl: null, refreshMs: THUMBNAIL_TTL_MS, liveForMs: THUMBNAIL_LIVE_MS });
     expect(empty.status).toBeUndefined(); // i.e. 200
+  });
+
+  it('stands one still for a window short enough to read as a preview, and no shorter', async () => {
+    // The transcript's docked card on a phone draws this still as the session's screen, and asks again on
+    // exactly this window. The account panel's own poll is five seconds and every capture is a
+    // rasterization of a live Chrome, so the window is minutes of cost, not a free knob: 1.5 s is the
+    // fastest a still may be renewed without the preview competing with the page the agent is working on.
+    expect(THUMBNAIL_TTL_MS).toBe(1_500);
+    // The bound is a different question from the window and has to cover a capture that is merely slow:
+    // one more window on top of the five seconds the session's own capture gives up after, or a client
+    // would start calling its picture dead while a busy page is still being photographed.
+    expect(THUMBNAIL_LIVE_MS).toBeGreaterThanOrEqual(THUMBNAIL_TTL_MS + 5_000);
   });
 });
 

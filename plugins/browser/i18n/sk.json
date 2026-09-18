@@ -123,6 +123,7 @@
       "clearConfirmDescription": "Uložené cookies, prihlásenia a dáta webov budú trvalo odstránené. Túto akciu nemožno vrátiť.",
       "connectingImage": "Pripájam obraz prehliadača…",
       "liveViewUnavailable": "Živý náhľad nie je dostupný",
+      "previewStalled": "Náhľad sa neobnovuje",
       "dep_label_virtual_display": "Virtuálny displej",
       "dep_label_live_view": "Prenos živého náhľadu",
       "dep_display_ready": "Xvfb a x11vnc sú nainštalované a spustiteľné.",

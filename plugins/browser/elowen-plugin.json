@@ -1,6 +1,6 @@
 {
   "name": "browser",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "apiVersion": "1",
   "requiresCore": "0.28.46",
   "description": "Browser automation for linked accounts. Each account browser keeps an account-private profile on the host, with a virtual display, a VNC live view, exclusive user takeover and an enforcing network proxy around every session.",
@@ -344,6 +344,7 @@
       "dismissNarration": "Dismiss agent message",
       "connectingImage": "Connecting to the browser image…",
       "liveViewUnavailable": "The live view is unavailable",
+      "previewStalled": "The preview is not updating",
       "browserViewport": "Live browser view",
       "waitingForUser": "Waiting for user input",
       "agentWaiting": "The agent is waiting for you to return control",

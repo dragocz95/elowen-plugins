@@ -30,8 +30,67 @@ setDefaults(
   // right now" is the default and the tests about the picture override it.
   http.get('/api/plugins/browser/api/thumbnail', () => HttpResponse.json({ dataUrl: null })),
 );
+/** A viewport, which jsdom does not have: the setup polyfill answers every media query with "no".
+ *
+ *  The card now decides from the SAME 768px boundary its floating styling switches on whether a docked
+ *  tile dials the live view (a wide screen) or draws a still (a phone), so a test has to say which side
+ *  of it it is on. It could get that only by asking `matchMedia`, which is why this is a real query
+ *  evaluator rather than a constant: `matches` is computed per query, and `setViewport` tells every live
+ *  query the way a rotation does, so a test can move the card across the boundary while it is mounted.
+ *
+ *  Desktop is the default, because that is the width every test written before the phone preview
+ *  describes. The phone cases ask for it by name. */
+const DESKTOP_WIDTH_PX = 1280;
+const PHONE_WIDTH_PX = 390;
+
+let viewportWidthPx = DESKTOP_WIDTH_PX;
+const liveQueries = new Set<{ query: string; matches: boolean; listeners: Set<() => void> }>();
+
+function matchesViewport(query: string): boolean {
+  const min = /\(min-width:\s*(\d+)px\)/.exec(query);
+  if (min) return viewportWidthPx >= Number(min[1]);
+  const max = /\(max-width:\s*(\d+)px\)/.exec(query);
+  if (max) return viewportWidthPx <= Number(max[1]);
+  return false;
+}
+
+window.matchMedia = ((query: string) => {
+  const entry = { query, matches: matchesViewport(query), listeners: new Set<() => void>() };
+  liveQueries.add(entry);
+  return {
+    get matches() { return entry.matches; },
+    media: query,
+    onchange: null,
+    addEventListener: (type: string, listener: () => void) => { if (type === 'change') entry.listeners.add(listener); },
+    removeEventListener: (type: string, listener: () => void) => { if (type === 'change') entry.listeners.delete(listener); },
+    addListener: (listener: () => void) => entry.listeners.add(listener),
+    removeListener: (listener: () => void) => entry.listeners.delete(listener),
+    dispatchEvent: () => false,
+  };
+}) as unknown as typeof window.matchMedia;
+
+/** Rotate or resize: every live query that changed opinion tells its listeners. */
+function setViewport(px: number): void {
+  viewportWidthPx = px;
+  for (const entry of liveQueries) {
+    const next = matchesViewport(entry.query);
+    if (next === entry.matches) continue;
+    entry.matches = next;
+    for (const listener of [...entry.listeners]) listener();
+  }
+}
+
 beforeAll(() => listen());
-afterEach(() => { cleanup(); resetHandlers(); vi.useRealTimers(); vi.restoreAllMocks(); window.sessionStorage.clear(); resetRfbClients(); });
+afterEach(() => {
+  cleanup();
+  resetHandlers();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  window.sessionStorage.clear();
+  resetRfbClients();
+  liveQueries.clear();
+  viewportWidthPx = DESKTOP_WIDTH_PX;
+});
 afterAll(() => close());
 
 /** Wait for the card to dial, then let the handshake complete — which is when the picture appears. */
@@ -68,6 +127,10 @@ function mountArtifact(narration?: string, pendingInput?: Pending) {
     ask: (pending: Pending) => view.rerender(show(narration, pending)),
   });
 }
+
+/** The still the docked card draws on a phone: the plugin's own thumbnail route, in the data URL the
+ *  server answers with. */
+const STILL_DATA_URL = 'data:image/jpeg;base64,c3RpbGw=';
 
 /** The session's state. No pixels: those arrive on the live view socket, which the fake client above
  *  stands in for. */
@@ -179,6 +242,298 @@ describe('browser plugin UI', () => {
     expect(surface.style.getPropertyValue('--chat-dock-height')).toBe('');
     surface.remove();
     vi.unstubAllGlobals();
+  });
+
+  it('draws a still on a phone instead of dialling the live view, and mints no ticket for it', async () => {
+    // Measured on a phone: one docked live view is 5.7 to 15 Mbit/s of whole-framebuffer VNC that the
+    // phone must pull and decode, and noVNC attaches its own gesture handlers to the canvas the moment it
+    // connects — which is what swallowed pinch-zoom over the transcript. Below the boundary the docked
+    // card is a picture instead of a connection.
+    let tickets = 0;
+    const asked: string[] = [];
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => { tickets += 1; return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t1', width: 1280, height: 800 }); }),
+      http.get('/api/plugins/browser/api/thumbnail', ({ url }) => {
+        asked.push(url.searchParams.get('sessionId') ?? '');
+        return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_500 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+
+    const tile = await screen.findByRole('button', { name: strings.enlarge });
+    const still = await waitFor(() => {
+      const image = document.querySelector('.browser-artifact__still');
+      expect(image).not.toBeNull();
+      return image!;
+    });
+    expect(still).toHaveAttribute('src', STILL_DATA_URL);
+    // The still is the picture the tile opens, named for the session it belongs to and nothing else.
+    expect(still.closest('.browser-artifact__tile')).toBe(tile);
+    expect(asked).toEqual(['session-1']);
+    // The box takes the still's own shape, so the page is not squashed into a guessed one.
+    expect(document.querySelector('.browser-artifact')!.style.getPropertyValue('--browser-aspect')).toBe('1.6');
+    // Nothing was dialled: no ticket, no RFB client, and so no gesture handler over the transcript. The
+    // "no picture yet" placeholder is the card's own, and it is gone once the picture lands.
+    expect(tickets).toBe(0);
+    expect(rfbClients).toHaveLength(0);
+    expect(screen.queryByText(strings.connectingImage)).toBeNull();
+  });
+
+  it('refreshes the still on the window the server names, not on one of its own', async () => {
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      // Deliberately not the shipped window: a card carrying its own cadence would ignore this number.
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 2_500, liveForMs: 60_000 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(asked).toBe(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_499); });
+    expect(asked).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(asked).toBe(2);
+  });
+
+  it('keeps asking on the server\'s cadence when an ask never comes back, and stops showing a still past its bound', async () => {
+    // The way a still goes quietly stale: the refresh stops and the last picture stays up reading as the
+    // session. The cadence is scheduled from the beat rather than from the answer, so a request that never
+    // settles cannot stop it, and the server's own bound is what decides when the picture has to go.
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        if (asked === 1) return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_000, liveForMs: 2_500 });
+        return new Promise<Response>(() => {});
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(document.querySelector('.browser-artifact__still')).toHaveAttribute('src', STILL_DATA_URL);
+
+    // One window in, the picture is still inside the bound the server named.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(asked).toBe(2);
+    expect(document.querySelector('.browser-artifact__still')).not.toBeNull();
+
+    // Past it, the picture is not the session's screen any more — dropped without waiting for the ask that
+    // is never going to answer.
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(document.querySelector('.browser-artifact__still')).toBeNull();
+    expect(document.querySelector('.browser-artifact__waiting')?.textContent).toBe(strings.previewStalled);
+  });
+
+  it('keeps a still the server still calls live, and one from another session is never shown', async () => {
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', ({ url }) => {
+        if (url.searchParams.get('sessionId') !== 'session-1') return new Promise<Response>(() => {});
+        asked += 1;
+        return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_000, liveForMs: 60_000 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    const Wrapper = wrapper();
+    const view = render(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={artifact} /></ToastProvider></Wrapper>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    // A long bound is the server's word, not this bundle's: the same clock that drops a picture after
+    // 2.5 s above keeps this one, because the server said it stays good for a minute.
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    expect(document.querySelector('.browser-artifact__still')).not.toBeNull();
+
+    // The card reused for another session must not keep painting the first one's screen, even while the
+    // new session's own picture has not arrived at all.
+    const other = { ...artifact, data: { ...artifact.data, browserSessionId: 'session-2' } };
+    await act(async () => {
+      view.rerender(<Wrapper><ToastProvider><BrowserArtifact plugin="browser" artifact={other} /></ToastProvider></Wrapper>);
+    });
+    expect(document.querySelector('.browser-artifact__still')).toBeNull();
+    expect(document.querySelector('.browser-artifact__waiting')?.textContent).toBe(strings.connectingImage);
+  });
+
+  it('drops a still the server could no longer photograph, and keeps the placeholder before the first one', async () => {
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        // First ask: no picture at all yet. Then one picture. Then the server cannot photograph the page.
+        if (asked === 1) return HttpResponse.json({ dataUrl: null, refreshMs: 1_000, liveForMs: 60_000 });
+        if (asked === 2) return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_000, liveForMs: 60_000 });
+        return HttpResponse.json({ dataUrl: null, refreshMs: 1_000, liveForMs: 60_000 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    // No picture yet is the card's own placeholder, not a failure: the route answers the same for a page
+    // mid-navigation and for a capture that has not landed.
+    expect(document.querySelector('.browser-artifact__waiting')?.textContent).toBe(strings.connectingImage);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(document.querySelector('.browser-artifact__still')).toHaveAttribute('src', STILL_DATA_URL);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(document.querySelector('.browser-artifact__still')).toBeNull();
+    expect(document.querySelector('.browser-artifact__waiting')?.textContent).toBe(strings.previewStalled);
+    expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone', 'warning');
+  });
+
+  it('opens the live view watch-only when a phone expands the card, and gives the still back on close', async () => {
+    let tickets = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => { tickets += 1; return HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t1', width: 1280, height: 800 }); }),
+      http.get('/api/plugins/browser/api/thumbnail', () => HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_500 })),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    expect(await screen.findByRole('button', { name: strings.enlarge })).toBeInTheDocument();
+    expect(rfbClients).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    const surface = await screen.findByRole('dialog', { name: 'Example' });
+    await waitFor(() => expect(rfbClients).toHaveLength(1));
+    const client = rfbClients[0]!;
+    await act(async () => { client.emit('connect'); });
+    expect(tickets).toBe(1);
+    // The live canvas is in the RAISED surface, not left behind in the tile the reader has just left.
+    expect(client.target.closest('.browser-artifact__surface')).not.toBeNull();
+    // A finger cannot aim a desktop Chrome, so the raised surface on a phone is a LOOK at the session:
+    // the client is told not to send input and is not given the keyboard.
+    expect(client.viewOnly).toBe(true);
+    expect(client.focused).toBe(false);
+    // The surface still owns its gestures — it belongs to the remote page — which is why the way out is
+    // a labelled control rather than a pinch.
+    expect(within(surface).getByLabelText(strings.browserViewport)).toHaveAttribute('data-interactive', 'true');
+    expect(within(surface).getByRole('button', { name: strings.closeView })).toBeInTheDocument();
+
+    fireEvent.click(within(surface).getByRole('button', { name: strings.closeView }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // The connection goes with the surface rather than staying open behind a still, and the tile is the
+    // picture again.
+    expect(client.disconnected).toBe(true);
+    expect(rfbClients).toHaveLength(1);
+    expect(document.querySelector('.browser-artifact__still')).not.toBeNull();
+  });
+
+  it('stops asking for a still while the raised canvas is up and while the document is hidden', async () => {
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.post('/api/plugins/browser/api/vnc-ticket', () => HttpResponse.json({ url: '/ws/plugins/browser/vnc?ticket=t1', width: 1280, height: 800 })),
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_500 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const docked = asked;
+    expect(docked).toBe(1);
+
+    // Every still costs the session's Chrome a rasterization, and the raised canvas is what the reader is
+    // looking at: the picture behind it is not worth one.
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(asked).toBe(docked);
+
+    fireEvent.click(screen.getByRole('button', { name: strings.closeView }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(asked).toBeGreaterThan(docked);
+
+    // A card docked in a background tab is not on screen either.
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    const background = asked;
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+    expect(asked).toBe(background);
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(asked).toBeGreaterThan(background);
+  });
+
+  it('drops a still it can no longer renew, and says the preview stopped refreshing', async () => {
+    vi.useFakeTimers();
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', () => {
+        asked += 1;
+        return asked === 1
+          ? HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, capturedAt: Date.now(), refreshMs: 1_500 })
+          : HttpResponse.json({ error: 'Browser thumbnail is unavailable.' }, { status: 503 });
+      }),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(document.querySelector('.browser-artifact__still')).toHaveAttribute('src', STILL_DATA_URL);
+
+    // A picture the card cannot renew is a picture of the past. It goes rather than sitting there reading
+    // as the session's screen, and the card says which of the two it is showing.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(document.querySelector('.browser-artifact__still')).toBeNull();
+    // The placeholder says why the picture went, and the dot carries the same reading for a screen reader.
+    expect(document.querySelector('.browser-artifact__waiting')?.textContent).toBe(strings.previewStalled);
+    expect(document.querySelector('.browser-artifact__dot')).toHaveAttribute('data-tone', 'warning');
+  });
+
+  it('keeps the docked live view above the boundary and never asks for a still there', async () => {
+    let asked = 0;
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', () => { asked += 1; return HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, refreshMs: 1_500 }); }),
+    );
+    setViewport(DESKTOP_WIDTH_PX);
+    mountArtifact();
+    const client = await paint();
+    // Exactly what a wide screen had before: one connection, parked in the docked tile, shown but not
+    // driven, and the raised canvas takes input.
+    expect(client.target.closest('.browser-artifact__vnc-slot')).not.toBeNull();
+    expect(client.viewOnly).toBe(true);
+    expect(document.querySelector('.browser-artifact__still')).toBeNull();
+    expect(asked).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: strings.enlarge }));
+    await waitFor(() => expect(rfbClients[0]!.viewOnly).toBe(false));
+    expect(rfbClients[0]!.disconnected).toBe(false);
+  });
+
+  it('dials the live view when a phone crosses the boundary, and hangs it up on the way back', async () => {
+    use(
+      http.get('/api/plugins/browser/api/stream', () => new HttpResponse(streamBody, { headers: { 'content-type': 'text/event-stream' } })),
+      http.get('/api/plugins/browser/api/thumbnail', () => HttpResponse.json({ dataUrl: STILL_DATA_URL, width: 480, height: 300, refreshMs: 1_500 })),
+    );
+    setViewport(PHONE_WIDTH_PX);
+    mountArtifact();
+    expect(await screen.findByRole('button', { name: strings.enlarge })).toBeInTheDocument();
+    expect(rfbClients).toHaveLength(0);
+
+    await act(async () => { setViewport(DESKTOP_WIDTH_PX); });
+    await waitFor(() => expect(rfbClients).toHaveLength(1));
+    // No connection may survive a rotation back to the phone: the boundary decides, in both directions.
+    await act(async () => { setViewport(PHONE_WIDTH_PX); });
+    await waitFor(() => expect(rfbClients[0]!.disconnected).toBe(true));
+    expect(await screen.findByText('example.com')).toBeInTheDocument();
   });
 
   it('clears a stale artifact favicon when the live session has none', async () => {

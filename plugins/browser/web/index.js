@@ -14949,7 +14949,7 @@ function BrowserAccount({ surface }) {
 }
 
 // plugins/browser/web-src/BrowserArtifact.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
 var import_react_dom = __toESM(require_react_dom(), 1);
 
 // plugins/browser/web-src/useBrowserStream.ts
@@ -15085,8 +15085,88 @@ function useBrowserStream(path) {
   return state;
 }
 
-// plugins/browser/web-src/VncSurface.tsx
+// plugins/browser/web-src/useStillPreview.ts
 var import_react5 = __toESM(require_react(), 1);
+var NOTHING_YET = { sessionId: "", dataUrl: null, aspect: null, state: "loading", receivedAt: 0 };
+var asImage = (value) => typeof value === "string" && /^data:image\//i.test(value) ? value : null;
+var asNumber = (value) => typeof value === "number" && value > 0 ? value : 0;
+function useDocumentVisible() {
+  const [visible, setVisible] = (0, import_react5.useState)(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  (0, import_react5.useEffect)(() => {
+    const onChange = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+  return visible;
+}
+function useStillPreview(sessionId, active) {
+  const [held, setHeld] = (0, import_react5.useState)(NOTHING_YET);
+  const visible = useDocumentVisible();
+  const liveForMs = (0, import_react5.useRef)(0);
+  (0, import_react5.useEffect)(() => {
+    if (!active || !sessionId || !visible) return;
+    let disposed = false;
+    let inFlight = false;
+    let timer = null;
+    let windowMs = 0;
+    const expire = () => {
+      setHeld((current) => {
+        if (!current.dataUrl || nowWithin(current.receivedAt, liveForMs.current)) return current;
+        return { ...current, dataUrl: null, aspect: null, state: "stalled" };
+      });
+    };
+    const ask = async () => {
+      inFlight = true;
+      try {
+        const response = await runtime().api(
+          `/plugins/browser/api/thumbnail?sessionId=${encodeURIComponent(sessionId)}`
+        );
+        if (disposed) return;
+        if (asNumber(response?.refreshMs)) windowMs = asNumber(response?.refreshMs);
+        if (asNumber(response?.liveForMs)) liveForMs.current = asNumber(response?.liveForMs);
+        const image = asImage(response?.dataUrl);
+        const width = typeof response?.width === "number" ? response.width : 0;
+        const height = typeof response?.height === "number" ? response.height : 0;
+        if (image) {
+          setHeld({ sessionId, dataUrl: image, aspect: width > 0 && height > 0 ? width / height : null, state: "ready", receivedAt: Date.now() });
+        } else {
+          setHeld((current) => current.sessionId === sessionId && current.dataUrl ? { ...current, dataUrl: null, aspect: null, state: "stalled" } : { sessionId, dataUrl: null, aspect: null, state: "loading", receivedAt: Date.now() });
+        }
+      } catch {
+        if (disposed) return;
+        setHeld({ sessionId, dataUrl: null, aspect: null, state: "stalled", receivedAt: Date.now() });
+      } finally {
+        inFlight = false;
+      }
+    };
+    const beat = () => {
+      if (disposed) return;
+      expire();
+      if (!inFlight) void ask();
+      timer = setTimeout(beat, windowMs);
+    };
+    void (async () => {
+      await ask();
+      if (disposed || windowMs <= 0) return;
+      timer = setTimeout(beat, windowMs);
+    })();
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [active, sessionId, visible]);
+  const shown = held.sessionId === sessionId ? held : NOTHING_YET;
+  if (shown.dataUrl && !nowWithin(shown.receivedAt, liveForMs.current)) {
+    return { dataUrl: null, aspect: null, state: "stalled" };
+  }
+  return { dataUrl: shown.dataUrl, aspect: shown.aspect, state: shown.state };
+}
+function nowWithin(receivedAt, liveForMs) {
+  return liveForMs <= 0 || Date.now() - receivedAt <= liveForMs;
+}
+
+// plugins/browser/web-src/VncSurface.tsx
+var import_react6 = __toESM(require_react(), 1);
 var QUALITY_LEVEL = 8;
 var COMPRESSION_LEVEL = 6;
 var RECONNECT_MIN_MS = 500;
@@ -15102,20 +15182,20 @@ async function loadRfb() {
   }
 }
 function useVncSurface({ slot, ticket, interactive, enabled }) {
-  const [state, setState] = (0, import_react5.useState)("connecting");
-  const [aspect, setAspect] = (0, import_react5.useState)(null);
-  const containerRef = (0, import_react5.useRef)(null);
-  const rfbRef = (0, import_react5.useRef)(null);
-  const ticketRef = (0, import_react5.useRef)(ticket);
+  const [state, setState] = (0, import_react6.useState)("connecting");
+  const [aspect, setAspect] = (0, import_react6.useState)(null);
+  const containerRef = (0, import_react6.useRef)(null);
+  const rfbRef = (0, import_react6.useRef)(null);
+  const ticketRef = (0, import_react6.useRef)(ticket);
   ticketRef.current = ticket;
-  const interactiveRef = (0, import_react5.useRef)(interactive);
+  const interactiveRef = (0, import_react6.useRef)(interactive);
   interactiveRef.current = interactive;
   if (!containerRef.current && typeof document !== "undefined") {
     const node = document.createElement("div");
     node.className = "browser-artifact__vnc";
     containerRef.current = node;
   }
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     const container = containerRef.current;
     if (!container || !slot) return;
     slot.appendChild(container);
@@ -15123,7 +15203,7 @@ function useVncSurface({ slot, ticket, interactive, enabled }) {
       if (container.parentNode === slot) slot.removeChild(container);
     };
   }, [slot]);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     const container = containerRef.current;
     if (!container || !enabled) return;
     let disposed = false;
@@ -15195,7 +15275,7 @@ function useVncSurface({ slot, ticket, interactive, enabled }) {
       if (rfbRef.current === client) rfbRef.current = null;
     };
   }, [enabled]);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     const client = rfbRef.current;
     if (!client) return;
     client.viewOnly = !interactive;
@@ -15208,6 +15288,18 @@ function useVncSurface({ slot, ticket, interactive, enabled }) {
 // plugins/browser/web-src/BrowserArtifact.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var NARRATION_VISIBLE_MS = 1e4;
+var DESKTOP_QUERY = "(min-width: 768px)";
+function useDesktopLayout() {
+  const [desktop, setDesktop] = (0, import_react7.useState)(() => typeof window === "undefined" ? true : window.matchMedia(DESKTOP_QUERY).matches);
+  (0, import_react7.useEffect)(() => {
+    const query = window.matchMedia(DESKTOP_QUERY);
+    const publish = () => setDesktop(query.matches);
+    publish();
+    query.addEventListener("change", publish);
+    return () => query.removeEventListener("change", publish);
+  }, []);
+  return desktop;
+}
 var asData = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value;
@@ -15264,10 +15356,10 @@ function GlassButton({ icon: Icon2, label, onClick, disabled, tone, className = 
   );
 }
 function CanvasOverlay({ label, aspect, onClose, children }) {
-  const surface = (0, import_react6.useRef)(null);
-  const opener = (0, import_react6.useRef)(null);
-  const pressedScrim = (0, import_react6.useRef)(false);
-  (0, import_react6.useEffect)(() => {
+  const surface = (0, import_react7.useRef)(null);
+  const opener = (0, import_react7.useRef)(null);
+  const pressedScrim = (0, import_react7.useRef)(false);
+  (0, import_react7.useEffect)(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     surface.current?.focus();
     const { body } = document;
@@ -15338,20 +15430,23 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const toast = host.hooks.useToast();
   const data = asData(artifact.data);
   const stream = useBrowserStream(artifact.media?.path);
-  const [expanded, setExpanded] = (0, import_react6.useState)(false);
-  const [confirmClose, setConfirmClose] = (0, import_react6.useState)(false);
-  const [pending, setPending] = (0, import_react6.useState)(null);
+  const [expanded, setExpanded] = (0, import_react7.useState)(false);
+  const desktop = useDesktopLayout();
+  const [confirmClose, setConfirmClose] = (0, import_react7.useState)(false);
+  const [pending, setPending] = (0, import_react7.useState)(null);
   const initialSessionId = data?.browserSessionId ?? "";
-  const [lease, setLease] = (0, import_react6.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
-  const adoptedLease = (0, import_react6.useRef)(lease?.leaseId ?? null);
-  const autoClaimed = (0, import_react6.useRef)(null);
-  const [speechHidden, setSpeechHidden] = (0, import_react6.useState)(false);
-  const [thumbSlot, setThumbSlot] = (0, import_react6.useState)(null);
-  const [overlaySlot, setOverlaySlot] = (0, import_react6.useState)(null);
-  const speechTimer = (0, import_react6.useRef)(null);
-  const anchor = (0, import_react6.useRef)(null);
-  const pendingReveal = (0, import_react6.useRef)(null);
+  const [lease, setLease] = (0, import_react7.useState)(() => initialSessionId ? rememberedLease(initialSessionId) : null);
+  const adoptedLease = (0, import_react7.useRef)(lease?.leaseId ?? null);
+  const autoClaimed = (0, import_react7.useRef)(null);
+  const [speechHidden, setSpeechHidden] = (0, import_react7.useState)(false);
+  const [thumbSlot, setThumbSlot] = (0, import_react7.useState)(null);
+  const [overlaySlot, setOverlaySlot] = (0, import_react7.useState)(null);
+  const speechTimer = (0, import_react7.useRef)(null);
+  const anchor = (0, import_react7.useRef)(null);
+  const pendingReveal = (0, import_react7.useRef)(null);
   const sessionId = data?.browserSessionId ?? "";
+  const liveView = desktop || expanded;
+  const still = useStillPreview(sessionId, !liveView && !stream.closed);
   const title = data?.title || strings.sessionTitle || "Browser session";
   const url = data?.url || "";
   const site = url ? siteName(url) : "";
@@ -15363,10 +15458,10 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const visibleSpeech = speechHidden ? "" : speech;
   const waiting = pendingInput ?? null;
   const action = agentAwaitingReturn ? strings.agentWaiting || "The agent is waiting for you to return control" : stream.action ? `${strings[`action_${stream.action.kind}`] || stream.action.kind}${stream.action.target ? ` \xB7 ${stream.action.target}` : ""}` : takeoverRequested ? strings.waitingForUser || "Waiting for user input" : data?.lastAction;
-  (0, import_react6.useEffect)(() => () => {
+  (0, import_react7.useEffect)(() => () => {
     if (speechTimer.current) clearTimeout(speechTimer.current);
   }, []);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (speechTimer.current) {
       clearTimeout(speechTimer.current);
       speechTimer.current = null;
@@ -15387,10 +15482,10 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       }
     };
   }, [speech, speechHidden]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (sessionId) rememberLease(sessionId, lease);
   }, [lease, sessionId]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!lease) return;
     const beat = (adopted) => {
       void runtime().api(inputPath(sessionId, "heartbeat"), jsonRequest("POST", { leaseId: lease.leaseId })).then((value) => {
@@ -15407,14 +15502,14 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     const interval = setInterval(() => beat(false), 2e4);
     return () => clearInterval(interval);
   }, [lease, sessionId]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!lease) return;
     const controlRevision = stream.control.controlRevision;
     if (controlRevision > lease.controlRevision || controlRevision === lease.controlRevision && stream.control.state === "agent") {
       setLease((current) => current?.leaseId === lease.leaseId ? null : current);
     }
   }, [lease, stream.control.controlRevision, stream.control.state]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!sessionId || lease || stream.closed || !takeoverRequested) return;
     const revision = stream.control.controlRevision;
     if (autoClaimed.current === revision) return;
@@ -15432,33 +15527,30 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       cancelled = true;
     };
   }, [lease, sessionId, stream.closed, stream.control.controlRevision, takeoverRequested]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (expanded) return;
     const reveal = pendingReveal.current;
     if (!reveal) return;
     pendingReveal.current = null;
     reveal();
   }, [expanded]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     const node = anchor.current;
     const surface = node?.closest(".chat-surface-full");
     if (!node || !surface) return;
-    const docked = window.matchMedia("(min-width: 768px)");
     const publish = () => {
-      if (!docked.matches || expanded) surface.style.removeProperty("--chat-dock-height");
+      if (!desktop || expanded) surface.style.removeProperty("--chat-dock-height");
       else surface.style.setProperty("--chat-dock-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(node);
-    docked.addEventListener("change", publish);
     return () => {
       observer.disconnect();
-      docked.removeEventListener("change", publish);
       surface.style.removeProperty("--chat-dock-height");
     };
-  }, [expanded]);
-  const mintTicket = (0, import_react6.useCallback)(async () => {
+  }, [desktop, expanded]);
+  const mintTicket = (0, import_react7.useCallback)(async () => {
     if (!sessionId) return { kind: "refused", reason: "unavailable" };
     try {
       const issued = await runtime().api(
@@ -15475,22 +15567,33 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
   const vnc = useVncSurface({
     slot: expanded ? overlaySlot : thumbSlot,
     ticket: mintTicket,
-    // The raised canvas is the working surface and always takes input; the thumbnail is a picture and
-    // a button, so a stray wheel or key over the transcript never reaches the remote page.
-    interactive: expanded,
-    enabled: !!sessionId && !stream.closed
+    // The raised canvas is the working surface on a WIDE screen, and takes input; the thumbnail is a
+    // picture and a button, so a stray wheel or key over the transcript never reaches the remote page.
+    //
+    // On a phone the raised surface is a LOOK at the session instead: a finger cannot aim a desktop
+    // Chrome, and the surface still owns its gestures, so input would be swallowed by a canvas the reader
+    // cannot steer. The view is told to watch rather than drive, and the way out is a labelled control.
+    interactive: expanded && desktop,
+    // Below the boundary, docked, nothing connects at all: the tile is a still until the reader opens the
+    // live view. Above it nothing about this changes.
+    enabled: !!sessionId && !stream.closed && liveView
   });
-  const aspectStyle = vnc.aspect ? { "--browser-aspect": String(vnc.aspect) } : void 0;
+  const aspect = vnc.aspect ?? still.aspect;
+  const aspectStyle = aspect ? { "--browser-aspect": String(aspect) } : void 0;
   const painting = vnc.state === "connected";
   const connectingLabel = vnc.state === "viewer_limit" ? strings.viewerLimit || "Too many viewers" : vnc.state === "failed" ? strings.disconnected || "Disconnected" : vnc.state === "unavailable" ? strings.liveViewUnavailable || "The live view is unavailable" : strings.connectingImage || "Connecting to the browser image\u2026";
-  const status = (0, import_react6.useMemo)(() => {
+  const status = (0, import_react7.useMemo)(() => {
     if (stream.closed || state === "closed") return { tone: "muted", label: strings.closed || "Closed" };
-    if (vnc.state === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
-    if (stream.error || vnc.state === "failed") return { tone: "danger", label: strings.disconnected || "Disconnected" };
+    if (liveView) {
+      if (vnc.state === "viewer_limit") return { tone: "warning", label: strings.viewerLimit || "Too many viewers" };
+      if (vnc.state === "failed") return { tone: "danger", label: strings.disconnected || "Disconnected" };
+    }
+    if (stream.error) return { tone: "danger", label: strings.disconnected || "Disconnected" };
+    if (!liveView && still.state === "stalled") return { tone: "warning", label: strings.previewStalled || "The preview is not updating" };
     if (state === "user") return { tone: "accent", label: lease ? strings.youControl || "You control" : strings.userControl || "User control" };
     if (takeoverRequested) return { tone: "warning", label: strings.waitingForUser || "Waiting for user input" };
     return { tone: stream.connected ? "success" : "warning", label: stream.connected ? strings.agentControl || "Agent control" : strings.connecting || "Connecting" };
-  }, [lease, state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
+  }, [lease, liveView, state, still.state, stream.closed, stream.connected, stream.error, strings, takeoverRequested, vnc.state]);
   const run = async (name, operation) => {
     setPending(name);
     try {
@@ -15522,26 +15625,35 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
     if (!lease) return;
     void run("navigation", () => runtime().api(inputPath(sessionId, "navigation"), jsonRequest("POST", { leaseId: lease.leaseId, action: action2 })));
   };
-  const canvas = (interactive) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+  const activity = (raised) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `browser-artifact__activity ${raised && action ? "has-action" : ""}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__dot", "data-tone": status.tone, "aria-hidden": true }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: status.label }),
+    raised && action ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: action }) : null
+  ] });
+  const canvas = (raised) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "div",
     {
       className: "browser-artifact__canvas",
-      "data-interactive": interactive ? "true" : void 0,
+      "data-interactive": raised ? "true" : void 0,
       "aria-label": strings.browserViewport || "Live browser view",
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__vnc-slot", ref: interactive ? setOverlaySlot : setThumbSlot }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "browser-artifact__vnc-slot", ref: raised ? setOverlaySlot : setThumbSlot }),
         painting ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__waiting", role: "status", "aria-live": "polite", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: connectingLabel })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `browser-artifact__activity ${interactive && action ? "has-action" : ""}`, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__dot", "data-tone": status.tone, "aria-hidden": true }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sr-only", children: status.label }),
-          interactive && action ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: action }) : null
-        ] })
+        activity(raised)
       ]
     }
   );
+  const stillCanvas = () => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__canvas", "aria-label": strings.browserViewport || "Live browser view", children: [
+    still.dataUrl ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "browser-artifact__still", src: still.dataUrl, alt: "" }) : null,
+    still.state === "ready" ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__waiting", role: "status", "aria-live": "polite", children: [
+      still.state === "stalled" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ImageOff, { size: 16, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Spinner, { size: "lg" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: still.state === "stalled" ? strings.previewStalled || "The preview is not updating" : strings.connectingImage || "Connecting to the browser image\u2026" })
+    ] }),
+    activity(false)
+  ] });
   const controlAction = () => state === "user" && lease ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
     Button,
     {
@@ -15573,14 +15685,14 @@ function BrowserArtifact({ artifact, narration, pendingInput }) {
       "aria-label": strings.sessionTitle || "Browser session",
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "browser-artifact__tile", onClick: () => setExpanded(true), "aria-label": strings.enlarge || "Enlarge browser", children: [
-          canvas(false),
+          liveView ? canvas(false) : stillCanvas(),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "browser-artifact__expand", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Expand, { size: 13 }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "mt-1.5 flex items-center gap-2 text-caption text-muted-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 flex-1", children: siteLabel("browser-artifact__site--compact") }),
           controlAction()
         ] }),
-        expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect: vnc.aspect, onClose: () => setExpanded(false), children: [
+        expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(CanvasOverlay, { label: title, aspect, onClose: () => setExpanded(false), children: [
           canvas(true),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(GlassButton, { icon: X, label: strings.closeView || "Close view", onClick: () => setExpanded(false), className: "browser-artifact__dismiss" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "browser-artifact__dock", children: [
