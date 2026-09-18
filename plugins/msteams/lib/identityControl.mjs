@@ -111,8 +111,3 @@ export function createMicrosoftIdentityRuntime({ linking, people, logger }) {
     sessionForIdentity: sessionForAccountIdentity,
   };
 }
-
-/** Backwards-compatible constructor for tests and consumers that need only the narrow shared control. */
-export function createMicrosoftIdentityControl(deps) {
-  return createMicrosoftIdentityRuntime(deps).control;
-}
