@@ -1,5 +1,9 @@
 # Changelog
 
+## image-edit 0.2.5 - 2026-09-18
+
+- Remote source images now use the host's public-only HTTP transport, so loopback, private, link-local, cloud metadata and mixed public/private DNS destinations are refused before a socket opens. An operator who deliberately used an internal image host must expose it through a public address or use an allowed repository path.
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.
