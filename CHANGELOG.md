@@ -1,5 +1,9 @@
 # Changelog
 
+## image-edit 0.2.7 - 2026-09-18
+
+- Remote source image redirects work again. The plugin follows up to five standard HTTP redirects, sends every destination back through the host's public-only transport for fresh validation, and refuses a redirect to loopback, private, link-local or cloud metadata addresses.
+
 ## telegram 0.2.17 - 2026-09-19
 
 - The policy hint now states what the `admin` key really grants. It named two pickers, while the same flag also admits the /context picker and the room control commands /stop, /stats, /compact and /restart — and /restart restarts the daemon for everyone in reach of the room. An operator reading the old sentence could grant far more than they meant to.
