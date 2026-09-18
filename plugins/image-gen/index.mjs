@@ -7,54 +7,21 @@
 // code. This plugin picks the provider, the model and the size, and writes the bytes it gets back.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createImageRuntime } from './lib/runtime.mjs';
+
+export { providerUsable, resolveModel } from './lib/runtime.mjs';
 
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
 export function normalizeSize(value, fallback = '1024x1024') {
   return typeof value === 'string' && SIZES.has(value.trim()) ? value.trim() : fallback;
 }
 
-const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
-const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
-
-/** The ChatGPT account serves its own image models; an API-key endpoint serves the OpenAI ones. */
-const CODEX_PROVIDER_TYPE = 'oauth-openai-codex';
-const DEFAULT_MODEL = { [CODEX_PROVIDER_TYPE]: 'gpt-image-2.5-sunburst' };
-const FALLBACK_MODEL = 'gpt-image-1';
-
-/** A provider usable for images: an API key, or the connected ChatGPT account whose credential core holds. */
-export function providerUsable(provider) {
-  return !!provider && (!!provider.apiKey || provider.type === CODEX_PROVIDER_TYPE);
-}
-
-/** The model field may hold an exec from an older config (`orca:openai/gpt-image-1`) or a bare id; the
- *  image APIs want the bare model — the segment after the last `/`. */
-export function resolveModel(raw, providerType) {
-  const fallback = DEFAULT_MODEL[providerType] ?? FALLBACK_MODEL;
-  const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return fallback;
-  return s.slice(s.lastIndexOf('/') + 1).trim() || fallback;
-}
-
 export function register(ctx) {
-  const dataDir = ctx.dataDir();
-  if (typeof ctx.registerChatImageSource === 'function') {
-    ctx.registerChatImageSource({
-      id: 'image-gen',
-      resolve: (file) => {
-        if (!/^[a-z0-9]+\.png$/.test(file)) return null;
-        try { return { bytes: readFileSync(join(dataDir, file)), mimeType: 'image/png' }; }
-        catch { return null; }
-      },
-    });
-  }
   // Credentials come from a configured brain provider (chosen in settings) — one central account or key,
   // not a second secret entered here.
-  const providerId = typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '';
-  const provider = ctx.resolveProvider(providerId);
-  if (!providerUsable(provider)) { ctx.logger.warn('enabled but no usable image provider configured — tool not registered'); return; }
-  const model = resolveModel(ctx.config.model, provider.type);
+  const runtime = createImageRuntime(ctx, 'image-gen');
+  if (!runtime) return;
+  const { providerId, provider, model } = runtime;
   const defaultSize = normalizeSize(ctx.config.size);
 
   ctx.registerTool(defineTool({
@@ -80,15 +47,12 @@ export function register(ctx) {
     execute: async (_id, p) => {
       try {
         const prompt = typeof p.prompt === 'string' ? p.prompt.trim() : '';
-        if (!prompt) return ok('Error: prompt is required.');
-        const image = await ctx.images.generate({
-          providerId, model, prompt, size: normalizeSize(p.size, defaultSize),
-        });
-        const file = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`;
-        writeFileSync(join(ctx.dataDir(), file), image.png);
+        if (!prompt) return runtime.ok('Error: prompt is required.');
         // The daemon serves this plugin's data dir on /brain/images — the markdown renders inline.
-        return ok(`![${prompt.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
-      } catch (e) { return fail(e); }
+        return runtime.render('generate', {
+          providerId, model, prompt, size: normalizeSize(p.size, defaultSize),
+        }, prompt);
+      } catch (e) { return runtime.fail(e); }
     },
   }));
 
