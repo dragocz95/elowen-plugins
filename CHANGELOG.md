@@ -7,6 +7,10 @@
 ## editor 0.4.8 - 2026-09-18
 
 - The kernel-VFS exclusion list existed twice: one array behind the host system-root guard in `files.ts`, another behind the managed guest rule in `editorRoots.ts`, the second copied from the first. One safety list in two copies means a path added to one stays servable through the other, so the list now lives once — exported from the node-free `editorRoots.ts` the browser bundle already imports, consumed by both roots — with a regression test that appends a path to the shared list and proves both consumers refuse it. The excluded paths themselves are unchanged.
+## image-gen 0.2.5, image-edit 0.2.6 - 2026-09-18
+
+- Shared provider resolution, output registration, PNG saving and inline-markdown response plumbing now use one internal runtime implementation, mirrored only because the marketplace installs each plugin directory independently and protected by a byte-parity test. Their public tools and wording are unchanged, and their different size contracts remain explicit: generation falls back to its configured default while editing omits an invalid or `auto` size so the model chooses.
+
 ## msteams 0.8.1 - 2026-09-18
 
 - Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.

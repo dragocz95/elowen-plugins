@@ -7,31 +7,13 @@
 // the source bytes and writes the result.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { createImageRuntime } from './lib/runtime.mjs';
+
+export { providerUsable, resolveModel } from './lib/runtime.mjs';
 
 const FETCH_TIMEOUT_MS = 120_000;
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
-const ok = (text) => ({ content: [{ type: 'text', text }], details: {} });
-const fail = (e) => ok(`Error: ${e instanceof Error ? e.message : String(e)}`);
-
-const CODEX_PROVIDER_TYPE = 'oauth-openai-codex';
-const DEFAULT_MODEL = { [CODEX_PROVIDER_TYPE]: 'gpt-image-2.5-sunburst' };
-const FALLBACK_MODEL = 'gpt-image-1';
-
-/** A provider usable for images: an API key, or the connected ChatGPT account whose credential core holds. */
-export function providerUsable(provider) {
-  return !!provider && (!!provider.apiKey || provider.type === CODEX_PROVIDER_TYPE);
-}
-
-/** The model field may hold an exec from an older config (`orca:openai/gpt-image-1`) or a bare id; the
- *  image APIs want the bare model — the segment after the last `/`. */
-export function resolveModel(raw, providerType) {
-  const fallback = DEFAULT_MODEL[providerType] ?? FALLBACK_MODEL;
-  const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return fallback;
-  return s.slice(s.lastIndexOf('/') + 1).trim() || fallback;
-}
 
 /** "auto" and anything unrecognised mean "let the model choose", which both transports express by simply
  *  not sending a size. */
@@ -40,22 +22,10 @@ export function editSize(value) {
 }
 
 export function register(ctx) {
-  const dataDir = ctx.dataDir();
-  if (typeof ctx.registerChatImageSource === 'function') {
-    ctx.registerChatImageSource({
-      id: 'image-edit',
-      resolve: (file) => {
-        if (!/^[a-z0-9]+\.png$/.test(file)) return null;
-        try { return { bytes: readFileSync(join(dataDir, file)), mimeType: 'image/png' }; }
-        catch { return null; }
-      },
-    });
-  }
   // Credentials come from a configured brain provider (chosen in settings) — one central account or key.
-  const providerId = typeof ctx.config.provider === 'string' ? ctx.config.provider.trim() : '';
-  const provider = ctx.resolveProvider(providerId);
-  if (!providerUsable(provider)) { ctx.logger.warn('enabled but no usable image provider configured — tool not registered'); return; }
-  const model = resolveModel(ctx.config.model, provider.type);
+  const runtime = createImageRuntime(ctx, 'image-edit');
+  if (!runtime) return;
+  const { providerId, provider, model } = runtime;
   const publicHttp = ctx.host.publicHttp();
 
   ctx.registerTool(defineTool({
@@ -83,12 +53,12 @@ export function register(ctx) {
     execute: async (_id, p) => {
       try {
         const instruction = typeof p.instruction === 'string' ? p.instruction.trim() : '';
-        if (!instruction) return ok('Error: instruction is required.');
+        if (!instruction) return runtime.ok('Error: instruction is required.');
         // Load the source bytes from a guarded repo path or a public URL.
         let bytes;
         let mime = 'image/png';
         if (p.path) {
-          if (!/\.(?:png|jpe?g)$/i.test(String(p.path))) return ok('Error: path must point to a PNG or JPEG image.');
+          if (!/\.(?:png|jpe?g)$/i.test(String(p.path))) return runtime.ok('Error: path must point to a PNG or JPEG image.');
           bytes = readFileSync(ctx.assertPathAllowed(p.path));
           if (/\.jpe?g$/i.test(p.path)) mime = 'image/jpeg';
         } else if (p.url) {
@@ -107,17 +77,14 @@ export function register(ctx) {
           mime = contentType || mime;
           bytes = Buffer.concat(chunks);
         } else {
-          return ok('Error: provide either a repo file path or a public image URL.');
+          return runtime.ok('Error: provide either a repo file path or a public image URL.');
         }
 
         const size = editSize(p.size);
-        const image = await ctx.images.edit({
+        return runtime.render('edit', {
           providerId, model, prompt: instruction, images: [{ bytes, mime }], ...(size ? { size } : {}),
-        });
-        const file = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.png`;
-        writeFileSync(join(ctx.dataDir(), file), image.png);
-        return ok(`![${instruction.slice(0, 80).replaceAll(']', '')}](/api/brain/images/${file})`);
-      } catch (e) { return fail(e); }
+        }, instruction);
+      } catch (e) { return runtime.fail(e); }
     },
   }));
 

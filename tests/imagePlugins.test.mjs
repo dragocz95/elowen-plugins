@@ -3,7 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { register as registerGen, resolveModel as genModel, providerUsable } from '../plugins/image-gen/index.mjs';
+import {
+  normalizeSize,
+  providerUsable,
+  register as registerGen,
+  resolveModel as genModel,
+} from '../plugins/image-gen/index.mjs';
 import { register as registerEdit, editSize } from '../plugins/image-edit/index.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
@@ -49,6 +54,23 @@ function makeCtx({ provider, config = {}, dir = dataDir(), publicHttp } = {}) {
 
 const chatgpt = { id: 'p1', label: 'ChatGPT account', type: 'oauth-openai-codex', baseUrl: '', apiKey: null };
 const keyed = { id: 'p1', label: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-x' };
+
+describe('image plugin shared plumbing and distinct size contracts', () => {
+  it('keeps the independently installed runtime modules byte-identical', () => {
+    const generated = readFileSync(new URL('../plugins/image-gen/lib/runtime.mjs', import.meta.url), 'utf8');
+    const edited = readFileSync(new URL('../plugins/image-edit/lib/runtime.mjs', import.meta.url), 'utf8');
+    assert.equal(edited, generated);
+  });
+
+  it('defaults invalid generation sizes but leaves edit sizes for the model to choose', () => {
+    assert.equal(normalizeSize('bogus', '1536x1024'), '1536x1024');
+    assert.equal(editSize('bogus'), undefined);
+    assert.equal(normalizeSize('auto'), '1024x1024');
+    assert.equal(editSize('auto'), undefined);
+    assert.equal(normalizeSize('1024x1536'), '1024x1536');
+    assert.equal(editSize('1024x1536'), '1024x1536');
+  });
+});
 
 describe('image-gen on the host image seam', () => {
   // The old plugin required `provider.apiKey`, so a ChatGPT account — which has no key at all, only a
