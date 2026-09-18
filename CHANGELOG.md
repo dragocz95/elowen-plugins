@@ -3,6 +3,13 @@
 ## msteams 0.8.1 - 2026-09-18
 
 - Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.
+## github 0.1.20 - 2026-09-18
+
+- Delete 16 orphaned github translation keys (web.strings) with zero code references across web-src; error_* keys are kept because runtime.ts composes them from a prefix.
+
+## cronjob 0.6.7 - 2026-09-18
+
+- Delete 43 orphaned cronjob translation keys (web.strings) with zero code references across web-src, execution.mjs and index.mjs; weekday* keys are kept because fields.tsx composes them from a prefix.
 
 ## sites 0.14.4 - 2026-09-18
 

@@ -48,7 +48,6 @@ describe('GitHub plugin UI', () => {
     // holding nothing but a Connect action already says as much.
     expect(await screen.findByText(strings.title)).toBeInTheDocument();
     expect(screen.getByText(strings.intro)).toBeInTheDocument();
-    expect(screen.queryByText(strings.accountTitle)).toBeNull();
     expect(screen.getByRole('button', { name: strings.connect })).toBeEnabled();
     expect(setupRequests).toBe(0);
   });

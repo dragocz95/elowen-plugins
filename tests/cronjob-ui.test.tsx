@@ -157,7 +157,6 @@ describe('automation week calendar', () => {
     expect(screen.getByText(strings.tabHistory)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: strings.calToday })).toBeInTheDocument();
     expect(screen.getByText(strings.viewWeek)).toBeInTheDocument();
-    expect(screen.queryByText(strings.calMonthLabel)).toBeNull();
   });
 
   it('renders each job once per day card and keeps a 720-fire poll out of the timeline', async () => {
