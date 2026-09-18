@@ -19,6 +19,7 @@ import { registerGitHubApi } from '../plugins/github/src/api.js';
 import { registerGitHubTools } from '../plugins/github/src/tools.js';
 import { register } from '../plugins/github/src/index.js';
 import manifest from '../plugins/github/elowen-plugin.json' with { type: 'json' };
+import registry from '../registry.json' with { type: 'json' };
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -509,7 +510,8 @@ describe('GitHub plugin', () => {
 
   it('declares device auth without App setup or callback routes', () => {
     expect(manifest.userGrantable).not.toBe(true);
-    expect(manifest.version).toBe('0.1.18');
+    const catalog = registry.plugins.find((entry) => entry.name === manifest.name);
+    expect(catalog).toMatchObject({ name: manifest.name, version: manifest.version });
     // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
     // because the HOST reads that off the manifest and an older one just falls back to a rail section.
     // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also
