@@ -199,6 +199,126 @@ describe('image-edit on the host image seam', () => {
     });
   }
 
+  it('follows a public redirect through publicHttp', async () => {
+    const requests = [];
+    const cancelled = [];
+    const publicHttp = {
+      validate: async (raw) => new URL(raw).toString(),
+      request: async (raw, options) => {
+        const normalized = await publicHttp.validate(raw);
+        requests.push({ raw: normalized, options });
+        if (normalized === 'https://images.example/start') {
+          return {
+            url: normalized,
+            status: 302,
+            statusText: 'Found',
+            headers: { location: '/photo.jpg' },
+            body: (async function* body() {})(),
+            cancel() { cancelled.push(normalized); },
+          };
+        }
+        return {
+          url: normalized,
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'image/jpeg' },
+          body: (async function* body() { yield Buffer.from('REDIRECTED'); }()),
+          cancel() {},
+        };
+      },
+    };
+    const host = makeCtx({ provider: keyed, publicHttp });
+    registerEdit(host.ctx);
+
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x',
+      url: 'https://images.example/start',
+    });
+
+    assert.match(out.content[0].text, /\/api\/brain\/images\//);
+    assert.deepEqual(requests.map(({ raw }) => raw), [
+      'https://images.example/start',
+      'https://images.example/photo.jpg',
+    ]);
+    assert.ok(requests.every(({ options }) => options.signal instanceof AbortSignal));
+    assert.deepEqual(cancelled, ['https://images.example/start']);
+    assert.equal(Buffer.from(host.calls.edit[0].images[0].bytes).toString(), 'REDIRECTED');
+  });
+
+  it('refuses a public redirect to a non-global destination', async () => {
+    const requested = [];
+    const validated = [];
+    const publicHttp = {
+      validate: async (raw) => {
+        const normalized = new URL(raw).toString();
+        validated.push(normalized);
+        if (normalized === 'http://127.0.0.1/private') {
+          throw new Error('URL resolves to a non-global address');
+        }
+        return normalized;
+      },
+      request: async (raw) => {
+        const normalized = await publicHttp.validate(raw);
+        requested.push(normalized);
+        return {
+          url: normalized,
+          status: 302,
+          statusText: 'Found',
+          headers: { location: 'http://127.0.0.1/private' },
+          body: (async function* body() {})(),
+          cancel() {},
+        };
+      },
+    };
+    const host = makeCtx({ provider: keyed, publicHttp });
+    registerEdit(host.ctx);
+
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x',
+      url: 'https://images.example/start',
+    });
+
+    assert.match(out.content[0].text, /non-global address/i);
+    assert.deepEqual(requested, ['https://images.example/start']);
+    assert.deepEqual(validated, [
+      'https://images.example/start',
+      'http://127.0.0.1/private',
+    ]);
+    assert.equal(host.calls.edit.length, 0);
+  });
+
+  it('stops after five public redirects', async () => {
+    const requests = [];
+    const publicHttp = {
+      validate: async (raw) => new URL(raw).toString(),
+      request: async (raw) => {
+        const normalized = await publicHttp.validate(raw);
+        requests.push(normalized);
+        const next = new URL(normalized);
+        next.searchParams.set('hop', String(requests.length));
+        return {
+          url: normalized,
+          status: 302,
+          statusText: 'Found',
+          headers: { location: next.toString() },
+          body: (async function* body() {})(),
+          cancel() {},
+        };
+      },
+    };
+    const host = makeCtx({ provider: keyed, publicHttp });
+    registerEdit(host.ctx);
+
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x',
+      url: 'https://images.example/start',
+    });
+
+    assert.match(out.content[0].text, /too many redirects/i);
+    assert.equal(requests.length, 6);
+    assert.equal(host.calls.edit.length, 0);
+  });
+
   it('loads a public source through publicHttp', async () => {
     const validated = [];
     const requests = [];

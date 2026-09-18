@@ -13,7 +13,24 @@ import { createImageRuntime } from './lib/runtime.mjs';
 export { providerUsable, resolveModel } from './lib/runtime.mjs';
 
 const FETCH_TIMEOUT_MS = 120_000;
+const MAX_SOURCE_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
+
+async function requestSource(publicHttp, raw, signal) {
+  let url = raw;
+  for (let redirects = 0; ; redirects += 1) {
+    const response = await publicHttp.request(url, { signal });
+    const location = REDIRECT_STATUSES.has(response.status) ? response.headers.location : undefined;
+    if (!location) return response;
+
+    let next;
+    try { next = new URL(location, response.url).toString(); }
+    finally { response.cancel(); }
+    if (redirects >= MAX_SOURCE_REDIRECTS) throw new Error('source URL has too many redirects');
+    url = next;
+  }
+}
 
 /** "auto" and anything unrecognised mean "let the model choose", which both transports express by simply
  *  not sending a size. */
@@ -62,7 +79,7 @@ export function register(ctx) {
           bytes = readFileSync(ctx.assertPathAllowed(p.path));
           if (/\.jpe?g$/i.test(p.path)) mime = 'image/jpeg';
         } else if (p.url) {
-          const r = await publicHttp.request(p.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+          const r = await requestSource(publicHttp, p.url, AbortSignal.timeout(FETCH_TIMEOUT_MS));
           if (r.status < 200 || r.status >= 300) {
             r.cancel();
             throw new Error(`fetch source HTTP ${r.status}`);
