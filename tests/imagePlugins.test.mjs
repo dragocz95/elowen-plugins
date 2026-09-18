@@ -13,14 +13,18 @@ after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
 const PNG = Buffer.from('PNG-BYTES');
 
-/** The daemon builds `ctx` in `loadPlugins`; here it is the exact set of seams these plugins read. The
- *  image transport is the host's (`ctx.images`), so the stub records what the plugin asked for — that
- *  request IS the plugin's whole contribution now that no fetch or credential lives in it. */
-function makeCtx({ provider, config = {}, dir = dataDir() }) {
+/** The daemon builds `ctx` in `loadPlugins`; here it is the exact set of seams these plugins read. Image
+ *  rendering stays in `ctx.images`, while remote source loading stays in `ctx.host.publicHttp`; no raw fetch
+ *  or credential lives in either plugin. */
+function makeCtx({ provider, config = {}, dir = dataDir(), publicHttp } = {}) {
   const calls = { generate: [], edit: [] };
   const tools = new Map();
   const sources = [];
   const image = { png: PNG, model: 'm', size: '1024x1024', quality: 'low', format: 'png', usage: null };
+  const network = publicHttp ?? {
+    validate: async (url) => url,
+    request: async () => { throw new Error('unexpected public HTTP request'); },
+  };
   return {
     calls,
     tools,
@@ -34,6 +38,7 @@ function makeCtx({ provider, config = {}, dir = dataDir() }) {
       assertPathAllowed: (p) => p,
       registerTool: (tool) => tools.set(tool.name, tool),
       registerChatImageSource: (source) => sources.push(source),
+      host: { publicHttp: () => network },
       images: {
         generate: async (req) => { calls.generate.push(req); return image; },
         edit: async (req) => { calls.edit.push(req); return image; },
@@ -116,5 +121,105 @@ describe('image-edit on the host image seam', () => {
     const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x' });
     assert.match(out.content[0].text, /repo file path or a public image URL/);
     assert.equal(host.calls.edit.length, 0);
+  });
+
+  const refusedSources = [
+    ['loopback', 'http://127.0.0.1/private', ['127.0.0.1']],
+    ['RFC1918', 'http://10.0.0.1/private', ['10.0.0.1']],
+    ['link-local', 'http://169.254.1.1/private', ['169.254.1.1']],
+    ['cloud metadata', 'http://169.254.169.254/latest/meta-data', ['169.254.169.254']],
+    ['mixed DNS response', 'https://rebind.example/private', ['93.184.216.34', '127.0.0.1']],
+  ];
+
+  for (const [kind, url, answers] of refusedSources) {
+    it(`refuses ${kind} source URLs before opening a socket`, async () => {
+      const validated = [];
+      let transportSockets = 0;
+      const publicHttp = {
+        validate: async (raw) => {
+          validated.push(raw);
+          if (answers.some((address) => address !== '93.184.216.34')) {
+            throw new Error('URL resolves to a non-global address');
+          }
+          return new URL(raw).toString();
+        },
+        request: async (raw) => {
+          const normalized = await publicHttp.validate(raw);
+          transportSockets += 1;
+          return {
+            url: normalized,
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'image/png' },
+            body: (async function* body() { yield Buffer.from('REMOTE'); }()),
+            cancel() {},
+          };
+        },
+      };
+      const host = makeCtx({ provider: keyed, publicHttp });
+      registerEdit(host.ctx);
+      const originalFetch = globalThis.fetch;
+      let rawFetchSockets = 0;
+      globalThis.fetch = async () => {
+        rawFetchSockets += 1;
+        return new Response('REMOTE', { headers: { 'content-type': 'image/png' } });
+      };
+      try {
+        const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x', url });
+        assert.match(out.content[0].text, /non-global address/i);
+        assert.deepEqual(validated, [url]);
+        assert.equal(transportSockets, 0);
+        assert.equal(rawFetchSockets, 0);
+        assert.equal(host.calls.edit.length, 0);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  }
+
+  it('loads a public source through publicHttp', async () => {
+    const validated = [];
+    const requests = [];
+    let transportSockets = 0;
+    const publicHttp = {
+      validate: async (raw) => { validated.push(raw); return new URL(raw).toString(); },
+      request: async (raw, options) => {
+        requests.push({ raw, options });
+        const normalized = await publicHttp.validate(raw);
+        transportSockets += 1;
+        return {
+          url: normalized,
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'image/jpeg; charset=binary' },
+          body: (async function* body() { yield Buffer.from('REMOTE'); }()),
+          cancel() {},
+        };
+      },
+    };
+    const host = makeCtx({ provider: keyed, publicHttp });
+    registerEdit(host.ctx);
+    const originalFetch = globalThis.fetch;
+    let rawFetchSockets = 0;
+    globalThis.fetch = async () => {
+      rawFetchSockets += 1;
+      return new Response('WRONG', { headers: { 'content-type': 'image/png' } });
+    };
+    try {
+      const url = 'https://images.example/photo.jpg';
+      const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x', url });
+      assert.match(out.content[0].text, /\/api\/brain\/images\//);
+      assert.deepEqual(validated, [url]);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].raw, url);
+      assert.ok(requests[0].options.signal instanceof AbortSignal);
+      assert.equal(transportSockets, 1);
+      assert.equal(rawFetchSockets, 0);
+      assert.equal(host.calls.edit.length, 1);
+      assert.equal(host.calls.edit[0].images[0].mime, 'image/jpeg');
+      assert.equal(Buffer.from(host.calls.edit[0].images[0].bytes).toString(), 'REMOTE');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

@@ -56,6 +56,7 @@ export function register(ctx) {
   const provider = ctx.resolveProvider(providerId);
   if (!providerUsable(provider)) { ctx.logger.warn('enabled but no usable image provider configured — tool not registered'); return; }
   const model = resolveModel(ctx.config.model, provider.type);
+  const publicHttp = ctx.host.publicHttp();
 
   ctx.registerTool(defineTool({
     name: 'EditImage', label: 'Edit image',
@@ -91,14 +92,20 @@ export function register(ctx) {
           bytes = readFileSync(ctx.assertPathAllowed(p.path));
           if (/\.jpe?g$/i.test(p.path)) mime = 'image/jpeg';
         } else if (p.url) {
-          const u = new URL(p.url);
-          if (u.protocol !== 'http:' && u.protocol !== 'https:') return ok('Error: url must be http(s).');
-          const r = await fetch(u, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-          if (!r.ok) throw new Error(`fetch source HTTP ${r.status}`);
-          const contentType = r.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || '';
-          if (contentType && !['image/png', 'image/jpeg'].includes(contentType)) throw new Error('source URL must return a PNG or JPEG image');
+          const r = await publicHttp.request(p.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+          if (r.status < 200 || r.status >= 300) {
+            r.cancel();
+            throw new Error(`fetch source HTTP ${r.status}`);
+          }
+          const contentType = r.headers['content-type']?.split(';')[0].trim().toLowerCase() || '';
+          if (contentType && !['image/png', 'image/jpeg'].includes(contentType)) {
+            r.cancel();
+            throw new Error('source URL must return a PNG or JPEG image');
+          }
+          const chunks = [];
+          for await (const chunk of r.body) chunks.push(Buffer.from(chunk));
           mime = contentType || mime;
-          bytes = Buffer.from(await r.arrayBuffer());
+          bytes = Buffer.concat(chunks);
         } else {
           return ok('Error: provide either a repo file path or a public image URL.');
         }
