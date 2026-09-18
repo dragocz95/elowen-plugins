@@ -34,6 +34,7 @@ import { readPageFavicon } from '../plugins/browser/src/page-favicon.js';
 import { TabManager } from '../plugins/browser/src/tab-manager.js';
 import { artifactData, UNAVAILABLE_ARTIFACT_PUBLISHER } from '../plugins/browser/src/artifact.js';
 import { registerBrowserApi } from '../plugins/browser/src/api.js';
+import { BrowserAccessError } from '../plugins/browser/src/ownership.js';
 import { registerBrowserTools } from '../plugins/browser/src/tools.js';
 import type {
   BrowserArtifactPublisher, BrowserLike, BrowserLogger, BrowserProcessFactory, BrowserProxyFactory, CDPSessionLike, PageLike, ProcessInspector,
@@ -288,7 +289,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.4.3, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.4.4, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -296,7 +297,7 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[]; controls?: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.4.3');
+    expect(manifest.version).toBe('0.4.4');
     // The capture seam is DECLARED, not merely registered: a control a sibling plugin resolves has to be
     // visible in the manifest, or an operator reading it cannot tell which plugins reach into which.
     expect(manifest.provides.controls).toEqual(['browserCapture']);
@@ -1690,6 +1691,20 @@ describe('browser takeover state machine', () => {
     await expect(session.releaseTakeover(first.leaseId)).rejects.toThrow(/stale or invalid/);
     await session.releaseTakeover(second.leaseId);
     expect(session.state).toBe('agent');
+    await session.close();
+  });
+
+  it('marks a takeover conflict with a typed status, not by matching the error text', async () => {
+    // RBUG-03: the API route used to derive the HTTP status from string equality on the error
+    // message (see api.ts's old responseError), so rewording this sentence silently flipped a
+    // 409 into a 400 with nothing failing at the throw site. This asserts the status through the
+    // typed `BrowserAccessError` carrier instead, so it stays correct regardless of the wording.
+    const { session } = await createSession();
+    await session.claimTakeover();
+    let caught: unknown;
+    try { await session.claimTakeover(); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(BrowserAccessError);
+    expect((caught as BrowserAccessError).status).toBe(409);
     await session.close();
   });
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## browser 0.4.4 - 2026-09-18
+
+- The API route derived a session's HTTP status by matching the exact wording of its error message, so rewording either sentence silently turned a 404 or 409 into a 400 with nothing failing at the throw site. The takeover conflict now throws the plugin's typed access error with its status attached, read at the route instead of guessed from the message.
+
 ## skills 0.4.8 - 2026-09-18
 
 - A plugin contribution an account has switched off no longer carries a 'Disabled for account' badge: the row's own switch is that statement, and repeating it beside the source badge said the same thing twice. The write behind that switch also answers immediately now, so the control stops looking stuck.

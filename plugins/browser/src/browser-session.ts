@@ -16,6 +16,7 @@ import {
   capturePerformanceMetrics, ProcessTraceLock, TraceRecorder,
   type PerformanceMetrics, type TraceSummary,
 } from './performance-probe.js';
+import { BrowserAccessError } from './ownership.js';
 import { boundText } from './redaction.js';
 import { BrowserStore } from './store.js';
 import type { TabManager } from './tab-manager.js';
@@ -456,7 +457,7 @@ export class BrowserSession {
    *  re-checks `stateValue` inside the queue and steps aside once it sees `user`. */
   async claimTakeover(): Promise<{ leaseId: string; expiresAt: number; controlRevision: number }> {
     this.assertOpen();
-    if (this.lease && this.lease.expiresAt > this.deps.clock.now()) throw new Error('Browser is already under user control.');
+    if (this.lease && this.lease.expiresAt > this.deps.clock.now()) throw new BrowserAccessError('Browser is already under user control.', 409);
     const now = this.deps.clock.now();
     const controlRevision = ++this.controlRevisionValue;
     // A takeover that ANSWERS the agent's own hand-off keeps saying so. Clearing the reason here would
