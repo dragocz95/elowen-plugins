@@ -97,6 +97,29 @@ for (const name of folders) {
     assert.equal(entry.requiresSharedApi, manifest.requiresSharedApi, `${name}: catalog requiresSharedApi disagrees with the manifest`);
   });
 
+  // `provides` in the catalog is a summary of the manifest written by hand at release time, so it goes
+  // stale the moment a plugin gains a tool or a route and nobody re-reads the manifest. The counts are
+  // what the marketplace UI shows and what an installer reasons about; a wrong one is a catalog that
+  // lies about the plugin. `tests/sites.test.mjs` already pinned this pair for the sites plugin alone —
+  // this is the same per-key equality applied to every entry, for every key the catalog chooses to
+  // list (it legitimately omits some, like readOnlyTools, so only listed keys are compared).
+  test(`${name}: catalog provides counts match its manifest`, () => {
+    const manifest = manifestOf(name);
+    const entry = catalog.plugins.find((p) => p.name === name);
+    assert.ok(entry, `${name} is not in registry.json`);
+    for (const [key, listed] of Object.entries(entry.provides ?? {})) {
+      const declared = manifest.provides?.[key];
+      assert.ok(Array.isArray(declared), `${name}: catalog lists provides.${key} but the manifest declares no such list`);
+      if (Array.isArray(listed)) {
+        // github and msteams name their controls in the catalog instead of counting them; the set must
+        // still be the manifest's, or the install prompt offers a control that is never published.
+        assert.deepEqual([...listed].sort(), [...declared].sort(), `${name}: catalog provides.${key} is not the manifest's list`);
+      } else {
+        assert.equal(listed, declared.length, `${name}: catalog says provides.${key} ${listed}, the manifest declares ${declared.length}`);
+      }
+    }
+  });
+
   test(`${name}: the entry point named by its manifest exists`, () => {
     // The daemon imports exactly this path after copying the folder, and the marketplace refuses an
     // install whose entry is missing. For a compiled plugin this is also what proves the built output
