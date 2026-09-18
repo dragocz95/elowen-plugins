@@ -6,11 +6,7 @@ Semantic code index: search your repositories by meaning instead of literal text
 
 Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `codebase` plugin.
 
-| | |
-| --- | --- |
-| Version | `0.1.4` |
-| Requires core | `0.28.35` |
-| Requires shared API | `not declared` |
+This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
 
 ## Tools
 

@@ -8,10 +8,9 @@ Install it from Settings -> Plugins -> Available in the Elowen web interface, or
 
 | | |
 | --- | --- |
-| Version | `0.5.3` |
-| Requires core | `0.28.46` |
-| Requires shared API | `4` |
 | User-grantable | Yes |
+
+This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
 
 ## Tools
 

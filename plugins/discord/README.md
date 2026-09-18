@@ -6,11 +6,7 @@ Discord bot that answers from Elowen AI, with slash commands, per-channel presen
 
 Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `discord` plugin.
 
-| | |
-| --- | --- |
-| Version | `0.3.20` |
-| Requires core | `0.28.11` |
-| Requires shared API | `4` |
+This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
 
 ## Tools
 
