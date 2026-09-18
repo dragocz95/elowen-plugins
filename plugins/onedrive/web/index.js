@@ -256,28 +256,34 @@ function ConflictsRail({ row, onClose, onResolved }) {
     if (!resolve.isPending) onClose();
   }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mb-3 text-xs text-muted-foreground", children: s.conflictsHint }),
-    conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr)", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, className: "font-mono text-xs", children: conflict.rel }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.Button,
-          {
-            disabled: resolve.isPending,
-            onClick: () => resolve.mutate({ rel: conflict.rel, keep: "local" }),
-            children: s.keepLocal
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.Button,
-          {
-            variant: "ghost",
-            disabled: resolve.isPending,
-            onClick: () => resolve.mutate({ rel: conflict.rel, keep: "remote" }),
-            children: s.keepRemote
-          }
-        )
-      ] }) })
-    ] }, conflict.rel)) }),
+    conflicts.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.LoadingState, { variant: "list" }) : conflicts.isError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: utils.apiErrorMessage(conflicts.error), onRetry: () => conflicts.refetch() }) : (conflicts.data?.conflicts ?? []).length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.EmptyState, { title: s.conflictsEmpty }) : (
+      /* Both templates carry the two tracks the row's own cells occupy. The compact one used to
+         ask for a single `minmax(0,1fr)`, so from 40rem to 56rem the file path and its two buttons
+         were laid into a column and a half — a register whose narrow layout stacked a record over
+         three lines instead of closing ranks the way every host register does. */
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.conflicts, columns: "minmax(0,1fr) auto", compactColumns: "minmax(0,1fr) auto", children: (conflicts.data?.conflicts ?? []).map((conflict) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, className: "font-mono text-xs", children: conflict.rel }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: "auto", className: "justify-end", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap justify-end gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            C.Button,
+            {
+              disabled: resolve.isPending,
+              onClick: () => resolve.mutate({ rel: conflict.rel, keep: "local" }),
+              children: s.keepLocal
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            C.Button,
+            {
+              variant: "ghost",
+              disabled: resolve.isPending,
+              onClick: () => resolve.mutate({ rel: conflict.rel, keep: "remote" }),
+              children: s.keepRemote
+            }
+          )
+        ] }) })
+      ] }, conflict.rel)) })
+    ),
     resolveError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ErrorState, { message: resolveError, onRetry: () => {
       setResolveError(null);
       conflicts.refetch();
@@ -544,7 +550,7 @@ function OneDriveProjectPanel({ project }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs text-muted-foreground", children: s.workspacesHint })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.workspaces, columns: "minmax(0,1fr) 7rem auto", compactColumns: "minmax(0,1fr)", children: data.workspaces.map((workspace) => {
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTable, { ariaLabel: s.workspaces, columns: "minmax(0,1fr) 7rem auto", compactColumns: "minmax(0,1fr) 7rem auto", children: data.workspaces.map((workspace) => {
         const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
         return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.DataTableRow, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.DataTableCell, { lines: 1, children: workspace.label }),

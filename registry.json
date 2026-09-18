@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "requiresCore": "0.28.46",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
@@ -28,7 +28,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.5",
+      "version": "0.6.6",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
@@ -71,7 +71,7 @@
     },
     {
       "name": "github",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "requiresCore": "0.28.42",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
@@ -143,7 +143,7 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "requiresCore": "0.28.46",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",

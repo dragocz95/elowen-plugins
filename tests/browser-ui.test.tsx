@@ -796,7 +796,7 @@ describe('browser plugin UI', () => {
     const Wrapper = wrapper();
     const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
     expect(await screen.findByText('2.0 KiB')).toBeInTheDocument();
-    expect(screen.getByText('secret-sessi…')).toBeInTheDocument();
+    expect(screen.getByText('secret-sessi')).toBeInTheDocument();
     view.unmount();
     render(<Wrapper><ToastProvider><BrowserSettings plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
     // Capacity is a settings record too: the label names the figure, the badge carries it.
@@ -876,7 +876,7 @@ describe('browser plugin UI', () => {
       expect(within(cells[3] as HTMLElement).getByRole('button', { name: strings.closeSession })).toBeInTheDocument();
     }
     // The identity cell carries the clipped id AND who is holding the session, one under the other.
-    expect(within(rows[0] as HTMLElement).getByText('session-alph…')).toBeInTheDocument();
+    expect(within(rows[0] as HTMLElement).getByText('session-alph')).toBeInTheDocument();
     expect(within(rows[0] as HTMLElement).getByText(strings.agentControl)).toBeInTheDocument();
     expect(within(rows[1] as HTMLElement).getByText(strings.userControl)).toBeInTheDocument();
 
@@ -954,7 +954,7 @@ describe('browser plugin UI', () => {
     // Several stills can be on screen at once, so each says WHICH session it is a picture of rather than
     // announcing the same name twice to a screen reader.
     expect(stills.map((still) => still.getAttribute('alt')))
-      .toEqual([`${strings.sessionPreview}: session-alph…`, `${strings.sessionPreview}: session-beta…`]);
+      .toEqual([`${strings.sessionPreview}: session-alph`, `${strings.sessionPreview}: session-beta`]);
     // The image carries the size it actually came back at, so the box has its shape before it decodes.
     expect(stills[0]).toHaveAttribute('width', '480');
     expect(stills[0]).toHaveAttribute('height', '300');
@@ -983,8 +983,8 @@ describe('browser plugin UI', () => {
       render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 
       // The row is drawn in full while hidden — it simply carries the placeholder, in the same box.
-      expect(await screen.findByText('session-alph…')).toBeInTheDocument();
-      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph…` })).toBeInTheDocument();
+      expect(await screen.findByText('session-alph')).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph` })).toBeInTheDocument();
       expect(screen.queryByRole('img', { name: new RegExp(strings.sessionPreview) })).toBeNull();
       expect(asked).toBe(0);
 
@@ -992,7 +992,7 @@ describe('browser plugin UI', () => {
       await waitFor(() => expect(asked).toBe(1));
       // The answer was "no picture right now", which is the placeholder's other cause and not an error:
       // the panel stays whole rather than dropping to the error state.
-      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph…` })).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph` })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     } finally {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
@@ -1126,7 +1126,7 @@ describe('browser plugin UI', () => {
     expect(screen.getByText(csStrings.sessionsRunning.replace('{count}', '1'))).toBeInTheDocument();
     // The still's own two states are named for a screen reader, so they are translated like everything
     // else on the panel rather than left as the only English on a Czech page.
-    expect(screen.getByRole('img', { name: `${csStrings.previewPending}: secret-sessi…` })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: `${csStrings.previewPending}: secret-sessi` })).toBeInTheDocument();
     // The English originals are gone, not merely covered up.
     for (const english of [strings.profileStorage, strings.storageUsed, strings.liveSessions, strings.agentControl]) {
       expect(within(view.container).queryByText(english)).toBeNull();

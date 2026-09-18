@@ -57,7 +57,11 @@ function ConflictsRail({ row, onClose, onResolved }: { row: MirrorRow; onClose: 
           : (conflicts.data?.conflicts ?? []).length === 0
             ? <C.EmptyState title={s.conflictsEmpty} />
             : (
-            <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr)">
+            /* Both templates carry the two tracks the row's own cells occupy. The compact one used to
+               ask for a single `minmax(0,1fr)`, so from 40rem to 56rem the file path and its two buttons
+               were laid into a column and a half — a register whose narrow layout stacked a record over
+               three lines instead of closing ranks the way every host register does. */
+            <C.DataTable ariaLabel={s.conflicts} columns="minmax(0,1fr) auto" compactColumns="minmax(0,1fr) auto">
               {(conflicts.data?.conflicts ?? []).map((conflict) => (
                 <C.DataTableRow key={conflict.rel}>
                   <C.DataTableCell lines={1} className="font-mono text-xs">{conflict.rel}</C.DataTableCell>
@@ -363,7 +367,10 @@ export function OneDriveProjectPanel({ project }: { project: ProjectProp }) {
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">{s.workspacesHint}</p>
           </div>
-          <C.DataTable ariaLabel={s.workspaces} columns="minmax(0,1fr) 7rem auto" compactColumns="minmax(0,1fr)">
+          {/* Same two templates as the conflicts register above: the compact one has to carry every
+              track an always-visible cell lands in, or the narrow register stacks one record over
+              three lines. */}
+          <C.DataTable ariaLabel={s.workspaces} columns="minmax(0,1fr) 7rem auto" compactColumns="minmax(0,1fr) 7rem auto">
             {data.workspaces.map((workspace) => {
               const row = data.links.find((link) => link.workspaceId === workspace.workspaceId) ?? null;
               return (

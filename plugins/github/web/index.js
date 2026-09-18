@@ -567,7 +567,7 @@ function GitHubProjectPanel({ project }) {
               pushLabel
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: mapped ? "success" : row.detected.ambiguous ? "warning" : "neutral", children: mapped ? s.mappingHealthy : s.mappingMissing })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: mapped ? "success" : row.detected.ambiguous ? "warning" : "default", children: mapped ? s.mappingHealthy : s.mappingMissing })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "mt-4 flex flex-wrap gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Button, { icon: Link2, onClick: () => setMapping(mappingFrom(row)), children: s.map }),
@@ -606,7 +606,7 @@ function GitHubProjectPanel({ project }) {
                   pull.baseRef
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { priority: "wide", lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: pull.mergeable === false ? "danger" : "neutral", children: pull.reviewDecision?.replace("_", " ") ?? pull.mergeableState ?? "unknown" }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableCell, { priority: "wide", lines: "auto", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: pull.mergeable === false ? "danger" : "default", children: pull.reviewDecision?.replace("_", " ") ?? pull.mergeableState ?? "unknown" }) }),
               /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.DataTableChevronCell, {})
             ] }, pull.number))
           ] })

@@ -148,7 +148,7 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0"><h3 className="text-sm font-semibold text-foreground">{s.projectRepository}</h3><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{mappingLabel}</p><p className="mt-1 truncate font-mono text-[11px] text-subtle-foreground">{s.pushRepository}: {pushLabel}</p></div>
-          <C.Badge tone={mapped ? 'success' : row.detected.ambiguous ? 'warning' : 'neutral'}>{mapped ? s.mappingHealthy : s.mappingMissing}</C.Badge>
+          <C.Badge tone={mapped ? 'success' : row.detected.ambiguous ? 'warning' : 'default'}>{mapped ? s.mappingHealthy : s.mappingMissing}</C.Badge>
         </div>
         <div className="mt-4 flex flex-wrap gap-2"><C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>{row.mapping ? <a href={`https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center text-xs font-medium text-primary hover:underline pointer-coarse:min-h-[var(--touch-target)]">{s.openGitHub}</a> : null}</div>
       </section>
@@ -172,7 +172,10 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
                   <div className="truncate font-mono text-[11px] text-subtle-foreground">{pull.headRef} → {pull.baseRef}</div>
                 </C.DataTableCell>
                 <C.DataTableCell priority="wide" lines="auto">
-                  <C.Badge tone={pull.mergeable === false ? 'danger' : 'neutral'}>{pull.reviewDecision?.replace('_', ' ') ?? pull.mergeableState ?? 'unknown'}</C.Badge>
+                  {/* `default`, not `neutral`: the host's tone scale is
+                      `default|accent|muted|danger|success|warning`, so a name outside it resolves to no
+                      variant at all and the chip silently falls back to the default paint. */}
+                  <C.Badge tone={pull.mergeable === false ? 'danger' : 'default'}>{pull.reviewDecision?.replace('_', ' ') ?? pull.mergeableState ?? 'unknown'}</C.Badge>
                 </C.DataTableCell>
                 <C.DataTableChevronCell />
               </C.DataTableRow>

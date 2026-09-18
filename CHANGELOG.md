@@ -1,5 +1,21 @@
 # Changelog
 
+## onedrive 0.2.8 - 2026-09-18
+
+- Both registers now carry the tracks their always-visible cells land in. The compact template asked for a single column, so from 40rem to 56rem a conflict or a workspace stacked one record over three lines instead of closing ranks the way every host register does.
+
+## github 0.1.19 - 2026-09-18
+
+- Two status chips asked for a neutral tone the host's scale does not have, so both silently fell back to the default paint instead of the intent they were written with; they name default, and a pull request's merge state now reads in the tone it asked for.
+
+## browser 0.4.2 - 2026-09-18
+
+- A live session's id no longer carries a hand-written ellipsis after its twelve-character clip. The clip stays, because the id names the tab to whoever is closing it and is not something anyone reads in full, but the register is where a value clipped at its column edge is said to be clipped.
+
+## cronjob 0.6.6 - 2026-09-18
+
+- The run history is the host's register: the same document, the same frame for a pending or failed read, the same padded register, and a compact template that keeps the receipt, its state and the open affordance on the three tracks its cells occupy. Its trailing three-dot cell promised a menu that never existed and is replaced by the register's own chevron, and a page beyond the end of a shortened register is no longer a dead end.
+
 ## msteams 0.8.0 - 2026-09-18
 
 - A file the agent shares with `ShareFile` now reaches a 1:1 Teams chat. Teams refuses a general file inside a Bot Connector message, so the shared document arrives as the file consent card the owner-only `TeamsSendFile` already posts, and the bytes upload into the recipient's own OneDrive once they accept — the shared live-message engine's file half, wired into the same transport seam that already carried images, with the adapter's existing `offerFile` doing the work rather than a second delivery path. A channel or a group chat keeps exactly its previous behaviour: Microsoft's consent APIs do not work there, so no offer is made, nothing throws, and the answer text still lands.

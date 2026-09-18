@@ -14904,7 +14904,7 @@ function BrowserAccount({ surface }) {
                   compactColumns: SESSION_COLUMNS_COMPACT,
                   className: "browser-account__sessions",
                   children: live.map((session) => {
-                    const name = `${session.id.slice(0, 12)}\u2026`;
+                    const name = session.id.slice(0, 12);
                     const held = session.state === "user";
                     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DataTableRow, { height: "tall", children: [
                       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DataTableCell, { lines: "auto", className: "browser-account__cell browser-account__cell--preview", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionPreview, { sessionId: session.id, label: name, polling: visible }) }),
