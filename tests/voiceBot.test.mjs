@@ -7,6 +7,7 @@ import { register } from '../plugins/voice-bot/index.mjs';
 import { WINDOW_MS } from '../plugins/voice-bot/lib/store.mjs';
 import {
   DEFAULT_CALL_TIMEOUT_S, MAX_CALL_TIMEOUT_S, MIN_CALL_TIMEOUT_S, resolveCallTimeoutMs,
+  DEFAULT_CALLS_PER_HOUR, MAX_CALLS_PER_HOUR, MIN_CALLS_PER_HOUR, resolveMaxCallsPerHour,
 } from '../plugins/voice-bot/lib/tool.mjs';
 
 const TOKEN = 'super-secret-token-value';
@@ -176,6 +177,20 @@ test('the call deadline is configurable, and nonsense falls back instead of cutt
   }
 });
 
+test('the call cap mirrors the manifest min/max/default, and clamps what the API was fed', () => {
+  // Same resolver shape as the call timeout: an in-range value is honoured, nonsense falls back, and
+  // nothing written straight to the config API can sit outside the window the manifest declares.
+  assert.equal(resolveMaxCallsPerHour(50), 50, 'a configured value is honoured');
+  assert.equal(resolveMaxCallsPerHour('50'), 50, 'config values arrive as text from the settings form');
+  assert.equal(resolveMaxCallsPerHour(0.5), MIN_CALLS_PER_HOUR, 'clamped up');
+  assert.equal(resolveMaxCallsPerHour(100_000), MAX_CALLS_PER_HOUR, 'clamped down');
+  assert.equal(resolveMaxCallsPerHour(1), MIN_CALLS_PER_HOUR, 'an operator who picks the floor gets the floor');
+  assert.equal(resolveMaxCallsPerHour(MAX_CALLS_PER_HOUR), MAX_CALLS_PER_HOUR, 'the ceiling itself is allowed');
+  for (const junk of [undefined, null, '', 'lots', 0, -5, NaN]) {
+    assert.equal(resolveMaxCallsPerHour(junk), DEFAULT_CALLS_PER_HOUR, `falls back for ${JSON.stringify(junk)}`);
+  }
+});
+
 test('the configured deadline is the one the request actually gets', async (t) => {
   // Proving the setting reaches the request path, not merely that it resolves: the timeout report names
   // the deadline it gave up after, so a configured 90 seconds has to show up as 90.
@@ -243,6 +258,26 @@ test('the hourly limit stops a repeating agent, and releases as calls age out', 
   const blockedAgain = await call.execute('5', { phone_number: '+420721909705', prompt: 'Five.' });
   assert.match(text(blockedAgain), /Call rate limit reached/);
   assert.equal(h.requests.length, 3);
+});
+
+test('the hourly cap cannot be lifted past the manifest maximum through the config API', async (t) => {
+  // The limit is the ONLY brake on repeated calls to real phones. A value written straight to the
+  // config API bypasses the settings form's max, so a cap with no ceiling means a looping agent can
+  // dial unbounded: 100 000 is 33 phone calls a minute. Whatever the config says, the runtime has to
+  // clamp to the manifest's maximum of 200.
+  const h = harness(t, { config: { maxCallsPerHour: 100_000 } });
+
+  // Fill the window to exactly the manifest ceiling so the difference between "honoured" and
+  // "clamped" shows up on the very next call.
+  const now = Date.now();
+  const seed = h.rawDb.prepare(
+    'INSERT INTO p_voice_bot_calls (created_at, phone, prompt, status) VALUES (?, ?, ?, ?)',
+  );
+  for (let i = 0; i < 200; i++) seed.run(now - i, '+420721909701', 'seed', 'completed');
+
+  const result = await h.tool().execute('1', { phone_number: '+420721909702', prompt: 'One more.' });
+  assert.match(text(result), /Call rate limit reached: 200 of 200/);
+  assert.equal(h.requests.length, 0, 'the ceiling holds: nothing dials past it');
 });
 
 test('the token never reaches the transcript or the log, not even when the service echoes it back', async (t) => {
@@ -345,6 +380,14 @@ test('the manifest and the catalog agree about the plugin', () => {
   const used = [...source.matchAll(/ctx\.config\.([A-Za-z0-9_]+)/g)].map((match) => match[1]);
   assert.ok(used.length >= 4, `expected the tool to read its settings, found ${used.length}`);
   assert.deepEqual(used.filter((key) => !declared.has(key)), [], 'settings read by the code but absent from the form');
+
+  // The runtime clamps the call cap to its own constants and the form declares min/max/default for the
+  // operator. Those must be the SAME numbers: drift would let the form offer a value the runtime
+  // silently rewrites, or let the runtime exceed what the manifest promises.
+  const capField = manifest.configSchema.find((field) => field.key === 'maxCallsPerHour');
+  assert.equal(capField.min, MIN_CALLS_PER_HOUR, 'manifest min is the runtime floor');
+  assert.equal(capField.max, MAX_CALLS_PER_HOUR, 'manifest max is the runtime ceiling');
+  assert.equal(capField.default, DEFAULT_CALLS_PER_HOUR, 'manifest default is the runtime fallback');
 
   const catalog = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const entry = catalog.plugins.find((plugin) => plugin.name === 'voice-bot');
