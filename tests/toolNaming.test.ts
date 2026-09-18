@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadPlugins, discoverPlugins } from 'elowen/dist/plugins/loader.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { openDb } from 'elowen/dist/store/db.js';
+import type { PluginPublicHttp } from 'elowen/plugin-api';
 
 const log = { info() {}, warn() {}, error() {} };
 const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'plugins');
@@ -34,6 +35,11 @@ const CONFIG = {
   'voice-bot': { apiUrl: 'https://voice.example.invalid/calls', apiToken: 'tok' },
 };
 
+const PUBLIC_HTTP: PluginPublicHttp = {
+  validate: async (url) => url,
+  request: async () => { throw new Error('tool registration must not make a public HTTP request'); },
+};
+
 async function loadEveryRegistryPlugin() {
   const names = discoverPlugins([pluginDir]).map((p: { manifest: { name: string } }) => p.manifest.name);
   // A plugin that throws while registering is SKIPPED with an error and contributes no tools at all,
@@ -49,6 +55,9 @@ async function loadEveryRegistryPlugin() {
     pluginDb: (plugin: string) => makePluginDb(db, plugin, { canMigrate: true }),
     // The image plugins take their key from a central brain provider rather than their own secret field.
     resolveProvider: () => ({ apiKey: 'k', baseUrl: 'https://api.example.invalid/v1' }),
+    // image-edit captures this enforcing transport at registration; the suite proves registration only,
+    // and the throwing request method makes an accidental network call fail immediately.
+    host: { publicHttp: PUBLIC_HTTP },
   });
 }
 
