@@ -1,5 +1,13 @@
 # Changelog
 
+## whatsapp 0.2.19 - 2026-09-18
+
+- The `admin` sender-policy hint said an admin sender may "use the group tools", implying the flag gates tool reach. It only gates the shared `/model` and `/reasoning` pickers (`lib/adapter.mjs`); tool access always comes from the sender's linked Elowen account, as the hint's own next sentence already said. Reworded to the truthful formula discord and msteams already use. Text only, all three locales.
+
+## telegram 0.2.16 - 2026-09-18
+
+- The `admin` role-policy hint said an admin sender may "use the chat tools", implying the flag gates tool reach. It only gates the shared `/model` and `/reasoning` pickers (`lib/adapter.mjs`, see the `isAdmin` doc comment); tool access always comes from the sender's linked Elowen account, as the hint's own next sentence already said. Reworded to the truthful formula discord and msteams already use. Text only, all three locales.
+
 ## msteams 0.8.1 - 2026-09-18
 
 - Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.

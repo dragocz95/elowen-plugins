@@ -195,7 +195,7 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.15",
+      "version": "0.2.16",
       "requiresCore": "0.28.11",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
@@ -234,7 +234,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.18",
+      "version": "0.2.19",
       "requiresCore": "0.28.11",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",

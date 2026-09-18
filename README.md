@@ -47,8 +47,8 @@ UI can never ship a second React.
 
 ## Plugins
 
-- **todo** — the agent keeps a live todo checklist for multi-step work and shows it to you as it goes.
-- **image-gen**, **image-edit** — generate and edit images through the OpenAI Images API.
-- **web** — web research: WebSearch (Tavily or Serper) and WebFetch.
-- **mcp** — bridge external MCP servers into the agent.
-- **codebase** — semantic code index: search repositories by meaning rather than literal text.
+Each `plugins/<name>/` folder is one catalog entry; `registry.json` is the authoritative, up-to-date list
+of what this repo ships, with each entry's description, category and version. Browse it there, or in a
+running Elowen instance under Settings → Plugins → Available. Note that some bundled Elowen features
+(for example web research and MCP bridging) ship with the core daemon itself and are not part of this
+registry.

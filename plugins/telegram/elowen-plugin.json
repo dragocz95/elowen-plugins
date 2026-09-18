@@ -1,6 +1,6 @@
 {
   "name": "telegram",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "apiVersion": "1",
   "requiresCore": "0.28.11",
   "requiresSharedApi": 4,
@@ -317,7 +317,7 @@
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
-      "hint": "First matching policy wins; senders with no mapped policy are ignored. The ID is a Telegram user ID (123456789), an @username, or a whole chat ID (…negative for groups) — a chat ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. Mark a policy admin to let it switch the model and use the chat tools. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "First matching policy wins; senders with no mapped policy are ignored. The ID is a Telegram user ID (123456789), an @username, or a whole chat ID (…negative for groups) — a chat ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. `admin` enables the shared /model and /reasoning pickers only. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ]
 }
