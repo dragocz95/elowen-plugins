@@ -3,6 +3,9 @@
 ## image-edit 0.2.7 - 2026-09-18
 
 - Remote source image redirects work again. The plugin follows up to five standard HTTP redirects, sends every destination back through the host's public-only transport for fresh validation, and refuses a redirect to loopback, private, link-local or cloud metadata addresses.
+## skills 0.4.11 - 2026-09-19
+
+- Deletion no longer refuses a personal skill for merely sharing a name with a bundled one. The 0.4.9 unification ran the bundled-skill refusal on the requested NAME before the target was resolved, so a plugin update that ships a bundled skill with a name someone already uses stranded their own file — `DeleteSkill` and the HTTP route both answered "bundled skills cannot be deleted" for a file that was entirely the account's own, with no way to remove it. The refusal now runs only when neither door resolved a personal or instance file to delete, so it still explains why a truly bundled-only name cannot be removed, while a same-named personal (or instance) file is deleted like any other skill and the real bundled copy is left untouched.
 
 ## telegram 0.2.17 - 2026-09-19
 

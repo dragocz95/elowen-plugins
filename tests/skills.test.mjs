@@ -957,7 +957,7 @@ test('bundled skills plugin', async (t) => {
     assert.equal(reloads, 1);
   });
 
-  await t.test('DeleteSkill matches HTTP deletion for support files and bundled-skill refusals', async () => {
+  await t.test('DeleteSkill matches HTTP deletion for support files, a personal name-shadow of a bundled skill, and true bundled-skill refusals', async () => {
     const seedDirectorySkill = (skillsDir, name) => {
       const skillDir = join(skillsDir, name);
       mkdirSync(join(skillDir, 'references'), { recursive: true });
@@ -987,21 +987,33 @@ test('bundled skills plugin', async (t) => {
     assert.deepEqual(deletionState(toolSkillDir), expectedState);
     assert.deepEqual(deletionState(routeSkillDir), expectedState);
 
+    // A PERSONAL skill that merely happens to share a name with a bundled one is not the bundled skill:
+    // the resolved deletion target is the caller's own file, so both doors must remove it like any other
+    // personal skill and leave the real bundled copy untouched.
     const toolBundledCopy = join(toolSkillsDir, 'users', '7', `${BUNDLED}.md`);
     mkdirSync(join(toolSkillsDir, 'users', '7'), { recursive: true });
     writeFileSync(toolBundledCopy, skillMd(BUNDLED, 'Shadow copy.'));
-    const toolRefusal = await asTurn(toolPlugin, turnFor(7), () => runTool(toolPlugin, 'DeleteSkill', { name: BUNDLED }));
-    assert.match(asText(toolRefusal), /^Error: bundled skills cannot be deleted\./);
-    assert.equal(existsSync(toolBundledCopy), true);
+    const toolShadowResult = await asTurn(toolPlugin, turnFor(7), () => runTool(toolPlugin, 'DeleteSkill', { name: BUNDLED }));
+    assert.match(asText(toolShadowResult), /deleted/);
+    assert.equal(existsSync(toolBundledCopy), false, 'a personal skill only shadowing a bundled name must be deletable, not refused');
+    assert.equal(existsSync(join(pluginDir, 'skills', `${BUNDLED}.md`)), true, 'the real bundled skill must survive');
 
     routeSetup.users.setGrantedPlugins(routeSetup.amy.id, ['skills']);
     const routeBundledCopy = join(routeSetup.dataRoot, 'skills', 'users', String(routeSetup.amy.id), `${BUNDLED}.md`);
     mkdirSync(join(routeSetup.dataRoot, 'skills', 'users', String(routeSetup.amy.id)), { recursive: true });
     writeFileSync(routeBundledCopy, skillMd(BUNDLED, 'Shadow copy.'));
+    const routeShadowResult = await routeSetup.app.request(`/plugins/skills/${BUNDLED}`, del(routeSetup.amyTok));
+    assert.equal(routeShadowResult.status, 200);
+    assert.equal(existsSync(routeBundledCopy), false, 'a personal skill only shadowing a bundled name must be deletable, not refused');
+    assert.equal(existsSync(join(pluginDir, 'skills', `${BUNDLED}.md`)), true, 'the real bundled skill must survive');
+
+    // The bundled skill itself — no personal or instance copy shadowing it — is still refused at both doors.
+    const toolRefusal = await asTurn(toolPlugin, turnFor(7), () => runTool(toolPlugin, 'DeleteSkill', { name: BUNDLED }));
+    assert.match(asText(toolRefusal), /^Error: bundled skills cannot be deleted\./);
+
     const routeRefusal = await routeSetup.app.request(`/plugins/skills/${BUNDLED}`, del(routeSetup.amyTok));
     assert.equal(routeRefusal.status, 400);
     assert.deepEqual(await routeRefusal.json(), { error: 'bundled skills cannot be deleted' });
-    assert.equal(existsSync(routeBundledCopy), true);
   });
 
   await t.test('lists AND deletes a directory-form <name>/SKILL.md user skill, not just flat .md', async () => {
