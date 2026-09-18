@@ -76,6 +76,19 @@ describe('skills SkillsSettings (optimistic disclosure toggle)', () => {
     expect(row.querySelectorAll('button')[0]).toBe(toggles()[0]);
   });
 
+  // A row marks what is wrong and what it cannot otherwise say. Restating the switch ("manual only"), the
+  // scope filter ("bundled") and the row's own working state ("Active") as three more capsules is what
+  // pushed the source cell past its column edge, where it clipped into a bare ellipsis.
+  it('leaves a working skill unmarked instead of restating the switch beside it', async () => {
+    use(http.get('/api/plugins/skills/list', () => HttpResponse.json(list)));
+    mount();
+
+    await waitFor(() => expect(toggles()).toHaveLength(2));
+    const row = screen.getByText('alpha').closest('[role="row"]') as HTMLElement;
+    expect(within(row).queryByText(strings.statusEffective!)).toBeNull();
+    expect(within(row).queryByText(strings.manualOnlyBadge!)).toBeNull();
+  });
+
   it('flips the clicked row immediately and disables only that row while the PATCH is in flight', async () => {
     let alphaDisabled = false;
     let resolvePatch!: () => void;

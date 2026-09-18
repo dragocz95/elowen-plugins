@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "apiVersion": "1",
   "requiresCore": "0.28.48",
   "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
@@ -15,7 +15,10 @@
       "ListSkills",
       "DeleteSkill"
     ],
-    "readOnlyTools": ["SkillLoad", "ListSkills"],
+    "readOnlyTools": [
+      "SkillLoad",
+      "ListSkills"
+    ],
     "apiRoutes": [
       "/plugins/skills",
       "/plugins/skills/list",
@@ -27,13 +30,18 @@
   },
   "userGrantable": true,
   "capabilities": {
-    "mutates": ["turnContext"],
+    "mutates": [
+      "turnContext"
+    ],
     "reads": [
       "stores",
       "controls"
     ]
   },
-  "consumesControls": ["skillCatalog", "skillManagement"],
+  "consumesControls": [
+    "skillCatalog",
+    "skillManagement"
+  ],
   "deferLoading": [
     "CreateSkill",
     "DeleteSkill"
@@ -64,7 +72,6 @@
       "title": "Skills",
       "sectionHint": "Reusable instructions injected into the system prompt. Apply to new conversations.",
       "empty": "No skills yet.",
-      "badgeBundled": "bundled",
       "badgeProvided": "provided",
       "badgeUser": "custom",
       "add": "Add skill",
@@ -96,7 +103,7 @@
       "accountLabel": "Account",
       "accountHint": "Choose the account whose effective skill catalog you want to review.",
       "pluginAvailability": "Available for this account",
-      "statusEffective": "Effective",
+      "statusEffective": "Active",
       "statusDisabled": "Disabled for account",
       "statusUnavailable": "Plugin unavailable or not granted",
       "statusShadowed": "Shadowed by precedence",

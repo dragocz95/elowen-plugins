@@ -482,17 +482,10 @@ function SkillsSettings({ surface }) {
       },
       extraFilters: accountFilter ? [accountFilter] : void 0,
       renderBadges: (skill) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        skill.catalogSource === "plugin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: skill.contributorPlugin }) : null,
-        skill.catalogSource === "bundled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.badgeBundled }) : null,
-        skill.version != null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.Badge, { tone: "default", children: [
-          "v",
-          skill.version
-        ] }) : null,
-        skill.disableModelInvocation ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.manualOnlyBadge }) : null,
+        skill.catalogSource === "plugin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-xs text-muted-foreground", title: skill.contributorPlugin, children: skill.contributorPlugin }) : null,
         skill.unavailableReason === "disabled-for-account" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusDisabled }) : null,
         skill.unavailableReason === "plugin-unavailable" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusUnavailable }) : null,
-        skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "default", children: s.statusShadowed }) : null,
-        skill.effective ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "success", children: s.statusEffective }) : null
+        skill.unavailableReason === "shadowed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: "warning", children: s.statusShadowed }) : null
       ] }),
       renderRowControl: (skill) => skill.catalogSource === "plugin" ? isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         C.Toggle,

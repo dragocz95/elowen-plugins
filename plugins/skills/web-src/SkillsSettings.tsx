@@ -251,16 +251,21 @@ export function SkillsSettings({ surface }: { surface: 'page' | 'deck' }) {
           ],
         }}
         extraFilters={accountFilter ? [accountFilter] : undefined}
+        // A register row marks what is WRONG and what the row cannot say for itself; it does not repeat
+        // what is already on screen. The row's switch states whether the model may invoke the skill, the
+        // source column states where it comes from, and the scope filter states its catalogue — so
+        // "effective", "manual only" and "bundled" were three capsules restating three things the reader
+        // could already see, and together they clipped the cell into a bare ellipsis. What is left: where a
+        // contributed skill comes from (a plugin name the row has nowhere else), and a reason it is NOT
+        // usable, which nothing else on the row can tell.
         renderBadges={(skill: PluginSkill) => (
           <>
-            {skill.catalogSource === 'plugin' ? <C.Badge tone="default">{skill.contributorPlugin}</C.Badge> : null}
-            {skill.catalogSource === 'bundled' ? <C.Badge tone="default">{s.badgeBundled}</C.Badge> : null}
-            {skill.version != null ? <C.Badge tone="default">v{skill.version}</C.Badge> : null}
-            {skill.disableModelInvocation ? <C.Badge tone="default">{s.manualOnlyBadge}</C.Badge> : null}
+            {skill.catalogSource === 'plugin'
+              ? <span className="truncate text-xs text-muted-foreground" title={skill.contributorPlugin}>{skill.contributorPlugin}</span>
+              : null}
             {skill.unavailableReason === 'disabled-for-account' ? <C.Badge tone="warning">{s.statusDisabled}</C.Badge> : null}
             {skill.unavailableReason === 'plugin-unavailable' ? <C.Badge tone="warning">{s.statusUnavailable}</C.Badge> : null}
-            {skill.unavailableReason === 'shadowed' ? <C.Badge tone="default">{s.statusShadowed}</C.Badge> : null}
-            {skill.effective ? <C.Badge tone="success">{s.statusEffective}</C.Badge> : null}
+            {skill.unavailableReason === 'shadowed' ? <C.Badge tone="warning">{s.statusShadowed}</C.Badge> : null}
           </>
         )}
         renderRowControl={(skill: PluginSkill) => skill.catalogSource === 'plugin' ? (isAdmin ? (

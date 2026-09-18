@@ -1,5 +1,9 @@
 # Changelog
 
+## skills 0.4.6 - 2026-09-18
+
+- A register row marks only what is wrong and what it cannot otherwise say. The switch at the row's edge already states whether the model may invoke a skill, and the scope filter already names its catalogue, so the Active, manual-only and bundled capsules restated what was on screen and together clipped the source cell into a bare ellipsis. What is left is the plugin a contributed skill comes from, and the reason a skill cannot be used. The count that read Effective now reads Active, because effective availability is not a phrase anyone outside the code uses.
+
 ## browser 0.4.3 - 2026-09-18
 
 - Below 768px — the same boundary the floating card uses — the docked card in the transcript no longer opens a live view, and shows a still of the session's screen instead. Measured on a real instance, that connection was 708 kB/s while the remote page scrolled and 1923 kB/s while it animated, for a picture a few hundred pixels wide, and noVNC attaches its own gesture handlers to its canvas the moment it connects: touchstart and touchmove are cancelled there, so pinch-zoom stopped working over the whole transcript the moment the agent opened a browser. The still is the route the account panel already uses, refreshed on a timer; above 768px nothing about the docked card changes.
