@@ -1,5 +1,9 @@
 # Changelog
 
+## msteams 0.8.1 - 2026-09-18
+
+- Removed two shelved pieces of dead code: the one-line `createMicrosoftIdentityControl` wrapper (tests now call the `createMicrosoftIdentityRuntime` factory it wrapped directly) and the unused `buildTableCard` Adaptive Card table renderer, whose phase-2 wiring never arrived. Live table replies in chat already go through `renderChatTables`, which is unchanged.
+
 ## sites 0.14.4 - 2026-09-18
 
 - `SiteGet` and `SiteRollback` carried their own owner-only gate on top of the admin-or-owner check already done to resolve the site, so an administrator reading or restoring a file site they do not own was refused by the tool while the API route granted the same actor full detail and rollback. The admin-or-owner rule now lives once, as `canManage` in `access.ts`, and both the tool door and the route call it; the tool's duplicate gate is gone.

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { createMicrosoftIdentityControl, createMicrosoftIdentityRuntime, driveScopedPath } from '../plugins/msteams/lib/identityControl.mjs';
+import { createMicrosoftIdentityRuntime, driveScopedPath } from '../plugins/msteams/lib/identityControl.mjs';
 
 type Person = { id: string; aad: string; upn?: string; name?: string };
 
@@ -50,7 +50,7 @@ describe('microsoftIdentity control', () => {
 
     const people: Person[] = [{ id: '29:filip', aad: 'aad-filip' }];
     const warn = vi.fn();
-    const control = createMicrosoftIdentityControl({
+    const { control } = createMicrosoftIdentityRuntime({
       linking: {
         bindingFor: () => ({ user: { id: 7 } }),
         delegatedSessionForPerson: async () => { throw new Error('token service down'); },
@@ -114,7 +114,7 @@ describe('microsoftIdentity control', () => {
       status: 200, headers: { 'content-type': 'application/json' },
     }));
     const people: Person[] = [{ id: '29:filip', aad: 'aad-filip' }];
-    const control = createMicrosoftIdentityControl({
+    const { control } = createMicrosoftIdentityRuntime({
       linking: {
         bindingFor: () => ({ user: { id: 7 } }),
         delegatedSessionForPerson: async () => ({ token: 'tok' }),
