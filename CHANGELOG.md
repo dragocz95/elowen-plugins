@@ -3,6 +3,9 @@
 ## sites 0.14.4 - 2026-09-18
 
 - `SiteGet` and `SiteRollback` carried their own owner-only gate on top of the admin-or-owner check already done to resolve the site, so an administrator reading or restoring a file site they do not own was refused by the tool while the API route granted the same actor full detail and rollback. The admin-or-owner rule now lives once, as `canManage` in `access.ts`, and both the tool door and the route call it; the tool's duplicate gate is gone.
+## skills 0.4.9 - 2026-09-18
+
+- Agent deletion no longer removes a directory-form skill's support files. Both the DeleteSkill tool and the HTTP route now remove only the skill definition, keep non-empty `references/` and `scripts/` folders, and refuse bundled skills through the same deletion rule.
 
 ## image-edit 0.2.5 - 2026-09-18
 

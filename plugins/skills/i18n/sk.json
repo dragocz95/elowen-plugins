@@ -14,7 +14,7 @@
       "edit": "Upraviť skill",
       "remove": "Vymazať skill",
       "deleteTitle": "Vymazať skill",
-      "deleteDesc": "Skill „{name}“ bude natrvalo odstránený.",
+      "deleteDesc": "Skill „{name}“ bude odstránený. Podporné súbory v jeho priečinku zostanú zachované.",
       "name": "Názov",
       "description": "Popis",
       "content": "Obsah",
@@ -56,7 +56,7 @@
       "pickerEmpty": "Žiadne zručnosti",
       "pickerEmptyDesc": "Pridané zručnosti sa objavia tu a načítate ich jedným kliknutím.",
       "pickerDeleteTitle": "Vymazať zručnosť?",
-      "pickerDeleteDesc": "Zručnosť „{name}“ bude natrvalo odstránená.",
+      "pickerDeleteDesc": "Zručnosť „{name}“ bude odstránená. Podporné súbory v jej priečinku zostanú zachované.",
       "unavailable": "Plugin zručností nie je k dispozícii."
     }
   }
