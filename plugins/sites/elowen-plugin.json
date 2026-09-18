@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "apiVersion": "1",
   "requiresCore": "0.28.45",
   "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
@@ -186,7 +186,6 @@
       "previewHint": "A picture of the page taken through its own address, renewed when it goes out of date.",
       "previewPending": "Taking a picture of the page…",
       "previewNone": "No picture of this page yet.",
-      "previewStale": "Stale",
       "previewFailed": "Last picture failed",
       "previewCapturedAt": "Pictured {time}",
       "previewRefresh": "Take a new picture",

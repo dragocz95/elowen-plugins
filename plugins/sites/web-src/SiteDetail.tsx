@@ -54,10 +54,9 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
         )}
       </div>
       <div className="flex min-w-0 items-center gap-2">
-        {/* What the picture IS, and how current it is. Both facts, said once, next to the thing they
-            describe — the card repeats only the caveat, because a card has no room for the rest. */}
+        {/* When the picture was taken, said once, next to the thing it describes. That it is older than
+            the register would like is not stated anywhere: the register is already taking a new one. */}
         {taken ? <span className="min-w-0 truncate text-[11px] text-muted-foreground">{taken}</span> : null}
-        {preview.state === 'stale' ? <Badge tone="warning">{strings.previewStale}</Badge> : null}
         {preview.state === 'failed' ? <Badge tone="danger">{strings.previewFailed}</Badge> : null}
         <span className="flex-1" />
         {site.canManage ? (

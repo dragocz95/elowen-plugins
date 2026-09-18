@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, ArrowUpRight, Clock, Copy, ExternalLink, FolderGit2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Copy, ExternalLink, FolderGit2 } from 'lucide-react';
 import { runtime, avatarUser, previewImageUrl, relativeTime, type SiteView } from './runtime.js';
 import {
   displayStatus, monogram, siteAddress, KIND_ICON, KIND_STRING,
@@ -63,17 +63,18 @@ function SitePlate({ site, strings }: { site: SiteView; strings: Record<string, 
         </>
       )}
       {/* The one caveat a picture can carry. Stated once, quietly, and only over a picture: with none, the
-          card's state badge and hint already say what is wrong with the site itself. */}
-      {picture && preview.state !== 'ready' ? (
+          card's state badge and hint already say what is wrong with the site itself. A picture merely past
+          its age says nothing — the register is already taking a new one. */}
+      {picture && preview.state === 'failed' ? (
         <span
           data-site-picture-state={preview.state}
           title={preview.capturedAt
             ? strings.previewCapturedAt.replace('{time}', relativeTime(preview.capturedAt))
             : undefined}
-          className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border bg-card/90 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur-sm ${preview.state === 'failed' ? 'border-destructive/40 text-destructive' : 'border-warning/40 text-warning'}`}
+          className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-[10px] font-medium text-destructive backdrop-blur-sm"
         >
-          {preview.state === 'failed' ? <AlertTriangle size={9} aria-hidden /> : <Clock size={9} aria-hidden />}
-          {preview.state === 'failed' ? strings.previewFailed : strings.previewStale}
+          <AlertTriangle size={9} aria-hidden />
+          {strings.previewFailed}
         </span>
       ) : null}
       <span className="absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-1.5 border-t border-border/60 bg-card/85 px-2.5 py-1.5 backdrop-blur-sm">

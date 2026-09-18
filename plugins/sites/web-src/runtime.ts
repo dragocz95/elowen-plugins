@@ -11,11 +11,13 @@ export type PublicationKind = 'static' | 'proxy';
 
 /** Whether a stored picture of the page exists, and whether it is still worth showing as current.
  *
- *  `stale` and `failed` both keep the picture: what is out of date is the information about the page, not
- *  the picture of it. A register that dropped to a monogram every time a capture failed would be a register
- *  that flickers, and the monogram is reserved for having no picture at all. */
+ *  A picture past its age is not one of these states: opening the register takes it again, so the only
+ *  thing to say about it would be work already under way. `failed` keeps the picture: what is out of date
+ *  is the information about the page, not the picture of it. A register that dropped to a monogram every
+ *  time a capture failed would be a register that flickers, and the monogram is reserved for having no
+ *  picture at all. */
 interface PreviewView {
-  state: 'none' | 'pending' | 'ready' | 'stale' | 'failed';
+  state: 'none' | 'pending' | 'ready' | 'failed';
   /** Cache key of the stored picture; 0 when there is none. */
   version: number;
   capturedAt: string | null;

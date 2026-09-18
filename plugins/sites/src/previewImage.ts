@@ -68,10 +68,12 @@ const CAPTURE_FORMAT = 'webp' as const;
 
 /** What a card needs to know about the picture behind it.
  *
- *  `stale` and `failed` are states of the INFORMATION, not of the site: both keep the last image, and a
+ *  A picture past its TTL has no state of its own: `ensureFresh` takes it again on the very read that
+ *  would have reported it, so the only thing such a state could tell the reader is about work already
+ *  under way. `failed` is a state of the INFORMATION, not of the site: it keeps the last image, and a
  *  card that has one shows it with the caveat rather than falling back to a monogram. */
 export interface PreviewImageView {
-  state: 'none' | 'pending' | 'ready' | 'stale' | 'failed';
+  state: 'none' | 'pending' | 'ready' | 'failed';
   /** Cache key of the stored image; 0 when there is none. */
   version: number;
   capturedAt: string | null;
@@ -172,7 +174,7 @@ export class SitePreviewImageService {
       return { state: busy ? 'pending' : 'none', version: 0, capturedAt: null, width: null, height: null };
     }
     return {
-      state: row.state === 'failed' ? 'failed' : this.fresh(row, at) ? 'ready' : 'stale',
+      state: row.state === 'failed' ? 'failed' : 'ready',
       version: row.version,
       capturedAt: row.capturedAt,
       width: row.width,

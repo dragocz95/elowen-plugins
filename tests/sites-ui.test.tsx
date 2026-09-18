@@ -354,25 +354,37 @@ describe('the Sites workspace', () => {
     expect(within(card).getByText(site.title)).toBeVisible();
   });
 
-  /** A picture that is merely out of date keeps its place. Falling back to a monogram on every failed
+  /** A picture whose last refresh failed keeps its place. Falling back to a monogram on every failed
    *  refresh would make a register flicker over a page the picture still describes perfectly well. */
-  it('keeps a stale or failed picture on the card and states the caveat', async () => {
-    for (const [state, label] of [['stale', strings.previewStale], ['failed', strings.previewFailed]] as const) {
-      use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
-        mine: [{
-          ...site,
-          preview: { state, version: 4, capturedAt: '2026-08-20T10:00:00.000Z', width: 1280, height: 800 },
-        }],
-        shared: [], allowPublicSites: true,
-      })));
-      mount();
-      const card = await screen.findByTestId('sites-register');
-      expect(card.querySelector('[data-site-picture]')).not.toBeNull();
-      expect(within(card).getByText(label)).toBeVisible();
-      expect(card.querySelector(`[data-site-picture-state="${state}"]`)).not.toBeNull();
-      cleanup();
-      resetHandlers();
-    }
+  it('keeps a failed picture on the card and states the caveat', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [{
+        ...site,
+        preview: { state: 'failed', version: 4, capturedAt: '2026-08-20T10:00:00.000Z', width: 1280, height: 800 },
+      }],
+      shared: [], allowPublicSites: true,
+    })));
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    expect(card.querySelector('[data-site-picture]')).not.toBeNull();
+    expect(within(card).getByText(strings.previewFailed)).toBeVisible();
+    expect(card.querySelector('[data-site-picture-state="failed"]')).not.toBeNull();
+  });
+
+  /** A picture that is merely older than the register would like carries NO caveat: the register is
+   *  already taking a new one, so saying it is out of date only reports work under way. */
+  it('says nothing over a picture the register is renewing on its own', async () => {
+    use(http.get('/api/plugins/sites/api/sites', () => HttpResponse.json({
+      mine: [{
+        ...site,
+        preview: { state: 'ready', version: 4, capturedAt: '2026-08-20T10:00:00.000Z', width: 1280, height: 800 },
+      }],
+      shared: [], allowPublicSites: true,
+    })));
+    mount();
+    const card = await screen.findByTestId('sites-register');
+    expect(card.querySelector('[data-site-picture]')).not.toBeNull();
+    expect(card.querySelector('[data-site-picture-state]')).toBeNull();
   });
 
   it('says a first picture is being taken rather than showing nothing', async () => {

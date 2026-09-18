@@ -237,14 +237,16 @@ test('the lazy path asks for a missing or outdated picture and nothing else', as
   await service.settled();
   assert.equal(control.calls.length, 2, 'a fresh picture is not taken again');
 
-  // Age one of them past the TTL, exactly as time passing would.
+  // Age one of them past the TTL, exactly as time passing would. A reader is told nothing about it: the
+  // very read that could report the age is the read that takes a new picture, so the age is work under
+  // way rather than a state of the site.
   store.storePreviewImage('site-2', { bytes: 4, mime: 'image/webp', width: 1, height: 1 }, Date.now() - PREVIEW_IMAGE_TTL_MS - 1000);
-  assert.equal(service.view('site-2').state, 'stale');
+  assert.equal(service.view('site-2').state, 'ready', 'an outdated picture is not reported as a state');
   assert.equal(service.view('site-1').state, 'ready', 'the other one is untouched');
 
   service.ensureFresh([store.siteById('site-2')]);
   await service.settled();
-  assert.equal(control.calls.length, 3, 'and only the stale one is taken again');
+  assert.equal(control.calls.length, 3, 'and only the outdated one is taken again');
   assert.equal(service.view('site-2').state, 'ready');
 });
 

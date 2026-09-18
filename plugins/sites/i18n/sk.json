@@ -77,7 +77,6 @@
       "previewHint": "Snímka stránky vytvorená cez jej vlastnú adresu. Inštancia ju obnoví, keď zastará.",
       "previewPending": "Sníma sa stránka…",
       "previewNone": "Zatiaľ žiadna snímka tejto stránky.",
-      "previewStale": "Zastaraná",
       "previewFailed": "Posledná snímka sa nepodarila",
       "previewCapturedAt": "Snímka {time}",
       "previewRefresh": "Vytvoriť novú snímku",

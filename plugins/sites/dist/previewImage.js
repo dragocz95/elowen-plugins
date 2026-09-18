@@ -109,7 +109,7 @@ export class SitePreviewImageService {
             return { state: busy ? 'pending' : 'none', version: 0, capturedAt: null, width: null, height: null };
         }
         return {
-            state: row.state === 'failed' ? 'failed' : this.fresh(row, at) ? 'ready' : 'stale',
+            state: row.state === 'failed' ? 'failed' : 'ready',
             version: row.version,
             capturedAt: row.capturedAt,
             width: row.width,

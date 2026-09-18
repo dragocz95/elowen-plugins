@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.14.3 - 2026-09-18
+
+- A picture the register is about to renew no longer carries a caveat. Opening the register takes a new picture of anything past its age, so the "Stale" badge on the card and in the drawer only reported work already under way; the previous picture stays until the new one arrives. A capture that failed still says so, because nothing resolves that on its own.
+
 ## todo 0.14.7 - 2026-09-15
 
 - The task list now reaches the turn it was composed for. Core re-reads a registered provider inside a long turn, after the last tool result and every N tool calls (the cadence knob in Settings -> Runtime), so a 60-call turn no longer works from a snapshot taken before its first call. The reminder is at most two short lines — the running task, its elapsed time, the open and completed counts, and one instruction to reconcile the list — and never a second copy of `<task_context>`, because core freezes every byte of it and re-sends it for the rest of the turn.

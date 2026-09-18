@@ -500,15 +500,15 @@ function SitePlate({ site, strings }) {
             children: monogram(site.title)
           }
         ) }),
-        picture && preview.state !== "ready" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+        picture && preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "span",
           {
             "data-site-picture-state": preview.state,
             title: preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : void 0,
-            className: `absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border bg-card/90 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur-sm ${preview.state === "failed" ? "border-destructive/40 text-destructive" : "border-warning/40 text-warning"}`,
+            className: "absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-[10px] font-medium text-destructive backdrop-blur-sm",
             children: [
-              preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 9, "aria-hidden": true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { size: 9, "aria-hidden": true }),
-              preview.state === "failed" ? strings.previewFailed : strings.previewStale
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 9, "aria-hidden": true }),
+              strings.previewFailed
             ]
           }
         ) : null,
@@ -664,7 +664,6 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
     ) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
       taken ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: taken }) : null,
-      preview.state === "stale" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "warning", children: strings.previewStale }) : null,
       preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "danger", children: strings.previewFailed }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex-1" }),
       site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
