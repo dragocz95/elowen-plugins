@@ -1,5 +1,13 @@
 # Changelog
 
+## github 0.1.20 - 2026-09-18
+
+- Delete 16 orphaned github translation keys (web.strings) with zero code references across web-src; error_* keys are kept because runtime.ts composes them from a prefix.
+
+## cronjob 0.6.7 - 2026-09-18
+
+- Delete 43 orphaned cronjob translation keys (web.strings) with zero code references across web-src, execution.mjs and index.mjs; weekday* keys are kept because fields.tsx composes them from a prefix.
+
 ## sites 0.14.4 - 2026-09-18
 
 - `SiteGet` and `SiteRollback` carried their own owner-only gate on top of the admin-or-owner check already done to resolve the site, so an administrator reading or restoring a file site they do not own was refused by the tool while the API route granted the same actor full detail and rollback. The admin-or-owner rule now lives once, as `canManage` in `access.ts`, and both the tool door and the route call it; the tool's duplicate gate is gone.
