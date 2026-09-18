@@ -3,9 +3,8 @@
  *  Both parity guards (tests/hostRuntimeParity.test.ts, tests/hostDictionaryParity.test.ts) hold the
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
- *  change that has not been released yet. Core 0.28.47 ships API 17, the host-owned `Calendar`
- *  primitive and the current project copy, so as of that release NOTHING is exempt: both lists
- *  below are empty and every name a stand-in carries has to exist in the installed package.
+ *  change that has not been released yet. The pinned release now carries every primitive and dictionary
+ *  leaf used by the stand-ins, so both exception lists are empty.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
  *  is a promise about the host, not a free pass: each guard also asserts that the package does NOT have
@@ -20,25 +19,9 @@
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  // `Progress` arrived with the same seam batch: the host publishes the plain determinate meter from
-  // web/lib/pluginUi.tsx and the pinned release predates it. The todo rail section draws its done/total
-  // bar with it, and now the card draws the same meter, so the stand-in has to carry it. Delete when the
-  // devDependency moves to the release that ships it.
-  components: ['Progress'],
-  // The session-task hooks arrived with the seam batch that moved the task surfaces out of the core and
-  // into this repository's `todo` plugin: the core publishes all four from web/lib/pluginUi.tsx and the
-  // pinned 0.28.47 predates them. They are what TasksPicker/TasksRail/TodoCard read, so the stand-in has
-  // to carry them or those components cannot be rendered in a test at all. Delete these four when the
-  // devDependency moves to the release that ships them — the guard fails until they are removed.
-  hooks: [
-    'useProjectEnvironmentState',
-    'useSessionTasks', 'useUpdateSessionTask', 'useDeleteSessionTask', 'useClearSessionTasks',
-  ],
-  // The card-preview rule and its cap. The todo card used to keep its own copy of "which four rows a
-  // card shows"; the host now publishes the one the CLI panel and the host's own card run, and the
-  // bundle reads it from `runtime().utils` so `slice(0, 4)` cannot come back. Delete both when the
-  // devDependency moves to the release that ships them.
-  utils: ['TODO_PREVIEW_ITEMS', 'todoPreviewItems'],
+  components: [],
+  hooks: [],
+  utils: [],
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
