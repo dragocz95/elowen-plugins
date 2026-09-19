@@ -714,11 +714,11 @@ export function registerTaskMode(ctx, db) {
     parameters: Type.Object({
       tasks: Type.Array(
         Type.Object({
-          subject: Type.String({ description: 'Brief user-visible title for the task' }),
-          description: Type.String({ description: 'Private detail describing what needs to be done' }),
-          activeForm: Type.Optional(Type.String({ description: 'Present-continuous text shown while the task is in progress' })),
+          subject: Type.String({ description: 'A brief title for the task' }),
+          description: Type.String({ description: 'What needs to be done' }),
+          activeForm: Type.Optional(Type.String({ description: 'Present continuous form shown while the task is in_progress (e.g., "Running tests")' })),
           status: Type.Optional(TASK_STATUS_SCHEMA),
-          metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Private structured metadata' })),
+          metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Arbitrary private metadata to attach to the task' })),
           blockedBy: Type.Optional(Type.Array(Type.String(), { description: 'Dependencies for this task: use an existing task ID such as "3", or use "$1" for the first sibling task in THIS same call' })),
         }),
         { minItems: 1, description: 'Every task to create, in order. Send the whole plan at once rather than one call per task.' },
@@ -781,13 +781,13 @@ export function registerTaskMode(ctx, db) {
     description: 'Update ONE existing task per call, identified by `taskId` — an ID that TaskCreate returned or TaskList reported. The ID parameter is named `taskId`, never `id`, `ids`, `task` or `updates`, and this tool has no batch form: to change several tasks, call it once per task. Unlike TaskCreate it does not take a `tasks` array. Everything except `taskId` is optional, but a call that changes nothing is refused, so send at least one of: subject, description, activeForm, status, owner, metadata, addBlocks, addBlockedBy. It never creates a task: an unknown ID fails with error "task not found", and the fix is to call TaskList and retry with a current ID (or TaskCreate if the work is genuinely new) — never to guess another ID or repeat the same call. Status is pending, in_progress, completed, or deleted. ONLY mark a task as completed when you have FULLY accomplished it. If you encounter errors, blockers, or cannot finish, keep the task as in_progress and call TaskCreate for a new task describing what needs to be resolved. Never mark a task as completed if: tests are failing, the implementation is partial, you encountered unresolved errors, or you could not find necessary files or dependencies. Completing a task names the next unblocked one in the result, so chain straight onto it and mark it in_progress when you start. addBlockedBy adds prerequisites; addBlocks makes this task a prerequisite of other tasks. Dependency changes reject missing tasks, self-dependencies and cycles; repeated edges are idempotent.',
     parameters: Type.Object({
       taskId: Type.String({ description: 'ID of an existing task, exactly as returned by TaskCreate or TaskList. Never invent or guess an ID.' }),
-      subject: Type.Optional(Type.String()),
-      description: Type.Optional(Type.String()),
-      activeForm: Type.Optional(Type.String()),
-      status: Type.Optional(Type.Union([...TASK_STATUSES.map((status) => Type.Literal(status)), Type.Literal('deleted')])),
-      addBlocks: Type.Optional(Type.Array(Type.String())),
-      addBlockedBy: Type.Optional(Type.Array(Type.String())),
-      owner: Type.Optional(Type.String()),
+      subject: Type.Optional(Type.String({ description: 'New subject for the task' })),
+      description: Type.Optional(Type.String({ description: 'New description for the task' })),
+      activeForm: Type.Optional(Type.String({ description: 'Present continuous form shown while the task is in_progress (e.g., "Running tests")' })),
+      status: Type.Optional(Type.Union([...TASK_STATUSES.map((status) => Type.Literal(status)), Type.Literal('deleted')], { description: 'New status for the task' })),
+      addBlocks: Type.Optional(Type.Array(Type.String(), { description: 'Task IDs that this task blocks' })),
+      addBlockedBy: Type.Optional(Type.Array(Type.String(), { description: 'Task IDs that block this task' })),
+      owner: Type.Optional(Type.String({ description: 'New owner for the task' })),
       metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Keys merge; null deletes a key' })),
     }),
     execute: async (_id, params) => {
