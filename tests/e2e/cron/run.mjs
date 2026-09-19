@@ -33,6 +33,7 @@
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
 import { assertLoadedFromRegistry, installRegistryPlugin } from '../harness/install-plugin.mjs';
+import { settlePluginChange } from '../harness/plugin-change.mjs';
 
 // Optional break switch used ONLY to demonstrate the teeth: make the collector print nothing so the tick
 // skips the brain turn and the primary deadline poll must time out (a loud failure). Not set in CI.
@@ -113,19 +114,24 @@ async function main() {
       // The host is the published elowen package, which no longer bundles this plugin.
       prepareDataDir: (dataDir) => installRegistryPlugin(dataDir, 'cronjob'),
     });
-    const { baseUrl, token } = daemon;
+    const { baseUrl } = daemon;
+    // A plugin change settles on a RESTART, and a restart mints a fresh bearer, so the token is not
+    // fixed for the life of the suite. See `settlePluginChange`.
+    let token = daemon.token;
     console.log(`daemon up on ${baseUrl}; model server on ${model.baseUrl}`);
 
-    // 1) Shorten the scheduler tick to its 10s minimum, then enable the bundled cronjob plugin. Both apply
-    //    live (each hot-reloads the plugin registry); enabling connects the CronAdapter and starts its
+    // 1) Shorten the scheduler tick to its 10s minimum, then enable the bundled cronjob plugin. Neither
+    //    applies in place: the daemon persists each change and answers `pending`, and the restart the
+    //    harness drives is what loads the new registry. Enabling connects the CronAdapter and starts its
     //    tick loop with the stored tickMs.
     const cfg = await req(baseUrl, 'PATCH', '/plugins/cronjob/config', token, { values: { tickMs: 10000 } });
-    assert(cfg.status === 200, `PATCH /plugins/cronjob/config -> 200 (got ${cfg.status}: ${cfg.text})`);
+    token = await settlePluginChange(daemon, cfg, token, 'PATCH /plugins/cronjob/config');
     const enable = await req(baseUrl, 'PATCH', '/plugins/cronjob', token, { enabled: true });
-    // The daemon's own word for which copy it loaded. A published elowen that still bundles this
-    // plugin would shadow the one under test and quietly turn this whole suite into an npm test.
+    token = await settlePluginChange(daemon, enable, token, 'PATCH /plugins/cronjob {enabled:true}');
+    // The daemon's own word for which copy it loaded, asked AFTER the change has settled. A published
+    // elowen that still bundles this plugin would shadow the one under test and quietly turn this whole
+    // suite into an npm test.
     await assertLoadedFromRegistry((method, path) => req(baseUrl, method, path, token), 'cronjob');
-    assert(enable.status === 200, `PATCH /plugins/cronjob {enabled:true} -> 200 (got ${enable.status}: ${enable.text})`);
 
     // 2) Create a one-shot job due NOW: runAt in the past + no lastRun -> due on the very next tick. Its
     //    `check` collector prints the marker; the prompt deliberately does NOT contain the marker, so the

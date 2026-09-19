@@ -38,6 +38,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
+import { settlePluginChange } from '../harness/plugin-change.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { verifyFastPreference } from '../harness/fast-preference.mjs';
@@ -161,7 +162,10 @@ async function main() {
       // The host is the published elowen package, which no longer bundles this plugin.
       prepareDataDir: (dataDir) => installRegistryPlugin(dataDir, 'whatsapp'),
     });
-    const { baseUrl, token } = daemon;
+    const { baseUrl } = daemon;
+    // A plugin change settles on a RESTART, and a restart mints a fresh bearer, so the token is not
+    // fixed for the life of the suite. See `settlePluginChange`.
+    let token = daemon.token;
     console.log(`daemon up on ${baseUrl}; model on ${model.baseUrl}; fake WhatsApp bridge on ${bridgeUrl}`);
 
     // 1) Configure the whatsapp plugin: an admin senderPolicy for our number (so control commands are
@@ -186,10 +190,11 @@ async function main() {
     //     human platform turn that has none — so without this the bot would never answer.
     await linkPlatformAccount(baseUrl, token, { whatsappNumber: USER_NUMBER });
 
-    // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter runs connect() →
+    // 2) Enable the plugin. The change does not apply in place: the daemon persists it and answers
+    //    `pending`, and the restart the harness drives is what loads the new registry, after which the adapter runs connect() →
     //    startSocket(), which (via the seam) builds the fake socket and emits connection.update 'open'.
     const enable = await patch(baseUrl, '/plugins/whatsapp', token, { enabled: true });
-    assert(enable.status === 200, `PATCH /plugins/whatsapp → 200 (got ${enable.status}: ${enable.text})`);
+    token = await settlePluginChange(daemon, enable, token, 'PATCH /plugins/whatsapp {enabled:true}');
 
     // Wiring proof: the fake socket was constructed (seam used) and the bridge is live.
     await bridge.waitConnected(20_000);

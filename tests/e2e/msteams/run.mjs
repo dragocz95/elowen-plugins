@@ -33,6 +33,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
+import { settlePluginChange } from '../harness/plugin-change.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { startFakeBotFramework } from './fake-botframework.mjs';
@@ -180,9 +181,7 @@ async function main() {
     //    deployment a supervisor brings it back; this harness is the supervisor, so it drives the restart
     //    itself over the same port and data dir — which is also why the token below has to be refreshed.
     const enable = await patch(baseUrl, '/plugins/msteams', token, { enabled: true, acknowledgeGrants: ['users'] });
-    assert(enable.status === 200 || enable.status === 202,
-      `PATCH /plugins/msteams → 200/202 (got ${enable.status}: ${enable.text})`);
-    if (enable.status === 202) token = await daemon.restart();
+    token = await settlePluginChange(daemon, enable, token, 'PATCH /plugins/msteams {enabled:true}');
     // The adapter validates the credentials eagerly as it comes up, against the fake token endpoint.
     await fake.waitForCall((calls) => calls.some((c) => c.path === '/oauth/token'), 20_000, 'eager credential check (POST /oauth/token)');
     console.log('PASS wiring: msteams plugin enabled and authenticated against the fake token endpoint.');

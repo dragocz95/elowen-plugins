@@ -28,6 +28,7 @@
 
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
+import { settlePluginChange } from '../harness/plugin-change.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { verifyFastPreference } from '../harness/fast-preference.mjs';
@@ -128,7 +129,10 @@ async function main() {
       // The host is the published elowen package, which no longer bundles this plugin.
       prepareDataDir: (dataDir) => installRegistryPlugin(dataDir, 'discord'),
     });
-    const { baseUrl, token } = daemon;
+    const { baseUrl } = daemon;
+    // A plugin change settles on a RESTART, and a restart mints a fresh bearer, so the token is not
+    // fixed for the life of the suite. See `settlePluginChange`.
+    let token = daemon.token;
     console.log(`daemon up on ${baseUrl}; model on ${model.baseUrl}; fake Discord REST ${fake.apiBase} / gateway ${fake.gatewayUrl}`);
 
     // 1) Configure the discord plugin: botToken (required), the apiBase + gatewayUrl seams pointed at the
@@ -155,10 +159,11 @@ async function main() {
     //     host silently drops a human platform turn that has none — so without this the bot stays mute.
     await linkPlatformAccount(baseUrl, token, { discordUserId: USER_ID });
 
-    // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter connects to the
+    // 2) Enable the plugin. The change does not apply in place: the daemon persists it and answers
+    //    `pending`, and the restart the harness drives is what loads the new registry, after which the adapter connects to the
     //    fake: GET /users/@me → register slash commands → open the gateway and Identify.
     const enable = await patch(baseUrl, '/plugins/discord', token, { enabled: true });
-    assert(enable.status === 200, `PATCH /plugins/discord → 200 (got ${enable.status}: ${enable.text})`);
+    token = await settlePluginChange(daemon, enable, token, 'PATCH /plugins/discord {enabled:true}');
 
     // Confirm the plugin actually connected against our fake.
     await fake.waitForCall((calls) => calls.some((c) => c.method === 'GET' && c.path === '/users/@me'), 20_000, 'bot GET /users/@me (connect)');

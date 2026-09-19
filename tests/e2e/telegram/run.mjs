@@ -24,6 +24,7 @@
 
 import { startModelServer } from '../harness/model-server.mjs';
 import { spawnRealDaemon } from '../harness/spawn-daemon.mjs';
+import { settlePluginChange } from '../harness/plugin-change.mjs';
 import { installRegistryPlugin } from '../harness/install-plugin.mjs';
 import { linkPlatformAccount } from '../harness/link-account.mjs';
 import { verifyFastPreference } from '../harness/fast-preference.mjs';
@@ -84,7 +85,10 @@ async function main() {
       // The host is the published elowen package, which no longer bundles this plugin.
       prepareDataDir: (dataDir) => installRegistryPlugin(dataDir, 'telegram'),
     });
-    const { baseUrl, token } = daemon;
+    const { baseUrl } = daemon;
+    // A plugin change settles on a RESTART, and a restart mints a fresh bearer, so the token is not
+    // fixed for the life of the suite. See `settlePluginChange`.
+    let token = daemon.token;
     console.log(`daemon up on ${baseUrl}; model on ${model.baseUrl}; fake Telegram on ${fake.baseUrl}`);
 
     // 1) Configure the telegram plugin: botToken (required), the apiRoot seam pointed at the fake, an
@@ -111,10 +115,11 @@ async function main() {
     //     human platform turn that has none — so without this the bot would never answer.
     await linkPlatformAccount(baseUrl, token, { telegramUserId: String(USER_ID) });
 
-    // 2) Enable the plugin — PATCH /plugins/:name hot-reloads the registry, so the adapter connects to the
+    // 2) Enable the plugin. The change does not apply in place: the daemon persists it and answers
+    //    `pending`, and the restart the harness drives is what loads the new registry, after which the adapter connects to the
     //    fake (getMe → deleteWebhook → getUpdates) using the config just stored.
     const enable = await patch(baseUrl, '/plugins/telegram', token, { enabled: true });
-    assert(enable.status === 200, `PATCH /plugins/telegram → 200 (got ${enable.status}: ${enable.text})`);
+    token = await settlePluginChange(daemon, enable, token, 'PATCH /plugins/telegram {enabled:true}');
 
     // Confirm the plugin actually started listening against our fake.
     await fake.waitForCall((calls) => calls.some((c) => c.method === 'getMe'), 20_000, 'bot getMe (init)');
