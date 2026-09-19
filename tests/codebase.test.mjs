@@ -62,6 +62,7 @@ const isEmbeddingConfigured = (cfg) => !!cfg && cfg.model.trim() !== '' && (!!cf
 const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox = null, logger = log }) => {
   const tools = [];
   const platforms = [];
+  const services = [];
   const projectRemoved = [];
   const session = { admin: true, roots: [], workDir: undefined, accountUserId: 1 };
 
@@ -86,7 +87,10 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox 
       return dir;
     },
     registerTool: (tool) => tools.push(tool),
+    // Kept alongside registerService so a regression back to a fake chat adapter is visible: the host
+    // never calls a platform adapter's disconnect(), so a timer registered that way is never stopped.
     registerPlatform: (platform) => platforms.push(platform),
+    registerService: (service) => services.push(service),
     registerProjectRemoved: (fn) => projectRemoved.push(fn),
     isAdminSession: () => session.admin,
     // The daemon's access view; a managed project turn carries a managed projectRef here.
@@ -118,6 +122,7 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox 
   return {
     tools,
     platforms,
+    services,
     runTool: (name, params) => {
       const tool = tools.find((t) => t.name === name);
       if (!tool) throw new Error(`tool ${name} not registered`);
@@ -132,8 +137,8 @@ const makeHost = ({ dataRoot, config = {}, embeddings, embeddingConfig, sandbox 
     },
     projectRemoved: (projectId) => Promise.all(projectRemoved.map((fn) => fn(projectId))),
     indexer: () => {
-      const found = platforms.find((p) => p.name === 'codebase-index');
-      if (!found) throw new Error('scheduled indexer not registered');
+      const found = services.find((s) => s.name === 'codebase-index');
+      if (!found) throw new Error('scheduled indexer not registered as a host service');
       return found;
     },
   };
@@ -577,7 +582,7 @@ describe('codebase plugin — batch3 fixes', () => {
   });
 
   // RBUG-06 — a failing auto-reindex pass must be reported, not swallowed: the scheduled path already
-  // logs a failed pass (ScheduledIndexer.connect()'s tick().catch), but the search-triggered auto path
+  // logs a failed pass (ScheduledIndexer.start()'s tick().catch), but the search-triggered auto path
   // discarded the same kind of failure with no trace anywhere.
   it('RBUG-06 a failing auto-reindex pass logs a warning instead of vanishing silently', async () => {
     const dataRoot = tmpDir('cb-rbug06-data');
@@ -764,18 +769,44 @@ describe('codebase plugin — scheduled reindex', () => {
     db.close();
   };
 
-  it('registers the adapter but stays idle while the schedule is off', async () => {
+  // The scheduled indexer used to be registered with ctx.registerPlatform, borrowing a chat adapter's
+  // connect/disconnect for its lifetime. The host never calls a platform adapter's disconnect(), so that
+  // timer was never cleared and kept embedding through the shutdown drain. registerService is the seam the
+  // host actually drives (PluginServiceRunner: start() after the boot reconciles, stop() in shutdownAll).
+  it('contributes the indexer as a host service with start/stop, and no platform adapter at all', async () => {
+    const { dataRoot, repo } = seed('sch-seam', { 'a.ts': src('cosine') });
+    const host = load(dataRoot, { scheduledReindex: true, reindexIntervalMinutes: 5, reindexScope: 'listed', reindexRepos: repo });
+
+    assert.deepEqual(host.platforms, []); // a semantic index is not a chat channel
+    assert.deepEqual(host.services.map((s) => s.name), ['codebase-index']);
+    // registerService refuses anything that is not name + start + stop.
+    const indexer = host.indexer();
+    assert.equal(typeof indexer.start, 'function');
+    assert.equal(typeof indexer.stop, 'function');
+
+    // The live timer must not hold a draining daemon open, the same contract the host's own
+    // registerInterval states. Stopped in `finally` because a ref'd interval that outlives a failed
+    // assertion keeps THIS process alive too: the check would hang the suite instead of reporting.
+    await indexer.start();
+    try {
+      assert.equal(indexer.timer.hasRef(), false);
+    } finally {
+      indexer.stop();
+    }
+  });
+
+  it('registers the service but stays idle while the schedule is off', async () => {
     const { dataRoot, repo } = seed('sch-off', { 'a.ts': src('cosine') });
     const { embedder, state } = countingEmbedder();
     // Scope and paths configured, but scheduledReindex left at its default (false).
     const host = load(dataRoot, { reindexScope: 'listed', reindexRepos: repo }, embedder);
     const indexer = host.indexer();
 
-    await indexer.connect();
+    await indexer.start();
     await indexer.tick();
 
     assert.equal(state.calls, 0); // an unattended timer must not spend the provider until it is asked to
-    indexer.disconnect();
+    indexer.stop();
   });
 
   it('indexes only the listed repositories and skips a path that is not a directory', async () => {
@@ -792,7 +823,7 @@ describe('codebase plugin — scheduled reindex', () => {
 
     assert.equal(chunkCount(dataRoot), 1);
     assert.equal(chunkCount(dataRoot, 'SELECT COUNT(*) AS n FROM chunks WHERE repo = ?', realpathSync(repo)), 1);
-    indexer.disconnect();
+    indexer.stop();
   });
 
   it('refreshes a repository the index already holds when the scope is everything indexed', async () => {
@@ -807,7 +838,7 @@ describe('codebase plugin — scheduled reindex', () => {
     await host.indexer().tick();
 
     assert.equal(chunkCount(dataRoot), 2); // the timer found the repo through the index itself
-    host.indexer().disconnect();
+    host.indexer().stop();
   });
 
   it('converges a repo bigger than one pass within a single tick', async () => {
@@ -826,25 +857,25 @@ describe('codebase plugin — scheduled reindex', () => {
     // Follow-up passes must bypass the debounce marker the first pass stamped, or the tick indexes one file
     // and then blocks itself for the whole interval.
     assert.equal(chunkCount(dataRoot), 3);
-    host.indexer().disconnect();
+    host.indexer().stop();
   });
 
-  it('a disconnected generation does no further work (a reload must not leave two timers indexing)', async () => {
+  it('a stopped service does no further work (shutdown must not leave a timer still indexing)', async () => {
     const { dataRoot, repo } = seed('sch-stop', { 'a.ts': src('cosine') });
     const { embedder, state } = countingEmbedder();
     const config = { scheduledReindex: true, reindexIntervalMinutes: 5, reindexScope: 'listed', reindexRepos: repo };
     const host1 = load(dataRoot, config, embedder);
     const orphan = host1.indexer();
-    await orphan.connect();
+    await orphan.start();
 
-    orphan.disconnect(); // the host tears the old generation down right before swapping in the new one
+    orphan.stop(); // PluginServiceRunner.shutdownAll() stops every service before the daemon's final exit
     await orphan.tick();
     assert.equal(state.calls, 0);
 
-    const host2 = load(dataRoot, config, embedder); // the live generation still works
+    const host2 = load(dataRoot, config, embedder); // a later boot's service still works
     await host2.indexer().tick();
     assert.equal(state.calls, 1);
-    host2.indexer().disconnect();
+    host2.indexer().stop();
   });
 });
 

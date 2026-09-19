@@ -374,7 +374,6 @@ function managedSource(ctx, project, repoArg) {
   if (repoArg !== undefined && posix.resolve('/workspace', String(repoArg)) !== '/workspace') {
     throw new Error('a managed project indexes its /workspace tree; omit repo or pass /workspace');
   }
-  if (ctx.currentAccess().workspaceRef) throw new Error('a legacy exact workspace cannot widen into a managed project');
   const accountUserId = ctx.currentAccountUserId();
   if (!Number.isSafeInteger(accountUserId) || accountUserId < 1) throw new Error('indexing a managed project requires an acting account');
   const provider = () => {
@@ -589,17 +588,19 @@ function pushTopK(arr, item, k) {
 /** Background timer that keeps the index converging on its own, so a repo far larger than one pass's embed
  *  budget does not need someone calling CodebaseReindex until it catches up.
  *
- *  It is a platform ADAPTER rather than a bare setInterval inside `register` because that is the only
- *  teardown the host offers a plugin: `PlatformOrchestrator.stopAll()` calls `disconnect()` immediately
- *  before a reload swaps in a freshly registered generation. A raw interval would survive that swap and a
- *  second generation would embed into the same index.db alongside the first, doubling the spend.
- *  `clearInterval` alone is not enough either — a tick already parked inside `embedBatch` keeps going — so
- *  `stopped` is checked between repos and between passes, the way the cron adapter does it.
+ *  It is a host-managed SERVICE (`ctx.registerService`), which is the seam that actually owns a plugin's
+ *  background lifetime: `PluginServiceRunner` calls `start()` after the boot reconciles and `stop()` from
+ *  `shutdownAll()`, after the turn drain and before the daemon's final exit. A platform adapter is the
+ *  wrong shape for this and its `disconnect()` is never called by the host at all, so an adapter's timer
+ *  keeps ticking — and keeps spending the embedding provider — right through a shutdown.
  *
- *  It deliberately carries no `notify`: the host broadcasts host-initiated messages to every adapter that
- *  exposes one, and this adapter has no channel to deliver them to. It is likewise NOT declared in the
- *  manifest's `provides.platforms` — the settings UI categorizes a plugin as a chat channel by that count,
- *  and this is an internal timer, not a surface the operator can talk to. */
+ *  `clearInterval` alone is not enough either: a tick already parked inside `embedBatch` keeps going. So
+ *  `stopped` is checked between repos and between passes, which is why this is a service with its own
+ *  `stop()` rather than the simpler `ctx.registerInterval` — that sugar clears the timer but gives the
+ *  plugin no hook to halt a pass that is already in flight.
+ *
+ *  The timer is unref'd for the same reason the host unrefs the one behind `registerInterval`: a plugin
+ *  tick must never be what keeps a draining process alive. */
 class ScheduledIndexer {
   name = 'codebase-index';
   constructor({ cfg, logger, getDb, isConfigured, runPass }) {
@@ -610,22 +611,21 @@ class ScheduledIndexer {
     this.runPass = runPass;
     this.timer = null;
     this.running = false;
-    // Set by disconnect(): this generation has been torn down and must not start any further work.
+    // Set by stop(): this service has been torn down and must not start any further work.
     this.stopped = false;
   }
-  listen() { /* no inbound channel — this adapter owns a timer, nothing else */ }
-  async send() { /* no outbound channel */ }
 
-  async connect() {
+  async start() {
     if (!this.cfg.scheduledReindex) return;
     this.timer = setInterval(
       () => void this.tick().catch((e) => this.log.warn(`scheduled reindex failed: ${e?.message ?? e}`)),
       this.cfg.reindexIntervalMs,
     );
+    this.timer.unref?.();
   }
-  // Synchronous on purpose — the host's stopAll() cannot await, and a reload must not block for however
-  // long the provider takes to answer the pass that is currently in flight.
-  disconnect() { this.stopped = true; if (this.timer) clearInterval(this.timer); }
+  // Returns at once on purpose: the host bounds stop() but a shutdown must not block for however long the
+  // provider takes to answer the pass that is currently in flight. `stopped` is what ends that pass.
+  stop() { this.stopped = true; if (this.timer) clearInterval(this.timer); }
 
   /** The repos this schedule covers. `indexed` refreshes what the index already holds — every one of those
    *  rows got there through an admin-gated CodebaseReindex, so the timer never widens the indexed set by
@@ -930,7 +930,7 @@ export function register(ctx) {
   // both of its inputs are already admin-gated: the settings route that writes this config, and the repos
   // it touches (already in the index through CodebaseReindex, or typed by the operator). It never discovers
   // repos on its own, and it does not widen what any session may SEE — searches stay scoped by searchScope.
-  ctx.registerPlatform(new ScheduledIndexer({
+  ctx.registerService(new ScheduledIndexer({
     cfg,
     logger: ctx.logger,
     getDb,
