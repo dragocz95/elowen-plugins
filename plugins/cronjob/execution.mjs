@@ -52,6 +52,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       interrupted.catch(() => {});
       timer = setTimeout(() => interrupt(new Error('project check timed out')), timeoutMs);
       heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+      heartbeat.unref();
       onAbort = () => interrupt(new Error('project check cancelled'));
       signal?.addEventListener('abort', onAbort, { once: true });
       signal?.throwIfAborted();
@@ -91,7 +92,10 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
   let onAbort;
   try {
     return await new Promise((resolve, reject) => {
-      let output = '';
+      // Collected as BYTES and decoded once: a chunk boundary falls wherever the pipe happens to flush,
+      // so decoding each chunk on its own turns any character split across two of them into replacement
+      // characters — and that text is what the guard hands the brain turn.
+      const output = [];
       let bytes = 0;
       let failure;
       let cancellation;
@@ -108,7 +112,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       child.stdout.on('data', chunk => {
         bytes += chunk.length;
         if (bytes > 1024 * 1024) stop(new Error('project check output too large'));
-        else output += chunk.toString('utf8');
+        else output.push(chunk);
       });
       child.stderr.on('data', chunk => {
         bytes += chunk.length;
@@ -116,7 +120,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       });
       child.once('error', error => { stop(error); });
       child.once('close', code => {
-        Promise.resolve(cancellation).then(() => failure ? reject(failure) : code === 0 ? resolve({ stdout: prepared.sanitizeOutput(output) }) : reject(new Error('project check failed')));
+        Promise.resolve(cancellation).then(() => failure ? reject(failure) : code === 0 ? resolve({ stdout: prepared.sanitizeOutput(Buffer.concat(output).toString('utf8')) }) : reject(new Error('project check failed')));
       });
       child.stdin.on('error', error => stop(error));
       child.stdin.end(prepared.stdin);
