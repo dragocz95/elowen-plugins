@@ -64,7 +64,7 @@
       "detailCostUnavailable": "Unavailable",
       "reset": "Reset usage",
       "resetTitle": "Reset usage statistics?",
-      "resetBody": "This permanently clears recorded task usage snapshots and your recorded chat usage. Conversations and agent session transcripts remain available.",
+      "resetBody": "This permanently clears your recorded chat usage and the consumption origin the origin breakdown is built from. Conversations and agent session transcripts remain available.",
       "resetConfirmWord": "RESET",
       "resetConfirmHint": "Type {word} to confirm.",
       "resetConfirm": "Reset usage",

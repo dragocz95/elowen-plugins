@@ -51,7 +51,7 @@
       "detailCostUnavailable": "Nie je k dispozícii",
       "reset": "Vynulovať spotrebu",
       "resetTitle": "Vynulovať štatistiky spotreby?",
-      "resetBody": "Tým natrvalo vymažete zaznamenané snímky spotreby úloh a svoju zaznamenanú spotrebu chatu. Konverzácie a prepisy relácií agentov zostanú dostupné.",
+      "resetBody": "Tým natrvalo vymažete svoju zaznamenanú spotrebu chatu a záznamy pôvodu spotreby, z ktorých vychádza rozpad pôvodu. Konverzácie a prepisy relácií agentov zostanú dostupné.",
       "resetConfirmWord": "VYNULOVAŤ",
       "resetConfirmHint": "Pre potvrdenie napíšte {word}.",
       "resetConfirm": "Vynulovať spotrebu",
