@@ -1,8 +1,8 @@
 {
   "name": "github",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "apiVersion": "2",
-  "requiresCore": "0.28.42",
+  "requiresCore": "0.28.50",
   "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
   "entry": "dist/index.js",
   "icon": "icon.svg",

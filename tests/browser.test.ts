@@ -297,7 +297,7 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[]; controls?: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.4.4');
+    expect(manifest.version).toBe('0.4.5');
     // The capture seam is DECLARED, not merely registered: a control a sibling plugin resolves has to be
     // visible in the manifest, or an operator reading it cannot tell which plugins reach into which.
     expect(manifest.provides.controls).toEqual(['browserCapture']);
@@ -363,9 +363,11 @@ describe('browser plugin contract', () => {
     // moved to 0.28.35 because a project browser now runs inside the project's environment and needs the
     // Sandbox environment control, which is strictly later. It moved again to 0.28.46, the release that
     // knows the `browserCapture` key: on an older daemon that control is an unknown name, so the sibling
-    // that depends on it would resolve undefined with nothing to say why. Every property holds at the
-    // higher floor.
-    expect(manifest.requiresCore).toBe('0.28.46');
+    // that depends on it would resolve undefined with nothing to say why. It moved again to 0.28.50, the
+    // first release that speaks plugin contract 2: an apiVersion 2 manifest cannot load on anything
+    // earlier, and a floor that admitted one would let the install succeed and the load fail silently.
+    // Every property holds at the higher floor.
+    expect(manifest.requiresCore).toBe('0.28.50');
   });
 });
 

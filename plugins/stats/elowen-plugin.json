@@ -1,8 +1,8 @@
 {
   "name": "stats",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "apiVersion": "2",
-  "requiresCore": "0.28.21",
+  "requiresCore": "0.28.50",
   "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
   "entry": "index.mjs",
   "provides": {},
