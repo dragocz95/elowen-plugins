@@ -214,12 +214,19 @@ test('the task context and tool descriptions name taskId and describe batch boun
 // accurate for Elowen's identical argument semantics. TaskCreate's per-item `subject`/`description`/
 // `activeForm`/`metadata` texts are likewise replaced with the reference TaskCreateTool.ts wording; the
 // batch shape, `status` and `blockedBy` stay Elowen-only extensions and keep their own text.
+//
+// F1 correction (Opus implementation review): the reference's activeForm sentence says "shown in spinner"
+// — literally true THERE (a CLI spinner glyph), but false for Elowen. render.mjs:51 and :124-132 (taskCard
+// label / stepLabel) render activeForm as plain row/step TEXT, never a spinner. Copying "spinner" verbatim
+// would be exactly the false-promise mistake this parity work exists to avoid, so the adopted sentence is
+// reworded to "shown while the task is in_progress" — same information (present-continuous text, same
+// example), accurate surface.
 test('TaskUpdate and TaskCreate argument schemas carry the reference parity descriptions', async (t) => {
   const h = harness(t);
   const updateProps = h.tool('TaskUpdate').parameters.properties;
   assert.equal(updateProps.subject.description, 'New subject for the task');
   assert.equal(updateProps.description.description, 'New description for the task');
-  assert.equal(updateProps.activeForm.description, 'Present continuous form shown in spinner when in_progress (e.g., "Running tests")');
+  assert.equal(updateProps.activeForm.description, 'Present continuous form shown while the task is in_progress (e.g., "Running tests")');
   assert.equal(updateProps.status.description, 'New status for the task');
   assert.equal(updateProps.addBlocks.description, 'Task IDs that this task blocks');
   assert.equal(updateProps.addBlockedBy.description, 'Task IDs that block this task');
@@ -232,11 +239,27 @@ test('TaskUpdate and TaskCreate argument schemas carry the reference parity desc
   const createItem = h.tool('TaskCreate').parameters.properties.tasks.items.properties;
   assert.equal(createItem.subject.description, 'A brief title for the task');
   assert.equal(createItem.description.description, 'What needs to be done');
-  assert.equal(createItem.activeForm.description, 'Present continuous form shown in spinner when in_progress (e.g., "Running tests")');
-  assert.equal(createItem.metadata.description, 'Arbitrary metadata to attach to the task');
+  assert.equal(createItem.activeForm.description, 'Present continuous form shown while the task is in_progress (e.g., "Running tests")');
+  // F3 (Opus review, optional-adopted): "private" is load-bearing here — this metadata is never shown in
+  // the Todo panel (render.mjs's taskCard omits it entirely; see the doc comment on taskCard). The bare
+  // reference wording would silently drop that fact.
+  assert.equal(createItem.metadata.description, 'Arbitrary private metadata to attach to the task');
   // Elowen-only extensions keep their own descriptive text, not reference text (the reference has no
   // equivalent field for either).
   assert.match(createItem.blockedBy.description, /sibling task in THIS same call/);
+});
+
+// F3 (Opus implementation review): pin the tool-level privacy wording so a future parity pass touching
+// TaskCreate's top-level `description` string cannot silently drop the one place that tells the model
+// `description` and `metadata` are private (never rendered in the Todo panel — see render.mjs taskCard,
+// which emits only subject/activeForm/owner/blockedBy) while `subject`/`activeForm` are the public,
+// user-visible fields.
+test('TaskCreate tool-level description keeps the private-vs-public field split explicit', async (t) => {
+  const h = harness(t);
+  const description = h.tool('TaskCreate').description;
+  assert.match(description, /subject for the short user-visible outcome/);
+  assert.match(description, /description for private working context/);
+  assert.match(description, /metadata for private structured context/);
 });
 
 // The schemas are OPEN: an unrecognised key is ignored, not rejected. So a TaskUpdate that names a real
