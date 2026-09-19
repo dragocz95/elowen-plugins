@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
-import type { PluginContext, SandboxControl, SandboxPreparedExecution } from 'elowen/dist/plugins/api.js';
+import type { PluginContext, SandboxControl, ManagedPreparedExecution } from 'elowen/dist/plugins/api.js';
 import { GUEST_FILE_CHUNK_BYTES } from 'elowen/dist/plugins/environmentTypes.js';
 import { LspManager, type LspStatus } from './manager.js';
 import type { LspTransport } from './client.js';
@@ -111,7 +110,7 @@ export class ManagedLspManager extends LspManager {
     return sandbox;
   }
 
-  private async prepare(file: string, args: string[], cwd = '/workspace'): Promise<SandboxPreparedExecution> {
+  private async prepare(file: string, args: string[], cwd = '/workspace'): Promise<ManagedPreparedExecution> {
     const sandbox = await this.authority();
     const prepared = await sandbox.prepareExecution({ projectRef: this.project, command: { type: 'argv', file, args }, cwd, leaseKind: 'lsp' });
     if (this.stopped) {
@@ -122,7 +121,7 @@ export class ManagedLspManager extends LspManager {
     if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== this.project.projectId
       || prepared.lease.projectId !== this.project.projectId || prepared.lease.accountUserId !== this.actor
       || prepared.lease.runtimeGeneration !== this.generation || typeof prepared.lease.cancel !== 'function'
-      || prepared.launch?.type !== 'argv' || prepared.stdin !== undefined) {
+      || typeof prepared.start !== 'function' || typeof prepared.cancel !== 'function') {
       await prepared.lease.cancel?.();
       await prepared.lease.release();
       throw new Error('Invalid managed LSP project, generation or stream launch.');
@@ -130,18 +129,17 @@ export class ManagedLspManager extends LspManager {
     return prepared;
   }
 
-  private cleanup(prepared: SandboxPreparedExecution): void {
-    const cleanup = (async () => { await prepared.lease.cancel?.(); await prepared.lease.release(); })();
+  private cleanup(prepared: ManagedPreparedExecution): void {
+    const cleanup = (async () => { try { await prepared.cancel(); } finally { await prepared.lease.release(); } })();
     this.cleanups.add(cleanup);
     void cleanup.then(() => this.cleanups.delete(cleanup), (error: unknown) => {
       this.ctx.logger.warn(`Managed LSP cleanup failed: ${String(error)}`);
     });
   }
 
-  private transport(prepared: SandboxPreparedExecution): LspTransport {
-    if (prepared.launch.type !== 'argv') throw new Error('Managed LSP requires an argv launch.');
+  private async transport(prepared: ManagedPreparedExecution): Promise<LspTransport> {
     let child;
-    try { child = spawn(prepared.launch.file, prepared.launch.args, { cwd: prepared.cwd, env: prepared.launch.env, stdio: ['pipe', 'pipe', 'pipe'] }); }
+    try { child = await prepared.start(); }
     catch (error) { this.cleanup(prepared); throw error; }
     const decoder = new MessageDecoder();
     const messages: ((message: JsonRpcMessage) => void)[] = [];
@@ -159,8 +157,7 @@ export class ManagedLspManager extends LspManager {
       void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(finish);
     }, 5000);
     heartbeat.unref();
-    child.on('error', finish);
-    child.on('close', finish);
+    void child.closed.then(finish, finish);
     child.stdin.on('error', finish);
     child.stderr.resume();
     child.stdout.on('data', (data: Buffer) => {
@@ -168,7 +165,11 @@ export class ManagedLspManager extends LspManager {
       catch { finish(); }
     });
     return {
-      send: (frame) => { if (ended) throw new Error('Managed language server closed.'); child.stdin.write(frame); },
+      send: (frame) => {
+        if (ended) throw new Error('Managed language server closed.');
+        if (child.stdin.writableLength + Buffer.byteLength(frame) > 1024 * 1024) { finish(); throw new Error('Managed LSP input exceeds its bound.'); }
+        child.stdin.write(frame);
+      },
       onMessage: (callback) => { messages.push(callback); },
       onExit: (callback) => { if (ended) callback(); else exits.push(callback); },
       dispose: finish,
@@ -178,26 +179,36 @@ export class ManagedLspManager extends LspManager {
   /** Status and package changes execute in the same guest and retain the same lease authority. */
   private async run(file: string, args: string[]): Promise<string> {
     const prepared = await this.prepare(file, args);
-    if (prepared.launch.type !== 'argv') throw new Error('Managed LSP requires an argv launch.');
-    const launch = prepared.launch;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let failure: unknown;
     try {
-      return await new Promise<string>((resolve, reject) => {
-        const child = spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
-        const chunks: Buffer[] = [];
-        let size = 0;
-        const timeout = setTimeout(() => { finish(); reject(new Error('Guest LSP command timed out.')); }, 120000);
-        const heartbeat = setInterval(() => {
-          void Promise.resolve().then(() => prepared.lease.heartbeat()).catch((error: unknown) => { finish(); reject(error); });
-        }, 5000);
-        const finish = (): void => { clearTimeout(timeout); clearInterval(heartbeat); };
-        child.on('error', (error) => { finish(); reject(error); });
-        child.on('close', (code) => { finish(); code === 0 ? resolve(Buffer.concat(chunks).toString('utf8')) : reject(new Error(`Guest LSP command exited with ${code}.`)); });
-        child.stdout.on('data', (data: Buffer) => { size += data.length; if (size > 1024 * 1024) { finish(); reject(new Error('Guest LSP output exceeded its limit.')); } else chunks.push(data); });
-        child.stderr.resume();
-        child.stdin.on('error', (error) => { finish(); reject(error); });
-        child.stdin.end();
+      let interrupt!: (error: unknown) => void;
+      const interrupted = new Promise<never>((_resolve, reject) => { interrupt = reject; });
+      void interrupted.catch(() => {});
+      timeout = setTimeout(() => interrupt(new Error('Guest LSP command timed out.')), 120000);
+      heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+      const session = await Promise.race([prepared.start(), interrupted]);
+      const chunks: Buffer[] = [];
+      let size = 0;
+      session.stdout.on('data', (data: Buffer) => {
+        size += data.length;
+        if (size > 1024 * 1024) interrupt(new Error('Guest LSP output exceeded its limit.'));
+        else chunks.push(data);
       });
-    } finally { await prepared.lease.cancel?.(); await prepared.lease.release(); }
+      session.stderr.resume();
+      session.stdin.end();
+      const result = await Promise.race([session.closed, interrupted]);
+      if (result.code !== 0) throw new Error(`Guest LSP command exited with ${result.code}.`);
+      return prepared.sanitizeOutput(Buffer.concat(chunks).toString('utf8'));
+    } catch (error) {
+      failure = error;
+      try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'Managed LSP cancellation failed'); }
+      throw failure;
+    } finally {
+      clearTimeout(timeout); clearInterval(heartbeat);
+      try { await prepared.lease.release(); } catch (cleanup) { throw new AggregateError([...(failure ? [failure] : []), cleanup], 'Managed LSP cleanup failed'); }
+    }
   }
 
   override async workspaceSymbol(query: string, boundary?: string, signal?: AbortSignal) {

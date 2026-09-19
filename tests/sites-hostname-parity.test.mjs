@@ -86,7 +86,7 @@ test('core feeds both seams the same URL, so identical rules cannot answer diffe
   assert.ok(declaration, 'core must still derive one trusted public web URL for the process');
   const shared = declaration[1];
 
-  assert.match(brainCore, new RegExp(`createPublishedSitesGatewayControl\\(\\{ publicWebUrl: ${shared}`),
+  assert.match(brainCore, new RegExp(`createPublishedSitesGatewayControl\\(\\{\\s*publicWebUrl: ${shared}`),
     'the privileged gateway control must be built from that one URL');
   assert.match(brainCore, new RegExp(`publicWebUrl: \\(\\) => ${shared}`),
     'and the plugin context must expose the same one');

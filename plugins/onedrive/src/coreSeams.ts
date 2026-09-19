@@ -77,9 +77,8 @@ interface SandboxProjectControl {
     mode: 'managed';
     projectRef?: { kind: 'managed'; projectId: number };
     cwd: string;
-    launch: { type: 'argv'; file: string; args: string[]; env: Record<string, string> } | { type: 'shell'; command: string; env: Record<string, string> };
-    stdin?: string | Buffer;
-    cancel?: () => Promise<void>;
+    start(): Promise<import('elowen/plugin-api').ManagedExecutionSession>;
+    cancel(): Promise<void>;
     lease: { heartbeat(): void | Promise<void>; release(): void | Promise<void> };
     sanitizeOutput(text: string): string;
   }>;

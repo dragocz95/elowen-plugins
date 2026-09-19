@@ -15,6 +15,7 @@ import type { GuestFileOperation } from 'elowen/dist/plugins/environmentTypes.js
 /** Pins the canonical `GUEST_FILE_CHUNK_BYTES` (runtime `environmentTypes.ts`). Kept local only until
  *  the parent SDK refresh exports it; switch to the `elowen/dist` import at the same time as above. */
 const GUEST_FILE_CHUNK_BYTES = 524288;
+import { testSession } from './helpers/managedSession.js';
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 
 const exec = promisify(execFile);
@@ -41,7 +42,7 @@ async function fixture(options: { office?: boolean } = { office: true }) {
         }
       }
       if (input.command.file === 'sh' && options.office === false) file = '/bin/false';
-      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, launch: { type: 'argv', file, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: text => text.replaceAll(root, '/sdilene') };
+      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, ...testSession(file, args, root), lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, sanitizeOutput: text => text.replaceAll(root, '/sdilene') };
     },
     async projectFiles({ operation }: { operation: GuestFileOperation }) {
       operations.push(operation);

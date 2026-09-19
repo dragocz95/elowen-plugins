@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import type { PluginDb } from 'elowen/plugin-api';
 import { OneDriveStore } from '../plugins/onedrive/src/store.js';
 import { SyncEngine } from '../plugins/onedrive/src/sync.js';
+import { testSession } from './helpers/managedSession.js';
 import { ManagedMirror } from '../plugins/onedrive/src/managed.js';
 
 function pluginDb(): PluginDb {
@@ -110,7 +111,7 @@ describe('OneDrive managed Project transport', () => {
     });
     const sandbox = {
       projectFiles,
-      prepareExecution: vi.fn(async () => ({ mode: 'managed', cwd: '/demo', launch: { type: 'argv' as const, file: process.execPath, args: ['-e', ''], env: {} }, lease: { release: vi.fn() } })),
+      prepareExecution: vi.fn(async () => ({ mode: 'managed', cwd: '/demo', ...testSession(process.execPath, ['-e', '']), lease: { release: vi.fn() } })),
     } as never;
     const transport = new ManagedMirror(sandbox, { kind: 'managed', projectId: 41 }, 7, { root: '/demo', generation: 9, state: 'running', workspaceId: null });
     await transport.walk({ limit: 20 });
@@ -183,20 +184,13 @@ describe('OneDrive managed Project transport', () => {
         mode: 'managed',
         projectRef: { kind: 'managed', projectId: 41 },
         cwd: process.cwd(),
-        launch: {
-          type: 'argv' as const,
-          file: process.execPath,
-          args: ['-e', `
+        ...testSession(process.execPath, ['-e', `
             let input = '';
             const deadline = setTimeout(() => { process.stderr.write('missing stdin'); process.exit(9); }, 100);
             process.stdin.setEncoding('utf8');
             process.stdin.on('data', chunk => { input += chunk; });
             process.stdin.on('end', () => { clearTimeout(deadline); process.stdout.write(input); });
-          `],
-          env: process.env,
-        },
-        stdin: 'framed managed request',
-        cancel: vi.fn(),
+          `], process.cwd(), 'provider prefix'),
         lease: { release, heartbeat: vi.fn() },
         sanitizeOutput: (text: string) => text,
       })),
@@ -205,7 +199,7 @@ describe('OneDrive managed Project transport', () => {
       { root: '/demo', generation: 9, state: 'running', workspaceId: null });
 
     await expect(transport.git(['status'])).resolves.toEqual({
-      stdout: 'framed managed request', stderr: '', code: 0,
+      stdout: 'provider prefix', stderr: '', code: 0,
     });
     expect(release).toHaveBeenCalledOnce();
   });
@@ -218,14 +212,7 @@ describe('OneDrive managed Project transport', () => {
         mode: 'managed',
         projectRef: { kind: 'managed', projectId: 41 },
         cwd: process.cwd(),
-        launch: {
-          type: 'argv' as const,
-          file: process.execPath,
-          args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
-          env: process.env,
-        },
-        stdin: 'framed managed request',
-        cancel,
+        ...testSession(process.execPath, ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'], process.cwd(), undefined, cancel),
         lease: { release, heartbeat: vi.fn() },
         sanitizeOutput: (text: string) => text,
       })),

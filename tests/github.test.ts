@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { testSession } from './helpers/managedSession.js';
 import { createServer, type Server } from 'node:http';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -192,7 +193,7 @@ describe('project drawer repository request', () => {
         expect(input.cwd).toBe(`/${slug}`);
         expect(input.command.args).toContain(`/${slug}`);
         const args = input.command.args.map((arg: string) => arg === `/${slug}` ? root : arg);
-        return { ...prepared({ ...input.command, args }, root, root), mode: 'managed', projectRef: input.projectRef, cancel: async () => {} };
+        return { mode: 'managed', projectRef: input.projectRef, cwd: root, ...testSession(input.command.file, args, root), lease: { heartbeat() {}, release() {} }, sanitizeOutput: (text: string) => text };
       },
     });
     const service = new GitHubService(h.ctx);
@@ -279,8 +280,9 @@ describe('project drawer repository request', () => {
       if (input.command.type !== 'argv') throw new Error('Expected a Git argv command');
       const args = input.command.args.map(arg => arg === '/test-nspawn' ? target === 'git-directory' ? missing : h.root : arg);
       return {
-        ...prepared({ ...input.command, args }, target === 'process-directory' ? missing : h.root, h.root),
-        mode: 'managed', projectRef: { kind: 'managed', projectId: 1 }, cancel: async () => {},
+        ...testSession(input.command.file, args, target === 'process-directory' ? missing : h.root),
+        mode: 'managed', projectRef: { kind: 'managed', projectId: 1 },
+        lease: { heartbeat() {}, release() {} }, sanitizeOutput: (text: string) => text,
       };
     };
     const response = await h.request();

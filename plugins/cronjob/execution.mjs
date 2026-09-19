@@ -41,6 +41,44 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
     await prepared.lease.release();
     throw new Error('managed execution cancellation unavailable');
   }
+  if (prepared.mode === 'managed') {
+    let timer;
+    let heartbeat;
+    let onAbort;
+    let failure;
+    try {
+      let interrupt;
+      const interrupted = new Promise((_resolve, reject) => { interrupt = reject; });
+      interrupted.catch(() => {});
+      timer = setTimeout(() => interrupt(new Error('project check timed out')), timeoutMs);
+      heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+      onAbort = () => interrupt(new Error('project check cancelled'));
+      signal?.addEventListener('abort', onAbort, { once: true });
+      signal?.throwIfAborted();
+      const session = await Promise.race([prepared.start(), interrupted]);
+      const output = [];
+      let bytes = 0;
+      const collect = (chunk, stdout) => {
+        bytes += chunk.length;
+        if (bytes > 1024 * 1024) interrupt(new Error('project check output too large'));
+        else if (stdout) output.push(chunk);
+      };
+      session.stdout.on('data', chunk => collect(chunk, true));
+      session.stderr.on('data', chunk => collect(chunk, false));
+      session.stdin.end();
+      const exit = await Promise.race([session.closed, interrupted]);
+      if (exit.code !== 0) throw new Error('project check failed');
+      return { stdout: prepared.sanitizeOutput(Buffer.concat(output).toString('utf8')) };
+    } catch (error) {
+      failure = error;
+      try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'project check cancellation failed'); }
+      throw failure;
+    } finally {
+      clearTimeout(timer); clearInterval(heartbeat);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      try { await prepared.lease.release(); } catch (cleanup) { throw new AggregateError([...(failure ? [failure] : []), cleanup], 'project check cleanup failed'); }
+    }
+  }
   let child;
   try {
     const target = prepared.launch;

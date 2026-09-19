@@ -13,6 +13,7 @@ import type { GuestFileOperation, GuestFileResult } from 'elowen/dist/plugins/en
 /** Pins the canonical `GUEST_FILE_CHUNK_BYTES` (runtime `environmentTypes.ts`). Kept local only until
  *  the parent SDK refresh exports it; switch to the `elowen/dist` import at the same time as above. */
 const GUEST_FILE_CHUNK_BYTES = 524288;
+import { testSession } from './helpers/managedSession.js';
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 import { MAX_BUFFERED_BYTES, MAX_UPLOAD_CHUNK_BYTES } from '../plugins/editor/src/fileTypes.js';
 import { uploadFile, UploadError } from '../plugins/editor/web-src/editor/upload.js';
@@ -65,7 +66,7 @@ async function managedFixture() {
     async prepareExecution(input: { command: { type: string; file: string; args: string[] }; projectRef: unknown }): Promise<SandboxPreparedExecution> {
       expect(input.projectRef).toEqual({ kind: 'managed', projectId: 7 });
       const args = input.command.args.map((value: string) => value.startsWith('/sdilene') ? root + value.slice('/sdilene'.length) : value);
-      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, launch: { type: 'argv', file: `/usr/bin/${input.command.file}`, args, env: { PATH: '/usr/bin:/bin', HOME: root } }, lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, cancel: async () => {}, sanitizeOutput: (text: string) => text.replaceAll(root, '/sdilene') };
+      return { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: root, home: '/root', displayCwd: '/sdilene', roots: ['/'], workspace: null, ...testSession(`/usr/bin/${input.command.file}`, args, root), lease: { id: 'test', accountUserId: 11, workspaceId: null, homeGeneration: null, heartbeat() {}, release() {} }, sanitizeOutput: (text: string) => text.replaceAll(root, '/sdilene') };
     },
     async projectFiles(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; operation: GuestFileOperation }): Promise<GuestFileResult> {
       expect(input.project).toEqual({ kind: 'managed', projectId: 7 });

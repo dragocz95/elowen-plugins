@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import type { PluginContext, SandboxPreparedExecution } from 'elowen/plugin-api';
+import type { PluginContext, SandboxPreparedExecution, ManagedPreparedExecution } from 'elowen/plugin-api';
 import type { ProjectExecutionRef } from 'elowen/dist/shared/projectExecution.js';
 import { GitHubPluginError } from './errors.js';
 import { canonicalHttpsRepository } from './remotes.js';
@@ -13,11 +13,9 @@ import { publishManaged } from './staging.js';
 const MAX_OUTPUT = 1024 * 1024;
 const HELPER_SOURCE = String.raw`const net=require('node:net');let a=process.argv.slice(1),o=a.pop(),n=a[a.indexOf('--nonce')+1],s=a[a.indexOf('--socket')+1],d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let q={nonce:n};for(let l of d.split(/\r?\n/)){let i=l.indexOf('=');if(i>0)q[l.slice(0,i)]=l.slice(i+1)}let c=net.createConnection(s);c.end(JSON.stringify(q));let r='';c.setEncoding('utf8');c.on('data',x=>r+=x);c.on('end',()=>{let v=JSON.parse(r);if(!v.ok)process.exit(1);process.stdout.write('username='+v.username+'\npassword='+v.password+'\n\n')});c.on('error',()=>process.exit(1))})`;
 
-export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => new Promise((resolveResult, reject) => {
-  if (prepared.mode === 'managed' && !prepared.cancel) {
-    void Promise.resolve(prepared.lease.release()).then(() => reject(new Error('Managed cancellation unavailable')), reject);
-    return;
-  }
+export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => {
+  if (prepared.mode === 'managed') return await captureManaged(prepared, timeoutMs, secrets);
+  return await new Promise((resolveResult, reject) => {
   const launch = prepared.launch;
   let child;
   try {
@@ -60,7 +58,45 @@ export const spawnPrepared: SpawnPrepared = async (prepared, timeoutMs = 60_000,
       resolveResult({ stdout, stderr });
     }, reject);
   });
-});
+  });
+};
+
+async function captureManaged(prepared: ManagedPreparedExecution, timeoutMs: number, secrets: readonly string[]): Promise<SpawnResult> {
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let failure: unknown;
+  try {
+    let interrupt!: (error: unknown) => void;
+    const interrupted = new Promise<never>((_resolve, reject) => { interrupt = reject; });
+    void interrupted.catch(() => {});
+    timer = setTimeout(() => interrupt(new Error('Git command timed out')), timeoutMs);
+    heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+    const session = await Promise.race([prepared.start(), interrupted]);
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let bytes = 0;
+    const append = (chunks: Buffer[], chunk: Buffer): void => {
+      bytes += chunk.length;
+      if (bytes > MAX_OUTPUT) interrupt(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
+      else chunks.push(chunk);
+    };
+    session.stdout.on('data', (chunk: Buffer) => append(stdout, chunk));
+    session.stderr.on('data', (chunk: Buffer) => append(stderr, chunk));
+    session.stdin.end();
+    const result = await Promise.race([session.closed, interrupted]);
+    const output = { stdout: redact(prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')), secrets),
+      stderr: redact(prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), secrets) };
+    if (result.code !== 0) throw new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { ...result, stderr: output.stderr });
+    return output;
+  } catch (error) {
+    failure = error;
+    try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'Managed Git cancellation failed'); }
+    throw sanitizedExecutionError(failure, secrets);
+  } finally {
+    clearTimeout(timer); clearInterval(heartbeat);
+    try { await prepared.lease.release(); } catch (cleanup) { throw new AggregateError([...(failure ? [failure] : []), cleanup], 'Managed Git cleanup failed'); }
+  }
+}
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function redact(value: string, secrets: readonly string[] = []): string {
@@ -192,6 +228,7 @@ export async function publishBranch(input: {
     ];
     mkdirSync(join(brokerDir, 'empty-hooks'), { mode: 0o700 });
     const prepared = await prepare(input.ctx, input.cwd, 'git', ['-C', input.cwd, ...args]);
+    if (prepared.mode === 'managed') { await prepared.lease.release(); throw new Error('Host Git publication received a managed session'); }
     for (const key of Object.keys(prepared.launch.env)) {
       if (/^(GIT_|GH_|SSH_|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NO_PROXY$)/i.test(key)) delete prepared.launch.env[key];
     }

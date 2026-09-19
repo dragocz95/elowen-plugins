@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 import type { PluginContext, PluginApiRequest, PluginApiRoute } from 'elowen/dist/plugins/api.js';
+import { testSession } from './helpers/managedSession.js';
 import { registerEditorApi } from '../plugins/editor/src/api.js';
 import { parseEditorRoot, EDITOR_ROOTS, isVirtualGuestPath } from '../plugins/editor/src/editorRoots.js';
 
@@ -51,8 +52,7 @@ function fixture(options: {
         // child, and a program that exits before reading it fails on a broken pipe instead of exercising
         // the path under test.
         mode: 'managed', projectRef: { kind: 'managed', projectId: PROJECT_ID }, cwd: '/tmp', displayCwd: input.cwd,
-        launch: { type: 'command', command: 'cat >/dev/null', env: {} }, stdin: '',
-        cancel: async () => undefined, sanitizeOutput: (text: string) => text,
+        ...testSession('/bin/sh', ['-c', 'cat >/dev/null']), sanitizeOutput: (text: string) => text,
         lease: { release: async () => undefined, heartbeat: async () => undefined },
       };
     },

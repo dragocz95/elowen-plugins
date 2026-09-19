@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
 import type { GuestFileResult, ManagedProjectFileRoot, SandboxAccountControl } from './coreSeams.js';
 
@@ -160,52 +159,29 @@ export class ManagedMirror {
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve, reject) => {
-        const launch = prepared.launch;
-        const child = launch.type === 'argv'
-          ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
-          : spawn('/bin/sh', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        let bytes = 0;
-        let failure: unknown;
-        let cancelling: Promise<void> | undefined;
-        const stop = (error: unknown): void => {
-          failure ??= error;
-          cancelling ??= prepared.cancel!().catch((cancelError) => {
-            failure = new AggregateError([failure, cancelError], 'Managed Git cancellation failed');
-          }).then(() => { child.kill('SIGKILL'); });
-        };
-        const collect = (chunk: Buffer, target: Buffer[]): void => {
-          bytes += chunk.length;
-          if (bytes > MANAGED_GIT_OUTPUT_BYTES) stop(new Error('Managed Git output exceeded its bound'));
-          else target.push(chunk);
-        };
-        timer = setTimeout(() => stop(new Error('Managed Git command timed out')), this.gitTimeoutMs);
-        timer.unref?.();
-        heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, MANAGED_LEASE_HEARTBEAT_MS);
-        heartbeat.unref?.();
-        child.stdout.on('data', (chunk: Buffer) => collect(chunk, stdout));
-        child.stderr.on('data', (chunk: Buffer) => collect(chunk, stderr));
-        child.once('error', stop);
-        child.stdin.on('error', stop);
-        child.once('close', (code) => {
-          void Promise.resolve(cancelling).then(() => {
-            const output = {
-              stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
-              stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')),
-              code: typeof code === 'number' ? code : 1,
-            };
-            if (!failure) resolve(output);
-            else reject(Object.assign(failure instanceof Error ? failure : new Error(String(failure)), output));
-          }, reject);
-        });
-        // Managed nspawn launches carry the privileged framed request on stdin. Omitting it leaves the
-        // helper waiting forever before Git is ever started, while the mirror remains joined to that run.
-        child.stdin.end(prepared.stdin);
-      });
-      return result;
+      let interrupt!: (error: unknown) => void;
+      const interrupted = new Promise<never>((_resolve, reject) => { interrupt = reject; });
+      void interrupted.catch(() => {});
+      timer = setTimeout(() => interrupt(new Error('Managed Git command timed out')), this.gitTimeoutMs);
+      heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, MANAGED_LEASE_HEARTBEAT_MS);
+      const session = await Promise.race([prepared.start(), interrupted]);
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let bytes = 0;
+      const collect = (chunk: Buffer, target: Buffer[]): void => {
+        bytes += chunk.length;
+        if (bytes > MANAGED_GIT_OUTPUT_BYTES) interrupt(new Error('Managed Git output exceeded its bound'));
+        else target.push(chunk);
+      };
+      session.stdout.on('data', (chunk: Buffer) => collect(chunk, stdout));
+      session.stderr.on('data', (chunk: Buffer) => collect(chunk, stderr));
+      session.stdin.end();
+      const result = await Promise.race([session.closed, interrupted]);
+      if (result.code === null) throw new Error('Managed Git command ended by signal');
+      return { stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
+        stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), code: result.code };
     } catch (error) {
+      await prepared.cancel();
       const value = error as { stdout?: unknown; stderr?: unknown; code?: unknown; message?: unknown };
       const stderr = String(value.stderr ?? '');
       return { stdout: String(value.stdout ?? ''), stderr: stderr || String(value.message ?? ''), code: typeof value.code === 'number' ? value.code : 1 };

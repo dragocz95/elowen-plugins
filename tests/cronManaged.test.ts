@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { childSession } from './helpers/managedSession.js';
 import { runCheck } from '../plugins/cronjob/index.mjs';
 import { executionRef, projectCheck } from '../plugins/cronjob/execution.mjs';
 
@@ -28,22 +29,22 @@ describe('managed cron execution', () => {
     await projectCheck(ctx, { projectRef: { kind: 'host', projectId: 7 }, ownerUserId: 11, check: 'pwd' }, 1000, () => { setTimeout(() => child.emit('close', 0), 0); return child; });
     expect(prepareExecution).toHaveBeenCalledWith({ command: { type: 'shell', command: 'pwd' }, cwd: '/legacy/project', leaseKind: 'cron', projectRef: { kind: 'host', projectId: 7 } }, { accountUserId: 11, roots: ['/legacy/project'] });
   });
-  it('verifies guest cancellation before stopping the host client and releasing its lease', async () => {
+  it('verifies guest cancellation before releasing its lease without a host spawn', async () => {
     const events: string[] = [];
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => { events.push('host-kill'); child.emit('close', null); } });
-    const prepared = { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: '/trusted', launch: { type: 'argv', file: 'podman', args: [], env: {} }, cancel: async () => { events.push('guest-cancel'); }, lease: { heartbeat: vi.fn(), release: async () => { events.push('release'); } }, sanitizeOutput: (text: string) => text };
+    const prepared = { mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: '/trusted', start: async () => childSession(child), cancel: async () => { events.push('guest-cancel'); child.emit('close', null); }, lease: { heartbeat: vi.fn(), release: async () => { events.push('release'); } }, sanitizeOutput: (text: string) => text };
     await expect(projectCheck({ control: () => ({ prepareExecution: async () => prepared }) }, { projectRef: { kind: 'managed', projectId: 7 }, ownerUserId: 11, check: 'sleep 60' }, 5, () => child)).rejects.toThrow('timed out');
-    expect(events).toEqual(['guest-cancel', 'host-kill', 'release']);
+    expect(events).toEqual(['guest-cancel', 'release']);
   });
-  it('uses exact prepared argv and releases its actor-scoped lease on real exit', async () => {
+  it('starts the managed session and releases its actor-scoped lease on terminal exit', async () => {
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
     const release = vi.fn();
-    const prepareExecution = vi.fn(async () => ({ mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: '/trusted-launch', launch: { type: 'argv', file: '/usr/bin/podman', args: ['exec', 'owned'], env: { SAFE: '1' } }, stdin: 'guest-script', cancel: vi.fn(async () => {}), lease: { heartbeat: vi.fn(), release }, sanitizeOutput: (text: string) => text }));
-    const launch = vi.fn(() => { setTimeout(() => { child.stdout.write('guest'); child.emit('close', 0); }, 0); return child; });
+    const prepareExecution = vi.fn(async () => ({ mode: 'managed', projectRef: { kind: 'managed', projectId: 7 }, cwd: '/trusted-launch', start: async () => { setTimeout(() => { child.stdout.write('guest'); child.emit('close', 0); }, 0); return childSession(child); }, cancel: vi.fn(async () => {}), lease: { heartbeat: vi.fn(), release }, sanitizeOutput: (text: string) => text }));
+    const launch = vi.fn(() => { throw new Error('must not spawn on host'); });
     expect(await projectCheck({ control: () => ({ prepareExecution }) }, { projectRef: { kind: 'managed', projectId: 7 }, ownerUserId: 11, check: 'echo guest' }, 1000, launch)).toEqual({ stdout: 'guest' });
     expect(prepareExecution).toHaveBeenCalledWith({ command: { type: 'shell', command: 'echo guest' }, cwd: '/workspace', leaseKind: 'cron', projectRef: { kind: 'managed', projectId: 7 } }, { accountUserId: 11, roots: [] });
-    expect(launch).toHaveBeenCalledWith('/usr/bin/podman', ['exec', 'owned'], { cwd: '/trusted-launch', env: { SAFE: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
-    expect(child.stdin.read().toString()).toBe('guest-script');
+    expect(launch).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(true);
     expect(release).toHaveBeenCalledOnce();
   });
 });
