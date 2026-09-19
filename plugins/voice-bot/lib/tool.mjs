@@ -149,7 +149,11 @@ export function registerVoiceCall(ctx, store) {
         phone,
         prompt,
         initMessage: initMessage || null,
-        userId: ctx.currentIdentity?.()?.elowenUserId ?? null,
+        // THE account resolver, not `currentIdentity().elowenUserId`: a delegated sub-agent's identity
+        // deliberately carries no account, so reading it would file the call under nobody — and a row
+        // owned by nobody is one `removeUser` can never reap, leaving the number and the transcript
+        // behind when the account that asked for the call is deleted.
+        userId: ctx.currentAccountUserId(),
         sessionId: ctx.currentSessionId?.() ?? null,
       });
 
