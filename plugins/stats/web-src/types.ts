@@ -14,7 +14,9 @@ export interface TokenUsage {
 
 export interface ModelUsage { exec: string; usage: TokenUsage }
 export interface DayUsage { day: string; tokens: number; cost: number | null }
-export interface ResetUsageResult { ok: boolean; cleared: number; chatCleared?: number; originsCleared?: number }
+/** POST /usage/reset. `chatCleared` is 1 when the metadata transaction ran, never a row count; a
+ *  daemon that predates the split answers with neither counter. */
+export interface ResetUsageResult { ok: boolean; chatCleared?: number; originsCleared?: number }
 
 /** Which axis the admin origin view collapses. Mirrors the daemon's GET /usage/by-origin `group`. */
 export type UsageOriginGroup = 'user' | 'origin' | 'pair';
