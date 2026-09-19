@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { editorExecute } from './execution.js';
-import { parseProjectCommitLog } from './files.js';
+import { parseProjectCommitLog, UPLOAD_SUFFIX } from './files.js';
 import type { PluginApiRequest, PluginContext, PluginHttpResponse } from 'elowen/dist/plugins/api.js';
 import type { GuestFileOperation, GuestFileResult, GuestFileStat } from 'elowen/dist/plugins/environmentTypes.js';
 import { managedGuestRoot } from 'elowen/dist/shared/projectExecution.js';
@@ -14,6 +14,16 @@ const RANGE_LIMIT = 8 * 1024 * 1024;
  *  canonical `GUEST_FILE_CHUNK_BYTES` until the parent refreshes the linked `elowen` package, which
  *  does not export it yet. */
 const GUEST_CHUNK_BYTES = 512 * 1024;
+/** What the GUEST transport names a half-written upload: `.elowen-upload-<uploadId>`, written beside the
+ *  destination and therefore inside the tree this view lists. It is not a project file — it exists only
+ *  between `write-begin` and the commit that atomically replaces the destination with it — and one left
+ *  behind by a dropped connection sits there until its handle is aborted or the environment is quiesced,
+ *  so it is never listed.
+ *
+ *  A PREFIX, not a suffix. The host transport stages as `<destination>.elowen-upload` and the guest does
+ *  not, so testing only the host's shape here matched nothing the guest ever writes. Both are dropped:
+ *  the host suffix still appears in a project adopted from a host checkout. */
+const GUEST_UPLOAD_PREFIX = '.elowen-upload-';
 /** Build output and dependency trees a PROJECT tree does not show. They are a statement about what a
  *  repository looks like, so the system root does not apply them: `/` is not a checkout, and hiding a
  *  directory of the base image because a repository would have ignored one by that name would be a lie
@@ -321,9 +331,13 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
       if (result.rootKind === null) throw new InputError('path does not exist', 404);
       const nodes: { path: string; type: 'file' | 'dir'; size?: number }[] = [];
       const prefix = start === '/' ? '/' : `${start}/`;
-      // The upload suffix is a staging filename the guest has no notion of, so it is dropped under both
-      // roots. The repository ignores apply to the project tree alone.
-      const hidden = (path: string): boolean => (root === 'project' && IGNORE.has(posix.basename(path))) || path.endsWith('.elowen-upload') || (root === 'system' && isVirtualGuestPath(path));
+      // Upload staging is dropped under both roots, in both of the shapes the two transports write it.
+      // The repository ignores apply to the project tree alone.
+      const hidden = (path: string): boolean => {
+        const name = posix.basename(path);
+        return (root === 'project' && IGNORE.has(name)) || name.startsWith(GUEST_UPLOAD_PREFIX)
+          || path.endsWith(UPLOAD_SUFFIX) || (root === 'system' && isVirtualGuestPath(path));
+      };
       /** One link the walk reported, resolved to the entry it points at, or null when it points nowhere.
        *  The walk gives the link's own facts and never its target's, so this stat is the only way to know
        *  what to show — which is what the per-directory listing did per link too. */
@@ -376,8 +390,8 @@ export async function managedEditorRequest(ctx: PluginContext, req: PluginApiReq
         // Entries are absolute and must lie under the directory that was asked for. `guestPath` already
         // confines them to the selected root; this keeps a walk from contributing anything outside it.
         if (!clean.startsWith(prefix)) throw new Error('invalid guest entry');
-        // `skip` covers the ignored directories; the upload suffix is a filename rule the guest has no
-        // notion of, and the basename check stays as the net for both.
+        // `skip` covers the ignored directories; upload staging is a filename rule `skip` cannot
+        // express, and this check stays as the net for both.
         if (hidden(clean)) continue;
         const path = posix.relative(base, clean);
         if (entry.kind !== 'symlink') {
