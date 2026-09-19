@@ -10,9 +10,11 @@ import { isSystemRoot, SYSTEM_ROOT } from './systemRoot.js';
 
 const run = promisify(execFile);
 const IGNORE = new Set(['.git', 'node_modules', '.next', 'dist', '.turbo', 'coverage', '.cache']);
-/** Marks a half-written upload. Listed nowhere: an in-flight transfer is not a project file, and one
- *  left behind by a dropped connection would otherwise sit in the tree forever pretending to be one. */
-const UPLOAD_SUFFIX = '.elowen-upload';
+/** Marks a half-written upload on the HOST transport, which stages as `<destination>.elowen-upload`.
+ *  Listed nowhere: an in-flight transfer is not a project file, and one left behind by a dropped
+ *  connection would otherwise sit in the tree forever pretending to be one. The guest transport stages
+ *  under a name of its own, so `managed.ts` drops both shapes rather than assuming this one. */
+export const UPLOAD_SUFFIX = '.elowen-upload';
 const MAX_FILE = 2 * 1024 * 1024;
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
 const MAX_OFFICE_OUTPUT_BYTES = MAX_BUFFERED_BYTES;

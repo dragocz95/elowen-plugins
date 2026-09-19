@@ -35,6 +35,11 @@ beforeAll(() => {
   writeFileSync(join(plain, 'node_modules/pkg/index.js'), 'x');
   writeFileSync(join(plain, '.git/objects/pack'), 'x');
   writeFileSync(join(plain, 'stray.elowen-upload'), 'partial');
+  // The GUEST's staging shape, which is a PREFIX and not the host transport's suffix: `guestFiles.py`
+  // writes `.elowen-upload-<uploadId>` beside the destination. Testing only the suffix matched nothing
+  // the guest ever writes, so a transfer in flight — and one abandoned by a dropped connection — was
+  // listed as an ordinary project file.
+  writeFileSync(join(plain, '.elowen-upload-bf62eedef357d06cec70a6cabf16313b'), 'partial');
 
   linked = mkdtempSync(join(tmpdir(), 'editor-walk-linked-'));
   mkdirSync(join(linked, 'src/nested'), { recursive: true });
@@ -187,6 +192,7 @@ describe('managed project tree over one guest walk', () => {
     expect(listed.some(path => path.startsWith('node_modules'))).toBe(false);
     expect(listed.some(path => path.startsWith('.git'))).toBe(false);
     expect(listed).not.toContain('stray.elowen-upload');
+    expect(listed).not.toContain('.elowen-upload-bf62eedef357d06cec70a6cabf16313b');
   });
 
   /** `skip` names CHILDREN, so asking for an ignored directory by name still expands it — which is what
