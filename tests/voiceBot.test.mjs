@@ -59,7 +59,8 @@ function harness(t, options = {}) {
 
   const ctx = {
     config: { apiUrl: URL_, apiToken: TOKEN, ...options.config },
-    currentIdentity: () => ({ elowenUserId: 7 }),
+    currentIdentity: () => options.identity ?? { elowenUserId: 7, conversation: 'own' },
+    currentAccountUserId: () => options.accountUserId ?? 7,
     currentSessionId: () => 'brain-7-a',
     db: () => pluginDb,
     logger: { info() {}, warn: (message) => warnings.push(message) },
@@ -354,6 +355,25 @@ test('a deleted account takes its call history with it, configured or not', asyn
   const unconfigured = harness(t, { config: { apiToken: '' } });
   assert.deepEqual(unconfigured.tools, [], 'no tool here');
   assert.equal(unconfigured.removeUser(7), 0, 'yet the account can still be torn down');
+});
+
+test('a call placed by a delegated sub-agent still belongs to the account that asked for it', async (t) => {
+  // A sub-agent's identity deliberately carries NO account (`forDelegatedTurn` in the core's
+  // brain/identity.ts: "Deliberately NO elowenUserId ... A child is attributed to its delegation, not to
+  // a person"); the account it acts as arrives as the inherited contribution owner, which is what
+  // `ctx.currentAccountUserId()` resolves. Reading the identity instead records user_id NULL — and a NULL
+  // row is matched by no `WHERE user_id = ?`, so the number that was dialled and the transcript of what
+  // was said would outlive the account that asked. "Delegate a sub-agent to ring the supplier" is an
+  // ordinary way to reach this tool, so this is the common path, not an exotic one.
+  const h = harness(t, { identity: { conversation: 'delegated', admin: false, owner: false }, accountUserId: 7 });
+
+  await h.tool().execute('1', { phone_number: '+420721909701', prompt: 'Confirm tomorrow at 10:00.' });
+
+  const [row] = h.rows();
+  assert.equal(row.user_id, 7, 'the delegating account owns the call, not nobody');
+  assert.equal(row.session_id, 'brain-7-a', 'and the child conversation is still recorded beside it');
+  assert.equal(h.removeUser(7), 1, 'so deleting that account takes the number and the transcript with it');
+  assert.deepEqual(h.rows(), []);
 });
 
 test('without an endpoint or a token no call tool exists at all', async (t) => {
