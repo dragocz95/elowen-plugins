@@ -347,7 +347,9 @@ export async function scanLocal(root: string, options: ScanOptions): Promise<Sca
 export interface ManagedScanFs {
   walk(options: { limit: number; skip?: readonly string[] }): Promise<{ entries: { rel?: string; kind: 'file' | 'directory' | 'symlink' | 'other'; size: number; mtimeMs: number }[]; complete: boolean }>;
   hash(rel: string): Promise<{ sha256: string; size: number; version: string }>;
-  git(args: readonly string[]): Promise<{ stdout: string; stderr: string; code: number }>;
+  /** `code` is null when the command produced no exit status — interrupted, cancelled or killed. That is
+   *  not an answer about the tree and must never be read as one. */
+  git(args: readonly string[]): Promise<{ stdout: string; stderr: string; code: number | null }>;
 }
 
 /** Scan a managed Project through Sandbox's bounded guest walk. The guest, not the daemon, resolves the
