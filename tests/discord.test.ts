@@ -2387,3 +2387,138 @@ describe('discord /help renders the passed command list (single-source, no drift
   // Shared-message inheritance for this adapter moved to tests/sharedMessages.test.ts, which asserts
   // EVERY shared key for all four chat adapters at once — this checked three of them, for discord alone.
 });
+
+describe('discord room control commands (/stop, /stats, /compact, /restart)', () => {
+  // These four reach past the channel into the daemon: /stop aborts a running turn, /compact spends an
+  // LLM call, and /restart restarts the daemon for EVERY user of the instance while being gated on a
+  // DISCORD role rather than an Elowen account. Nothing in this suite exercised that wiring — the fixture
+  // catalog above does not even carry their names — so the whole path was resting on the E2E scenario.
+  //
+  // Pinned against the catalog the resolved core really publishes for this surface, not a hand-written
+  // fixture: a renamed command, a changed `execution` class, a dropped admin gate or a lost /compact defer
+  // then fails here instead of in a live guild.
+  interface RestCall { method: string; path: string; body: { type?: number; data?: { content?: string; flags?: number }; content?: string } }
+
+  const catalog = async () => (await import('elowen/dist/brain/slashCommands.js')) as unknown as {
+    commandsFor: (surface: string, isAdmin: boolean) => { name: string; execution: string }[];
+  };
+
+  const makeAdapter = async (ctl: Record<string, unknown>, roles: string[] = ['ADMIN']) => {
+    const [{ DiscordAdapter }, { commandsFor }] = await Promise.all([
+      import('../plugins/discord/lib/adapter.mjs') as Promise<{ DiscordAdapter: new (...args: unknown[]) => any }>,
+      catalog(),
+    ]);
+    const channels: Record<string, Record<string, unknown>> = { C: {} };
+    const state = {
+      get: (id: string) => channels[id] ?? {},
+      patch: (id: string, fields: Record<string, unknown>) => { channels[id] = { ...(channels[id] ?? {}), ...fields }; },
+    };
+    const adapter = new DiscordAdapter(
+      { language: 'en', rolePolicies: [{ roleId: 'ADMIN', admin: true }] },
+      log, state, async () => [], [], () => null, () => false, () => commandsFor('discord', true),
+    );
+    adapter.appId = 'APP';
+    const calls: RestCall[] = [];
+    adapter.rest = async (method: string, path: string, body: unknown) => { calls.push({ method, path, body } as RestCall); return {}; };
+    adapter.control(ctl);
+    const invoke = (name: string) => adapter.onInteraction({
+      type: 2, id: 'I', token: 'TOK', channel_id: 'C', guild_id: 'G',
+      member: { roles, user: { id: 'U1' } }, data: { name },
+    });
+    return { adapter, calls, invoke };
+  };
+
+  /** The ref every one of them must carry: the channel folded with its /new generation, so a control
+   *  command targets the exact session a message in that channel would. */
+  const REF = { platform: 'discord', channelId: 'C#0' };
+  const LIVE = { provider: 'openai', model: 'gpt-5', streaming: true, usage: { tokens: 1234, contextWindow: 200_000, percent: 42 }, fastAvailable: false };
+  const IDLE = { ...LIVE, streaming: false };
+
+  it('the resolved core publishes all four to this surface as session-control', async () => {
+    const { commandsFor } = await catalog();
+    const control = commandsFor('discord', true).filter((c) => c.execution === 'session-control').map((c) => c.name);
+    expect(control).toEqual(expect.arrayContaining(['stop', 'stats', 'compact', 'restart']));
+  });
+
+  it('/stop aborts the channel session by that ref and confirms ephemerally', async () => {
+    const abort = vi.fn(async () => {});
+    const { calls, invoke } = await makeAdapter({ status: () => LIVE, abort });
+    await invoke('stop');
+    expect(abort).toHaveBeenCalledWith(REF);
+    expect(calls).toEqual([{
+      method: 'POST', path: '/interactions/I/TOK/callback',
+      body: { type: 4, data: { content: '⏹️ Stopped the running agent.', flags: 64 } },
+    }]);
+  });
+
+  it('/stop never aborts an idle channel', async () => {
+    const abort = vi.fn(async () => {});
+    const { calls, invoke } = await makeAdapter({ status: () => IDLE, abort });
+    await invoke('stop');
+    expect(abort).not.toHaveBeenCalled();
+    expect(calls[0].body.data?.content).toContain('Nothing is running');
+  });
+
+  it('/stats reads the live session on the same ref and changes nothing', async () => {
+    const status = vi.fn(() => LIVE);
+    const abort = vi.fn(async () => {});
+    const { calls, invoke } = await makeAdapter({ status, abort });
+    await invoke('stats');
+    expect(status).toHaveBeenCalledWith(REF);
+    expect(abort).not.toHaveBeenCalled();
+    expect(calls[0].body.data?.content).toContain('**gpt-5**');
+    expect(calls[0].body.data?.flags).toBe(64);
+  });
+
+  it('/compact DEFERS the interaction and edits the deferred reply — Discord ACKs within 3s', async () => {
+    // The LLM summary outlives Discord's 3s callback deadline, so an operator invocation must answer with
+    // a type-5 defer and deliver the result over the webhook edit. A second callback would be a 404.
+    const compact = vi.fn(async () => ({ usage: { tokens: 10, contextWindow: 200_000, percent: 12 }, compacted: true }));
+    const { calls, invoke } = await makeAdapter({ status: () => LIVE, compact });
+    await invoke('compact');
+    expect(compact).toHaveBeenCalledWith(REF);
+    expect(calls[0]).toEqual({ method: 'POST', path: '/interactions/I/TOK/callback', body: { type: 5, data: { flags: 64 } } });
+    expect(calls[1].method).toBe('PATCH');
+    expect(calls[1].path).toBe('/webhooks/APP/TOK/messages/@original');
+    expect(calls[1].body.content).toContain('Context compacted');
+  });
+
+  it('/compact answers a non-operator immediately instead of deferring or summarizing', async () => {
+    const compact = vi.fn(async () => null);
+    const { calls, invoke } = await makeAdapter({ status: () => LIVE, compact }, ['OTHER']);
+    await invoke('compact');
+    expect(compact).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.type).toBe(4);
+    expect(calls[0].body.data?.content).toContain('Only the operator');
+  });
+
+  it('/restart reaches the daemon only for a role mapped admin:true', async () => {
+    const restart = vi.fn(async () => {});
+    const allowed = await makeAdapter({ status: () => LIVE, restart });
+    await allowed.invoke('restart');
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(allowed.calls[0].body.data?.content).toContain('Restarting');
+
+    const refused = await makeAdapter({ status: () => LIVE, restart }, ['OTHER']);
+    await refused.invoke('restart');
+    expect(restart).toHaveBeenCalledTimes(1); // the refusal never reached the control surface
+    expect(refused.calls[0].body.data?.content).toContain('Only an admin');
+  });
+
+  it('a memberless DM interaction reaches none of them', async () => {
+    // A restart is instance-wide and a DM payload carries no guild roles to gate it with, so the origin
+    // guard has to stop all four before the control core is ever consulted.
+    const restart = vi.fn(async () => {});
+    const abort = vi.fn(async () => {});
+    const compact = vi.fn(async () => null);
+    const { adapter, calls } = await makeAdapter({ status: () => LIVE, abort, compact, restart });
+    for (const name of ['stop', 'stats', 'compact', 'restart']) {
+      await adapter.onInteraction({ type: 2, id: 'I', token: 'TOK', channel_id: 'C', data: { name }, user: { id: 'U1' } });
+    }
+    expect(restart).not.toHaveBeenCalled();
+    expect(abort).not.toHaveBeenCalled();
+    expect(compact).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});
