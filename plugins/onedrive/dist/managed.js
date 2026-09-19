@@ -152,15 +152,23 @@ export class ManagedMirror {
         const result = await this.call({ kind: 'remove', path: this.path(rel), expectedVersion });
         return result.kind === 'remove' && result.removed;
     }
+    /** `code` is git's own exit status, or NULL when the command produced no exit status at all — it was
+     *  cancelled, timed out, overran its output bound, died on a signal, lost the privileged transport or
+     *  never started. Those are not answers, and a caller must not read one as a low exit code: `git
+     *  check-ignore` answers "not ignored" with exactly 1, so collapsing an interruption onto 1 turns a
+     *  vanished-but-ignored file into a deletion from somebody's OneDrive. */
     async git(args) {
         const prepared = await this.sandbox.prepareExecution({ command: { type: 'argv', file: '/usr/bin/git', args: [...args] }, cwd: this.path(''), leaseKind: 'files', projectRef: this.project }, { accountUserId: this.accountUserId, roots: [this.rootInfo.root] });
         if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== this.project.projectId
-            || typeof prepared.cancel !== 'function') {
+            || typeof prepared.start !== 'function' || typeof prepared.cancel !== 'function') {
             await prepared.lease.release();
             throw new Error('Managed Git execution returned a different Project or an incomplete launch');
         }
         let heartbeat;
         let timer;
+        // Held outside the try so an interrupted command still reports whatever Git managed to print.
+        const stdout = [];
+        const stderr = [];
         try {
             let interrupt;
             const interrupted = new Promise((_resolve, reject) => { interrupt = reject; });
@@ -168,8 +176,6 @@ export class ManagedMirror {
             timer = setTimeout(() => interrupt(new Error('Managed Git command timed out')), this.gitTimeoutMs);
             heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, MANAGED_LEASE_HEARTBEAT_MS);
             const session = await Promise.race([prepared.start(), interrupted]);
-            const stdout = [];
-            const stderr = [];
             let bytes = 0;
             const collect = (chunk, target) => {
                 bytes += chunk.length;
@@ -183,15 +189,21 @@ export class ManagedMirror {
             session.stdin.end();
             const result = await Promise.race([session.closed, interrupted]);
             if (result.code === null)
-                throw new Error('Managed Git command ended by signal');
+                throw new Error(`Managed Git command ended on ${result.signal}`);
             return { stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
                 stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), code: result.code };
         }
         catch (error) {
             await prepared.cancel();
-            const value = error;
-            const stderr = String(value.stderr ?? '');
-            return { stdout: String(value.stdout ?? ''), stderr: stderr || String(value.message ?? ''), code: typeof value.code === 'number' ? value.code : 1 };
+            // Reached only where there is no exit status to report: `closed` rejects for cancellation, a lost
+            // transport and a spawn failure, resolves with a null code for a signal, and this plugin's own
+            // timeout and output bound interrupt before it settles at all. A genuine nonzero exit settles
+            // `closed` normally and returns above, so nothing here invents an exit code for it.
+            return {
+                stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
+                stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')) || (error instanceof Error ? error.message : String(error)),
+                code: null,
+            };
         }
         finally {
             clearTimeout(timer);

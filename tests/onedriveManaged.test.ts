@@ -157,6 +157,56 @@ describe('OneDrive managed Project transport', () => {
     expect(store.linkById(link.id)?.status).toBe('idle');
   });
 
+  it('does not delete a vanished file from OneDrive when the ignore check never reached a verdict', async () => {
+    const store = new OneDriveStore(pluginDb());
+    const link = store.createLink({ subpath: '', userId: 7, projectId: 41, workspaceId: null, workspaceLabel: null, remoteDriveId: 'drive-1', remoteItemId: 'folder-1', remotePath: 'Elowen/projects/demo', webUrl: null });
+    store.putItem({ linkId: link.id, rel: 'secret.env', localSize: 4, localMtimeMs: 1_000, localSha256: 'sha-env', remoteItemId: 'item-1', remoteEtag: 'tag-1', state: 'synced', conflictCopy: null });
+    // `ls-files` answers, so the scan IS a git inventory and `secret.env` is simply no longer in it.
+    // Whether that means deleted or newly ignored is exactly what check-ignore is asked — and under the
+    // managed contract that command can end with no exit status at all: a cancelled guest process, an
+    // environment stopped mid-cycle, a lost privileged transport. `git check-ignore` says "not ignored"
+    // with exactly 1, so a null code must never be allowed to read as one.
+    const git = vi.fn(async (args: readonly string[]) => (args[0] === 'check-ignore'
+      ? { stdout: '', stderr: 'Managed Git command timed out', code: null }
+      : { stdout: '', stderr: '', code: 0 }));
+    const managed = {
+      root: '/demo',
+      lockKey: 'managed:41:project',
+      walk: vi.fn(async () => ({ entries: [], complete: true })),
+      git,
+      stat: vi.fn(async () => null),
+    } as unknown as ManagedMirror;
+    const graph = {
+      json: vi.fn(async (method: string, path: string) => {
+        if (path.startsWith('/me/drive')) return { id: 'drive-1' };
+        if (method === 'GET' && path.includes('/children')) {
+          return { value: [{ id: 'item-1', name: 'secret.env', eTag: 'tag-1', size: 4, file: {} }] };
+        }
+        return { id: 'folder-1' };
+      }),
+      binary: vi.fn(),
+      request: vi.fn(),
+    };
+    const engine = new SyncEngine({
+      store,
+      identity: () => ({ driveGraphFor: async () => graph, identityFor: () => ({ linked: true }) }),
+      rootFor: () => null,
+      baseFor: () => null,
+      managedFor: async () => managed,
+      settings: () => ({ rootFolder: 'Elowen', maxFileMb: 10, extraIgnore: [], applyRemoteDeletions: true }),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await engine.syncUser(7);
+
+    expect(git).toHaveBeenCalledWith(['check-ignore', '--no-index', '--', 'secret.env']);
+    // The person's OneDrive copy is untouched and the baseline still remembers it, so the next healthy
+    // cycle can still tell deleted from ignored.
+    expect(graph.json.mock.calls.filter(([method]) => method === 'DELETE')).toEqual([]);
+    expect(store.items(link.id).get('secret.env')?.remoteItemId).toBe('item-1');
+    expect(store.linkById(link.id)?.status).toBe('error');
+  });
+
   it('uses one sentinel entry without treating more than 20,000 visited paths as complete', async () => {
     const entries = Array.from({ length: 20_001 }, (_, index) => ({
       path: `/demo/f-${String(index).padStart(5, '0')}`,
@@ -226,7 +276,9 @@ describe('OneDrive managed Project transport', () => {
     const transport = new ManagedMirror(sandbox, { kind: 'managed', projectId: 41 }, 7,
       { root: '/demo', generation: 9, state: 'running', workspaceId: null }, '', null, 25);
 
-    await expect(transport.git(['status'])).resolves.toMatchObject({ code: 1, stderr: 'Managed Git command timed out' });
+    // A null code, never 1: an interrupted command produced no exit status, and 1 is a meaningful Git
+    // answer that a caller such as `check-ignore` acts on.
+    await expect(transport.git(['status'])).resolves.toMatchObject({ code: null, stderr: 'Managed Git command timed out' });
     expect(cancel).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
   });
