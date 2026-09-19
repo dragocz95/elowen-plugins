@@ -145,15 +145,12 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
     }
   });
 
-  it('is large enough to be worth guarding', () => {
-    // 426 leaves per locale today, down from 495 and 778 before that. The first narrowing came when the
-    // work and agents plugins moved into this repository and took their `tasks` and `missions` i18n with
-    // them; this one is `chore(i18n): drop dictionary keys no code reads any more`, which removed 91 key
-    // lines from the daemon's own catalog, so the copy narrowed to match a package that really is
-    // smaller. The floor exists to catch a copy that quietly shrank to a handful while still satisfying
-    // every assertion below, and it still does.
-    expect(flatten(copiedEn as unknown as Dict).size).toBeGreaterThanOrEqual(400);
-    expect(flatten(copiedCs as unknown as Dict).size).toBeGreaterThanOrEqual(400);
+  it('matches the intended current dictionary size', () => {
+    // The current faithful subset has exactly 382 leaves in both locales. This count includes the
+    // intentional retirement of 26 settings keys removed from the fixture because the core no longer
+    // ships or renders them. Pinning the observed count catches both unexpected shrinkage and growth.
+    expect(flatten(copiedEn as unknown as Dict).size).toBe(382);
+    expect(flatten(copiedCs as unknown as Dict).size).toBe(382);
   });
 
   const locales: [string, Dict][] = [
