@@ -208,6 +208,37 @@ test('the task context and tool descriptions name taskId and describe batch boun
   assert.match(h.prompts.join('\n'), /TaskDelete.*explicit non-empty `taskIds` array for an atomic batch/);
 });
 
+// Tool-schema parity (plan tool-schema-parity-2026-09-19.md §4/§10): TaskUpdate shipped 7 arguments with
+// no schema-level `description` at all, forcing the model to rely solely on the tool-level prose. Filled
+// here with the reference tool's own per-argument sentences (Claude Code TaskUpdateTool.ts), which are
+// accurate for Elowen's identical argument semantics. TaskCreate's per-item `subject`/`description`/
+// `activeForm`/`metadata` texts are likewise replaced with the reference TaskCreateTool.ts wording; the
+// batch shape, `status` and `blockedBy` stay Elowen-only extensions and keep their own text.
+test('TaskUpdate and TaskCreate argument schemas carry the reference parity descriptions', async (t) => {
+  const h = harness(t);
+  const updateProps = h.tool('TaskUpdate').parameters.properties;
+  assert.equal(updateProps.subject.description, 'New subject for the task');
+  assert.equal(updateProps.description.description, 'New description for the task');
+  assert.equal(updateProps.activeForm.description, 'Present continuous form shown in spinner when in_progress (e.g., "Running tests")');
+  assert.equal(updateProps.status.description, 'New status for the task');
+  assert.equal(updateProps.addBlocks.description, 'Task IDs that this task blocks');
+  assert.equal(updateProps.addBlockedBy.description, 'Task IDs that block this task');
+  assert.equal(updateProps.owner.description, 'New owner for the task');
+  // Left as reworded, per plan §4/§14 correction: taskId and metadata already had accurate Elowen text,
+  // they were never empty, so they are not touched here.
+  assert.match(updateProps.taskId.description, /Never invent or guess an ID/);
+  assert.match(updateProps.metadata.description, /Keys merge; null deletes a key/);
+
+  const createItem = h.tool('TaskCreate').parameters.properties.tasks.items.properties;
+  assert.equal(createItem.subject.description, 'A brief title for the task');
+  assert.equal(createItem.description.description, 'What needs to be done');
+  assert.equal(createItem.activeForm.description, 'Present continuous form shown in spinner when in_progress (e.g., "Running tests")');
+  assert.equal(createItem.metadata.description, 'Arbitrary metadata to attach to the task');
+  // Elowen-only extensions keep their own descriptive text, not reference text (the reference has no
+  // equivalent field for either).
+  assert.match(createItem.blockedBy.description, /sibling task in THIS same call/);
+});
+
 // The schemas are OPEN: an unrecognised key is ignored, not rejected. So a TaskUpdate that names a real
 // task but misspells the field it wants to change reaches the store looking identical to one that asked
 // for nothing, and the bare "nothing to update" reads as "fine but pointless" rather than "you used the
