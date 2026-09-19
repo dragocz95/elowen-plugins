@@ -38,11 +38,14 @@ export class ManagedMirror {
   }
 
   private async call(operation: Record<string, unknown>): Promise<GuestFileResult> {
+    // No root travels with the request. The runtime decides an operation's namespace from the entry point
+    // it arrived through and overwrites whatever a caller names, so sending one only made it look as
+    // though this plugin could choose its own confinement. `path()` above is what places an operation
+    // inside the root the runtime already resolved for this project.
     const result = await this.sandbox.projectFiles({
       project: this.project,
       accountUserId: this.accountUserId,
-      operation: { ...operation, root: this.rootInfo.root },
-      root: this.rootInfo.root,
+      operation,
       workspaceId: this.workspaceId,
       expectedGeneration: this.rootInfo.generation,
       startIfNeeded: false,

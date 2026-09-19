@@ -146,8 +146,14 @@ describe('OneDrive managed Project transport', () => {
 
     expect(rootFor).not.toHaveBeenCalled();
     expect(projectFiles).toHaveBeenCalledWith(expect.objectContaining({
-      project: { kind: 'managed', projectId: 41 }, accountUserId: 7, expectedGeneration: 9, root: '/demo', startIfNeeded: false,
+      project: { kind: 'managed', projectId: 41 }, accountUserId: 7, expectedGeneration: 9, startIfNeeded: false,
     }));
+    // No root travels with the request: the runtime resolves an operation's namespace from its entry
+    // point and overwrites anything a caller names, so sending one only looked like confinement control.
+    for (const [input] of projectFiles.mock.calls) {
+      expect(input).not.toHaveProperty('root');
+      expect(input.operation).not.toHaveProperty('root');
+    }
     expect(store.linkById(link.id)?.status).toBe('idle');
   });
 
