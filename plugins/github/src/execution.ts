@@ -65,6 +65,13 @@ async function captureManaged(prepared: ManagedPreparedExecution, timeoutMs: num
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let failure: unknown;
+  /** Set once the guest has reported its own verdict. A nonzero exit is a SETTLED execution, not an
+   *  interrupted one: Git refusing a push or reporting that a directory is not a repository is the answer
+   *  this plugin asked for. Cancelling it anyway would run the runtime's termination tombstone against a
+   *  process that is already gone, which leaves a persistent mask behind for every routine Git refusal and
+   *  turns the release that follows into a second termination proof. Only an interruption — a timeout, a
+   *  revoked lease, output past the cap, a transport loss — leaves a guest that still has to be stopped. */
+  let settled = false;
   try {
     let interrupt!: (error: unknown) => void;
     const interrupted = new Promise<never>((_resolve, reject) => { interrupt = reject; });
@@ -84,13 +91,16 @@ async function captureManaged(prepared: ManagedPreparedExecution, timeoutMs: num
     session.stderr.on('data', (chunk: Buffer) => append(stderr, chunk));
     session.stdin.end();
     const result = await Promise.race([session.closed, interrupted]);
+    settled = true;
     const output = { stdout: redact(prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')), secrets),
       stderr: redact(prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), secrets) };
     if (result.code !== 0) throw new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { ...result, stderr: output.stderr });
     return output;
   } catch (error) {
     failure = error;
-    try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'Managed Git cancellation failed'); }
+    if (!settled) {
+      try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'Managed Git cancellation failed'); }
+    }
     throw sanitizedExecutionError(failure, secrets);
   } finally {
     clearTimeout(timer); clearInterval(heartbeat);
