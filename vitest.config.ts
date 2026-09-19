@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 /** The browser-UI runner. A plugin that ships `web-src/` renders inside the host app in production, so
@@ -13,7 +14,15 @@ import { defineConfig } from 'vitest/config';
  *  `@vitest-environment node` docblock.
  *
  *  Plugin tests written HERE stay on `node --test` (npm run test:node); `npm test` runs both runners. */
+const candidateRoot = process.env.ELOWEN_CORE_ROOT?.trim();
 export default defineConfig({
+  // A paired worktree check must execute the candidate's SDK, not merely read its package version.
+  resolve: {
+    alias: candidateRoot ? {
+      'elowen/dist': resolve(candidateRoot, 'dist'),
+      'elowen/plugin-api': resolve(candidateRoot, 'dist/plugins/api.js'),
+    } : {},
+  },
   // The plugin sources are .tsx and are only TRANSPILED here (automatic JSX runtime, vitest's default),
   // never type-checked: the bundle's type contract is checked by its own web-src/tsconfig.json at build
   // time, against the same elowen-plugin-ui-kit types plugin authors compile against. The adopted .ts

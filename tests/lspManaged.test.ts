@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn } from 'node:child_process';
+import { childSession } from './helpers/managedSession.js';
 import { encodeMessage, MessageDecoder, type JsonRpcMessage } from '../plugins/lsp/src/protocol.js';
 
 vi.mock('node:child_process', async (original) => ({ ...await original<typeof import('node:child_process')>(), spawn: vi.fn() }));
@@ -35,10 +36,9 @@ function inventoryOf(installed: string[]) {
   const probe = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
   });
-  queueMicrotask(() => { probe.stdout.write(JSON.stringify(installed)); probe.emit('close', 0); });
+  setTimeout(() => { probe.stdout.write(JSON.stringify(installed)); probe.emit('close', 0); }, 0);
   return probe;
 }
-const PROBE_LAUNCH = { type: 'argv' as const, file: '/provider/probe', args: ['inventory'], env: {} };
 const probeLease = { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel: async () => {}, release: async () => {}, heartbeat: async () => {} };
 const isProbe = (input: { command: { file: string } }): boolean => input.command.file === '/usr/bin/python3';
 
@@ -47,17 +47,16 @@ function runningFixture(installed: string[] = ['typescript-language-server']) {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
   });
-  vi.mocked(spawn).mockImplementation(((file: string) =>
-    (file === PROBE_LAUNCH.file ? inventoryOf(installed) : child)) as unknown as typeof spawn);
+  const start = vi.fn(async () => childSession(child));
   const cancel = vi.fn(async () => { child.emit('close', 0); });
   const release = vi.fn(async () => {});
   const heartbeat = vi.fn(async () => {});
   fixtureValue.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string; args: string[] } }) => ({
-    mode: 'managed', projectRef: fixtureValue.project, cwd: '/isolated/launcher',
+    mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: fixtureValue.project, cwd: '/isolated/launcher',
     ...(isProbe(input)
-      ? { launch: PROBE_LAUNCH, lease: probeLease }
+      ? { start: async () => childSession(inventoryOf(installed)), cancel: probeLease.cancel, lease: probeLease }
       : {
-        launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: { ONLY_PROVIDER: 'yes' } },
+        start, cancel,
         lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat },
       }),
   }));
@@ -75,7 +74,7 @@ function runningFixture(installed: string[] = ['typescript-language-server']) {
     }
   });
   const manager = new ManagedLspManager(fixtureValue.ctx, fixtureValue.project, 3);
-  return { ...fixtureValue, child, cancel, release, heartbeat, messages, manager };
+  return { ...fixtureValue, child, start, cancel, release, heartbeat, messages, manager };
 }
 
 describe('managed LSP routing', () => {
@@ -100,9 +99,8 @@ describe('managed LSP routing', () => {
     try {
       const result = await h.manager.hover('/workspace/a b.ts', 1, 1);
       expect(result).toEqual({ ok: true, result: { contents: 'Žluťoučký symbol' } });
-      expect(spawn).toHaveBeenCalledWith('/provider/launcher', ['opaque'], {
-        cwd: '/isolated/launcher', env: { ONLY_PROVIDER: 'yes' }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      expect(h.start).toHaveBeenCalledOnce();
+      expect(spawn).not.toHaveBeenCalled();
       expect(h.messages.find((message) => message.method === 'initialize')?.params).toMatchObject({ rootUri: 'file:///workspace' });
       expect(h.messages.find((message) => message.method === 'textDocument/didOpen')?.params).toMatchObject({
         textDocument: { uri: 'file:///workspace/a%20b.ts', text: 'const x = 1;' },
@@ -154,11 +152,30 @@ describe('managed LSP routing', () => {
     const { ctx, sandbox, project } = fixture();
     const cancel = vi.fn(async () => {});
     const release = vi.fn(async () => {});
-    sandbox.prepareExecution.mockResolvedValue({ mode: 'managed', projectRef: project, lease: {
+    sandbox.prepareExecution.mockResolvedValue({ mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: project, lease: {
       projectId: 7, accountUserId: 3, runtimeGeneration: 1, cancel, release,
     } } as unknown as Awaited<ReturnType<SandboxControl['prepareExecution']>>);
     const manager = new ManagedLspManager(ctx, project, 3);
     await expect(manager.checkFile('/workspace/a.ts')).rejects.toThrow(/generation/);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  // `run` hands guest output to the provider's sanitizer before the model ever sees it, so a preparation
+  // without one is an incomplete contract — and must be refused BEFORE a guest command runs, not after
+  // its output already exists with nothing to strip host prefixes from it.
+  it('refuses a preparation with no output sanitizer before it launches anything', async () => {
+    const { ctx, sandbox, project } = fixture();
+    const cancel = vi.fn(async () => {});
+    const release = vi.fn(async () => {});
+    const start = vi.fn();
+    sandbox.prepareExecution.mockResolvedValue({
+      mode: 'managed', projectRef: project, cwd: '/isolated/launcher', start, cancel,
+      lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat: async () => {} },
+    } as unknown as Awaited<ReturnType<SandboxControl['prepareExecution']>>);
+    const manager = new ManagedLspManager(ctx, project, 3);
+    await expect(manager.statusAsync()).rejects.toThrow(/Invalid managed LSP/);
+    expect(start).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
   });
@@ -171,19 +188,18 @@ describe('managed guest language-server inventory', () => {
     const f = fixture();
     const launched: string[] = [];
     f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string; args: string[] } }) => ({
-      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher',
-      launch: isProbe(input) ? PROBE_LAUNCH : { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: {} },
-      lease: probeLease,
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: async () => {
+        if (isProbe(input)) return childSession(inventoryOf(installed));
+        launched.push('/provider/launcher');
+        const child = Object.assign(new EventEmitter(), {
+          stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+        });
+        setTimeout(() => child.emit('close', 127), 0);
+        return childSession(child);
+      },
+      cancel: probeLease.cancel, lease: probeLease,
     }));
-    vi.mocked(spawn).mockImplementation(((file: string) => {
-      launched.push(file);
-      if (file === PROBE_LAUNCH.file) return inventoryOf(installed);
-      const child = Object.assign(new EventEmitter(), {
-        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
-      });
-      queueMicrotask(() => child.emit('close', 127));
-      return child;
-    }) as unknown as typeof spawn);
     const servers = (): string[] => launched.filter((file) => file === '/provider/launcher');
     return { ...f, servers, manager: new ManagedLspManager(f.ctx, f.project, 3) };
   }
@@ -269,8 +285,8 @@ describe('managed lsp shutdown races', () => {
     await vi.waitFor(() => expect(f.sandbox.prepareExecution).toHaveBeenCalledOnce());
     void manager.shutdown();
     resolvePrepare({
-      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher',
-      launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: {} },
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: vi.fn(() => { throw new Error('must not start after shutdown'); }),
       lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat: async () => {} },
     });
     await expect(checking).rejects.toThrow(/stopped/);
@@ -287,6 +303,39 @@ describe('managed lsp shutdown races', () => {
     expect(h.sandbox.prepareExecution).toHaveBeenCalledTimes(prepared);
   });
 
+  // The migration put an `await` between the stopped latch (checked when the lease is prepared) and the
+  // live transport: opening the guest session is now its own round trip. A stop that resolved inside that
+  // window reported every language server settled while one was still being launched, and its execution
+  // lease was left to whoever touched the transport next.
+  it('does not resolve a shutdown while a guest session is still being started', async () => {
+    const f = fixture();
+    const cancel = vi.fn(async () => {});
+    const release = vi.fn(async () => {});
+    let startServer!: () => void;
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    });
+    f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string } }) => (isProbe(input) ? {
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: async () => childSession(inventoryOf(['typescript-language-server'])), cancel: probeLease.cancel, lease: probeLease,
+    } : {
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: () => new Promise((resolve) => { startServer = () => resolve(childSession(child)); }),
+      cancel, lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat: async () => {} },
+    }));
+    const manager = new ManagedLspManager(f.ctx, f.project, 3);
+    const checking = manager.checkFile('/workspace/a.ts');
+    await vi.waitFor(() => expect(startServer).toBeDefined());
+    const stopping = manager.shutdown();
+    startServer();
+    await stopping;
+    // Asserted on the RESOLUTION of shutdown, not eventually: the owner's stop is what the host awaits
+    // around a plugin reload, so a lease still open here is an orphan across the swap.
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    await expect(checking).rejects.toThrow(/stopped/);
+  });
+
   it('cancels a warm client when the environment provider disappears', async () => {
     const h = runningFixture();
     await h.manager.hover('/workspace/a.ts', 1, 1);
@@ -295,6 +344,60 @@ describe('managed lsp shutdown races', () => {
     await Promise.resolve();
     expect(h.cancel).toHaveBeenCalledOnce();
     await h.manager.shutdown();
+  });
+});
+
+describe('managed lsp session loss', () => {
+  /** A guest language server whose managed session ends by REJECTING `closed`. That is what the new
+   *  worker seam reports for a lost broker connection, a paused client and the session's own deadline —
+   *  never an exit code and never a byte on stdout. Each start gets its own child, as a real relaunch
+   *  would. */
+  function lostSessionFixture() {
+    const f = fixture();
+    const servers: (EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough })[] = [];
+    const cancel = vi.fn(async () => {});
+    const release = vi.fn(async () => {});
+    const makeChild = (): EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough } => {
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+      });
+      const decoder = new MessageDecoder();
+      child.stdin.on('data', (data: Buffer) => {
+        for (const message of decoder.push(data)) {
+          if (message.id === undefined) continue;
+          const result = message.method === 'initialize' ? { capabilities: {} } : { contents: 'symbol' };
+          const response = Buffer.from(encodeMessage({ jsonrpc: '2.0', id: message.id, result }));
+          queueMicrotask(() => child.stdout.write(response));
+        }
+      });
+      return child;
+    };
+    f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string } }) => (isProbe(input) ? {
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: async () => childSession(inventoryOf(['typescript-language-server'])), cancel: probeLease.cancel, lease: probeLease,
+    } : {
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: async () => { const child = makeChild(); servers.push(child); return childSession(child); },
+      cancel, lease: { projectId: 7, accountUserId: 3, runtimeGeneration: 2, cancel, release, heartbeat: async () => {} },
+    }));
+    return { ...f, servers, cancel, release, manager: new ManagedLspManager(f.ctx, f.project, 3) };
+  }
+
+  it('settles the lost session and answers the next request from a new server', async () => {
+    const h = lostSessionFixture();
+    try {
+      expect(await h.manager.hover('/workspace/a.ts', 1, 1)).toMatchObject({ ok: true, result: { contents: 'symbol' } });
+      expect(h.servers).toHaveLength(1);
+      const lost = h.servers[0]!;
+      lost.emit('error', new Error('Privileged worker connection closed'));
+      // The lease is cancelled and released without an exit code to observe, and the plugin stops being
+      // able to write to the dead session at all.
+      await vi.waitFor(() => { expect(h.cancel).toHaveBeenCalledOnce(); expect(h.release).toHaveBeenCalledOnce(); });
+      expect(lost.stdin.destroyed).toBe(true);
+      // A fresh session, not a second conversation with the server that went away.
+      expect(await h.manager.hover('/workspace/a.ts', 1, 1)).toMatchObject({ ok: true, result: { contents: 'symbol' } });
+      expect(h.servers).toHaveLength(2);
+    } finally { await h.manager.shutdown(); }
   });
 });
 
@@ -317,15 +420,14 @@ describe('managed lsp selection', () => {
       });
       return child;
     };
-    vi.mocked(spawn).mockImplementation(((file: string) =>
-      (file === PROBE_LAUNCH.file ? inventoryOf(['typescript-language-server']) : makeChild())) as unknown as typeof spawn);
     const cancelled: (() => void)[] = [];
     const released: (() => void)[] = [];
     f.sandbox.prepareExecution.mockImplementation(async (input: { command: { file: string } }) => (isProbe(input) ? {
-      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher', launch: PROBE_LAUNCH, lease: probeLease,
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher', start: async () => childSession(inventoryOf(['typescript-language-server'])), cancel: probeLease.cancel, lease: probeLease,
     } : {
-      mode: 'managed', projectRef: f.project, cwd: '/isolated/launcher',
-      launch: { type: 'argv', file: '/provider/launcher', args: ['opaque'], env: { ONLY_PROVIDER: 'yes' } },
+      mode: 'managed', sanitizeOutput: (text: string) => text, projectRef: f.project, cwd: '/isolated/launcher',
+      start: async () => childSession(makeChild()),
+      cancel: async () => { cancelled.push(() => {}); },
       lease: {
         projectId: 7, accountUserId: 3, runtimeGeneration: 2, heartbeat: async () => {},
         cancel: async () => { cancelled.push(() => {}); },

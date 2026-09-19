@@ -266,6 +266,10 @@ export class SyncEngine {
     if (scan.fromGit) {
       for (const rel of vanished) {
         const answer = await fs.git(['check-ignore', '--no-index', '--', rel]);
+        // 0 means ignored, 1 means not ignored - both are ANSWERS. Anything else, a null code above all,
+        // means the command never reached a verdict: no repository any more, a stopped environment, a
+        // cancelled or killed guest process. Reading that as "not ignored" is what deletes a file that is
+        // sitting in the Project untouched, so the caller stops instead.
         if (answer.code === 0) gitIgnored.add(rel);
         else if (answer.code !== 1) {
           this.deps.store.setStatus(link.id, 'error', 'Git could not say which files it ignores, so this cycle was skipped rather than risk deleting files from OneDrive.');

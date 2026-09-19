@@ -72,14 +72,13 @@ export type GuestFileResult =
   | { kind: 'walk'; root: string; rootKind: 'file' | 'directory' | 'symlink' | 'other' | null; entries: { path: string; kind: 'file' | 'directory' | 'symlink'; size: number; mtime: number }[]; truncated: boolean };
 interface SandboxProjectControl {
   projectFileRoot(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; workspaceId?: string | null }): Promise<ManagedProjectFileRoot>;
-  projectFiles(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; operation: Record<string, unknown>; expectedGeneration?: number; root?: string; workspaceId?: string | null; startIfNeeded?: boolean }): Promise<GuestFileResult>;
+  projectFiles(input: { project: { kind: 'managed'; projectId: number }; accountUserId: number; operation: Record<string, unknown>; expectedGeneration?: number; workspaceId?: string | null; startIfNeeded?: boolean }): Promise<GuestFileResult>;
   prepareExecution(input: { command: { type: 'argv'; file: string; args: string[] }; cwd: string; leaseKind: 'files'; projectRef: { kind: 'managed'; projectId: number } }, options?: { accountUserId: number | null; roots: readonly string[] }): Promise<{
     mode: 'managed';
     projectRef?: { kind: 'managed'; projectId: number };
     cwd: string;
-    launch: { type: 'argv'; file: string; args: string[]; env: Record<string, string> } | { type: 'shell'; command: string; env: Record<string, string> };
-    stdin?: string | Buffer;
-    cancel?: () => Promise<void>;
+    start(): Promise<import('elowen/plugin-api').ManagedExecutionSession>;
+    cancel(): Promise<void>;
     lease: { heartbeat(): void | Promise<void>; release(): void | Promise<void> };
     sanitizeOutput(text: string): string;
   }>;

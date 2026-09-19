@@ -11,11 +11,10 @@ test('todo manifest and marketplace registry expose the same release', () => {
   // logged once, and is left out of any update that does not explicitly replace it.
   // 0.14.13 folds the chat task card, shares one preview rule with the rail and clocks the running row.
   // 0.14.12 isolated route card refresh failures from successful task mutations and pinned its task tools
-  // through registration metadata. `apiVersion` stays exactly '1': it is an EXACT match against core's
-  // PLUGIN_API_VERSION, so raising it would refuse this plugin on every core, including a newer one.
-  assert.equal(manifest.version, '0.14.14');
-  assert.equal(manifest.apiVersion, '1');
-  assert.equal(manifest.requiresCore, '0.28.49');
+  // through registration metadata. API 2 is the matched core contract after managed session migration.
+  assert.equal(manifest.version, '0.14.15');
+  assert.equal(manifest.apiVersion, '2');
+  assert.equal(manifest.requiresCore, '0.28.50');
   assert.equal(catalog?.version, manifest.version);
   assert.equal(catalog?.requiresCore, manifest.requiresCore);
   assert.equal(catalog?.provides.tools, 5);

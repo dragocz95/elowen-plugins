@@ -41,6 +41,45 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
     await prepared.lease.release();
     throw new Error('managed execution cancellation unavailable');
   }
+  if (prepared.mode === 'managed') {
+    let timer;
+    let heartbeat;
+    let onAbort;
+    let failure;
+    try {
+      let interrupt;
+      const interrupted = new Promise((_resolve, reject) => { interrupt = reject; });
+      interrupted.catch(() => {});
+      timer = setTimeout(() => interrupt(new Error('project check timed out')), timeoutMs);
+      heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+      heartbeat.unref();
+      onAbort = () => interrupt(new Error('project check cancelled'));
+      signal?.addEventListener('abort', onAbort, { once: true });
+      signal?.throwIfAborted();
+      const session = await Promise.race([prepared.start(), interrupted]);
+      const output = [];
+      let bytes = 0;
+      const collect = (chunk, stdout) => {
+        bytes += chunk.length;
+        if (bytes > 1024 * 1024) interrupt(new Error('project check output too large'));
+        else if (stdout) output.push(chunk);
+      };
+      session.stdout.on('data', chunk => collect(chunk, true));
+      session.stderr.on('data', chunk => collect(chunk, false));
+      session.stdin.end();
+      const exit = await Promise.race([session.closed, interrupted]);
+      if (exit.code !== 0) throw new Error('project check failed');
+      return { stdout: prepared.sanitizeOutput(Buffer.concat(output).toString('utf8')) };
+    } catch (error) {
+      failure = error;
+      try { await prepared.cancel(); } catch (cleanup) { failure = new AggregateError([failure, cleanup], 'project check cancellation failed'); }
+      throw failure;
+    } finally {
+      clearTimeout(timer); clearInterval(heartbeat);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      try { await prepared.lease.release(); } catch (cleanup) { throw new AggregateError([...(failure ? [failure] : []), cleanup], 'project check cleanup failed'); }
+    }
+  }
   let child;
   try {
     const target = prepared.launch;
@@ -53,7 +92,10 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
   let onAbort;
   try {
     return await new Promise((resolve, reject) => {
-      let output = '';
+      // Collected as BYTES and decoded once: a chunk boundary falls wherever the pipe happens to flush,
+      // so decoding each chunk on its own turns any character split across two of them into replacement
+      // characters — and that text is what the guard hands the brain turn.
+      const output = [];
       let bytes = 0;
       let failure;
       let cancellation;
@@ -70,7 +112,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       child.stdout.on('data', chunk => {
         bytes += chunk.length;
         if (bytes > 1024 * 1024) stop(new Error('project check output too large'));
-        else output += chunk.toString('utf8');
+        else output.push(chunk);
       });
       child.stderr.on('data', chunk => {
         bytes += chunk.length;
@@ -78,7 +120,7 @@ export async function projectCheck(ctx, job, timeoutMs, launch = spawn, signal) 
       });
       child.once('error', error => { stop(error); });
       child.once('close', code => {
-        Promise.resolve(cancellation).then(() => failure ? reject(failure) : code === 0 ? resolve({ stdout: prepared.sanitizeOutput(output) }) : reject(new Error('project check failed')));
+        Promise.resolve(cancellation).then(() => failure ? reject(failure) : code === 0 ? resolve({ stdout: prepared.sanitizeOutput(Buffer.concat(output).toString('utf8')) }) : reject(new Error('project check failed')));
       });
       child.stdin.on('error', error => stop(error));
       child.stdin.end(prepared.stdin);

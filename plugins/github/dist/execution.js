@@ -8,65 +8,127 @@ import { canonicalHttpsRepository } from './remotes.js';
 import { publishManaged } from './staging.js';
 const MAX_OUTPUT = 1024 * 1024;
 const HELPER_SOURCE = String.raw `const net=require('node:net');let a=process.argv.slice(1),o=a.pop(),n=a[a.indexOf('--nonce')+1],s=a[a.indexOf('--socket')+1],d='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let q={nonce:n};for(let l of d.split(/\r?\n/)){let i=l.indexOf('=');if(i>0)q[l.slice(0,i)]=l.slice(i+1)}let c=net.createConnection(s);c.end(JSON.stringify(q));let r='';c.setEncoding('utf8');c.on('data',x=>r+=x);c.on('end',()=>{let v=JSON.parse(r);if(!v.ok)process.exit(1);process.stdout.write('username='+v.username+'\npassword='+v.password+'\n\n')});c.on('error',()=>process.exit(1))})`;
-export const spawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => new Promise((resolveResult, reject) => {
-    if (prepared.mode === 'managed' && !prepared.cancel) {
-        void Promise.resolve(prepared.lease.release()).then(() => reject(new Error('Managed cancellation unavailable')), reject);
-        return;
-    }
-    const launch = prepared.launch;
-    let child;
-    try {
-        child = launch.type === 'argv'
-            ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
-            : spawn('/bin/bash', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
-    }
-    catch (error) {
-        void Promise.resolve(prepared.lease.release()).then(() => reject(error), reject);
-        return;
-    }
-    let stdout = '';
-    let stderr = '';
-    let overflow = false;
-    let failure;
-    let cancellation;
-    const stop = (error) => {
-        failure ??= error;
-        cancellation ??= (prepared.cancel ? prepared.cancel() : Promise.resolve()).catch(error => { failure = error; }).then(() => { child.kill('SIGKILL'); });
-    };
-    const append = (target, chunk) => {
-        const value = chunk.toString('utf8');
-        if (stdout.length + stderr.length + value.length > MAX_OUTPUT) {
-            overflow = true;
-            stop(new Error('Git output too large'));
+export const spawnPrepared = async (prepared, timeoutMs = 60_000, secrets = []) => {
+    if (prepared.mode === 'managed')
+        return await captureManaged(prepared, timeoutMs, secrets);
+    return await new Promise((resolveResult, reject) => {
+        const launch = prepared.launch;
+        let child;
+        try {
+            child = launch.type === 'argv'
+                ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
+                : spawn('/bin/bash', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
+        }
+        catch (error) {
+            void Promise.resolve(prepared.lease.release()).then(() => reject(error), reject);
             return;
         }
-        if (target === 'stdout')
-            stdout += value;
-        else
-            stderr += value;
-    };
-    child.stdout.on('data', (chunk) => append('stdout', chunk));
-    child.stderr.on('data', (chunk) => append('stderr', chunk));
-    const heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, 10_000);
-    heartbeat.unref();
-    const timer = setTimeout(() => stop(new Error('Git command timed out')), timeoutMs);
-    timer.unref();
-    const finish = async () => { clearInterval(heartbeat); clearTimeout(timer); await cancellation; await prepared.lease.release(); };
-    child.once('error', stop);
-    child.stdin.on('error', stop);
-    child.stdin.end(prepared.stdin);
-    child.once('close', (code, signal) => {
-        void finish().then(() => {
-            if (overflow)
-                return reject(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
-            if (failure)
-                return reject(sanitizedExecutionError(failure, secrets));
-            if (code !== 0)
-                return reject(new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code, signal, stderr: redact(stderr, secrets) }));
-            resolveResult({ stdout, stderr });
-        }, reject);
+        let stdout = '';
+        let stderr = '';
+        let overflow = false;
+        let failure;
+        let cancellation;
+        const stop = (error) => {
+            failure ??= error;
+            cancellation ??= (prepared.cancel ? prepared.cancel() : Promise.resolve()).catch(error => { failure = error; }).then(() => { child.kill('SIGKILL'); });
+        };
+        const append = (target, chunk) => {
+            const value = chunk.toString('utf8');
+            if (stdout.length + stderr.length + value.length > MAX_OUTPUT) {
+                overflow = true;
+                stop(new Error('Git output too large'));
+                return;
+            }
+            if (target === 'stdout')
+                stdout += value;
+            else
+                stderr += value;
+        };
+        child.stdout.on('data', (chunk) => append('stdout', chunk));
+        child.stderr.on('data', (chunk) => append('stderr', chunk));
+        const heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, 10_000);
+        heartbeat.unref();
+        const timer = setTimeout(() => stop(new Error('Git command timed out')), timeoutMs);
+        timer.unref();
+        const finish = async () => { clearInterval(heartbeat); clearTimeout(timer); await cancellation; await prepared.lease.release(); };
+        child.once('error', stop);
+        child.stdin.on('error', stop);
+        child.stdin.end(prepared.stdin);
+        child.once('close', (code, signal) => {
+            void finish().then(() => {
+                if (overflow)
+                    return reject(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
+                if (failure)
+                    return reject(sanitizedExecutionError(failure, secrets));
+                if (code !== 0)
+                    return reject(new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { code, signal, stderr: redact(stderr, secrets) }));
+                resolveResult({ stdout, stderr });
+            }, reject);
+        });
     });
-});
+};
+async function captureManaged(prepared, timeoutMs, secrets) {
+    let heartbeat;
+    let timer;
+    let failure;
+    /** Set once the guest has reported its own verdict. A nonzero exit is a SETTLED execution, not an
+     *  interrupted one: Git refusing a push or reporting that a directory is not a repository is the answer
+     *  this plugin asked for. Cancelling it anyway would run the runtime's termination tombstone against a
+     *  process that is already gone, which leaves a persistent mask behind for every routine Git refusal and
+     *  turns the release that follows into a second termination proof. Only an interruption — a timeout, a
+     *  revoked lease, output past the cap, a transport loss — leaves a guest that still has to be stopped. */
+    let settled = false;
+    try {
+        let interrupt;
+        const interrupted = new Promise((_resolve, reject) => { interrupt = reject; });
+        void interrupted.catch(() => { });
+        timer = setTimeout(() => interrupt(new Error('Git command timed out')), timeoutMs);
+        heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, 5000);
+        const session = await Promise.race([prepared.start(), interrupted]);
+        const stdout = [];
+        const stderr = [];
+        let bytes = 0;
+        const append = (chunks, chunk) => {
+            bytes += chunk.length;
+            if (bytes > MAX_OUTPUT)
+                interrupt(new GitHubPluginError('git_output_too_large', 502, 'Git produced too much output.'));
+            else
+                chunks.push(chunk);
+        };
+        session.stdout.on('data', (chunk) => append(stdout, chunk));
+        session.stderr.on('data', (chunk) => append(stderr, chunk));
+        session.stdin.end();
+        const result = await Promise.race([session.closed, interrupted]);
+        settled = true;
+        const output = { stdout: redact(prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')), secrets),
+            stderr: redact(prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), secrets) };
+        if (result.code !== 0)
+            throw new GitHubPluginError('git_command_failed', 409, 'Git rejected the operation.', { ...result, stderr: output.stderr });
+        return output;
+    }
+    catch (error) {
+        failure = error;
+        if (!settled) {
+            try {
+                await prepared.cancel();
+            }
+            catch (cleanup) {
+                failure = new AggregateError([failure, cleanup], 'Managed Git cancellation failed');
+            }
+        }
+        throw sanitizedExecutionError(failure, secrets);
+    }
+    finally {
+        clearTimeout(timer);
+        clearInterval(heartbeat);
+        try {
+            await prepared.lease.release();
+        }
+        catch (cleanup) {
+            throw new AggregateError([...(failure ? [failure] : []), cleanup], 'Managed Git cleanup failed');
+        }
+    }
+}
 function shellQuote(value) { return `'${value.replaceAll("'", `'\\''`)}'`; }
 function redact(value, secrets = []) {
     let redacted = value;
@@ -219,6 +281,10 @@ export async function publishBranch(input) {
         ];
         mkdirSync(join(brokerDir, 'empty-hooks'), { mode: 0o700 });
         const prepared = await prepare(input.ctx, input.cwd, 'git', ['-C', input.cwd, ...args]);
+        if (prepared.mode === 'managed') {
+            await prepared.lease.release();
+            throw new Error('Host Git publication received a managed session');
+        }
         for (const key of Object.keys(prepared.launch.env)) {
             if (/^(GIT_|GH_|SSH_|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NO_PROXY$)/i.test(key))
                 delete prepared.launch.env[key];

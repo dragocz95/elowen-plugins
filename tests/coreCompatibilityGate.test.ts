@@ -132,3 +132,39 @@ describe('requiresCore gate for the per-step context seam', () => {
     expect(isNewer(candidateVersion, BASELINE_WITHOUT_STEP_CONTEXT), `the candidate is ${candidateVersion}, which has no registerStepContext`).toBe(true);
   });
 });
+
+/** The apiVersion 2 floor, and the reason it needs its own gate rather than trusting `apiVersion` alone.
+ *
+ *  `parseManifest` matches `apiVersion` exactly, so an API-1 core does refuse an API-2 plugin. But it
+ *  refuses it in the WRONG PLACE: `validateStaging` parses the manifest (marketplace.ts:790) before it
+ *  reaches the `requiresCore` gate (:797), so the user gets `unsupported plugin apiVersion "2"
+ *  (need "1")` — a sentence that does not even name a version to upgrade to — instead of the actionable
+ *  `needs Elowen X or newer, update Elowen first` that the floor exists to produce. On the daemon's own
+ *  load path it is worse: `discoverPlugins` swallows the parse failure with an empty catch, so the plugin
+ *  vanishes from the installed inventory with no log line at all.
+ *
+ *  Every plugin in this registry declares apiVersion 2, so every floor must sit above the last core that
+ *  speaks apiVersion 1. That is what keeps the two statements telling the same story. */
+const BASELINE_WITHOUT_API_2 = '0.28.49';
+
+describe('requiresCore gate for the plugin API 2 contract', () => {
+  it('found the manifests to gate', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s declares a floor no apiVersion 1 core satisfies', (name) => {
+    const manifest = manifestOf(name) as { requiresCore?: string; apiVersion?: string };
+    expect(manifest.requiresCore, `${name} declares no requiresCore`).toBeTruthy();
+    expect(
+      isNewer(manifest.requiresCore!, BASELINE_WITHOUT_API_2),
+      `${name} would pass the marketplace gate on ${BASELINE_WITHOUT_API_2}, which speaks apiVersion 1`,
+    ).toBe(true);
+  });
+
+  it('is running against a candidate that speaks apiVersion 2', () => {
+    expect(
+      isNewer(candidateVersion, BASELINE_WITHOUT_API_2),
+      `the candidate is ${candidateVersion}, which is not above the last apiVersion 1 core`,
+    ).toBe(true);
+  });
+});

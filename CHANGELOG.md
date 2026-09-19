@@ -1,5 +1,77 @@
 # Changelog
 
+## onedrive 0.3.0 - 2026-09-19
+
+- The OneDrive mirror no longer deletes a file from your OneDrive when a gitignore check inside a Project never reached a verdict. If the environment is stopped mid-cycle or the Git command is interrupted, the mirror now stops the cycle and reports an error instead of reading a vanished file as deleted. Its execution path also moves to the plugin API 2 managed session.
+
+## editor 0.5.0 - 2026-09-19
+
+- Uploading into a managed Project no longer leaves the transfer file visible in the project tree. The tree recognised only the name the host transport uses for a half-written upload, so every managed transfer showed a stray entry while it ran, and one interrupted by a dropped connection stayed there. The editor also moves to the plugin API 2 execution seam.
+
+## lsp 0.3.0 - 2026-09-19
+
+- Turning LSP off, or changing a setting, no longer leaves a language server running inside a managed Project. A stop that landed while a server was still launching reported everything settled and left that one's execution lease behind. A start still in flight is now part of what the stop waits for. The plugin also refuses a malformed execution preparation before it launches a guest command rather than after, and the "keep warm servers for" setting now says that a managed Project bounds a guest session at 15 minutes regardless.
+
+## github 0.1.21 - 2026-09-19
+
+- GitHub now settles a Git command the Project environment refused by releasing it, instead of terminating a process that had already finished. Reading a Project with no repository, or a push GitHub rejects, no longer leaves a permanent marker behind in the environment, and the repository panel keeps non-ASCII branch names intact in output of any size.
+
+## cronjob 0.6.9 - 2026-09-19
+
+- A scheduled job that runs its check command in a Project no longer garbles accented text: output is decoded once the command finishes instead of chunk by chunk. A check that times out, is cancelled or loses its worker is recorded in the run history as a failed check rather than a quiet "nothing new".
+
+## voice-bot 0.1.3 - 2026-09-19
+
+- Phone calls placed by a sub-agent are now filed under the account that asked for them. A call a delegated sub-agent made was recorded as belonging to nobody, so deleting that account left the dialled number and the call transcript behind; deleting an account now takes those records with it.
+
+## codebase 0.1.7 - 2026-09-19
+
+- The scheduled re-indexer no longer keeps running while Elowen shuts down. It was registered as if it were a chat channel, which meant the daemon never stopped it, so its timer could start a new embedding pass and spend your embedding provider during a restart. It is now an ordinary background service that stops with the daemon.
+
+## stats 0.2.6 - 2026-09-19
+
+- The "Reset usage" confirmation now states what it actually deletes. It promised to clear "recorded task usage snapshots", which no longer exist, and said nothing about the consumption origin history it really removes, which is the same data the page's own origin breakdown is built from.
+
+## discord 0.3.22 - 2026-09-19
+
+- The role policy hint now states what the `admin` key really grants. It named neither the shared pickers nor the room control commands, while the same flag admits /stop, /stats, /compact and /restart, and /restart restarts the daemon for everyone in reach of the server.
+
+## browser 0.4.5 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## image-edit 0.2.8 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## image-gen 0.2.6 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## msteams 0.8.2 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## sites 0.14.5 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## skills 0.4.12 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## telegram 0.2.18 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## todo 0.14.15 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
+## whatsapp 0.2.21 - 2026-09-19
+
+- Declares the version 2 plugin contract, which the daemon requires after the managed-execution migration, and the Elowen release that first speaks it. Nothing the plugin does changes; an instance that updates Elowen without this release would find the plugin refused as too old.
+
 ## image-edit 0.2.7 - 2026-09-18
 
 - Remote source image redirects work again. The plugin follows up to five standard HTTP redirects, sends every destination back through the host's public-only transport for fresh validation, and refuses a redirect to loopback, private, link-local or cloud metadata addresses.

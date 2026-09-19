@@ -18,7 +18,7 @@ function fixture(field) {
   mkdirSync(plugin, { recursive: true });
   writeFileSync(join(plugin, 'index.mjs'), 'export function register() {}\n');
   writeFileSync(join(plugin, 'elowen-plugin.json'), JSON.stringify({
-    name: 'demo', version: '1.0.0', apiVersion: '1', description: 'Demo', entry: 'index.mjs',
+    name: 'demo', version: '1.0.0', apiVersion: '2', description: 'Demo', entry: 'index.mjs',
     configSchema: [field],
   }));
   writeFileSync(join(root, 'registry.json'), JSON.stringify({ schema: 1, plugins: [{ name: 'demo' }] }));

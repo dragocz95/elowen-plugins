@@ -86,11 +86,11 @@ describe('image-gen on the host image seam', () => {
     assert.deepEqual(host.calls.generate, [{
       providerId: 'p1', model: 'gpt-image-2.5-flare', prompt: 'a blue owl', size: '1536x1024',
     }]);
-    const rendered = /\(\/api\/brain\/images\/([^)]+)\)/.exec(out.content[0].text);
+    const rendered = /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(out.content[0].text);
     assert.ok(rendered, 'the tool answers with the inline markdown image');
-    assert.equal(readFileSync(join(host.dir, rendered[1])).toString(), 'PNG-BYTES');
+    assert.equal(readFileSync(join(host.dir, rendered[2])).toString(), 'PNG-BYTES');
     assert.equal(host.sources.length, 1);
-    assert.deepEqual(host.sources[0].resolve(rendered[1]), { bytes: PNG, mimeType: 'image/png' });
+    assert.deepEqual(host.sources[0].resolve(rendered[2]), { bytes: PNG, mimeType: 'image/png' });
     assert.equal(host.sources[0].resolve('../outside.png'), null);
   });
 

@@ -3,12 +3,12 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.4.4",
-      "requiresCore": "0.28.46",
+      "version": "0.4.5",
+      "requiresCore": "0.28.50",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 17,
         "apiRoutes": 13
@@ -16,24 +16,24 @@
     },
     {
       "name": "codebase",
-      "version": "0.1.6",
-      "requiresCore": "0.28.35",
+      "version": "0.1.7",
+      "requiresCore": "0.28.50",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 3
       }
     },
     {
       "name": "cronjob",
-      "version": "0.6.8",
+      "version": "0.6.9",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
-      "apiVersion": "1",
-      "requiresCore": "0.28.46",
+      "apiVersion": "2",
+      "requiresCore": "0.28.50",
       "provides": {
         "tools": 5,
         "apiRoutes": 5,
@@ -44,12 +44,12 @@
     },
     {
       "name": "discord",
-      "version": "0.3.21",
-      "requiresCore": "0.28.11",
+      "version": "0.3.22",
+      "requiresCore": "0.28.50",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "platforms": 1,
         "tools": 25,
@@ -59,24 +59,24 @@
     },
     {
       "name": "editor",
-      "version": "0.4.8",
-      "requiresCore": "0.28.42",
+      "version": "0.5.0",
+      "requiresCore": "0.28.50",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. A managed project offers two separate roots: Project, at the project's own directory inside its environment, and System, the whole persistent environment filesystem; Git history belongs to the Project root. Administrators may also browse and edit persisted host files through the System (/) root; kernel virtual filesystems are excluded. Disabling it removes the editor UI and makes its grandfathered file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "apiRoutes": 17
       }
     },
     {
       "name": "github",
-      "version": "0.1.20",
-      "requiresCore": "0.28.42",
+      "version": "0.1.21",
+      "requiresCore": "0.28.50",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 9,
         "apiRoutes": 13,
@@ -87,36 +87,36 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.7",
-      "requiresCore": "0.28.48",
+      "version": "0.2.8",
+      "requiresCore": "0.28.50",
       "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows in the chat.",
       "category": "media",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 1
       }
     },
     {
       "name": "image-gen",
-      "version": "0.2.5",
-      "requiresCore": "0.28.48",
+      "version": "0.2.6",
+      "requiresCore": "0.28.50",
       "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
       "category": "media",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 1
       }
     },
     {
       "name": "lsp",
-      "version": "0.2.5",
-      "requiresCore": "0.28.48",
+      "version": "0.3.0",
+      "requiresCore": "0.28.50",
       "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
       "category": "tools",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 6,
         "apiRoutes": 3,
@@ -125,12 +125,12 @@
     },
     {
       "name": "msteams",
-      "version": "0.8.1",
-      "requiresCore": "0.28.23",
+      "version": "0.8.2",
+      "requiresCore": "0.28.50",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "platforms": 1,
         "tools": 17,
@@ -143,12 +143,12 @@
     },
     {
       "name": "onedrive",
-      "version": "0.2.8",
-      "requiresCore": "0.28.46",
+      "version": "0.3.0",
+      "requiresCore": "0.28.50",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "apiRoutes": 8
       },
@@ -158,12 +158,12 @@
     },
     {
       "name": "skills",
-      "version": "0.4.11",
-      "requiresCore": "0.28.48",
+      "version": "0.4.12",
+      "requiresCore": "0.28.50",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 4,
         "apiRoutes": 6
@@ -171,12 +171,12 @@
     },
     {
       "name": "sites",
-      "version": "0.14.4",
-      "requiresCore": "0.28.45",
+      "version": "0.14.5",
+      "requiresCore": "0.28.50",
       "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 10,
         "httpRoutes": 1,
@@ -185,22 +185,22 @@
     },
     {
       "name": "stats",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {},
-      "requiresCore": "0.28.21"
+      "requiresCore": "0.28.50"
     },
     {
       "name": "telegram",
-      "version": "0.2.17",
-      "requiresCore": "0.28.11",
+      "version": "0.2.18",
+      "requiresCore": "0.28.50",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "platforms": 1,
         "tools": 16
@@ -209,12 +209,12 @@
     },
     {
       "name": "todo",
-      "version": "0.14.14",
-      "requiresCore": "0.28.49",
+      "version": "0.14.15",
+      "requiresCore": "0.28.50",
       "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
       "category": "automation",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 5,
         "apiRoutes": 2
@@ -222,24 +222,24 @@
     },
     {
       "name": "voice-bot",
-      "version": "0.1.2",
-      "requiresCore": "0.28.1",
+      "version": "0.1.3",
+      "requiresCore": "0.28.50",
       "description": "Outbound telephone calls: the agent dials a real phone number through a configurable voice API and briefs the voice agent that speaks on the call.",
       "category": "automation",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "tools": 1
       }
     },
     {
       "name": "whatsapp",
-      "version": "0.2.20",
-      "requiresCore": "0.28.11",
+      "version": "0.2.21",
+      "requiresCore": "0.28.50",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
       "author": "Elowen",
-      "apiVersion": "1",
+      "apiVersion": "2",
       "provides": {
         "platforms": 1,
         "tools": 6,

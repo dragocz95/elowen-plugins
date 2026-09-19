@@ -29,7 +29,9 @@ const server = setupServer(
   http.get('*/api/plugins/ui', () => HttpResponse.json([{ name: 'stats', url: '/plugins/stats/web/index.js', apiVersion: 1, nav: [], settings: [], strings }])),
   http.get('*/api/usage/by-model', ({ request }) => { modelSearch = new URL(request.url).search; return HttpResponse.json(models); }),
   http.get('*/api/usage/by-day', ({ request }) => { daySearch = new URL(request.url).search; return HttpResponse.json(days); }),
-  http.post('*/api/usage/reset', () => { resetCalls++; return HttpResponse.json({ ok: true, cleared: 2, chatCleared: 1 }); }),
+  // The daemon's real payload: one logical reset plus the origin rows it dropped — never a count of
+  // historical message rows (src/api/routes/usage.ts).
+  http.post('*/api/usage/reset', () => { resetCalls++; return HttpResponse.json({ ok: true, chatCleared: 1, originsCleared: 3 }); }),
   http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'admin', is_admin: true } })),
 );
 beforeAll(() => server.listen({ onUnhandledRequest }));

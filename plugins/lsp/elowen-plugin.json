@@ -1,8 +1,8 @@
 {
   "name": "lsp",
-  "version": "0.2.5",
-  "apiVersion": "1",
-  "requiresCore": "0.28.48",
+  "version": "0.3.0",
+  "apiVersion": "2",
+  "requiresCore": "0.28.50",
   "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
   "entry": "dist/index.js",
   "consumesControls": [
@@ -84,7 +84,7 @@
       "max": 240,
       "step": 1,
       "default": 10,
-      "hint": "How long a language server with no check in flight stays ready for the next one. Each warm server keeps its project index in memory, so this is memory against the ~15 second restart. 0 keeps servers until the pool fills or LSP is turned off; a server whose project directory was deleted is released either way."
+      "hint": "How long a language server with no check in flight stays ready for the next one. Each warm server keeps its project index in memory, so this is memory against the ~15 second restart. 0 keeps servers until the pool fills or LSP is turned off; a server whose project directory was deleted is released either way. In a managed Project a guest session is also bounded at 15 minutes by the privileged worker, so a server there is replaced at least that often however this is set."
     }
   ]
 }

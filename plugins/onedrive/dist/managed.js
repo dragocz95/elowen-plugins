@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { posix } from 'node:path';
 const MANAGED_CHUNK_BYTES = 512 * 1024;
 const MANAGED_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -31,11 +30,14 @@ export class ManagedMirror {
         return clean ? posix.join(this.rootInfo.root, this.subpath, clean) : posix.join(this.rootInfo.root, this.subpath);
     }
     async call(operation) {
+        // No root travels with the request. The runtime decides an operation's namespace from the entry point
+        // it arrived through and overwrites whatever a caller names, so sending one only made it look as
+        // though this plugin could choose its own confinement. `path()` above is what places an operation
+        // inside the root the runtime already resolved for this project.
         const result = await this.sandbox.projectFiles({
             project: this.project,
             accountUserId: this.accountUserId,
-            operation: { ...operation, root: this.rootInfo.root },
-            root: this.rootInfo.root,
+            operation,
             workspaceId: this.workspaceId,
             expectedGeneration: this.rootInfo.generation,
             startIfNeeded: false,
@@ -150,70 +152,58 @@ export class ManagedMirror {
         const result = await this.call({ kind: 'remove', path: this.path(rel), expectedVersion });
         return result.kind === 'remove' && result.removed;
     }
+    /** `code` is git's own exit status, or NULL when the command produced no exit status at all — it was
+     *  cancelled, timed out, overran its output bound, died on a signal, lost the privileged transport or
+     *  never started. Those are not answers, and a caller must not read one as a low exit code: `git
+     *  check-ignore` answers "not ignored" with exactly 1, so collapsing an interruption onto 1 turns a
+     *  vanished-but-ignored file into a deletion from somebody's OneDrive. */
     async git(args) {
         const prepared = await this.sandbox.prepareExecution({ command: { type: 'argv', file: '/usr/bin/git', args: [...args] }, cwd: this.path(''), leaseKind: 'files', projectRef: this.project }, { accountUserId: this.accountUserId, roots: [this.rootInfo.root] });
         if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== this.project.projectId
-            || typeof prepared.cancel !== 'function') {
+            || typeof prepared.start !== 'function' || typeof prepared.cancel !== 'function') {
             await prepared.lease.release();
             throw new Error('Managed Git execution returned a different Project or an incomplete launch');
         }
         let heartbeat;
         let timer;
+        // Held outside the try so an interrupted command still reports whatever Git managed to print.
+        const stdout = [];
+        const stderr = [];
         try {
-            const result = await new Promise((resolve, reject) => {
-                const launch = prepared.launch;
-                const child = launch.type === 'argv'
-                    ? spawn(launch.file, launch.args, { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] })
-                    : spawn('/bin/sh', ['-c', launch.command], { cwd: prepared.cwd, env: launch.env, stdio: ['pipe', 'pipe', 'pipe'] });
-                const stdout = [];
-                const stderr = [];
-                let bytes = 0;
-                let failure;
-                let cancelling;
-                const stop = (error) => {
-                    failure ??= error;
-                    cancelling ??= prepared.cancel().catch((cancelError) => {
-                        failure = new AggregateError([failure, cancelError], 'Managed Git cancellation failed');
-                    }).then(() => { child.kill('SIGKILL'); });
-                };
-                const collect = (chunk, target) => {
-                    bytes += chunk.length;
-                    if (bytes > MANAGED_GIT_OUTPUT_BYTES)
-                        stop(new Error('Managed Git output exceeded its bound'));
-                    else
-                        target.push(chunk);
-                };
-                timer = setTimeout(() => stop(new Error('Managed Git command timed out')), this.gitTimeoutMs);
-                timer.unref?.();
-                heartbeat = setInterval(() => { Promise.resolve().then(() => prepared.lease.heartbeat()).catch(stop); }, MANAGED_LEASE_HEARTBEAT_MS);
-                heartbeat.unref?.();
-                child.stdout.on('data', (chunk) => collect(chunk, stdout));
-                child.stderr.on('data', (chunk) => collect(chunk, stderr));
-                child.once('error', stop);
-                child.stdin.on('error', stop);
-                child.once('close', (code) => {
-                    void Promise.resolve(cancelling).then(() => {
-                        const output = {
-                            stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
-                            stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')),
-                            code: typeof code === 'number' ? code : 1,
-                        };
-                        if (!failure)
-                            resolve(output);
-                        else
-                            reject(Object.assign(failure instanceof Error ? failure : new Error(String(failure)), output));
-                    }, reject);
-                });
-                // Managed nspawn launches carry the privileged framed request on stdin. Omitting it leaves the
-                // helper waiting forever before Git is ever started, while the mirror remains joined to that run.
-                child.stdin.end(prepared.stdin);
-            });
-            return result;
+            let interrupt;
+            const interrupted = new Promise((_resolve, reject) => { interrupt = reject; });
+            void interrupted.catch(() => { });
+            timer = setTimeout(() => interrupt(new Error('Managed Git command timed out')), this.gitTimeoutMs);
+            heartbeat = setInterval(() => { void Promise.resolve().then(() => prepared.lease.heartbeat()).catch(interrupt); }, MANAGED_LEASE_HEARTBEAT_MS);
+            const session = await Promise.race([prepared.start(), interrupted]);
+            let bytes = 0;
+            const collect = (chunk, target) => {
+                bytes += chunk.length;
+                if (bytes > MANAGED_GIT_OUTPUT_BYTES)
+                    interrupt(new Error('Managed Git output exceeded its bound'));
+                else
+                    target.push(chunk);
+            };
+            session.stdout.on('data', (chunk) => collect(chunk, stdout));
+            session.stderr.on('data', (chunk) => collect(chunk, stderr));
+            session.stdin.end();
+            const result = await Promise.race([session.closed, interrupted]);
+            if (result.code === null)
+                throw new Error(`Managed Git command ended on ${result.signal}`);
+            return { stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
+                stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')), code: result.code };
         }
         catch (error) {
-            const value = error;
-            const stderr = String(value.stderr ?? '');
-            return { stdout: String(value.stdout ?? ''), stderr: stderr || String(value.message ?? ''), code: typeof value.code === 'number' ? value.code : 1 };
+            await prepared.cancel();
+            // Reached only where there is no exit status to report: `closed` rejects for cancellation, a lost
+            // transport and a spawn failure, resolves with a null code for a signal, and this plugin's own
+            // timeout and output bound interrupt before it settles at all. A genuine nonzero exit settles
+            // `closed` normally and returns above, so nothing here invents an exit code for it.
+            return {
+                stdout: prepared.sanitizeOutput(Buffer.concat(stdout).toString('utf8')),
+                stderr: prepared.sanitizeOutput(Buffer.concat(stderr).toString('utf8')) || (error instanceof Error ? error.message : String(error)),
+                code: null,
+            };
         }
         finally {
             clearTimeout(timer);

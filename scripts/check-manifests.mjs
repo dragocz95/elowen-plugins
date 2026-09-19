@@ -1,9 +1,20 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseManifest } from 'elowen/dist/plugins/manifest.js';
 
 const scriptRoot = fileURLToPath(new URL('..', import.meta.url));
+/** Which core actually judged these manifests. During a coordinated release the `elowen` dependency is
+ *  pointed at an unpublished candidate checkout, and "accepted" then means something quite different
+ *  from acceptance by the published package — so the result names the version and the path it came
+ *  from instead of asserting one. */
+const judgedBy = (() => {
+  const require_ = createRequire(import.meta.url);
+  const packageDir = realpathSync(dirname(require_.resolve('elowen/dist/plugins/manifest.js')) + '/../..');
+  const version = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version;
+  return `elowen ${version} (${packageDir})`;
+})();
 const root = resolve(process.env.ELOWEN_MANIFEST_CHECK_ROOT ?? scriptRoot);
 const pluginsDir = join(root, 'plugins');
 const errors = [];
@@ -60,4 +71,4 @@ if (errors.length > 0) {
   for (const error of errors) console.error(`  x ${error}`);
   process.exit(1);
 }
-console.log(`manifest-check: OK - ${pluginNames.length} manifest(s) accepted by published elowen`);
+console.log(`manifest-check: OK - ${pluginNames.length} manifest(s) accepted by ${judgedBy}`);

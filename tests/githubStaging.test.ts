@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { testSession } from './helpers/managedSession.js';
+import { spawnPrepared } from '../plugins/github/src/execution.js';
 import { stageBundle, pushStaged, publishManaged } from '../plugins/github/src/staging.js';
 import type { SpawnPrepared } from '../plugins/github/src/types.js';
 import type { PluginContext, SandboxPreparedExecution } from 'elowen/plugin-api';
@@ -125,7 +127,7 @@ describe('trusted personal Git publishing stage', () => {
       prepareExecution: async (input: { command: { file: string; args: string[] }; projectRef: unknown }) => {
         expect(input.projectRef).toEqual({ kind: 'managed', projectId: 7 });
         const args = input.command.args.map(arg => arg === '/workspace' ? f.root : arg.startsWith('/tmp/elowen-publish-') ? exportPath : arg);
-        return { mode: 'managed', projectRef: input.projectRef, cwd: f.root, launch: { type: 'argv', file: input.command.file, args, env: { PATH: '/usr/bin:/bin', HOME: f.root } }, lease: { release() {} } };
+        return { mode: 'managed', projectRef: input.projectRef, cwd: f.root, ...testSession(`/usr/bin/${input.command.file}`, args, f.root), lease: { heartbeat() {}, release() {} }, sanitizeOutput: (text: string) => text };
       },
       projectFiles: async ({ accountUserId, operation }: { accountUserId: number; operation: { offset: number; length: number } }) => {
         expect(accountUserId).toBe(11);
@@ -138,8 +140,9 @@ describe('trusted personal Git publishing stage', () => {
     try {
       const result = await publishManaged({ ctx, projectRef: { kind: 'managed', projectId: 7 }, cwd: '/workspace', branch: 'elowen/u1/test', expectedHead: f.head, token: 'fake-personal-token', repository: { owner: 'approved', name: 'destination' }, runner: async (prepared: SandboxPreparedExecution) => {
         expect(JSON.stringify(prepared)).not.toContain('fake-personal-token');
-        if (prepared.launch.type !== 'argv') throw new Error('unexpected launch');
-        return exec(`/usr/bin/${prepared.launch.file}`, prepared.launch.args, { cwd: prepared.cwd, env: prepared.launch.env });
+        expect(prepared.mode).toBe('managed');
+        expect('launch' in prepared).toBe(false);
+        return spawnPrepared(prepared);
       } }, async input => {
         expect(authorized).toBe(true);
         await expect(access(exportPath)).rejects.toThrow();
