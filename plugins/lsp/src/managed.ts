@@ -121,7 +121,8 @@ export class ManagedLspManager extends LspManager {
     if (prepared.mode !== 'managed' || prepared.projectRef?.kind !== 'managed' || prepared.projectRef.projectId !== this.project.projectId
       || prepared.lease.projectId !== this.project.projectId || prepared.lease.accountUserId !== this.actor
       || prepared.lease.runtimeGeneration !== this.generation || typeof prepared.lease.cancel !== 'function'
-      || typeof prepared.start !== 'function' || typeof prepared.cancel !== 'function') {
+      || typeof prepared.start !== 'function' || typeof prepared.cancel !== 'function'
+      || typeof prepared.sanitizeOutput !== 'function') {
       await prepared.lease.cancel?.();
       await prepared.lease.release();
       throw new Error('Invalid managed LSP project, generation or stream launch.');
@@ -138,9 +139,25 @@ export class ManagedLspManager extends LspManager {
   }
 
   private async transport(prepared: ManagedPreparedExecution): Promise<LspTransport> {
+    // Opening the guest session is itself awaited work, so shutdown() has to be able to wait for it: a
+    // start that lands after the drain would hand a live language server (and its execution lease) to an
+    // instance the owner has already stopped, and only whoever happened to touch the transport next
+    // would ever settle it. Joining `cleanups` puts the in-flight start under the same drain, and the
+    // stopped re-check below turns a start that won the race into an immediate teardown.
+    const starting = prepared.start();
+    const pending = starting.then(() => {}, () => {});
+    this.cleanups.add(pending);
     let child;
-    try { child = await prepared.start(); }
-    catch (error) { this.cleanup(prepared); throw error; }
+    try { child = await starting; }
+    catch (error) { this.cleanup(prepared); this.cleanups.delete(pending); throw error; }
+    if (this.stopped) {
+      this.cleanup(prepared);
+      this.cleanups.delete(pending);
+      throw new Error('Managed LSP manager is stopped.');
+    }
+    // Deleted only after any follow-up cleanup is already registered, so the drain never observes an
+    // empty set between the two.
+    this.cleanups.delete(pending);
     const decoder = new MessageDecoder();
     const messages: ((message: JsonRpcMessage) => void)[] = [];
     const exits: (() => void)[] = [];
