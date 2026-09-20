@@ -1,25 +1,17 @@
 # skills
 
-Load markdown skills from disk and expose them to the Elowen brain.
+Load Markdown skills from disk and manage personal and instance skill definitions.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `skills` plugin.
+Install **skills** from **Settings → Plugins → Available**, then grant it to accounts that should manage skills.
 
-| | |
+| Field | Value |
 | --- | --- |
-| User-grantable | Yes |
+| Version | 0.4.12 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+This plugin has no configuration fields.
 
-## Tools
-
-SkillLoad, CreateSkill, ListSkills, DeleteSkill.
-
-## Configuration
-
-No settings fields declared.
-
-## Documentation
-
-See the [skills page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/45-skills-plugin.md).
+See the [Skills Plugin page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/45-skills-plugin.md).

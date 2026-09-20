@@ -1,21 +1,17 @@
 # telegram
 
-Telegram bot that answers from Elowen AI, with slash commands, per-chat presentation settings, live tool activity, status reactions and proactive pushes. It also provides chat, member, moderation and forum-topic tools.
+Telegram bot with chat responses, presentation controls, proactive pushes, and chat, member, moderation, and forum-topic tools.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `telegram` plugin.
+Install **telegram** from **Settings → Plugins → Available**, configure the bot credentials and access policies, then enable it.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.2.18 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | 4 |
 
-## Tools
+Configure the bot and allowed chats, notification destination, response and tool-activity presentation, reactions, service language, media, voice, and role policies in the plugin settings.
 
-TelegramApi, TelegramSend, TelegramChatInfo, TelegramGetMembersCount, TelegramMemberInfo, TelegramPinMessage, TelegramUnpinMessage, TelegramDeleteMessage, TelegramBanMember, TelegramUnbanMember, TelegramPromoteMember, TelegramSetChatTitle, TelegramSetChatDescription, TelegramCreateForumTopic, TelegramEditForumTopic, TelegramCloseForumTopic.
-
-## Configuration
-
-botToken, allowedChatIds, notifyChatId, respondWithoutMention, toolActivity, answerMode, toolOutput, toolMessageMode, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, visionModel, maxImageBytes, maxImages, maxUploadImages, askTimeoutMs, voiceProvider, stt, sttModel, tts, ttsModel, ttsVoice, rolePolicies.
-
-## Documentation
-
-See the [telegram page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).

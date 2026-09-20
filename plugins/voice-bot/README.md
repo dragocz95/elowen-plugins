@@ -1,25 +1,17 @@
 # voice-bot
 
-Outbound telephone calls through a configurable voice API. VoiceCall dials a real phone number and hands the conversation to a voice agent briefed by the call prompt.
+Outbound telephone calls through a configured voice API.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `voice-bot` plugin.
+Install **voice-bot** from **Settings → Plugins → Available**, configure the endpoint and call policy, then grant it to accounts that should place calls.
 
-| | |
+| Field | Value |
 | --- | --- |
-| User-grantable | Yes |
+| Version | 0.1.3 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+Configure the API URL and token, hourly call limit, call timeout, and default initialization message in the plugin settings.
 
-## Tools
-
-VoiceCall.
-
-## Configuration
-
-apiUrl, apiToken, maxCallsPerHour, callTimeoutSeconds, defaultInitMessage.
-
-## Documentation
-
-See the [voice-bot page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/48-voice-bot-plugin.md).
+See the [Voice Calls page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/48-voice-bot-plugin.md).

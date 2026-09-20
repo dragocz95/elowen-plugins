@@ -1,21 +1,17 @@
 # msteams
 
-Microsoft Teams bot that answers from Elowen AI in personal chats, group chats and team channels, with chat and Microsoft 365 tools.
+Microsoft Teams bot with chat responses and delegated Microsoft 365 tools.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `msteams` plugin.
+Install **msteams** from **Settings → Plugins → Available**, configure the bot credentials and access policies, then enable it. Connect Microsoft 365 separately when delegated tools are needed.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.8.2 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | 4 |
 
-## Tools
+Configure bot and tenant identity, account linking, sign-in, Microsoft 365 access, proactive destination, lookup, response presentation, service language, history, media, and role policies in the plugin settings.
 
-TeamsSend, TeamsMessagePerson, TeamsFindPerson, TeamsChatInfo, TeamsMembers, TeamsMemberInfo, TeamsListConversations, TeamsSendFile, TeamsApi, MicrosoftDirectory, MicrosoftSharePoint, MicrosoftFiles, MicrosoftOutlook, MicrosoftTasks, MicrosoftOneNote, MicrosoftExcel, MicrosoftTeams.
-
-## Configuration
-
-appId, appPassword, tenantId, accountLinking, oauthConnectionName, ssoEnabled, ssoRedirectBase, ssoProvision, ssoLinkByEmail, ssoDefaultProjects, ssoDefaultModels, ssoDefaultModel, ssoDefaultPlugins, ssoAllowedTools, ssoDefaultYolo, m365AccessMode, m365MaxTransferBytes, agentName, productName, appIconPath, notifyConversationId, graphLookup, graphCatalogAppId, respondWithoutMention, toolActivity, answerMode, toolOutput, toolMessageMode, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, historyLimit, channelMessagesRsc, visionModel, maxImageBytes, maxImages, maxUploadImages, rolePolicies.
-
-## Documentation
-
-See the [msteams page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/38-microsoft-365-plugin.md).
+See the [Microsoft Teams & Microsoft 365 page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/38-microsoft-365-plugin.md).

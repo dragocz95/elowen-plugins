@@ -1,25 +1,17 @@
 # onedrive
 
-Mirror a Project between the daemon and each person's own OneDrive in both directions.
+Bidirectional Project mirroring between Elowen and each person's linked OneDrive.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `onedrive` plugin.
+Install **onedrive** from **Settings → Plugins → Available**, connect a Microsoft identity, then grant it to accounts that should use the mirror.
 
-| | |
+| Field | Value |
 | --- | --- |
-| User-grantable | Yes |
+| Version | 0.3.0 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+Configure the root folder, sync interval, file-size limit, extra ignore patterns, and remote-deletion policy in the plugin settings.
 
-## Tools
-
-No agent tools declared.
-
-## Configuration
-
-rootFolder, intervalSeconds, maxFileMb, extraIgnore, applyRemoteDeletions.
-
-## Documentation
-
-See the [onedrive page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/43-onedrive-plugin.md).
+See the [OneDrive Mirror page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/43-onedrive-plugin.md).

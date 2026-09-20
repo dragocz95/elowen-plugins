@@ -1,21 +1,17 @@
 # whatsapp
 
-WhatsApp bot that answers from Elowen AI in direct and group chats, with text commands, model selection, live progress and sender policies. It also provides group management and sending tools.
+WhatsApp bot with direct and group chat responses, live progress, sender policies, group management, and sending tools.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `whatsapp` plugin.
+Install **whatsapp** from **Settings → Plugins → Available**, configure the connection and access policies, then enable it.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.2.21 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | 4 |
 
-## Tools
+Configure the phone number, group scope, notification destination, response and progress behavior, reactions, service language, media, voice, and sender policies in the plugin settings.
 
-WhatsappSend, WhatsappGroupList, WhatsappGroupInfo, WhatsappGroupCreate, WhatsappGroupAdd, WhatsappGroupRemove.
-
-## Configuration
-
-phoneNumber, groupIds, notifyChat, respondWithoutMention, streaming, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, visionModel, maxImageBytes, maxImages, maxUploadImages, askTimeoutMs, senderPolicies.
-
-## Documentation
-
-See the [whatsapp page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).

@@ -1,21 +1,17 @@
 # editor
 
-Project file editor with Monaco, file management, previews for common document and media formats, binary downloads and read-only Git history.
+Project file editor with file operations, previews, uploads, downloads, and read-only Git history.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `editor` plugin.
+Install **editor** from **Settings → Plugins → Available**, then enable it.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.5.0 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-## Tools
+This plugin has no configuration fields.
 
-No agent tools declared.
-
-## Configuration
-
-No settings fields declared.
-
-## Documentation
-
-See the [editor page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).

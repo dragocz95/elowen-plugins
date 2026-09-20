@@ -1,21 +1,17 @@
 # sites
 
-Publish an address for an application running inside an explicit managed Project and inspect published pages with independent visibility rules.
+Managed Project proxy publications, previews, sharing, and retained legacy file-release rollback.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `sites` plugin.
+Install **sites** from **Settings → Plugins → Available**, configure publication policy, then enable it.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.14.5 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-## Tools
+Configure default visibility, public-site policy, publishers, per-account site limits, session lifetime, gateway target, and contact address in the plugin settings.
 
-SiteCreate, SitePreview, SitePublish, SiteGet, SiteList, SiteUpdate, SiteRollback, SiteShare, SiteUnshare, SiteDelete.
-
-## Configuration
-
-defaultVisibility, allowPublicSites, publishers, maxSitesPerAccount, sessionTtlHours, gatewayDnsTarget, contactEmail.
-
-## Documentation
-
-See the [sites page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/44-sites-plugin.md).
+See the [Sites page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/44-sites-plugin.md).

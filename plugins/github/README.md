@@ -1,21 +1,17 @@
 # github
 
-Account-scoped GitHub CLI device authentication for repository mappings, Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.
+Account-scoped GitHub authentication for repository mappings, branch publishing, pull requests, reviews, checks, and confirmed merges.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `github` plugin.
+Install **github** from **Settings → Plugins → Available**, connect GitHub in **Account → GitHub**, and map repositories from a Project's GitHub page.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.1.21 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | none |
 
-## Tools
+This plugin has no instance configuration fields. Each account connects its own GitHub identity and repository mappings.
 
-GithubConnectionStatus, GithubRepositoryStatus, GithubListPullRequests, GithubGetPullRequest, GithubPullRequestChecks, GithubPublishBranch, GithubCreatePullRequest, GithubSubmitReview, GithubMergePullRequest.
-
-## Configuration
-
-No settings fields declared.
-
-## Documentation
-
-See the [github page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).

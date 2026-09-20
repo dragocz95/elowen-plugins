@@ -1,21 +1,17 @@
 # discord
 
-Discord bot that answers from Elowen AI, with slash commands, per-channel presentation settings, live tool activity, status reactions and proactive pushes. It also provides server, member, role, thread, channel and message management.
+Discord bot with chat responses, channel presentation controls, proactive pushes, and server, member, role, thread, channel, and message tools.
 
 ## Install
 
-Install it from Settings -> Plugins -> Available in the Elowen web interface, or ask the assistant to install the `discord` plugin.
+Install **discord** from **Settings → Plugins → Available**, configure the bot credentials and access policies, then enable it.
 
-This plugin's version, minimum core version and shared-API requirement are stated in `elowen-plugin.json` in this folder and published in `registry.json`; they are deliberately kept out of this file so it cannot go stale.
+| Field | Value |
+| --- | --- |
+| Version | 0.3.22 |
+| requiresCore | 0.28.50 |
+| requiresSharedApi | 4 |
 
-## Tools
+Configure the bot, guild and thread scope, notification destination, response and tool-activity presentation, reactions, service language, history, media, voice, and role policies in the plugin settings.
 
-DiscordApi, DiscordListChannels, DiscordReadChannel, DiscordListRoles, DiscordListMembers, DiscordAssignRole, DiscordRemoveRole, DiscordServerInfo, DiscordChannelInfo, DiscordMemberInfo, DiscordSearchMembers, DiscordListPins, DiscordCreateThread, DiscordPinMessage, DiscordUnpinMessage, DiscordDeleteMessage, DiscordPurgeMessages, DiscordCreateChannel, DiscordCreateCategory, DiscordRenameChannel, DiscordDeleteChannel, DiscordArchiveThread, DiscordLockThread, DiscordAddThreadMember, DiscordRemoveThreadMember.
-
-## Configuration
-
-botToken, guildId, threadIds, notifyChannelId, respondWithoutMention, toolActivity, answerMode, toolOutput, toolMessageMode, deleteToolActivityAfterTurn, reactions, runtimeFooter, showReasoning, language, historyLimit, visionModel, maxImageBytes, maxImages, maxFileBytes, maxFiles, maxUploadImages, voiceProvider, stt, sttModel, tts, ttsModel, ttsVoice, rolePolicies.
-
-## Documentation
-
-See the [discord page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
