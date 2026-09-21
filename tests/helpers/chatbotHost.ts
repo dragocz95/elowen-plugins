@@ -1,0 +1,232 @@
+import type { PluginDb, SessionSource } from 'elowen/plugin-api';
+import { pluginDbFor } from './pluginDb.js';
+import { ChatbotAdapter } from '../../plugins/chatbot/src/adapter.js';
+import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
+import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
+import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
+import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
+import { migrate } from '../../plugins/chatbot/src/db.js';
+import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
+import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
+
+/** The fake host every chatbot suite drives the public path against.
+ *
+ *  The plugin's public surface is deliberately reachable without a daemon: the route takes a hook request,
+ *  the queue takes a relay control, and the stores it consults for account and Project facts are three
+ *  methods wide. That is what makes the security rules testable at all — the only parts of the host this
+ *  fixture does NOT fake are the ones the plugin cannot decide itself (the relay's identity and policy
+ *  resolution, the canonical request origin, the hook body cap). */
+
+/** The signing key. Shared by a suite so a test can re-sign a payload the plugin would not have minted. */
+export const CHATBOT_SECRET = newSecret();
+
+export const CHATBOT_SITE = 'https://www.example.cz';
+
+/** The origin the HOST resolved, which is a separate fact from the browser's Origin header. */
+export const TRUSTED_REQUEST_ORIGIN = { value: '203.0.113.9', kind: 'ip' as const, trusted: true };
+
+export const CLIENT_TURN_ID = '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34';
+
+export type ChatbotHookReply = Awaited<ReturnType<ReturnType<typeof createPublicRoute>>>;
+
+export interface RelayCall {
+  src: SessionSource;
+  text: string;
+  observer?: { onEvent: (event: ChatbotRelayEvent) => void; signal?: AbortSignal };
+}
+
+export interface TurnInput {
+  src: SessionSource;
+  text: string;
+  observer?: RelayCall['observer'];
+}
+
+export interface ChatbotHost {
+  /** The plugin's own tables, for the one thing a test cannot reach through the plugin's API: a stored row
+   *  that contradicts the payload it was written from, which is how a defence-in-depth branch is shown to
+   *  be load-bearing rather than merely present. */
+  db: PluginDb;
+  store: ChatbotStore;
+  adapter: ChatbotAdapter;
+  queue: ChatbotTurnQueue;
+  broker: TurnEventBroker;
+  stores: ChatbotStores;
+  handler: ReturnType<typeof createPublicRoute>;
+  calls: RelayCall[];
+  warnings: string[];
+  /** The turn behaviour. A test that needs a LIVE turn replaces it and drives the observer by hand. */
+  handleTurn: (input: TurnInput) => Promise<string | undefined>;
+}
+
+/** The answer the default turn behaviour resolves with. */
+const SCRIPTED_REPLY = 'Dobrý den, s čím pomohu?';
+
+/** The default turn: one session event, traffic a public log must never carry, one text delta, and the
+ *  answer the relay resolves with. Exported so a test can install the same shape with no answer at all. */
+export function scriptedTurn(reply: string | undefined): (input: TurnInput) => Promise<string | undefined> {
+  return async ({ observer }) => {
+    observer?.onEvent({ type: 'session', sessionId: 'brain-ch-chatbot-session' });
+    // Reasoning and tool traffic are what a public log must never carry; the queue's allowlist drops them.
+    observer?.onEvent({ type: 'reasoning', delta: 'internal thinking' });
+    observer?.onEvent({ type: 'tool', name: 'Search' });
+    observer?.onEvent({ type: 'text', delta: reply ?? '' });
+    return reply;
+  };
+}
+
+/** The fixed clock every fixture shares, so a token's `iat` and a stored timestamp are comparable. */
+const NOW_MS = 1_800_000_000_000;
+const NOW_ISO = new Date(NOW_MS).toISOString();
+
+let hostCount = 0;
+
+/** The host as this plugin sees it. `accounts` and `projects` are handed in as LIVE arrays, so a test can
+ *  change the world between two requests — which is exactly what the per-admission preflight exists for. */
+export function createChatbotHost(options: {
+  accounts?: ChatbotAccountView[];
+  projects?: ChatbotProjectView[];
+  pingIntervalMs?: number;
+} = {}): ChatbotHost {
+  hostCount += 1;
+  // One in-memory database per host, addressed the way the loader addresses it: the helper returns the
+  // per-plugin resolver, so the plugin's own migration bookkeeping is exercised for real.
+  const db = pluginDbFor(`chatbot-test-${hostCount}`)('chatbot');
+  migrate(db);
+  const store = new ChatbotStore(db);
+  const accounts: ChatbotAccountView[] = options.accounts ?? [
+    { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
+  ];
+  const projects: ChatbotProjectView[] = options.projects ?? [{ id: 4, slug: 'ured', path: '/ured', executionKind: 'managed' }];
+  const stores = {
+    usersRead: {
+      list: () => accounts,
+      isAdmin: (id: number) => accounts.find((account) => account.id === id)?.isAdmin === true,
+      allowedExecs: () => [],
+      mayUsePlugin: () => true,
+    },
+    projects: { get: (id: number) => projects.find((project) => project.id === id) ?? null, list: () => projects },
+    userProjects: { canAccess: () => true, canManage: () => true },
+  } as unknown as ChatbotStores;
+
+  const calls: RelayCall[] = [];
+  const warnings: string[] = [];
+  const warn = (message: string): void => { warnings.push(message); };
+  const adapter = new ChatbotAdapter(warn);
+  adapter.listen(async () => undefined);
+  const broker = new TurnEventBroker(warn);
+  const now = (): Date => new Date(NOW_MS);
+
+  const host: ChatbotHost = {
+    db,
+    store,
+    adapter,
+    broker,
+    stores,
+    calls,
+    warnings,
+    handleTurn: scriptedTurn(SCRIPTED_REPLY),
+    queue: undefined as unknown as ChatbotTurnQueue,
+    handler: undefined as unknown as ReturnType<typeof createPublicRoute>,
+  };
+  adapter.control({
+    relay: (src, text, observer) => {
+      calls.push({ src, text, ...(observer ? { observer } : {}) });
+      return host.handleTurn({ src, text, ...(observer ? { observer } : {}) });
+    },
+  });
+
+  host.queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+  const deps: PublicRouteDeps = {
+    store,
+    queue: host.queue,
+    adapter,
+    stores,
+    broker,
+    pingIntervalMs: options.pingIntervalMs ?? STREAM_PING_INTERVAL_MS,
+    secret: () => CHATBOT_SECRET,
+    tokenTtlSeconds: () => 30 * 86_400,
+    now,
+    warn,
+  };
+  host.handler = createPublicRoute(deps);
+  return host;
+}
+
+/** A hook request. `origin: null` drops the host-resolved origin entirely, which is how a daemon that does
+ *  not carry the seam looks; `acceptsStreamBody: false` is a daemon that buffers whatever it is handed. */
+export function publicRequest(input: {
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  origin?: typeof TRUSTED_REQUEST_ORIGIN | null;
+  acceptsStreamBody?: boolean;
+  query?: Record<string, string>;
+}): ChatbotHookRequest {
+  const origin = input.origin === undefined ? TRUSTED_REQUEST_ORIGIN : input.origin;
+  return {
+    ...(origin === null ? {} : { origin }),
+    method: input.method,
+    path: input.path,
+    query: input.query ?? {},
+    headers: input.headers ?? {},
+    body: () => Promise.resolve(Buffer.from(JSON.stringify(input.body ?? {}), 'utf8')),
+    json: () => Promise.resolve(input.body ?? {}),
+    ...(input.acceptsStreamBody === false ? {} : { acceptsStreamBody: true }),
+  } as ChatbotHookRequest;
+}
+
+/** A POST with the JSON body content type this API requires. */
+export function postRequest(input: {
+  path: string;
+  headers: Record<string, string>;
+  body: unknown;
+  origin?: typeof TRUSTED_REQUEST_ORIGIN | null;
+}): ChatbotHookRequest {
+  return publicRequest({
+    method: 'POST',
+    path: input.path,
+    body: input.body,
+    origin: input.origin,
+    headers: { 'content-type': 'application/json', ...input.headers },
+  });
+}
+
+/** Register one chatbot for an account. Draft unless a status is given. */
+export function registerBot(host: ChatbotHost, input: {
+  chatbotUserId?: number;
+  publicId?: string;
+  status?: 'draft' | 'enabled';
+  origins?: string[];
+} = {}): void {
+  const row = host.store.createBot({
+    chatbotUserId: input.chatbotUserId ?? 12,
+    publicId: input.publicId ?? newPublicId(),
+    displayName: 'Městský úřad',
+    prompt: 'Pomáhej s formuláři.',
+    origins: input.origins ?? [CHATBOT_SITE],
+    now: NOW_ISO,
+  });
+  if ((input.status ?? 'enabled') === 'enabled') host.store.setBotStatus({ chatbotUserId: row.chatbot_user_id, status: 'enabled', now: row.updated_at });
+}
+
+export async function issueToken(host: ChatbotHost, input: { site?: string; publicId?: string } = {}): Promise<{ status: number; body: Record<string, any> }> {
+  const bot = input.publicId ?? host.store.listBots()[0]!.public_id;
+  const answer = await host.handler(postRequest({
+    path: 'visitors',
+    headers: { origin: input.site ?? CHATBOT_SITE },
+    body: { schemaVersion: 1, bot },
+  }));
+  return { status: answer.status, body: answer.body as Record<string, any> };
+}
+
+/** The queue runs off the request path by design, so a test waits for the turn to settle rather than for
+ *  the POST that submitted it. */
+export async function settledTurn(host: ChatbotHost, turnId: string): Promise<'done' | 'error'> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const row = host.store.turn(turnId);
+    if (row && (row.status === 'done' || row.status === 'error')) return row.status;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('turn never settled');
+}
