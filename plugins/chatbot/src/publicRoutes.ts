@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ActionReportOutcome, PageActionService } from './actionService.js';
 import type { BotRow } from './db.js';
 import type { ChatbotAdapter } from './adapter.js';
 import type { TurnEventBroker } from './broker.js';
@@ -10,7 +11,7 @@ import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOri
 import { inspectAccount } from './preflight.js';
 import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { isCanonicalUuid, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
+import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
 
 /** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
@@ -31,6 +32,8 @@ export interface PublicRouteDeps {
   stores: ChatbotStores;
   /** Woken after an event committed. A subscriber reads the durable log itself; it is never handed one. */
   broker: TurnEventBroker;
+  /** The page actions this visitor's turns may take: what a widget reports back lands here. */
+  actions: PageActionService;
   /** Ping interval of an idle stream, injected so a test can watch one without waiting 15 seconds. */
   pingIntervalMs: number;
   secret: () => string;
@@ -46,7 +49,7 @@ type Reply = ChatbotPublicResponse & { status: number };
 const reply = (status: number, body: ChatbotPublicResponse['body'], headers: Record<string, string> = {}): Reply => ({ status, headers, body });
 
 export function createPublicRoute(deps: PublicRouteDeps) {
-  const { store, queue, adapter, stores, broker, now, warn } = deps;
+  const { store, queue, adapter, stores, broker, actions, now, warn } = deps;
 
   const iso = (): string => now().toISOString();
 
@@ -303,6 +306,52 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     });
   };
 
+  /** `POST v1/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
+   *  about a page action.
+   *
+   *  Both carry the visitor's own token and the origin allowlist gate, both must name THIS visitor's turn —
+   *  an action id from another conversation is indistinguishable from one that does not exist — and both are
+   *  answered by the action's own row: what is still live may report, what is closed may not, and a closed
+   *  action says so with a status rather than by disappearing. */
+  const handleActionReport = async (
+    req: ChatbotHookRequest,
+    origin: string,
+    turnId: string,
+    actionId: string,
+    kind: 'result' | 'confirmation',
+  ): Promise<Reply> => {
+    const admitted = presentedToken(req);
+    if ('status' in admitted) return admitted;
+    const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+    if (!allowed.ok) return reply(403, { error: 'origin_not_allowed' });
+
+    const notJson = requireJsonBody(req, origin);
+    if (notJson) return notJson;
+    const body = await readJson(req);
+    if (!body.ok) return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
+
+    const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
+    if (!turn || turn.chatbot_user_id !== admitted.bot.chatbot_user_id || turn.visitor_id !== admitted.visitorId) {
+      return reply(404, { error: 'not_found' }, corsHeaders(origin));
+    }
+    if (!isCanonicalUuid(actionId)) return reply(404, { error: 'not_found' }, corsHeaders(origin));
+
+    if (kind === 'result') {
+      const parsed = validateActionResult(body.value);
+      if (!parsed.ok) return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+      return actionReportReply(
+        actions.reportResult({ turn, actionId, outcome: parsed.value.outcome, detail: parsed.value.detail }),
+        origin,
+      );
+    }
+    const parsed = validateActionDecision(body.value);
+    if (!parsed.ok) return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+    return actionReportReply(
+      actions.reportDecision({ turn, actionId, decision: parsed.value.decision, nonce: parsed.value.nonce }),
+      origin,
+    );
+  };
+
   return async function handlePublicRequest(req: ChatbotHookRequest): Promise<Reply> {
     const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
     const path = segments.join('/');
@@ -333,8 +382,27 @@ export function createPublicRoute(deps: PublicRouteDeps) {
       && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.events) {
       return handleTurnEvents(req, origin, segments[1]!);
     }
+    if (req.method === 'POST' && segments.length === 5
+      && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.actions
+      && (segments[4] === PUBLIC_SEGMENTS.result || segments[4] === PUBLIC_SEGMENTS.confirmation)) {
+      return handleActionReport(req, origin, segments[1]!, segments[3]!, segments[4] === PUBLIC_SEGMENTS.result ? 'result' : 'confirmation');
+    }
     return reply(404, { error: 'not_found' });
   };
+}
+
+/** What a widget is told after reporting an action. The success body is deliberately thin — the widget
+ *  reads the status code and nothing else — while a refusal distinguishes the three ways a report can
+ *  arrive too late to be believed. */
+function actionReportReply(outcome: ActionReportOutcome, origin: string): Reply {
+  if (outcome.ok) return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, status: outcome.row.status }, corsHeaders(origin));
+  // Every answer a widget can trigger carries the CORS grant, including this one: a cross-origin reply without
+  // it is unreadable in a browser, so a widget would never LEARN that the action it reported is unknown to
+  // this deployment — it would keep reporting, and the 404 would look like a network fault forever.
+  if (outcome.reason === 'not_found') return reply(404, { error: 'not_found' }, corsHeaders(origin));
+  if (outcome.reason === 'expired') return reply(409, { error: 'action_expired' }, corsHeaders(origin));
+  if (outcome.reason === 'invalid_nonce') return reply(403, { error: 'invalid_nonce' }, corsHeaders(origin));
+  return reply(409, { error: 'action_closed' }, corsHeaders(origin));
 }
 
 /** One request for the widget script. `If-None-Match` is answered with a bodiless `304` so a page load that

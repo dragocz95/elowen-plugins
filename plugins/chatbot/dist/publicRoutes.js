@@ -4,7 +4,7 @@ import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOri
 import { inspectAccount } from './preflight.js';
 import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { isCanonicalUuid, validateTokenIssuance, validateTurnSubmission } from './validation.js';
+import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
 /** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
  *  restoration aid rather than a history export, and because the whole answer has to stay small enough for
@@ -17,7 +17,7 @@ const CONVERSATION_MAX_BYTES = 256 * 1024;
 export const STREAM_PING_INTERVAL_MS = 15_000;
 const reply = (status, body, headers = {}) => ({ status, headers, body });
 export function createPublicRoute(deps) {
-    const { store, queue, adapter, stores, broker, now, warn } = deps;
+    const { store, queue, adapter, stores, broker, actions, now, warn } = deps;
     const iso = () => now().toISOString();
     /** The gate every stateful endpoint passes first: the host must have resolved a NETWORK origin it
      *  considers canonical. It is deliberately not derived from a header the plugin could read itself — the
@@ -281,6 +281,43 @@ export function createPublicRoute(deps) {
             'cache-control': 'no-store',
         });
     };
+    /** `POST v1/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
+     *  about a page action.
+     *
+     *  Both carry the visitor's own token and the origin allowlist gate, both must name THIS visitor's turn —
+     *  an action id from another conversation is indistinguishable from one that does not exist — and both are
+     *  answered by the action's own row: what is still live may report, what is closed may not, and a closed
+     *  action says so with a status rather than by disappearing. */
+    const handleActionReport = async (req, origin, turnId, actionId, kind) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+        if (!allowed.ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        const notJson = requireJsonBody(req, origin);
+        if (notJson)
+            return notJson;
+        const body = await readJson(req);
+        if (!body.ok)
+            return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
+        const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
+        if (!turn || turn.chatbot_user_id !== admitted.bot.chatbot_user_id || turn.visitor_id !== admitted.visitorId) {
+            return reply(404, { error: 'not_found' }, corsHeaders(origin));
+        }
+        if (!isCanonicalUuid(actionId))
+            return reply(404, { error: 'not_found' }, corsHeaders(origin));
+        if (kind === 'result') {
+            const parsed = validateActionResult(body.value);
+            if (!parsed.ok)
+                return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+            return actionReportReply(actions.reportResult({ turn, actionId, outcome: parsed.value.outcome, detail: parsed.value.detail }), origin);
+        }
+        const parsed = validateActionDecision(body.value);
+        if (!parsed.ok)
+            return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+        return actionReportReply(actions.reportDecision({ turn, actionId, decision: parsed.value.decision, nonce: parsed.value.nonce }), origin);
+    };
     return async function handlePublicRequest(req) {
         const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
         const path = segments.join('/');
@@ -315,8 +352,30 @@ export function createPublicRoute(deps) {
             && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.events) {
             return handleTurnEvents(req, origin, segments[1]);
         }
+        if (req.method === 'POST' && segments.length === 5
+            && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.actions
+            && (segments[4] === PUBLIC_SEGMENTS.result || segments[4] === PUBLIC_SEGMENTS.confirmation)) {
+            return handleActionReport(req, origin, segments[1], segments[3], segments[4] === PUBLIC_SEGMENTS.result ? 'result' : 'confirmation');
+        }
         return reply(404, { error: 'not_found' });
     };
+}
+/** What a widget is told after reporting an action. The success body is deliberately thin — the widget
+ *  reads the status code and nothing else — while a refusal distinguishes the three ways a report can
+ *  arrive too late to be believed. */
+function actionReportReply(outcome, origin) {
+    if (outcome.ok)
+        return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, status: outcome.row.status }, corsHeaders(origin));
+    // Every answer a widget can trigger carries the CORS grant, including this one: a cross-origin reply without
+    // it is unreadable in a browser, so a widget would never LEARN that the action it reported is unknown to
+    // this deployment — it would keep reporting, and the 404 would look like a network fault forever.
+    if (outcome.reason === 'not_found')
+        return reply(404, { error: 'not_found' }, corsHeaders(origin));
+    if (outcome.reason === 'expired')
+        return reply(409, { error: 'action_expired' }, corsHeaders(origin));
+    if (outcome.reason === 'invalid_nonce')
+        return reply(403, { error: 'invalid_nonce' }, corsHeaders(origin));
+    return reply(409, { error: 'action_closed' }, corsHeaders(origin));
 }
 /** One request for the widget script. `If-None-Match` is answered with a bodiless `304` so a page load that
  *  already holds the bundle costs one round trip and no bytes, which is what makes the short cache window
