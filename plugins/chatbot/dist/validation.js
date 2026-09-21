@@ -1,6 +1,7 @@
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
-/** The public request schema version. A request naming another version is refused, never reinterpreted. */
-const SCHEMA_VERSION = 1;
+/** The public request and response schema version. A request naming another version is refused, never
+ *  reinterpreted, and every public frame carries this same value. */
+export const PUBLIC_SCHEMA_VERSION = 1;
 /** A visitor message. The hook body is capped at 1 MiB by core; this is the bot-specific bound. */
 const MESSAGE_MAX_BYTES = 8 * 1024;
 const DISPLAY_NAME_MAX_CHARS = 80;
@@ -28,9 +29,9 @@ function strictObject(input, allowed, required = []) {
     }
     return { ok: true, value: record };
 }
-const readSchemaVersion = (record) => record.schemaVersion === SCHEMA_VERSION
+const readSchemaVersion = (record) => record.schemaVersion === PUBLIC_SCHEMA_VERSION
     ? { ok: true, value: true }
-    : { ok: false, error: `schemaVersion must be ${SCHEMA_VERSION}` };
+    : { ok: false, error: `schemaVersion must be ${PUBLIC_SCHEMA_VERSION}` };
 const readString = (record, key, maxChars) => {
     const value = record[key];
     if (typeof value !== 'string')

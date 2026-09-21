@@ -144,11 +144,72 @@ export class ChatbotStore {
         return this.stmt('SELECT * FROM p_chatbot_turn_events WHERE turn_id = ? AND seq > ? ORDER BY seq')
             .all(turnId, after);
     }
-    /** Boot reconcile: a turn this process no longer runs cannot be resumed, and reporting it as still
-     *  running would leave a visitor waiting forever. Core turn recovery is explicitly not guaranteed. */
-    failOrphanedTurns(now, errorCode) {
-        const result = this.stmt("UPDATE p_chatbot_turns SET status = 'error', error_code = ?, finished_at = ? WHERE status IN ('queued', 'running')")
-            .run(errorCode, now);
-        return result.changes;
+    /** The visitor's own conversation, newest first. A widget that lost its connection rebuilds what it
+     *  showed from these rows and the answers below, never by reading a transcript this plugin does not own.
+     *  The bound is the caller's: a reconnect is a bounded read, not a history export. */
+    recentTurns(input) {
+        return this.stmt(`SELECT * FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?
+                      ORDER BY created_at DESC, turn_id DESC LIMIT ?`)
+            .all(input.chatbotUserId, input.visitorId, input.limit);
     }
+    /** How far each turn's public log has got. A reconnecting reader learns where the log stands and reads
+     *  the rows itself; nothing here is a second copy of an event. */
+    lastSeqsOf(turnIds) {
+        const seqs = new Map(turnIds.map((turnId) => [turnId, 0]));
+        if (turnIds.length === 0)
+            return seqs;
+        const rows = this.stmt(`SELECT turn_id, MAX(seq) AS seq FROM p_chatbot_turn_events
+                            WHERE turn_id IN (${placeholders(turnIds.length)}) GROUP BY turn_id`)
+            .all(...turnIds);
+        for (const row of rows)
+            seqs.set(row.turn_id, row.seq);
+        return seqs;
+    }
+    /** The final answer of each finished turn, keyed by turn id, read from the event log rather than kept a
+     *  second time on the turn row: the answer a reconnect renders is exactly the answer the live stream sent. */
+    doneRepliesOf(turnIds) {
+        const replies = new Map();
+        if (turnIds.length === 0)
+            return replies;
+        const rows = this.stmt(`SELECT * FROM p_chatbot_turn_events WHERE turn_id IN (${placeholders(turnIds.length)})
+                            AND type = 'done' ORDER BY seq`)
+            .all(...turnIds);
+        for (const row of rows) {
+            const text = eventPayload(row).text;
+            if (typeof text !== 'string')
+                throw new Error(`chatbot: stored done event ${row.turn_id}#${row.seq} carries no text`);
+            replies.set(row.turn_id, text);
+        }
+        return replies;
+    }
+    /** Boot reconcile: a turn this process no longer runs cannot be resumed, and reporting it as still
+     *  running would leave a visitor waiting forever. Each row is closed with the SAME public error event the
+     *  running queue would have written, so the durable log a reconnecting widget reads is complete rather
+     *  than silent. Core turn recovery is explicitly not guaranteed, and no turn is replayed. */
+    closeOrphanedTurns(now, errorCode) {
+        return this.db.transaction(() => {
+            const rows = this.stmt("SELECT turn_id FROM p_chatbot_turns WHERE status IN ('queued', 'running') ORDER BY created_at").all();
+            for (const row of rows) {
+                this.appendEvent(row.turn_id, 'error', { code: errorCode }, now);
+                this.stmt("UPDATE p_chatbot_turns SET status = 'error', error_code = ?, finished_at = ? WHERE turn_id = ? AND status IN ('queued', 'running')")
+                    .run(errorCode, now, row.turn_id);
+            }
+            return rows.map((row) => row.turn_id);
+        });
+    }
+}
+/** `?, ?, ?` for an IN list. The list length is bounded by the caller's own window, and each length is
+ *  prepared once. */
+function placeholders(count) {
+    return new Array(count).fill('?').join(', ');
+}
+/** Decode one stored event payload. Only this plugin writes these rows, so a value that is not a JSON
+ *  object is CORRUPT rather than hostile — and it is reported as a failure of the log instead of being
+ *  rendered to a visitor as an empty or invented answer. */
+export function eventPayload(row) {
+    const parsed = JSON.parse(row.data);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error(`chatbot: stored event ${row.turn_id}#${row.seq} is not a JSON object`);
+    }
+    return parsed;
 }

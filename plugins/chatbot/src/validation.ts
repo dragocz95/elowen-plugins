@@ -5,8 +5,9 @@ import { isWildcardOrigin, normalizeOrigin } from './origin.js';
  *  does not implement learns that instead of believing it took effect. */
 export type Validated<T> = { ok: true; value: T } | { ok: false; error: string };
 
-/** The public request schema version. A request naming another version is refused, never reinterpreted. */
-const SCHEMA_VERSION = 1;
+/** The public request and response schema version. A request naming another version is refused, never
+ *  reinterpreted, and every public frame carries this same value. */
+export const PUBLIC_SCHEMA_VERSION = 1;
 
 /** A visitor message. The hook body is capped at 1 MiB by core; this is the bot-specific bound. */
 const MESSAGE_MAX_BYTES = 8 * 1024;
@@ -39,9 +40,9 @@ function strictObject(input: unknown, allowed: readonly string[], required: read
 }
 
 const readSchemaVersion = (record: Record<string, unknown>): Validated<true> =>
-  record.schemaVersion === SCHEMA_VERSION
+  record.schemaVersion === PUBLIC_SCHEMA_VERSION
     ? { ok: true, value: true }
-    : { ok: false, error: `schemaVersion must be ${SCHEMA_VERSION}` };
+    : { ok: false, error: `schemaVersion must be ${PUBLIC_SCHEMA_VERSION}` };
 
 const readString = (record: Record<string, unknown>, key: string, maxChars: number): Validated<string> => {
   const value = record[key];

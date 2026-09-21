@@ -48,12 +48,16 @@ export class ChatbotTurnQueue {
             this.draining = false;
         }
     }
-    append(turnId, type, data) {
+    /** Write one public event and THEN announce it. The order is the invariant: a subscriber that wakes up
+     *  reads the log, so an event nobody can read must never be announced, and an event that was announced is
+     *  always already there for the client that reconnects later. */
+    record(turnId, type, data) {
         this.deps.store.appendEvent(turnId, type, data, this.deps.now());
+        this.deps.broker.publish(turnId);
     }
     /** Fail a turn with one of the stable public codes and nothing else. */
     fail(turnId, code, sessionId) {
-        this.append(turnId, 'error', { code });
+        this.record(turnId, 'error', { code });
         this.deps.store.finishTurn({ turnId, status: 'error', coreSessionId: sessionId, errorCode: code, now: this.deps.now() });
     }
     /** Send one turn through the host relay and project what the visitor is allowed to see. */
@@ -75,7 +79,7 @@ export class ChatbotTurnQueue {
             return;
         }
         store.markTurnRunning(turnId, this.deps.now());
-        this.append(turnId, 'accepted', {});
+        this.record(turnId, 'accepted', {});
         const source = visitorSource({
             chatbotUserId: turn.chatbot_user_id,
             visitorId: turn.visitor_id,
@@ -95,7 +99,7 @@ export class ChatbotTurnQueue {
                     // reasoning, tool activity, file references and internal error text, and none of that may cross
                     // into a log an anonymous visitor reads.
                     if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
-                        this.append(turnId, 'text_delta', { text: fields.delta });
+                        this.record(turnId, 'text_delta', { text: fields.delta });
                     }
                 },
             });
@@ -106,7 +110,7 @@ export class ChatbotTurnQueue {
                 this.fail(turnId, 'relay_no_reply', sessionId);
                 return;
             }
-            this.append(turnId, 'done', { text: reply });
+            this.record(turnId, 'done', { text: reply });
             store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
         }
         catch (error) {

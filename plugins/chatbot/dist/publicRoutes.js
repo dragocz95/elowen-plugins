@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { validateTokenIssuance, validateTurnSubmission } from './validation.js';
+import { isCanonicalUuid, PUBLIC_SCHEMA_VERSION, validateTokenIssuance, validateTurnSubmission } from './validation.js';
 /** The one mount this plugin declares: every public endpoint is a remainder under it, so a later version
  *  can be served beside this one instead of changing what a deployed widget talks to.
  *
@@ -12,9 +13,18 @@ import { validateTokenIssuance, validateTurnSubmission } from './validation.js';
  *  matches one of the chatbot's allowed domains, a host-resolved trusted network origin, and a live visitor
  *  token. A caller outside the allowlist is refused here regardless of what any CORS header says. */
 export const PUBLIC_MOUNT = 'v1';
+/** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
+ *  restoration aid rather than a history export, and because the whole answer has to stay small enough for
+ *  the phone the widget runs on. */
+const CONVERSATION_TURN_LIMIT = 50;
+const CONVERSATION_MAX_BYTES = 256 * 1024;
+/** How often an idle turn-events stream sends a ping frame. Never stored and never counted as an event: it
+ *  exists so a proxy does not close a connection that is waiting on a model, and it tells the client nothing
+ *  about the turn beyond the fact that the stream is alive. */
+export const STREAM_PING_INTERVAL_MS = 15_000;
 const reply = (status, body, headers = {}) => ({ status, headers, body });
 export function createPublicRoute(deps) {
-    const { store, queue, adapter, stores, now, warn } = deps;
+    const { store, queue, adapter, stores, broker, now, warn } = deps;
     const iso = () => now().toISOString();
     /** The gate every stateful endpoint passes first: the host must have resolved a NETWORK origin it
      *  considers canonical. It is deliberately not derived from a header the plugin could read itself — the
@@ -102,6 +112,9 @@ export function createPublicRoute(deps) {
     };
     /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
     const handleTokenIssuance = async (req, origin) => {
+        const notJson = requireJsonBody(req, origin);
+        if (notJson)
+            return notJson;
         const body = await readJson(req);
         if (!body.ok)
             return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
@@ -120,7 +133,7 @@ export function createPublicRoute(deps) {
             return blocked;
         const issued = issueVisitorToken(bot, null);
         return reply(200, {
-            schemaVersion: 1,
+            schemaVersion: PUBLIC_SCHEMA_VERSION,
             token: issued.token,
             visitorId: issued.visitorId,
             expiresAt: issued.expiresAt,
@@ -141,7 +154,7 @@ export function createPublicRoute(deps) {
             return blocked;
         const issued = issueVisitorToken(admitted.bot, admitted.visitorId);
         return reply(200, {
-            schemaVersion: 1,
+            schemaVersion: PUBLIC_SCHEMA_VERSION,
             token: issued.token,
             visitorId: issued.visitorId,
             expiresAt: issued.expiresAt,
@@ -159,6 +172,9 @@ export function createPublicRoute(deps) {
         const blocked = blockedReply(admitted.bot);
         if (blocked)
             return blocked;
+        const notJson = requireJsonBody(req, origin);
+        if (notJson)
+            return notJson;
         const body = await readJson(req);
         if (!body.ok)
             return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
@@ -179,10 +195,102 @@ export function createPublicRoute(deps) {
         store.touchVisitor(admitted.visitorId, iso());
         if (!existing)
             queue.submit(turn.turn_id);
-        return reply(202, { schemaVersion: 1, turnId: turn.turn_id, status: 'queued', lastSeq: 0 }, corsHeaders(origin));
+        // A receipt describes ADMISSION, not the turn's current state: the widget attaches to the turn's own
+        // event stream next, and that is where a retry after a lost 202 learns what has already happened.
+        return reply(202, { schemaVersion: PUBLIC_SCHEMA_VERSION, turnId: turn.turn_id, status: 'queued', lastSeq: 0 }, corsHeaders(origin));
+    };
+    /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
+     *  recent turns, each one's public status and the answer it finished with. It is deliberately NOT a
+     *  transcript read: the plugin serves the projection it published, never core's conversation. */
+    const handleConversation = (req, origin) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+        if (!allowed.ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        const recent = store.recentTurns({
+            chatbotUserId: admitted.bot.chatbot_user_id,
+            visitorId: admitted.visitorId,
+            limit: CONVERSATION_TURN_LIMIT,
+        });
+        const ids = recent.map((turn) => turn.turn_id);
+        const seqs = store.lastSeqsOf(ids);
+        const replies = store.doneRepliesOf(ids);
+        // Newest first while the answer still fits. A reconnect has to be able to rebuild what the visitor saw
+        // most recently, so the newest turn is always included and older ones drop off once the budget is spent.
+        const turns = [];
+        let bytes = Buffer.byteLength(JSON.stringify({
+            schemaVersion: PUBLIC_SCHEMA_VERSION, activeTurnId: null, truncated: false, turns: [],
+        }), 'utf8');
+        // A full window means there may be older turns this answer cannot carry; the flag says so rather than
+        // letting a client believe it restored the whole conversation.
+        let truncated = recent.length === CONVERSATION_TURN_LIMIT;
+        for (const turn of recent) {
+            const view = {
+                turnId: turn.turn_id,
+                clientTurnId: turn.client_turn_id,
+                status: turn.status,
+                lastSeq: seqs.get(turn.turn_id) ?? 0,
+                message: turn.message,
+                reply: replies.get(turn.turn_id) ?? null,
+                errorCode: turn.error_code,
+            };
+            // One byte for the comma that joins the entries, which is what makes this an upper bound.
+            const size = Buffer.byteLength(JSON.stringify(view), 'utf8') + 1;
+            if (bytes + size > CONVERSATION_MAX_BYTES) {
+                truncated = true;
+                break;
+            }
+            bytes += size;
+            turns.push(view);
+        }
+        turns.reverse();
+        return reply(200, {
+            schemaVersion: PUBLIC_SCHEMA_VERSION,
+            activeTurnId: recent.find((turn) => turn.status === 'queued' || turn.status === 'running')?.turn_id ?? null,
+            truncated,
+            turns,
+        }, corsHeaders(origin));
+    };
+    /** `GET v1/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
+     *  documented for AUTHENTICATED plugin API only and this endpoint is public, so the stream is one this
+     *  plugin owns; `after` replays exactly what a reconnecting widget has not rendered yet. */
+    const handleTurnEvents = (req, origin, turnId) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+        if (!allowed.ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        // An older daemon buffers whatever body it is handed, which would turn this stream into a single JSON
+        // object no widget can read. Refuse instead of answering something that only looks like a stream.
+        if (req.acceptsStreamBody !== true)
+            return reply(503, { error: 'stream_unavailable' });
+        const after = readAfter(req.query.after);
+        if (!after.ok)
+            return reply(400, { error: 'invalid_request', detail: after.error }, corsHeaders(origin));
+        const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
+        // Another visitor's turn is not distinguishable from one that does not exist: a guess learns nothing
+        // about the other visitors of this chatbot.
+        if (!turn || turn.chatbot_user_id !== admitted.bot.chatbot_user_id || turn.visitor_id !== admitted.visitorId) {
+            return reply(404, { error: 'not_found' });
+        }
+        return reply(200, turnEventStream({
+            store,
+            broker,
+            turnId: turn.turn_id,
+            after: after.value,
+            pingIntervalMs: deps.pingIntervalMs,
+        }), {
+            ...corsHeaders(origin),
+            'content-type': 'application/x-ndjson; charset=utf-8',
+            'cache-control': 'no-store',
+        });
     };
     return async function handlePublicRequest(req) {
-        const path = req.path.replace(/^\/+|\/+$/g, '');
+        const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
+        const path = segments.join('/');
         const origin = req.headers.origin ?? req.headers.Origin;
         const gate = checkRequestOrigin(req);
         if (gate)
@@ -197,8 +305,104 @@ export function createPublicRoute(deps) {
             return handleRefresh(req, origin);
         if (req.method === 'POST' && path === 'turns')
             return handleTurn(req, origin);
+        if (req.method === 'GET' && path === 'conversation')
+            return handleConversation(req, origin);
+        if (req.method === 'GET' && segments.length === 3 && segments[0] === 'turns' && segments[2] === 'events') {
+            return handleTurnEvents(req, origin, segments[1]);
+        }
         return reply(404, { error: 'not_found' });
     };
+}
+/** A body this endpoint will INTERPRET must say it is JSON. A form-encoded or text/plain body is not a
+ *  request this API takes, and answering it as though it were would be guessing at what the caller meant. */
+function requireJsonBody(req, origin) {
+    const declared = req.headers['content-type']?.split(';')[0]?.trim().toLowerCase();
+    return declared === 'application/json' ? null : reply(415, { error: 'unsupported_media_type' }, corsHeaders(origin));
+}
+/** `after` is the sequence number a widget has already rendered. Absent means "from the beginning", and
+ *  anything that is not a plain non-negative integer is refused rather than coerced. */
+function readAfter(raw) {
+    if (raw === undefined || raw === '')
+        return { ok: true, value: 0 };
+    if (!/^\d{1,15}$/.test(raw))
+        return { ok: false, error: '"after" must be a non-negative integer' };
+    return { ok: true, value: Number(raw) };
+}
+/** One turn's public event log, pushed as it grows.
+ *
+ *  Push rather than pull: rows are read from the durable log and written as they appear, and a broker
+ *  wake-up only says that MORE rows exist. The stream ends when the turn writes its terminal event, or when
+ *  the turn is already terminal and its log has been replayed in full — a widget must never be left holding
+ *  a connection to a turn that will never say anything again. */
+function turnEventStream(input) {
+    const encoder = new TextEncoder();
+    let cursor = input.after;
+    let released = false;
+    let timer = null;
+    let detach = null;
+    const release = () => {
+        if (released)
+            return;
+        released = true;
+        if (timer !== null)
+            clearInterval(timer);
+        timer = null;
+        detach?.();
+        detach = null;
+    };
+    return new ReadableStream({
+        start(controller) {
+            const write = (chunk) => {
+                if (released)
+                    return false;
+                try {
+                    controller.enqueue(encoder.encode(chunk));
+                    return true;
+                }
+                catch {
+                    // The consumer closed or errored underneath us; there is nobody left to write to.
+                    release();
+                    return false;
+                }
+            };
+            const frame = (event) => `${JSON.stringify({
+                schemaVersion: PUBLIC_SCHEMA_VERSION,
+                turnId: input.turnId,
+                seq: event.seq,
+                type: event.type,
+                data: eventPayload(event),
+            })}\n`;
+            const drain = () => {
+                if (released)
+                    return;
+                for (const event of input.store.events(input.turnId, cursor)) {
+                    cursor = event.seq;
+                    if (!write(frame(event)))
+                        return;
+                    if (event.type === 'done' || event.type === 'error') {
+                        release();
+                        controller.close();
+                        return;
+                    }
+                }
+                const turn = input.store.turn(input.turnId);
+                if (!turn || turn.status === 'done' || turn.status === 'error') {
+                    release();
+                    controller.close();
+                }
+            };
+            detach = input.broker.subscribe(input.turnId, drain);
+            timer = setInterval(() => {
+                write(`${JSON.stringify({ schemaVersion: PUBLIC_SCHEMA_VERSION, type: 'ping' })}\n`);
+            }, input.pingIntervalMs);
+            drain();
+        },
+        cancel() {
+            // A client that went away has stopped WATCHING. The turn is untouched: the queue owns the relay
+            // promise, and the log it keeps writing is exactly what the next connection reads.
+            release();
+        },
+    });
 }
 async function readJson(req) {
     try {

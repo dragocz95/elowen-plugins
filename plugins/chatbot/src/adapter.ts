@@ -1,5 +1,5 @@
-import type { SessionSource } from 'elowen/plugin-api';
-import type { ChatbotIngressHandler, ChatbotRelay, ChatbotRelayControl, ChatbotRelayEvent } from './coreSeams.js';
+import type { ChatbotIngressHandler, ChatbotRelay, ChatbotRelayControl, ChatbotRelayEvent, ChatbotSessionSource } from './coreSeams.js';
+import { MEMORY_TOOL_NAMES } from './coreSeams.js';
 
 /** A visitor's conversation, as core keys a channel session: `platform-channelId`. The plugin's channel id
  *  carries BOTH identities, so two chatbots never share a session even when a visitor id repeats, and the
@@ -17,7 +17,7 @@ export function visitorSource(input: {
   visitorId: string;
   displayName: string;
   instructions: string;
-}): SessionSource {
+}): ChatbotSessionSource {
   return {
     platform: 'chatbot',
     // The visitor is the sender and is anonymous: no name, no e-mail and no identity the CLIENT supplied.
@@ -29,8 +29,15 @@ export function visitorSource(input: {
     // bot's own configured name, never text a visitor typed.
     channelName: input.displayName || undefined,
     access: {
+      // Authority comes from the chatbot ACCOUNT the host relay stamps into the turn, never from the
+      // anonymous sender: an administrator flag here would widen a website's reach for free.
+      admin: false,
       actAsUserId: input.chatbotUserId,
       prompt: input.instructions || undefined,
+      // Every visitor writes into the SAME account, so an agent that remembers one visitor's details can
+      // put them in the next visitor's prompt. Core already turns automatic memory off for a chatbot
+      // account; this denies the tools themselves for the whole turn.
+      denyTools: [...MEMORY_TOOL_NAMES],
     },
   };
 }

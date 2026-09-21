@@ -1,7 +1,8 @@
 import { ChatbotAdapter } from './adapter.js';
+import { TurnEventBroker } from './broker.js';
 import { migrate } from './db.js';
 import { createAdminApi } from './adminApi.js';
-import { createPublicRoute, PUBLIC_MOUNT } from './publicRoutes.js';
+import { createPublicRoute, PUBLIC_MOUNT, STREAM_PING_INTERVAL_MS } from './publicRoutes.js';
 import { ChatbotTurnQueue } from './queue.js';
 import { ChatbotStore } from './store.js';
 import { newSecret, TOKEN_SECRET_KEY } from './token.js';
@@ -22,7 +23,10 @@ export function register(published) {
     const stores = ctx.host.stores();
     const now = () => new Date();
     const adapter = new ChatbotAdapter(warn);
-    const queue = new ChatbotTurnQueue({ store, adapter, now: () => now().toISOString(), warn });
+    // One broker per process, shared by the queue that publishes and the streams that read. It holds live
+    // subscribers only: every event a visitor can read is already durable in the plugin's own tables.
+    const broker = new TurnEventBroker(warn);
+    const queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
     // The signing key for visitor tokens lives in the instance secret bag: created once, never configured,
     // never returned and never logged. A second process racing the first loses only its own value.
     const secret = () => {
@@ -60,6 +64,8 @@ export function register(published) {
         queue,
         adapter,
         stores,
+        broker,
+        pingIntervalMs: STREAM_PING_INTERVAL_MS,
         secret,
         tokenTtlSeconds,
         now,
@@ -75,11 +81,14 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'bots', method: 'PATCH', access: 'admin', handler: async (req) => adminApi.update(req.auth, await req.json()) });
     // A turn this process no longer runs cannot be resumed: the core turn is gone with the process, and
     // replaying it would be a second model turn for one submitted message. Say so instead of leaving a
-    // visitor's widget waiting on a turn nobody will finish.
+    // visitor's widget waiting on a turn nobody will finish — and say it in the durable log as well, so a
+    // widget that reconnects afterwards reads the same closing event a live stream would have sent.
     ctx.registerBootReconcile(() => {
-        const failed = store.failOrphanedTurns(now().toISOString(), 'server_restarted');
-        if (failed > 0)
-            warn(`chatbot: ${failed} interrupted turn(s) were closed as server_restarted`);
+        const closed = store.closeOrphanedTurns(now().toISOString(), 'server_restarted');
+        for (const turnId of closed)
+            broker.publish(turnId);
+        if (closed.length > 0)
+            warn(`chatbot: ${closed.length} interrupted turn(s) were closed as server_restarted`);
     });
     // An account that is deleted takes its chatbot's rows with it. Nothing else ever reaps them, and the
     // plugin may well be disabled when the deletion happens, which is why the boot reconcile above also

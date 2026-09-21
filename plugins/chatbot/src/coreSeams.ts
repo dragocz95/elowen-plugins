@@ -1,4 +1,4 @@
-import type { PluginContext, PluginHttpRequest, PluginHostStores, PluginUserView, SessionSource } from 'elowen/plugin-api';
+import type { PluginContext, PluginHttpRequest, PluginHttpResponse, PluginHostStores, PluginUserView, SessionSource } from 'elowen/plugin-api';
 
 /** The host contracts this plugin consumes that the published `elowen` package does not type yet.
  *
@@ -21,6 +21,37 @@ export interface ChatbotClientOrigin {
  *  `origin` is absent on daemons older than that seam, so every reader validates its shape instead of
  *  trusting the type (see `readRequestOrigin` in `./origin.js`). */
 export type ChatbotHookRequest = Omit<PluginHttpRequest, 'origin'> & { origin?: ChatbotClientOrigin };
+
+/** What this plugin answers a public hook with. The published contract may carry a stream body; the
+ *  restatement names that shape explicitly, so the streamed turn-events answer is typed instead of cast. */
+export type ChatbotPublicResponse = Omit<PluginHttpResponse, 'headers' | 'body'> & {
+  headers?: Record<string, string | string[]>;
+  body?: string | Uint8Array | ReadableStream<Uint8Array> | object;
+};
+
+/** A visitor turn's session source. `access.denyTools` is the core seam a relay caller uses to NARROW the
+ *  acting account's tool policy for one turn; the published package does not carry the field yet. */
+export type ChatbotSessionSource = SessionSource & {
+  access?: NonNullable<SessionSource['access']> & { denyTools?: string[] };
+};
+
+/** The ten memory tools core builds in `buildMemoryTools` (src/brain/tools/memoryTools.ts). A visitor turn
+ *  runs AS the chatbot account, so anything the agent remembers is filed under that one account and can
+ *  surface in another visitor's prompt. Core turns automatic memory off for a chatbot account; denying the
+ *  tools for every visitor turn is the per-turn half of the same rule, restated here because core publishes
+ *  no constant for the names. A rename in core is a name this list has to follow. */
+export const MEMORY_TOOL_NAMES = [
+  'MemorySearch',
+  'MemoryAdd',
+  'MemoryUpdate',
+  'MemoryMerge',
+  'MemoryDelete',
+  'MemoryListRecent',
+  'MemoryCategories',
+  'MemoryCategoryCreate',
+  'MemoryCategoryDelete',
+  'MemoryRecategorize',
+] as const;
 
 /** The subset of a live host-relay event this plugin reads. Core sends its full event union; a plugin
  *  that serves an unauthenticated client keeps its OWN allowlist and never forwards an event verbatim
@@ -65,7 +96,7 @@ export type ChatbotContext = Omit<PluginContext, 'host' | 'registerHttpRoute' | 
   host: Omit<PluginContext['host'], 'stores'> & { stores(): ChatbotStores };
   registerHttpRoute(route: {
     path: string;
-    handler(req: ChatbotHookRequest): Promise<{ status?: number; headers?: Record<string, string>; body?: object }>;
+    handler(req: ChatbotHookRequest): Promise<ChatbotPublicResponse>;
   }): void;
   registerPlatform(adapter: {
     name: string;

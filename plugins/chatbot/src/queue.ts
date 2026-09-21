@@ -1,5 +1,6 @@
 import type { ChatbotAdapter } from './adapter.js';
 import { relayEventFields, visitorSource } from './adapter.js';
+import type { TurnEventBroker } from './broker.js';
 import type { BotRow, TurnRow } from './db.js';
 import type { ChatbotStore } from './store.js';
 
@@ -15,6 +16,8 @@ export type PublicErrorCode = (typeof PUBLIC_ERROR_CODES)[number];
 export interface QueueDeps {
   store: ChatbotStore;
   adapter: ChatbotAdapter;
+  /** Told, never handed the event, AFTER the append committed: a subscriber reads the durable log itself. */
+  broker: TurnEventBroker;
   /** Injected so the durable log and the internal warning can be observed in a test without a daemon. */
   now: () => string;
   warn: (message: string) => void;
@@ -62,13 +65,17 @@ export class ChatbotTurnQueue {
     }
   }
 
-  private append(turnId: string, type: PublicEventType, data: Record<string, unknown>): void {
+  /** Write one public event and THEN announce it. The order is the invariant: a subscriber that wakes up
+   *  reads the log, so an event nobody can read must never be announced, and an event that was announced is
+   *  always already there for the client that reconnects later. */
+  private record(turnId: string, type: PublicEventType, data: Record<string, unknown>): void {
     this.deps.store.appendEvent(turnId, type, data, this.deps.now());
+    this.deps.broker.publish(turnId);
   }
 
   /** Fail a turn with one of the stable public codes and nothing else. */
   private fail(turnId: string, code: PublicErrorCode, sessionId: string | null): void {
-    this.append(turnId, 'error', { code });
+    this.record(turnId, 'error', { code });
     this.deps.store.finishTurn({ turnId, status: 'error', coreSessionId: sessionId, errorCode: code, now: this.deps.now() });
   }
 
@@ -91,7 +98,7 @@ export class ChatbotTurnQueue {
     }
 
     store.markTurnRunning(turnId, this.deps.now());
-    this.append(turnId, 'accepted', {});
+    this.record(turnId, 'accepted', {});
 
     const source = visitorSource({
       chatbotUserId: turn.chatbot_user_id,
@@ -113,7 +120,7 @@ export class ChatbotTurnQueue {
           // reasoning, tool activity, file references and internal error text, and none of that may cross
           // into a log an anonymous visitor reads.
           if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
-            this.append(turnId, 'text_delta', { text: fields.delta });
+            this.record(turnId, 'text_delta', { text: fields.delta });
           }
         },
       });
@@ -126,7 +133,7 @@ export class ChatbotTurnQueue {
         return;
       }
 
-      this.append(turnId, 'done', { text: reply });
+      this.record(turnId, 'done', { text: reply });
       store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
     } catch (error) {
       // The internal detail stays in the daemon log; the visitor gets a stable code.
