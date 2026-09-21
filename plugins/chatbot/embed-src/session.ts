@@ -20,8 +20,9 @@ import {
   VISITOR_AUTHORIZATION_SCHEME,
   WIDGET_MAX_ACTIONS_PER_TURN,
   type ActionOutcome,
+  type PageFailureDetail,
 } from '../src/publicContract.js';
-import { decideAction, type ActionTarget, type ApprovedAction } from '../src/actions.js';
+import { decideAction, type ActionRefusal, type ActionTarget, type ApprovedAction } from '../src/actions.js';
 import {
   actionDecisionBody,
   actionResultBody,
@@ -326,7 +327,7 @@ export class ChatSession {
     } catch {
       // The panel is the only thing that can report an action, so a panel that throws mid-action leaves one
       // honest option: say the action did not happen. Nothing here may swallow an action into silence.
-      await this.reportAction(turnId, String(data.actionId ?? ''), 'denied', 'widget_error');
+      await this.reportAction(turnId, String(data.actionId ?? ''), 'denied', 'widget_error' satisfies PageFailureDetail);
     }
   }
 
@@ -335,7 +336,7 @@ export class ChatSession {
     if (!frame) return;
     const snapshot = this.snapshots.get(turnId) ?? null;
     if (!snapshot || !this.deps.page.holds(frame.snapshotId) || snapshot.snapshotId !== frame.snapshotId) {
-      await this.reportAction(turnId, frame.actionId, 'denied', 'stale_snapshot');
+      await this.reportAction(turnId, frame.actionId, 'denied', 'stale_snapshot' satisfies ActionRefusal);
       this.deps.view.notice(this.strings.actionStale);
       return;
     }

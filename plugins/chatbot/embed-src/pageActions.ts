@@ -14,18 +14,21 @@
 
 import { clickElement, inputTextElement, scrollIntoViewIfNeeded, scrollVertically, selectOptionElement } from '@page-agent/page-controller';
 import type { ApprovedAction } from '../src/actions.js';
+import type { PageFailureDetail } from '../src/publicContract.js';
 import type { PageTargetHandle } from './pageSnapshot.js';
 
-/** What a browser applied. `detail` is a stable code, or the value a `read` asked for. */
+/** What a browser applied. `detail` is a stable code the plugin knows, or the value a `read` asked for. */
 export interface ActionReport {
   outcome: 'done' | 'error';
   detail?: string;
 }
 
-export const TARGET_GONE = 'target_gone';
-export const FORM_INVALID = 'form_invalid';
-const NO_FORM = 'no_form';
-const ACTION_FAILED = 'action_failed';
+/** Typed as the shared codes rather than as plain strings: the plugin reads a failure code as its own word
+ *  for what happened, so a code it does not know is one it must never be sent. */
+export const TARGET_GONE: PageFailureDetail = 'target_gone';
+export const FORM_INVALID: PageFailureDetail = 'form_invalid';
+const NO_FORM: PageFailureDetail = 'no_form';
+const ACTION_FAILED: PageFailureDetail = 'action_failed';
 
 /** The kinds this module performs directly. Submitting is not one of them: it is reached only through the
  *  visitor's own confirmation, so it lives in `submitForm` and is never part of a plain action. */

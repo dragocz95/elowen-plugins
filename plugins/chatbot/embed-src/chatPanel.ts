@@ -279,8 +279,15 @@ export class ChatPanel implements ChatView {
 
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
 
+  /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
+   *  server's projection, or one a site sends with `window.ElowenChatbot`.
+   *
+   *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
+   *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
+   *  words asked of the model again, on every reload — and a message shown on the visitor's behalf would
+   *  loop straight back into this widget. `addMessage` only draws it. */
   appendVisitor(text: string): void {
-    this.chat.submitUserMessage({ text });
+    this.chat.addMessage({ role: 'user', text });
   }
 
   beginAnswer(): void {
@@ -331,10 +338,10 @@ export class ChatPanel implements ChatView {
   }
 
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
-   *  else takes. */
+   *  else takes — which draws each one and asks the server for nothing. */
   restore(messages: { role: 'user' | 'ai'; text: string }[]): void {
     for (const message of messages) {
-      if (message.role === 'user') this.chat.submitUserMessage({ text: message.text });
+      if (message.role === 'user') this.appendVisitor(message.text);
       else this.chat.addMessage({ role: 'ai', text: message.text });
     }
   }
