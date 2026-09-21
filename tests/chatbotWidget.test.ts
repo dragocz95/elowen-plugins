@@ -20,6 +20,7 @@ import {
 import { capturePageSnapshot, isSensitiveField, wouldSubmit } from '../plugins/chatbot/embed-src/pageSnapshot.js';
 import { ChatSession, type ChatView, type PageBridge } from '../plugins/chatbot/embed-src/session.js';
 import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel.js';
+import { APPEARANCE_PRESETS, DEFAULT_APPEARANCE, presetAppearance, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
 import { widgetStrings } from '../plugins/chatbot/embed-src/strings.js';
 
 /** The widget's own half of the protocol, and the two things it promises a customer's page: that a
@@ -30,6 +31,10 @@ import { widgetStrings } from '../plugins/chatbot/embed-src/strings.js';
 vi.mock('deep-chat', () => {
   class StubChat extends HTMLElement {
     history: unknown[] = [];
+    /** The real element calls this once its first render is done, which is what makes it able to take
+     *  messages. The stub renders the moment it reaches the document, so that is when it calls back. */
+    onComponentRender?: (ref: unknown) => void;
+    connectedCallback(): void { this.onComponentRender?.(this); }
     getMessages(): { role?: string; text?: string }[] { return this._messages; }
     addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
@@ -750,7 +755,7 @@ describe('the confirmation a visitor answers', () => {
   function panel(): { panel: ChatPanel; confirmButton: HTMLButtonElement; cancelButton: HTMLButtonElement } {
     const instance = new ChatPanel({
       strings,
-      botName: 'Městský úřad',
+      look: { name: 'Městský úřad', appearance: DEFAULT_APPEARANCE },
       onVisitorMessage: () => undefined,
       onStop: () => undefined,
     });
@@ -807,6 +812,53 @@ describe('the confirmation a visitor answers', () => {
     void instance.confirm({ title: 'Odeslat?' });
     expect(instance.isOpen()).toBe(true);
     expect(instance.host.shadowRoot!.querySelector('.confirm-title')!.textContent).toBe('Odeslat?');
+    instance.destroy();
+  });
+});
+
+describe('the look a panel is given', () => {
+  const panelWith = (look: ChatbotLook): ChatPanel => {
+    const instance = new ChatPanel({ strings, look, onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(instance.host);
+    return instance;
+  };
+  /** The message element as the panel configured it: what the visitor ends up looking at. */
+  const chatOf = (instance: ChatPanel) => instance.host.shadowRoot!.querySelector('deep-chat') as unknown as {
+    chatStyle: { backgroundColor: string };
+    introMessage: { html: string };
+    names: { ai: { text: string } };
+    getMessages(): { role?: string; text?: string }[];
+  };
+  const look = (appearance = DEFAULT_APPEARANCE): ChatbotLook => ({ name: 'Městský úřad', appearance });
+
+  it('reconfigures an empty message element in place, so a look that arrives while the visitor is typing keeps their draft', () => {
+    const instance = panelWith(look());
+    const before = chatOf(instance);
+
+    // A first visit applies the look one round trip after the panel was opened, which is exactly when the
+    // visitor may already be typing. Replacing the element there would throw their half-written message away,
+    // so an empty element is reconfigured instead — and it still takes the new look.
+    instance.applyAppearance({ name: 'Podatelna', appearance: presetAppearance('light') });
+
+    const after = chatOf(instance);
+    expect(after).toBe(before);
+    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_PRESETS.light.panel);
+    expect(after.names.ai.text).toBe('Podatelna');
+    expect(instance.host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
+    instance.destroy();
+  });
+
+  it('replaces the element and carries the conversation once there is one to lose', () => {
+    const instance = panelWith(look());
+    instance.finishAnswer('Hotovo');
+    const before = chatOf(instance);
+    expect(before.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
+
+    instance.applyAppearance({ name: 'Městský úřad', appearance: presetAppearance('light') });
+    const after = chatOf(instance);
+    expect(after).not.toBe(before);
+    expect(after.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
+    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_PRESETS.light.panel);
     instance.destroy();
   });
 });

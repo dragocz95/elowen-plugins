@@ -29,7 +29,12 @@
 //   6. an action asked while the widget was disconnected is picked up from the turn's own log once it
 //      reconnects, and answered;
 //   7. a reload restores the transcript from the visitor's own conversation, with the page state stripped;
-//   8. no console error, and no request anywhere except the customer's origin and the hook's.
+//   8. no console error, and no request anywhere except the customer's origin and the hook's;
+//   9. the look an administrator saves reaches the panel: a page whose panel nobody opened sends nothing, and
+//      once it IS opened the panel paints the saved colour, corners, size, corner of the page, greeting and
+//      quick buttons at both a phone and a desktop width — and a press on a quick button is sent as the
+//      visitor's own message;
+//  10. an appearance its own row can no longer produce is refused, and the widget keeps its own panel.
 //
 // Run with: node tests/e2e/chatbot/run.mjs  (npm run test:e2e:chatbot)
 // Throwaway servers only: ephemeral loopback ports, an in-memory database, no production service or port.
@@ -46,6 +51,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { ChatbotAdapter } from '../../../plugins/chatbot/dist/adapter.js';
 import { PageActionService } from '../../../plugins/chatbot/dist/actionService.js';
+import { createAdminApi } from '../../../plugins/chatbot/dist/adminApi.js';
 import { registerPageActionTool } from '../../../plugins/chatbot/dist/actionsTool.js';
 import { TurnEventBroker } from '../../../plugins/chatbot/dist/broker.js';
 import { migrate } from '../../../plugins/chatbot/dist/db.js';
@@ -69,6 +75,24 @@ const ANSWER = ANSWER_PARTS.join('');
 const FILLED_EMAIL = 'jan.novak@example.cz';
 const SECRET_PASSWORD = 'TajneHeslo123';
 const SECRET_CARD = '4111111111111111';
+/** The look an administrator configures in the last chapters, and the name they save with it. */
+const CONFIGURED_NAME = 'Městský úřad Kolín';
+const QUICK_TEXT = 'Chci vyplnit formulář';
+const QUICK_ANSWER = 'Rozumím, projdeme to spolu.';
+const LOOK = {
+  schemaVersion: 1,
+  mode: 'light',
+  position: 'top-left',
+  width: 420,
+  height: 560,
+  radius: 4,
+  colors: { panel: '#101820', visitorBubble: '#ffd166', botBubble: '#ffffff', sendButton: '#0b6e4f' },
+  intro: 'Dobrý den, pomohu vám s formulářem.',
+  // An embedded image, deliberately: an avatar URL would be a request to a host the customer's page never
+  // agreed to talk to, and this scenario refuses every request that leaves the page and the hook.
+  avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="%230b6e4f"/></svg>',
+  quickButtons: [QUICK_TEXT, 'Kde je podatelna?'],
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -97,6 +121,11 @@ const hook = {
   cutNextStream: false,
   /** Ends the stream that is open right now, as a lost connection would. Set while one is being piped. */
   cutOpenStream: null,
+  /** How long the read that carries the look is held back. A real deployment answers it in a round trip, and
+   *  a visitor reaches the panel and starts typing well inside that window: the delay makes that race the
+   *  normal case here instead of a coin toss, because what the panel does with their half-written message
+   *  when the look lands is the whole of the first flow. */
+  slowAppearanceMs: 400,
   /** What happened, in the order it happened: the ordering of a cut against an action is the whole point of
    *  the last flow, and two booleans cannot express it. */
   sequence: [],
@@ -223,6 +252,7 @@ async function hookHandler(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const origin = request.headers.origin;
   hook.requests.push({ method: request.method, path: url.pathname + url.search, origin });
+  if (hook.slowAppearanceMs > 0 && url.pathname.endsWith('/appearance')) await sleep(hook.slowAppearanceMs);
 
   // The daemon answers a preflight with its permissive CORS middleware before any plugin handler runs. This
   // stand-in does the same, and nothing more: what ADMITS a request is the plugin's own decision.
@@ -271,10 +301,18 @@ function readRawPageState(message) {
   return JSON.parse(message.slice(message.indexOf(PAGE_STATE_LABEL) + PAGE_STATE_LABEL.length));
 }
 
-/** The model of this scenario: an answer that streams, and the page actions a real one would ask for. */
+/** The model of this scenario: an answer that streams, and the page actions a real one would ask for.
+ *
+ *  A message a visitor sent by pressing one of the panel's own quick buttons is answered plainly: the
+ *  page-action flow below is scripted once, and a suggestion is a message like any other as far as the
+ *  plugin is concerned, so it must reach the model through exactly the same turn path. */
 async function modelTurn({ src, observer }) {
   currentVisitorId = src.userId;
   const turn = store.runningTurnOf(CHATBOT_ACCOUNT, src.userId);
+  if (turn.message.includes(QUICK_TEXT)) {
+    observer?.onEvent({ type: 'text', delta: QUICK_ANSWER });
+    return QUICK_ANSWER;
+  }
   const asSeenByTheModel = readRawPageState(turn.message);
   // …and the same message as the PLUGIN reads it, because that is what every action below is decided
   // against. The two must agree on the snapshot and on the targets, or nothing else here means anything.
@@ -303,6 +341,11 @@ async function modelTurn({ src, observer }) {
   const ask = (input) => registeredTool.execute(`call-${hook.actions.length + 1}`, { snapshotId: page.value.snapshotId, ...input });
   const record = async (what, input) => {
     const answer = await ask(input);
+    // An action that answered without an outcome is a refusal this scenario cannot read as a decision: it is
+    // reported with what the tool said, rather than crashing on the shape it did not have.
+    if (answer?.details === null || answer?.details === undefined) {
+      throw new Error(`the ${what} action answered without an outcome: ${JSON.stringify(answer?.content?.[0]?.text ?? answer)}`);
+    }
     hook.actions.push({ what, status: answer.details.status, targetId: answer.details.targetId, text: answer.content[0].text });
     return answer;
   };
@@ -568,8 +611,11 @@ try {
   const clicked = await poll('the click to be answered', () => actionOf('click'));
   assert(clicked.status === 'done', `the click failed: ${JSON.stringify(clicked)}`);
   await poll('the agent to scroll the page', async () => page.evaluate(() => window.scrollY > 0));
-  assert(actionOf('scroll').status === 'done', `the scroll failed: ${JSON.stringify(actionOf('scroll'))}`);
-  assert(actionOf('scroll').targetId === null, `a page scroll carried a target: ${JSON.stringify(actionOf('scroll'))}`);
+  // The page scrolls as part of PERFORMING the action, so the report can land after the page moved: the
+  // assertion waits for the answer rather than assuming it is already here.
+  const scrolled = await poll('the scroll to be answered', () => actionOf('scroll'));
+  assert(scrolled.status === 'done', `the scroll failed: ${JSON.stringify(scrolled)}`);
+  assert(scrolled.targetId === null, `a page scroll carried a target: ${JSON.stringify(scrolled)}`);
   pass('read, fill, select, a real click and a target-less scroll all happened on the page, each reported done');
 
   // ── flow 5: a submit needs the visitor, and a click can never be one ──────────────────────────────────
@@ -706,6 +752,179 @@ try {
     assert(geometry.scrollWidth <= geometry.viewport.width, `the widget widened the page at ${width}px: ${geometry.scrollWidth} > ${geometry.viewport.width}`);
     pass(`the launcher and the panel fit inside a ${width}x${height} viewport without widening the page`);
   }
+
+  // ── the look an administrator saves, as the customer's visitors receive it ─────────────────────────────
+  //
+  // The save goes through the SAME handler the appearance editor's PUT reaches, over the real store and the
+  // real contract, so this is the customer-facing half of a real save rather than a row poked into the
+  // database. The panel is then looked at in a real browser, because what it PAINTS is the only thing that
+  // proves the look arrived — and because a panel that paints is what an administrator's preview promises.
+  const admin = createAdminApi({ store, stores, publicBaseUrl: () => hookOrigin, now });
+  const saved = await admin.updateAppearance(
+    { userId: 1, admin: true, tokenScope: 'user', accessibleProjects: null },
+    {
+      chatbotUserId: CHATBOT_ACCOUNT,
+      expectedUpdatedAt: store.botByUserId(CHATBOT_ACCOUNT).updated_at,
+      displayName: CONFIGURED_NAME,
+      appearance: LOOK,
+    },
+  );
+  assert(saved.status === 200, `the appearance save was refused: ${JSON.stringify(saved)}`);
+  pass('an administrator\'s save of the look and the chatbot\'s name is accepted by the real route');
+
+  /** One load of the customer's page by a visitor who has never been here: no stored conversation, so the
+   *  panel opens on its greeting. Landing first and clearing afterwards matters: a viewport change can make
+   *  the browser load the page again by itself, and a load that happens while the old token is still in
+   *  storage is a RETURNING visit — the widget would read the conversation before this chapter starts
+   *  looking. The reload below is the load under observation, and what the run has seen of requests is
+   *  cleared immediately before it. */
+  const freshVisit = async (width, height, mobile) => {
+    await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile });
+    await page.goto(FORM_URL, { waitUntil: 'load' });
+    await page.evaluate(() => window.sessionStorage.clear());
+    hook.requests.length = 0;
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
+  };
+
+  const openPanel = async () => {
+    const opener = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher'));
+    await opener.asElement().click();
+  };
+
+  /** What the panel is showing, read out of the real shadow roots after the library has drawn it. */
+  const panelLook = () => page.evaluate(() => {
+    const root = document.querySelector('[data-elowen-chatbot]').shadowRoot;
+    const panel = root.querySelector('.panel');
+    const box = panel.getBoundingClientRect();
+    const style = getComputedStyle(panel);
+    const chat = root.querySelector('deep-chat');
+    const chatRoot = chat.shadowRoot;
+    const bubble = (role) => {
+      const element = chatRoot.querySelector(`.message-bubble.${role}-message`);
+      return element === null ? null : getComputedStyle(element).backgroundColor;
+    };
+    return {
+      open: panel.hidden === false,
+      title: root.querySelector('.title').textContent,
+      background: style.backgroundColor,
+      radius: style.borderRadius,
+      box: { left: Math.round(box.left), top: Math.round(box.top), width: Math.round(box.width), height: Math.round(box.height) },
+      intro: chatRoot.textContent,
+      quick: [...chatRoot.querySelectorAll('.cb-quick-item')].map((button) => button.textContent),
+      aiBubble: bubble('ai'),
+      userBubble: bubble('user'),
+      messages: chat.getMessages().map((message) => ({ role: message.role, text: message.text })),
+    };
+  });
+  const drawnWithTheLook = async () => {
+    const state = await panelLook();
+    return state.open && state.title === CONFIGURED_NAME ? state : null;
+  };
+
+  const launcherColour = () => page.evaluate(() => {
+    const root = document.querySelector('[data-elowen-chatbot]').shadowRoot;
+    return getComputedStyle(root.querySelector('.launcher')).backgroundColor;
+  });
+  const lookReads = () => hook.requests.filter((entry) => entry.path.endsWith('/appearance'));
+
+  // A page whose panel nobody has opened costs exactly one request — the script — and the look is asked for
+  // when the visitor OPENS the panel, which is the click that lets the widget speak at all. A visitor nobody
+  // has seen yet is drawn in the widget's own colour until that answer lands, and repainted with theirs when
+  // it does.
+  await freshVisit(320, 844, true);
+  const untouched = hook.requests.filter((entry) => entry.path !== WIDGET_PATH);
+  assert(untouched.length === 0, `an untouched panel already asked the hook for something: ${JSON.stringify(untouched)}`);
+  assert(await launcherColour() === 'rgb(255, 82, 54)', `a launcher nobody has configured yet was painted ${await launcherColour()}`);
+  await openPanel();
+  await poll('the widget to read the configured look', () => lookReads().length === 1);
+  assert(lookReads().length === 1, `the look was read more than once for one open: ${JSON.stringify(hook.requests)}`);
+
+  const mobile = await poll('the panel to be drawn with the configured look', drawnWithTheLook);
+  assert(await launcherColour() === 'rgb(11, 110, 79)', `the launcher was not repainted in the configured colour: ${await launcherColour()}`);
+  assert(mobile.background === 'rgb(16, 24, 32)', `the panel was not painted the configured colour: ${mobile.background}`);
+  assert(mobile.radius === '4px', `the panel corners were not the configured radius: ${mobile.radius}`);
+  // The configured size, clamped to the room a 320px viewport leaves: 320 - 40 across, 844 - 140 down.
+  assert(mobile.box.width === 280 && mobile.box.height === 560, `the panel is not the configured size clamped to this viewport: ${JSON.stringify(mobile.box)}`);
+  assert(mobile.box.left === 20 && mobile.box.top === 20, `the panel is not in the configured top-left corner: ${JSON.stringify(mobile.box)}`);
+  assert(mobile.intro.includes(LOOK.intro), `the greeting was not the configured one: ${JSON.stringify(mobile.intro.slice(0, 120))}`);
+  assert(mobile.quick.join('|') === LOOK.quickButtons.join('|'), `the quick buttons were not the configured ones: ${JSON.stringify(mobile.quick)}`);
+  pass('a 320x844 visit paints the saved look: colour, corners, clamped size, top-left corner, greeting and quick buttons');
+
+  // A quick button is the visitor's own message: a real click on it, and the plugin records the turn with
+  // exactly the button's text as what the visitor said.
+  const quickButton = await page.evaluateHandle((text) => {
+    const chatRoot = document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot;
+    return [...chatRoot.querySelectorAll('.cb-quick-item')].find((button) => button.textContent === text) ?? null;
+  }, QUICK_TEXT);
+  await quickButton.asElement().click();
+  const quickTurn = await poll('the quick button to become the visitor\'s own message', () => {
+    const newest = recordedTurn();
+    return newest !== null && newest.message.startsWith(`${VISITOR_MESSAGE_LABEL}${QUICK_TEXT}`) ? newest : null;
+  });
+  assert(quickTurn !== null, 'the quick button sent nothing');
+  const answered = await poll('the answer to the quick button', async () => {
+    const state = await panelLook();
+    return state.messages.some((message) => message.role === 'ai' && message.text === QUICK_ANSWER) ? state : null;
+  });
+  assert(answered.messages[0]?.role === 'user' && answered.messages[0].text === QUICK_TEXT, `the panel did not show the visitor's own words first: ${JSON.stringify(answered.messages)}`);
+  assert(answered.userBubble === 'rgb(255, 209, 102)', `the visitor's bubble is not the configured colour: ${answered.userBubble}`);
+  assert(answered.aiBubble === 'rgb(255, 255, 255)', `the chatbot's bubble is not the configured colour: ${answered.aiBubble}`);
+  pass('a press on a quick button is sent as the visitor\'s own message, and both bubbles are the configured colours');
+
+  // The mechanism the administrator's preview sizes the panel with: the panel clamps itself to the room it is
+  // TOLD it has, which is what lets a preview show a real panel at its real size inside a modal.
+  const staged = await page.evaluate(() => {
+    const host = document.querySelector('[data-elowen-chatbot]');
+    host.style.setProperty('--cb-avail-w', '300px');
+    host.style.setProperty('--cb-avail-h', '260px');
+    const box = host.shadowRoot.querySelector('.panel').getBoundingClientRect();
+    return { width: Math.round(box.width), height: Math.round(box.height) };
+  });
+  assert(staged.width === 300 && staged.height === 260, `the panel did not clamp itself to the room it was given: ${JSON.stringify(staged)}`);
+  pass('the panel clamps itself to the room it is given, which is how the administrator\'s preview sizes it');
+
+  // A visitor who has been here before: the widget reads the look BEFORE anything is opened, so the launcher
+  // is already theirs and the transcript comes back into a panel drawn with it.
+  await page.setViewport({ width: 1440, height: 900, isMobile: false, hasTouch: false });
+  hook.requests.length = 0;
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
+  await poll('a returning visit to read the look', () => lookReads().length >= 1);
+  assert(lookReads().length === 1, `a returning visit read the look ${lookReads().length} times`);
+  await poll('a returning visit to be drawn with the look before anything is opened', async () => await launcherColour() === 'rgb(11, 110, 79)');
+  assert(!(await panelLook()).open, 'the returning visit opened the panel on its own');
+  await openPanel();
+  const desktop = await poll('the transcript to come back into the configured panel', async () => {
+    const state = await panelLook();
+    return state.messages.length >= 2 ? state : null;
+  });
+  assert(desktop.box.width === 420 && desktop.box.height === 560, `the panel is not its configured size on a desktop viewport: ${JSON.stringify(desktop.box)}`);
+  assert(desktop.box.left === 20 && desktop.box.top === 20, `the panel is not anchored in the configured corner: ${JSON.stringify(desktop.box)}`);
+  assert(desktop.background === 'rgb(16, 24, 32)', `the restored panel was not painted the configured colour: ${desktop.background}`);
+  assert(desktop.messages.some((message) => message.text === QUICK_TEXT), `the returning visit lost the visitor's own message: ${JSON.stringify(desktop.messages)}`);
+  pass('a returning visitor at 1440x900 gets the look before the panel is opened, at its configured 420x560, with the transcript restored into it');
+
+  // A row this plugin wrote and can no longer read is a REFUSAL, not a guess: the visitor keeps the widget's
+  // own panel rather than being shown a look nobody chose.
+  // A refused read is a resource the browser reports as failed, and every deployment's console will say so.
+  // This chapter states exactly that — the one error it adds is the refusal itself — and hands the error
+  // list back the way it found it, so the gate below still means "nothing else went wrong".
+  const errorsBefore = consoleErrors.length;
+  db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?').run('{"schemaVersion":9}', CHATBOT_ACCOUNT);
+  await freshVisit(1440, 900, false);
+  await openPanel();
+  await poll('the refusal of a look its own row could not produce', () => hook.warnings.some((warning) => warning.includes('unreadable appearance')));
+  const fallback = await poll('the panel to open with the look its own row could not produce', async () => {
+    const state = await panelLook();
+    return state.open ? state : null;
+  });
+  assert(fallback.background !== 'rgb(16, 24, 32)', `a look the server refused was painted anyway: ${fallback.background}`);
+  assert(fallback.title !== CONFIGURED_NAME, `a name from a look the server refused was painted: ${fallback.title}`);
+  const added = consoleErrors.slice(errorsBefore);
+  assert(added.length === 1 && added[0].includes('503'), `the refusal put something other than itself in the console: ${JSON.stringify(added)}`);
+  consoleErrors.length = errorsBefore;
+  pass('an appearance its own row can no longer produce is refused, and the widget keeps its own panel');
 
   // ── the gates ─────────────────────────────────────────────────────────────────────────────────────────
   assert(consoleErrors.length === 0, `the page logged console errors: ${JSON.stringify(consoleErrors)}`);
