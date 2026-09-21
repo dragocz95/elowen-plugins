@@ -1,5 +1,15 @@
 # Changelog
 
+## chatbot 0.1.0 - 2026-09-21
+
+- Visitor chatbots for third-party websites. A chatbot is a non-interactive Elowen account of kind `chatbot` bound to exactly one managed Project; a visitor reaches it through one script tag on the customer's own website. Every admitted message starts a real Elowen turn owned by that account through the host relay, and the plugin never calls a model itself. The panel renders inside a shadow root so the customer's styles cannot break it, sends a bounded description of the page when the visitor writes, streams the answer with a cursor a dropped connection can resume from, and can act on the page by filling, selecting, clicking and scrolling. Submitting a form is never done for the visitor: it always asks, and only a real click on the confirmation sends it.
+- A chatbot answers only under the numbers its owner set for it, because the plugin ships no defaults of its own: rate limits per visitor address, per chatbot and per conversation, a daily ceiling on turns and on spend read from `usage_by_origin`, a queue with a concurrency limit and a wait timeout, a retention that deletes the visitor's transcript through the core, an allowlist of origins and path prefixes, and a ceiling on page actions per turn. A chatbot without a complete set does not serve. Sensitive mode is refused until a privacy policy is resolved for it, so it cannot be switched on by accident.
+- Its administration surface lists chatbots with their person, Project, prompt, allowed origins and action rules, opens the conversations of one chatbot with the transcript, and shows statistics with spend per origin.
+
+## cronjob 0.6.10 - 2026-09-21
+
+- A scheduled run now starts through the host relay instead of the listen handler captured at startup. That is the only entry carrying host-relay provenance, so a job's own room is filed under the account that scheduled it rather than under whoever runs the instance, and the host re-resolves the owner's policy, Project and tool authority on every call, so a scheduled run can never hold more rights than the person who scheduled it. Instance jobs are untouched: they still run with host powers and no account.
+
 ## onedrive 0.3.0 - 2026-09-19
 
 - The OneDrive mirror no longer deletes a file from your OneDrive when a gitignore check inside a Project never reached a verdict. If the environment is stopped mid-cycle or the Git command is interrupted, the mirror now stops the cycle and reports an error instead of reading a vanished file as deleted. Its execution path also moves to the plugin API 2 managed session.
