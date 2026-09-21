@@ -1,6 +1,7 @@
 import type { PluginDb, SessionSource } from 'elowen/plugin-api';
 import { pluginDbFor } from './pluginDb.js';
 import { ChatbotAdapter } from '../../plugins/chatbot/src/adapter.js';
+import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
 import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
 import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
@@ -50,12 +51,17 @@ export interface ChatbotHost {
   adapter: ChatbotAdapter;
   queue: ChatbotTurnQueue;
   broker: TurnEventBroker;
+  /** The page-action half: the same service the tool asks and the public route reports to. */
+  actions: PageActionService;
   stores: ChatbotStores;
   handler: ReturnType<typeof createPublicRoute>;
   calls: RelayCall[];
   warnings: string[];
   /** The turn behaviour. A test that needs a LIVE turn replaces it and drives the observer by hand. */
   handleTurn: (input: TurnInput) => Promise<string | undefined>;
+  /** Move the one clock this host reads. A rule about TIME — an action's own expiry, a token's lifetime — is
+   *  exercised by moving the instant, never by sleeping through it. */
+  setNow: (ms: number) => void;
 }
 
 /** The answer the default turn behaviour resolves with. */
@@ -74,8 +80,9 @@ export function scriptedTurn(reply: string | undefined): (input: TurnInput) => P
   };
 }
 
-/** The fixed clock every fixture shares, so a token's `iat` and a stored timestamp are comparable. */
-const NOW_MS = 1_800_000_000_000;
+/** The instant every fixture starts at, so a token's `iat` and a stored timestamp are comparable. Exported
+ *  because a test that moves the clock has to say where it moved it FROM. */
+export const NOW_MS = 1_800_000_000_000;
 const NOW_ISO = new Date(NOW_MS).toISOString();
 
 let hostCount = 0;
@@ -86,6 +93,10 @@ export function createChatbotHost(options: {
   accounts?: ChatbotAccountView[];
   projects?: ChatbotProjectView[];
   pingIntervalMs?: number;
+  actionTimeoutMs?: number;
+  /** The core's own answer to "may this account use this plugin right now" — the grant an administrator
+   *  hands out. True by default, because a chatbot without it answers questions and can do nothing else. */
+  mayUsePlugin?: (userId: number) => boolean;
 } = {}): ChatbotHost {
   hostCount += 1;
   // One in-memory database per host, addressed the way the loader addresses it: the helper returns the
@@ -102,7 +113,7 @@ export function createChatbotHost(options: {
       list: () => accounts,
       isAdmin: (id: number) => accounts.find((account) => account.id === id)?.isAdmin === true,
       allowedExecs: () => [],
-      mayUsePlugin: () => true,
+      mayUsePlugin: (id: number) => options.mayUsePlugin?.(id) ?? true,
     },
     projects: { get: (id: number) => projects.find((project) => project.id === id) ?? null, list: () => projects },
     userProjects: { canAccess: () => true, canManage: () => true },
@@ -114,7 +125,10 @@ export function createChatbotHost(options: {
   const adapter = new ChatbotAdapter(warn);
   adapter.listen(async () => undefined);
   const broker = new TurnEventBroker(warn);
-  const now = (): Date => new Date(NOW_MS);
+  // One movable instant for every part of this host: the store, the queue, the action service and the token
+  // issuer all read the same clock, so a test moves time for all of them at once.
+  let clockMs = NOW_MS;
+  const now = (): Date => new Date(clockMs);
 
   const host: ChatbotHost = {
     db,
@@ -126,7 +140,9 @@ export function createChatbotHost(options: {
     warnings,
     handleTurn: scriptedTurn(SCRIPTED_REPLY),
     queue: undefined as unknown as ChatbotTurnQueue,
+    actions: undefined as unknown as PageActionService,
     handler: undefined as unknown as ReturnType<typeof createPublicRoute>,
+    setNow: (ms: number) => { clockMs = ms; },
   };
   adapter.control({
     relay: (src, text, observer) => {
@@ -136,12 +152,23 @@ export function createChatbotHost(options: {
   });
 
   host.queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+  // The action wait is short here on purpose: what a suite is checking is which state answers a waiting
+  // tool, not how long a visitor takes to click.
+  host.actions = new PageActionService({
+    store,
+    broker,
+    now,
+    info: (message) => { warnings.push(message); },
+    warn,
+    timeoutMs: options.actionTimeoutMs ?? 120,
+  });
   const deps: PublicRouteDeps = {
     store,
     queue: host.queue,
     adapter,
     stores,
     broker,
+    actions: host.actions,
     pingIntervalMs: options.pingIntervalMs ?? STREAM_PING_INTERVAL_MS,
     secret: () => CHATBOT_SECRET,
     tokenTtlSeconds: () => 30 * 86_400,

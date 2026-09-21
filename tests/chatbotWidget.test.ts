@@ -572,6 +572,38 @@ describe('acting on the page', () => {
     expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'done' });
   });
 
+  it('scrolls the page when the server approved a scroll with no target at all', async () => {
+    // A page-scroll names no element, and the absence has to survive the policy: an EMPTY id would be a
+    // target that resolves to nothing, which the page half reports as an element that vanished from a page
+    // nothing touched. This is the seam where the two spellings meet.
+    const view = makeView();
+    const page = makePage();
+    const targets: (string | null)[] = [];
+    const bridge: PageBridge = {
+      ...page.bridge,
+      perform: (_snapshotId, action) => {
+        targets.push(action.targetId);
+        return Promise.resolve({ outcome: 'done' as const });
+      },
+    };
+    const harness = makeSession({
+      view,
+      page: Object.assign(page, { bridge }),
+      responses: ({ method, url }) => {
+        if (method === 'POST' && url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+        if (method === 'POST' && url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T1' });
+        return new Response(streamOf([actionFrame({ kind: 'scroll', targetId: null, value: 'down', requiresConfirmation: false }), frame('done', { text: 'Hotovo' }, 10)]), { status: 200 });
+      },
+    });
+
+    await harness.session.send('posuňte prosím na konec');
+    await flush();
+
+    expect(targets).toEqual([null]);
+    const report = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
+    expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'done' });
+  });
+
   it('refuses a click on a submit button, reports the refusal, and does not click at all', async () => {
     const view = makeView();
     const harness = withAction(actionFrame({ kind: 'click', targetId: 'e1', requiresConfirmation: false }), view);
