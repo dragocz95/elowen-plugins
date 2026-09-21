@@ -5,7 +5,7 @@ import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
 import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
 import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
-import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
+import { ChatbotStore, type ActionRuleInput } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
 import type { LimitValues } from '../../plugins/chatbot/src/limits.js';
@@ -174,6 +174,8 @@ export function createChatbotHost(options: {
     actions: undefined as unknown as PageActionService,
     handler: undefined as unknown as ReturnType<typeof createPublicRoute>,
     setNow: (ms: number) => { clockMs = ms; },
+    // `updateBot` writes a bot's WHOLE editable state, so this helper hands back the policy the bot already
+    // carries rather than an empty one: a suite that moves a number must not silently clear its rules.
     setLimits: (chatbotUserId: number, limits: Partial<LimitValues>) => store.updateBot({
       chatbotUserId,
       expectedUpdatedAt: store.botByUserId(chatbotUserId)!.updated_at,
@@ -181,6 +183,7 @@ export function createChatbotHost(options: {
       prompt: store.botByUserId(chatbotUserId)!.prompt,
       origins: store.originsOf(chatbotUserId),
       limits: { ...TEST_LIMITS, ...limits },
+      actionRules: store.actionRuleInputsOf(chatbotUserId),
       now: now().toISOString(),
     }),
     queueDeadlines: new Map(),
@@ -282,6 +285,7 @@ export function registerBot(host: ChatbotHost, input: {
   status?: 'draft' | 'enabled';
   origins?: string[];
   limits?: Partial<LimitValues>;
+  actionRules?: ActionRuleInput[];
 } = {}): void {
   const row = host.store.createBot({
     chatbotUserId: input.chatbotUserId ?? 12,
@@ -290,6 +294,7 @@ export function registerBot(host: ChatbotHost, input: {
     prompt: 'Pomáhej s formuláři.',
     origins: input.origins ?? [CHATBOT_SITE],
     limits: input.limits ?? TEST_LIMITS,
+    actionRules: input.actionRules ?? [],
     now: NOW_ISO,
   });
   if ((input.status ?? 'enabled') === 'enabled') host.store.setBotStatus({ chatbotUserId: row.chatbot_user_id, status: 'enabled', now: row.updated_at });

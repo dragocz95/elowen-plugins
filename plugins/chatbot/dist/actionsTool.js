@@ -18,6 +18,10 @@ import { inspectAccount } from './preflight.js';
  *  therefore thrown, so the model, the transcript and the trace all see that this call did not happen. */
 class ToolError extends Error {
 }
+/** The name this tool is registered under, and therefore the core grant a chatbot ACCOUNT needs for its
+ *  turns to reach a page. Declared once: the registration below uses this constant and the administrator's
+ *  API reports it, so the admin page never restates a name this plugin could rename. */
+export const PAGE_ACTION_TOOL_NAME = 'ChatbotPageAction';
 const text = (body, details = {}) => ({ content: [{ type: 'text', text: body }], details });
 export function registerPageActionTool(deps) {
     const { ctx, store, service } = deps;
@@ -50,7 +54,7 @@ export function registerPageActionTool(deps) {
         return { turn, chatbotUserId, sessionId: ctx.currentSessionId() };
     };
     ctx.registerTool(defineTool({
-        name: 'ChatbotPageAction',
+        name: PAGE_ACTION_TOOL_NAME,
         label: 'Act on the visitor\'s page',
         description: [
             'Do one thing on the web page the visitor is looking at, in the visitor\'s own browser, and wait for the result.',

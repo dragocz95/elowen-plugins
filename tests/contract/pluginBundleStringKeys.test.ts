@@ -55,6 +55,21 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'limit_maxActionsPerTurn', 'limit_retentionDays',
     ],
   },
+  // A turn's own state is read as `s[`turnStatus_${status}`]`. The statuses are the plugin's own turn table
+  // (`plugins/chatbot/src/db.ts` constrains the column to exactly these four), so the list is the whole set.
+  {
+    file: 'chatbot/web-src/ConversationsView.tsx',
+    keys: ['turnStatus_queued', 'turnStatus_running', 'turnStatus_done', 'turnStatus_error'],
+  },
+  // The rule editor labels an action as `s[`action_${kind}`]`. The kinds are `ACTION_KINDS` in
+  // `plugins/chatbot/src/publicContract.ts`, the one list the server, the widget and this editor act on.
+  {
+    file: 'chatbot/web-src/SecuritySettings.tsx',
+    keys: [
+      'action_read', 'action_focus', 'action_click', 'action_fill',
+      'action_select', 'action_scroll', 'action_request_submit',
+    ],
+  },
   {
     file: 'cronjob/web-src/fields.tsx',
     keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],

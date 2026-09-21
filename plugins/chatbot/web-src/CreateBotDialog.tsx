@@ -1,13 +1,15 @@
 import { useState, type ChangeEvent } from 'react';
-import { runtime, apiJson, jsonRequest, type ChatbotAccountOption, type ChatbotBotView, type ChatbotProjectOption } from './runtime';
+import { runtime, apiJson, chatbotApi, jsonRequest } from './runtime';
+import type { ChatbotAccountOptionView, ChatbotBotView, ChatbotProjectView } from './types';
 
-/** Creating a chatbot spans three owners: core creates the ACCOUNT, core records the Project assignment, and
- *  this plugin registers its own row. Nothing coordinates them, so the dialog runs the three calls in order
- *  and, when one fails, keeps the account id it already created and says which step to retry — an account
- *  that exists with no chatbot row is a state an administrator can finish, and it must not be hidden behind
- *  a generic failure or "solved" by deleting an account over an unclear network error. */
+/** Creating a chatbot spans four owners: core creates the ACCOUNT, core records the Project assignment,
+ *  core holds the account's grants, and this plugin registers its own row. Nothing coordinates them, so the
+ *  dialog runs the four calls in order and, when one fails, keeps the account id it already created and
+ *  says which step to retry — an account that exists with no chatbot row is a state an administrator can
+ *  finish, and it must not be hidden behind a generic failure or "solved" by deleting an account over an
+ *  unclear network error. */
 
-type Step = 'account' | 'project' | 'register';
+type Step = 'account' | 'project' | 'grants' | 'register';
 
 interface Failure {
   step: Step;
@@ -15,12 +17,25 @@ interface Failure {
   chatbotUserId: number | null;
 }
 
-// Which step the next attempt resumes from: the failed one, with everything before it already done.
-const NEXT_STEP: Record<Step, Step> = { account: 'account', project: 'project', register: 'register' };
+/** Which step the next attempt resumes from: the failed one, with everything before it already done. */
+const NEXT_STEP: Record<Step, Step> = { account: 'account', project: 'project', grants: 'grants', register: 'register' };
 
-export function CreateBotDialog({ projects, candidates, onClose, onCreated }: {
-  projects: ChatbotProjectOption[];
-  candidates: ChatbotAccountOption[];
+/** The account row as core's own list answers it, narrowed to the two grants this dialog adds to. */
+interface AccountRow {
+  id: number;
+  granted_plugins?: string[];
+  allowed_tools?: string[];
+}
+
+export function CreateBotDialog({ plugin, requiredTools, projects, candidates, onClose, onCreated }: {
+  /** The name of THIS plugin. The host passes it to every plugin page, so the grant written below is the
+   *  one for the plugin that is asking rather than a name restated in this bundle. */
+  plugin: string;
+  /** The core tools a chatbot account needs before its turns may act on a visitor's page, as the plugin's
+   *  own admin route reports them. */
+  requiredTools: string[];
+  projects: ChatbotProjectView[];
+  candidates: ChatbotAccountOptionView[];
   onClose(): void;
   onCreated(bot: ChatbotBotView): void;
 }) {
@@ -34,8 +49,28 @@ export function CreateBotDialog({ projects, candidates, onClose, onCreated }: {
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
 
-  const stepLabel: Record<Step, string> = { account: s.stepAccount, project: s.stepProject, register: s.stepRegister };
+  const stepLabel: Record<Step, string> = { account: s.stepAccount, project: s.stepProject, grants: s.stepGrants, register: s.stepRegister };
   const ready = projectId !== '' && (mode === 'existing' ? accountId !== '' : username.trim() !== '');
+
+  /** Add THIS plugin and the tools its turns need to whatever the account already has.
+   *
+   *  The account's current grants are read first and merged into, because the patch replaces each list
+   *  wholesale: a chatbot created from an account that already reaches other plugins must not silently lose
+   *  them. A grant for this plugin is what lets its tool reach the account at all, and the tool is what lets
+   *  a turn touch a page — a chatbot without them answers visitors and can do nothing else. */
+  const grant = async (chatbotUserId: number): Promise<void> => {
+    const users = await apiJson<AccountRow[]>('/users');
+    const account = users.find((candidate) => candidate.id === chatbotUserId);
+    if (!account) throw new Error('account_unknown');
+    const plugins = new Set(account.granted_plugins ?? []);
+    plugins.add(plugin);
+    const tools = new Set(account.allowed_tools ?? []);
+    for (const tool of requiredTools) tools.add(tool);
+    await apiJson(`/users/${chatbotUserId}`, jsonRequest('PATCH', {
+      granted_plugins: [...plugins],
+      allowed_tools: [...tools],
+    }));
+  };
 
   const submit = async () => {
     setPending(true);
@@ -63,7 +98,7 @@ export function CreateBotDialog({ projects, candidates, onClose, onCreated }: {
     if (step === 'project') {
       try {
         await apiJson(`/users/${chatbotUserId}/projects`, jsonRequest('POST', { projectId: Number(projectId) }));
-        step = 'register';
+        step = 'grants';
       } catch (error) {
         setFailure({ step: 'project', detail: utils.apiErrorMessage(error), chatbotUserId });
         setPending(false);
@@ -71,8 +106,19 @@ export function CreateBotDialog({ projects, candidates, onClose, onCreated }: {
       }
     }
 
+    if (step === 'grants') {
+      try {
+        await grant(chatbotUserId!);
+        step = 'register';
+      } catch (error) {
+        setFailure({ step: 'grants', detail: utils.apiErrorMessage(error), chatbotUserId });
+        setPending(false);
+        return;
+      }
+    }
+
     try {
-      const answer = await apiJson<{ bot: ChatbotBotView }>('/plugins/chatbot/api/bots', jsonRequest('POST', {
+      const answer = await apiJson<{ bot: ChatbotBotView }>(chatbotApi.bots(), jsonRequest('POST', {
         chatbotUserId,
         displayName: displayName.trim(),
       }));

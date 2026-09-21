@@ -100,6 +100,13 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'bots', method: 'GET', access: 'admin', handler: async (req) => adminApi.list(req.auth) });
     ctx.registerApiRoute({ path: 'bots', method: 'POST', access: 'admin', handler: async (req) => adminApi.create(req.auth, await req.json()) });
     ctx.registerApiRoute({ path: 'bots', method: 'PATCH', access: 'admin', handler: async (req) => adminApi.update(req.auth, await req.json()) });
+    // What an administrator reads after registering a chatbot: one page of its conversations, one
+    // conversation's own words and answers, and the plugin's own counters over a window of days. All three
+    // name the chatbot they are about and re-check it, so no route here can answer for a chatbot the caller
+    // did not name.
+    ctx.registerApiRoute({ path: 'conversations', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversations(req.auth, req.query) });
+    ctx.registerApiRoute({ path: 'conversation', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversation(req.auth, req.query) });
+    ctx.registerApiRoute({ path: 'stats', method: 'GET', access: 'admin', handler: async (req) => adminApi.stats(req.auth, req.query) });
     /** Turn off every ENABLED chatbot that could no longer run a turn: its account is gone, is not a chatbot
      *  account, is an administrator, or it no longer has exactly one usable managed Project.
      *

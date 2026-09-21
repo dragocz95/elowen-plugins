@@ -161,6 +161,9 @@ const bot = store.createBot({
   // A chatbot serves under numbers its owner decided; the plugin has none of its own, and it refuses to serve
   // without them. The scenario writes a complete set, exactly as an administrator would have.
   limits: SCENARIO_LIMITS,
+  // No action rules: what this scenario drives is the plugin's own per-turn ceiling, and a chatbot with no
+  // rule is governed by exactly that ceiling.
+  actionRules: [],
   now: now().toISOString(),
 });
 adapter.listen(async () => undefined);
@@ -469,6 +472,7 @@ store.updateBot({
   prompt: 'Pomáhej návštěvníkům s formulářem.',
   origins: [siteOrigin],
   limits: SCENARIO_LIMITS,
+  actionRules: [],
   now: now().toISOString(),
 });
 store.setBotStatus({ chatbotUserId: CHATBOT_ACCOUNT, status: 'enabled', now: now().toISOString() });

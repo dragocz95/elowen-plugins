@@ -1,57 +1,50 @@
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
-import type { LimitField, LimitValues } from '../src/limits';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
  *  reaches into the host application, so `react` here is a TYPE only. */
 
-interface ChatbotAccountView {
-  username: string;
-  type: 'human' | 'chatbot' | null;
-  isAdmin: boolean;
+/** One row of the instance's origin-attributed spend, as the host's admin usage route answers it. This is
+ *  core's `usage_by_origin` rollup, the ONLY source of origin-attributed spend in this codebase: the
+ *  chatbot page reads the chatbot ACCOUNT's own row for a window and never counts tokens or cost by
+ *  scanning messages. `cost` null means no turn in the bucket reported a price — "unknown", never zero.
+ *  Private to this file: it is the shape of one row of {@link UsageByOriginAnswer}. */
+interface UsageOriginRow {
+  userId: number | null;
+  username: string | null;
+  origin: string | null;
+  originKind: 'ip' | 'local' | 'internal' | 'platform' | 'redacted' | null;
+  trusted: boolean;
+  origins: number;
+  turns: number;
+  tokens: number;
+  cost: number | null;
+  costedTurns: number;
+  firstAt: number;
+  lastAt: number;
 }
 
-export interface ChatbotBotView {
-  chatbotUserId: number;
-  publicId: string;
-  displayName: string;
-  prompt: string;
-  status: 'draft' | 'enabled' | 'disabled';
-  origins: string[];
-  embedSnippet: string | null;
-  updatedAt: string;
-  account: ChatbotAccountView | null;
-  projects: { id: number; slug: string }[];
-  /** The same account invariants the plugin's server enforces, reported so an administrator sees WHY a
-   *  chatbot cannot run instead of a chatbot that silently answers nobody. */
-  blockers: string[];
-  insecureOrigins: string[];
-  /** Every limit as stored, with an unset one as null. The form writes the whole set back on every save. */
-  limits: LimitValues;
-  /** The mandatory numbers still unset. Non-empty means this chatbot cannot be enabled yet. */
-  missingLimits: LimitField[];
-  /** Whether the sensitive-data mode has been asked for. Asking is all this version stores; it refuses the
-   *  request itself, and the page says so rather than offering a switch that cannot work. */
-  sensitiveMode: boolean;
+/** `GET /usage/by-origin`. `trackingSince` is the first day the rollup holds: everything spent before it
+ *  has no recorded origin and never will, so a view that starts at deployment must say so. Private to this
+ *  file: it is the return shape this runtime declares for `useUsageByOrigin`. */
+interface UsageByOriginAnswer {
+  rows: UsageOriginRow[];
+  group: 'user' | 'origin' | 'pair';
+  trackingSince: string | null;
 }
 
-export interface ChatbotAccountOption {
-  id: number;
-  username: string;
-  type: 'human' | 'chatbot' | null;
-}
-
-export interface ChatbotProjectOption {
-  id: number;
-  slug: string;
-}
-
-export interface ChatbotsResponse {
-  bots: ChatbotBotView[];
-  candidates: ChatbotAccountOption[];
-  projects: ChatbotProjectOption[];
+/** One tool of an account, as the host's own users panel derives it: what the account can actually reach
+ *  right now, which plugin owns it, and whether an administrator may change it at all. */
+export interface AccountToolRow {
+  name: string;
+  label: string;
+  icon: string | null;
+  plugin: string | null;
+  group: string;
+  state: 'allowed' | 'inherited' | 'unavailable' | 'disabled';
+  toggleable: boolean;
 }
 
 type PageFilterField =
@@ -61,7 +54,17 @@ type PageFilterField =
 interface ChatbotHooks {
   /** This plugin's own page copy: its manifest's English fallback, with the active locale's overrides. */
   usePluginStrings(plugin: string): Record<string, string>;
+  /** The app's own locale and dictionary. Only `locale` is read here: every number, price and timestamp on
+   *  this surface is formatted in the reader's own locale rather than in a fixed one. */
+  useTranslation(): { locale: string };
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
+  /** ADMIN-ONLY on the server: a non-admin caller is refused by design. `enabled` only keeps a request
+   *  that is meant to fail from being fired; it is not the access control. */
+  useUsageByOrigin(
+    group?: 'user' | 'origin' | 'pair',
+    window?: { fromMs: number; toMs: number },
+    opts?: { enabled?: boolean; limit?: number },
+  ): { data?: UsageByOriginAnswer; isLoading: boolean; isError: boolean };
 }
 
 type AnyComponent = ComponentType<any>;
@@ -70,14 +73,15 @@ type AnyComponent = ComponentType<any>;
  *  the host's published set below, so a rename in core fails THIS build instead of reaching React as
  *  `undefined` on somebody's screen. */
 interface ChatbotComponents {
-  Badge: AnyComponent;
+  Badge: ComponentType<{ tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning'; children?: ReactNode }>;
   Button: ComponentType<{
     variant?: 'default' | 'accent' | 'ghost' | 'danger' | 'ghost-danger' | 'outline' | 'outline-danger';
     size?: string;
     icon?: LucideIcon;
+    disabled?: boolean;
     className?: string;
     children?: ReactNode;
-  } & ComponentProps<'button'>>;
+  } & Omit<ComponentProps<'button'>, 'children'>>;
   ConfirmDialog: AnyComponent;
   ControlSurfaceDocument: ComponentType<{ children?: ReactNode; className?: string }>;
   ControlSurfaceRegister: ComponentType<{ children?: ReactNode; className?: string }>;
@@ -100,7 +104,10 @@ interface ChatbotComponents {
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   Field: ComponentType<{ label: string; htmlFor?: string; hint?: string; description?: string; error?: string; required?: boolean; children?: ReactNode }>;
+  /** Long-form guidance for one heading, kept behind the host's own help affordance. */
+  HelpTip: ComponentType<{ align?: 'left' | 'right'; children?: ReactNode }>;
   Input: ComponentType<ComponentProps<'input'>>;
+  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
   LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
   Modal: ComponentType<{
     title: string;
@@ -115,6 +122,19 @@ interface ChatbotComponents {
   }>;
   ModalBody: ComponentType<{ children?: ReactNode; className?: string }>;
   ModalFooter: ComponentType<{ children?: ReactNode; className?: string }>;
+  /** The one pager of the app: it derives the page count and the range text itself, so this bundle ships
+   *  none of that copy. */
+  Pager: ComponentType<{
+    /** Zero-based. */
+    page: number;
+    pageSize: number;
+    total: number;
+    onPageChange(page: number): void;
+    onPageSizeChange?(pageSize: number): void;
+    pageSizeOptions?: readonly number[];
+    ariaLabel?: string;
+    className?: string;
+  }>;
   RegisterSearch: ComponentType<{
     value: string;
     onChange(value: string): void;
@@ -126,6 +146,31 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
+  /** A records card: an accent-marked heading above a body of rows. The admin sections below are exactly
+   *  that shape, which is why they are not rebuilt out of raw markup. */
+  SettingsGroup: ComponentType<{
+    title?: string;
+    description?: string;
+    icon?: LucideIcon;
+    actions?: ReactNode;
+    tone?: 'default' | 'danger';
+    density?: 'comfortable' | 'compact';
+    columns?: 1 | 2;
+    children?: ReactNode;
+    className?: string;
+  }>;
+  SettingsRow: ComponentType<{
+    label: string;
+    description?: string;
+    hint?: string;
+    icon?: LucideIcon;
+    control?: ReactNode;
+    status?: ReactNode;
+    actions?: ReactNode;
+    trailingLayout?: 'inline' | 'stack';
+    children?: ReactNode;
+    className?: string;
+  }>;
   SelectMenu: ComponentType<{
     value: string;
     onChange(value: string): void;
@@ -135,6 +180,16 @@ interface ChatbotComponents {
     disabled?: boolean;
     className?: string;
   }>;
+  /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the app and
+   *  loads lazily there, so this bundle never carries a charting library. */
+  TimeSeriesChart: ComponentType<{
+    data: { label: string; [key: string]: string | number | null }[];
+    series: { key: string; label: string; colour: string; variant?: 'bar' | 'line'; axis?: 'left' | 'right'; format: (value: number) => string }[];
+    height?: number;
+    emptyText?: string;
+    ariaLabel?: string;
+  }>;
+  Toggle: ComponentType<{ checked: boolean; onChange(checked: boolean): void; label?: string; disabled?: boolean }>;
   WorkspaceMetric: ComponentType<{ label: string; value: ReactNode; icon?: LucideIcon }>;
   WorkspaceShell: ComponentType<{
     variant?: 'register' | 'deck' | 'single';
@@ -155,6 +210,7 @@ export interface ChatbotRuntime {
   hooks: ChatbotHooks;
   utils: { apiErrorMessage(error: unknown): string };
   api(path: string, init?: RequestInit): Promise<unknown>;
+  navigate(href: string): void;
 }
 
 type PluginPage = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
@@ -186,3 +242,18 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 export function jsonRequest(method: 'POST' | 'PATCH', body: unknown): RequestInit {
   return { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }
+
+/** The admin routes this bundle calls, built in ONE place. A query string a view spells for itself is a
+ *  second definition of what the route accepts, and the server validates these names strictly. */
+export const chatbotApi = {
+  bots: (): string => '/plugins/chatbot/api/bots',
+  conversations: (input: { chatbotUserId: number; limit: number; offset: number }): string =>
+    `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
+  conversation: (input: { chatbotUserId: number; visitorId: string }): string =>
+    `/plugins/chatbot/api/conversation?chatbotUserId=${input.chatbotUserId}&visitorId=${encodeURIComponent(input.visitorId)}`,
+  stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
+    `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
+  /** The account's effective tool access, read from the host's own users panel route: the plugin reports
+   *  what the account can reach rather than keeping an opinion of its own about it. */
+  accountTools: (userId: number): string => `/users/${userId}/tools`,
+} as const;

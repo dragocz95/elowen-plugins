@@ -1,11 +1,18 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
-import { Check, ClipboardCopy, Plus, Power, Save, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
+import { Check, ClipboardCopy, ExternalLink, ListChecks, Plus, Power, Save, Trash2 } from 'lucide-react';
 import { LIMIT_FIELDS, MANDATORY_LIMITS, isUsableLimit, specOf, type LimitField, type LimitValues } from '../src/limits';
-import { apiJson, jsonRequest, runtime, type ChatbotBotView } from './runtime';
+import { apiJson, chatbotApi, jsonRequest, runtime, type AccountToolRow } from './runtime';
+import { formatDateTime } from './format';
+import { SecuritySettings, actionRuleKey } from './SecuritySettings';
+import type { ChatbotActionRuleView, ChatbotBotView } from './types';
 
 /** One chatbot's configuration. Every field here is saved as a whole, on an explicit click: the row's
  *  `updatedAt` is the concurrency token, so a debounced autosave would race another administrator's edit
- *  for no benefit, and `Enable` must never be the side effect of a keystroke. */
+ *  for no benefit, and `Enable` must never be the side effect of a keystroke.
+ *
+ *  The grants below are the exception to "everything is configured here": a core account's tool access is
+ *  edited on the Users screen, which owns the rule for it. This surface REPORTS what the account can reach
+ *  and hands the administrator over, rather than keeping a second implementation of a permission rule. */
 
 /** What the limit inputs hold: the text a person typed, one entry per limit, empty meaning "not set". */
 export type LimitDraft = Record<LimitField, string>;
@@ -71,28 +78,87 @@ export function originHint(value: string, existing: string[]): string | null {
   return null;
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
 export function statusText(bot: ChatbotBotView, s: Record<string, string>): string {
   if (bot.blockers.length > 0) return s.statusAttention;
   return bot.status === 'enabled' ? s.statusEnabled : bot.status === 'disabled' ? s.statusDisabled : s.statusDraft;
 }
 
-export function BotDetail({ bot, onChanged, unknownError }: {
+/** The account's tool access, as the host's own users panel derives it: which tools this chatbot can
+ *  actually reach right now, and which of the ones its turns NEED are missing. A chatbot whose relay runs
+ *  is not the same thing as a chatbot that can act on a page, and the difference is entirely this list. */
+function AccountTools({ bot, requiredTools }: { bot: ChatbotBotView; requiredTools: string[] }) {
+  const { components: C, hooks, utils, navigate } = runtime();
+  const s = hooks.usePluginStrings('chatbot');
+  const [tools, setTools] = useState<AccountToolRow[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoadError(null);
+    void apiJson<AccountToolRow[]>(chatbotApi.accountTools(bot.chatbotUserId))
+      .then(setTools)
+      .catch((error) => setLoadError(utils.apiErrorMessage(error) || s.toolsLoadError));
+  }, [bot.chatbotUserId, s.toolsLoadError, utils]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const reachable = (state: string): boolean => state === 'allowed' || state === 'inherited';
+  const usable = (tools ?? []).filter((tool) => reachable(tool.state));
+  const missing = requiredTools.filter((name) => {
+    const tool = (tools ?? []).find((candidate) => candidate.name === name);
+    return tool === undefined || !reachable(tool.state);
+  });
+
+  return (
+    <C.SettingsGroup
+      title={s.toolsTitle}
+      description={s.toolsHint}
+      icon={ListChecks}
+      actions={<C.Button variant="ghost" icon={ExternalLink} onClick={() => navigate('/users')}>{s.toolsManage}</C.Button>}
+    >
+      {loadError !== null ? <C.ErrorState message={`${s.toolsLoadError} — ${loadError}`} onRetry={load} />
+        : tools === null ? <C.LoadingLine layout="block" />
+          : tools.length === 0 ? <C.EmptyState title={s.toolsEmptyTitle} description={s.toolsEmptyDescription} icon={ListChecks} />
+            : (
+              <>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {s.toolsCount.replace('{n}', String(usable.length)).replace('{total}', String(tools.length))}
+                </p>
+                {tools.map((tool) => (
+                  <C.SettingsRow
+                    key={tool.name}
+                    label={tool.name}
+                    description={tool.plugin ?? s[`toolGroup_${tool.group}`] ?? tool.group}
+                    status={(
+                      <C.Badge tone={reachable(tool.state) ? 'success' : tool.state === 'unavailable' ? 'muted' : 'warning'}>
+                        {s[`toolState_${tool.state}`] ?? tool.state}
+                      </C.Badge>
+                    )}
+                  />
+                ))}
+              </>
+            )}
+      {missing.length === 0 ? null : (
+        <p className="mt-3 text-xs text-destructive">{s.toolsMissing.replace('{names}', missing.join(', '))}</p>
+      )}
+    </C.SettingsGroup>
+  );
+}
+
+export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
   bot: ChatbotBotView;
+  requiredTools: string[];
   onChanged(bot: ChatbotBotView): void;
   unknownError: string;
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
+  const { locale } = hooks.useTranslation();
   const { toast } = hooks.useToast();
   const [displayName, setDisplayName] = useState(bot.displayName);
   const [prompt, setPrompt] = useState(bot.prompt);
   const [origins, setOrigins] = useState<string[]>(bot.origins);
   const [limits, setLimits] = useState<LimitDraft>(() => limitDraftOf(bot.limits));
+  const [rules, setRules] = useState<ChatbotActionRuleView[]>(bot.actionRules);
   const [draftOrigin, setDraftOrigin] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +170,7 @@ export function BotDetail({ bot, onChanged, unknownError }: {
     setPrompt(bot.prompt);
     setOrigins(bot.origins);
     setLimits(limitDraftOf(bot.limits));
+    setRules(bot.actionRules);
     setDraftOrigin('');
     setError(null);
     setConfirming(null);
@@ -119,11 +186,14 @@ export function BotDetail({ bot, onChanged, unknownError }: {
     setPrompt(bot.prompt);
     setOrigins(bot.origins);
     setLimits(limitDraftOf(bot.limits));
-  }, [bot.updatedAt, bot.displayName, bot.prompt, bot.origins, bot.limits]);
+    setRules(bot.actionRules);
+  }, [bot.updatedAt, bot.displayName, bot.prompt, bot.origins, bot.limits, bot.actionRules]);
 
   const read = readLimitDraft(limits);
+  const rulesEqual = rules.map(actionRuleKey).join('\n') === bot.actionRules.map(actionRuleKey).join('\n');
   const dirty = displayName !== bot.displayName || prompt !== bot.prompt || origins.join('\n') !== bot.origins.join('\n')
-    || LIMIT_FIELDS.some((field) => limits[field] !== (bot.limits[field] === null ? '' : String(bot.limits[field])));
+    || LIMIT_FIELDS.some((field) => limits[field] !== (bot.limits[field] === null ? '' : String(bot.limits[field])))
+    || !rulesEqual;
   const hint = originHint(draftOrigin, origins);
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
   // A chatbot whose numbers are not all decided yet cannot be enabled, and the form says which ones are
@@ -139,13 +209,14 @@ export function BotDetail({ bot, onChanged, unknownError }: {
     setPending(true);
     setError(null);
     try {
-      const answer = await apiJson<{ bot: ChatbotBotView }>('/plugins/chatbot/api/bots', jsonRequest('PATCH', {
+      const answer = await apiJson<{ bot: ChatbotBotView }>(chatbotApi.bots(), jsonRequest('PATCH', {
         chatbotUserId: bot.chatbotUserId,
         expectedUpdatedAt: bot.updatedAt,
         displayName,
         prompt,
         origins,
         limits: read.limits,
+        actionRules: rules,
         ...(action === null ? {} : { action }),
       }));
       onChanged(answer.bot);
@@ -191,40 +262,32 @@ export function BotDetail({ bot, onChanged, unknownError }: {
         </div>
       </div>
 
-      <dl className="grid gap-x-6 gap-y-3 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-2">
-        <div className="min-w-0">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.detailAccount}</dt>
-          <dd className="mt-1 truncate text-foreground">{bot.account === null ? '—' : `@${bot.account.username}`}</dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.detailProject}</dt>
-          <dd className="mt-1 truncate text-foreground">{bot.projects.length === 1 ? bot.projects[0]!.slug : '—'}</dd>
-        </div>
-        <div className="col-span-full">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.detailUpdated}</dt>
-          <dd className="mt-1 text-muted-foreground">{formatTimestamp(bot.updatedAt)}</dd>
-        </div>
-      </dl>
-
       {blockers.map((text) => (
         <p key={text} className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">{text}</p>
       ))}
 
-      <C.Field label={s.promptLabel} hint={s.promptHint}>
-        <textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={5}
-          placeholder={s.promptPlaceholder}
-          className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
-        />
-      </C.Field>
+      <C.SettingsGroup title={s.detailFactsTitle} description={s.detailFactsHint} columns={1}>
+        <C.SettingsRow label={s.detailAccount} status={bot.account === null ? '—' : `@${bot.account.username}`} />
+        <C.SettingsRow label={s.detailProject} status={bot.projects.length === 1 ? bot.projects[0]!.slug : '—'} />
+        <C.SettingsRow label={s.detailPublicId} status={<span className="font-mono text-[11px]">{bot.publicId}</span>} />
+        <C.SettingsRow label={s.detailUpdated} status={formatDateTime(bot.updatedAt, locale)} />
+      </C.SettingsGroup>
 
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold text-foreground">{s.originsLabel}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.originsHint}</p>
-        {origins.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">{s.originsEmpty}</p> : (
-          <ul className="mt-3 flex flex-col gap-1">
+      <C.SettingsGroup title={s.promptLabel} description={s.promptHint}>
+        <C.Field label={s.promptLabel} hint={s.promptHint}>
+          <textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            rows={5}
+            placeholder={s.promptPlaceholder}
+            className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+          />
+        </C.Field>
+      </C.SettingsGroup>
+
+      <C.SettingsGroup title={s.originsLabel} description={s.originsHint}>
+        {origins.length === 0 ? <p className="text-xs text-muted-foreground">{s.originsEmpty}</p> : (
+          <ul className="flex flex-col gap-1">
             {origins.map((origin) => (
               <li key={origin} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-1.5">
                 <span className="break-all font-mono text-xs text-foreground">{origin}</span>
@@ -252,7 +315,11 @@ export function BotDetail({ bot, onChanged, unknownError }: {
         </div>
         {hint === 'invalid' ? <p className="mt-2 text-xs text-destructive">{s.originsInvalid}</p> : null}
         {hint === 'duplicate' ? <p className="mt-2 text-xs text-destructive">{s.originsDuplicate}</p> : null}
-      </div>
+      </C.SettingsGroup>
+
+      <SecuritySettings origins={origins} rules={rules} disabled={pending} onChange={setRules} />
+
+      <AccountTools bot={bot} requiredTools={requiredTools} />
 
       <div className="rounded-xl border border-border bg-card p-4">
         <p className="text-sm font-semibold text-foreground">{s.limitsTitle}</p>
@@ -287,12 +354,10 @@ export function BotDetail({ bot, onChanged, unknownError }: {
       </div>
 
       {snippet === null ? null : (
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-semibold text-foreground">{s.embedTitle}</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.embedHint}</p>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/40 p-3 font-mono text-[11px] text-foreground">{snippet}</pre>
+        <C.SettingsGroup title={s.embedTitle} description={s.embedHint}>
+          <pre className="overflow-x-auto rounded-lg bg-muted/40 p-3 font-mono text-[11px] text-foreground">{snippet}</pre>
           <C.Button className="mt-3" variant="ghost" icon={ClipboardCopy} onClick={() => void copySnippet()}>{s.embedCopy}</C.Button>
-        </div>
+        </C.SettingsGroup>
       )}
 
       <div className="flex flex-wrap items-center gap-3">
