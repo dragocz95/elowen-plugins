@@ -6,7 +6,6 @@
  *  `publicContract`. */
 export type {
   ChatbotActionRuleView,
-  ChatbotAccountFactsView,
   ChatbotAccountOptionView,
   ChatbotBotView,
   ChatbotConversationView,
@@ -16,5 +15,4 @@ export type {
   ChatbotStatsDayView,
   ChatbotsAnswer,
   ChatbotTranscriptAnswer,
-  ChatbotTranscriptTurnView,
 } from '../src/adminContract.js';

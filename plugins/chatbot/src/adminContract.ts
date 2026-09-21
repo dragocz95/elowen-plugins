@@ -17,8 +17,9 @@ export interface ChatbotActionRuleView {
 }
 
 /** The account a chatbot runs as, as the host reports it right now. A missing kind means a host whose user
- *  contract does not carry one, which is NOT the same as a chatbot. */
-export interface ChatbotAccountFactsView {
+ *  contract does not carry one, which is NOT the same as a chatbot. Private to this contract: it is the
+ *  shape of one field of {@link ChatbotBotView}, not a name a caller has any reason to hold. */
+interface ChatbotAccountFactsView {
   username: string;
   type: 'human' | 'chatbot' | null;
   isAdmin: boolean;
@@ -88,8 +89,8 @@ export interface ChatbotConversationsAnswer {
 
 /** One turn of a conversation, as an administrator may read it: the visitor's own words and the answer the
  *  plugin published to the widget. The model's tool calls and its reasoning are core transcript and are
- *  deliberately not part of this contract. */
-export interface ChatbotTranscriptTurnView {
+ *  deliberately not part of this contract. Private to it: one field of {@link ChatbotTranscriptAnswer}. */
+interface ChatbotTranscriptTurnView {
   turnId: string;
   visitorText: string;
   /** The whole answer, or null when the turn produced none (still running, or failed). */

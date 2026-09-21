@@ -392,7 +392,9 @@ describe('one chatbot\'s statistics', () => {
     expect(await screen.findByText(strings.spendTitle!)).toBeInTheDocument();
     expect(await screen.findByText('1,234')).toBeInTheDocument();
     expect(screen.getByText('$12.50')).toBeInTheDocument();
-    expect(screen.getByText(strings.spendTrackingSince!.replace('{day}', '2026-09-01'))).toBeInTheDocument();
+    // The rollup's own start day is stated, in the reader's locale rather than as a bare day key.
+    const trackingDay = new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date('2026-09-01T00:00:00.000Z'));
+    expect(screen.getByText(strings.spendTrackingSince!.replace('{day}', trackingDay))).toBeInTheDocument();
     // The spend read asks for the SAME window as the counters.
     const [from, to] = asked.usage[0]!.split('|');
     expect(from).toMatch(/^\d{4}-\d{2}-\d{2}T/);

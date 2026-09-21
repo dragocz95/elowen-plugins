@@ -300,6 +300,10 @@ var formatDateTime = (value, locale) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "\u2014" : new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(date);
 };
+var formatDay = (day, locale) => {
+  const date = /* @__PURE__ */ new Date(`${day}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+};
 var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
 var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
 var seconds = (value, locale) => value == null ? "\u2014" : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} s`;
@@ -1076,7 +1080,7 @@ function StatsView({ bot }) {
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.SettingsRow, { label: s.spendFirst, status: formatDateTime(new Date(spend.firstAt).toISOString(), locale) }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.SettingsRow, { label: s.spendLast, status: formatDateTime(new Date(spend.lastAt).toISOString(), locale) })
       ] }),
-      usage.data?.trackingSince == null ? null : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mt-3 text-xs text-muted-foreground", children: s.spendTrackingSince.replace("{day}", usage.data.trackingSince) })
+      usage.data?.trackingSince == null ? null : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mt-3 text-xs text-muted-foreground", children: s.spendTrackingSince.replace("{day}", formatDay(usage.data.trackingSince, locale)) })
     ] })
   ] });
 }

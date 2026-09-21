@@ -9,8 +9,9 @@ import type { AssertPublished } from 'elowen-plugin-ui-kit';
 /** One row of the instance's origin-attributed spend, as the host's admin usage route answers it. This is
  *  core's `usage_by_origin` rollup, the ONLY source of origin-attributed spend in this codebase: the
  *  chatbot page reads the chatbot ACCOUNT's own row for a window and never counts tokens or cost by
- *  scanning messages. `cost` null means no turn in the bucket reported a price — "unknown", never zero. */
-export interface UsageOriginRow {
+ *  scanning messages. `cost` null means no turn in the bucket reported a price — "unknown", never zero.
+ *  Private to this file: it is the shape of one row of {@link UsageByOriginAnswer}. */
+interface UsageOriginRow {
   userId: number | null;
   username: string | null;
   origin: string | null;
@@ -26,8 +27,9 @@ export interface UsageOriginRow {
 }
 
 /** `GET /usage/by-origin`. `trackingSince` is the first day the rollup holds: everything spent before it
- *  has no recorded origin and never will, so a view that starts at deployment must say so. */
-export interface UsageByOriginAnswer {
+ *  has no recorded origin and never will, so a view that starts at deployment must say so. Private to this
+ *  file: it is the return shape this runtime declares for `useUsageByOrigin`. */
+interface UsageByOriginAnswer {
   rows: UsageOriginRow[];
   group: 'user' | 'origin' | 'pair';
   trackingSince: string | null;

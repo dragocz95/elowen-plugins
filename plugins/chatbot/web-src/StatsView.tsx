@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, Coins, Gauge } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
-import { formatDateTime, integer, money, seconds } from './format';
+import { formatDateTime, formatDay, integer, money, seconds } from './format';
 import type { ChatbotBotView, ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
 /** What this chatbot actually did, over a window of days.
@@ -170,7 +170,7 @@ export function StatsView({ bot }: { bot: ChatbotBotView }) {
                 </>
               )}
         {usage.data?.trackingSince == null ? null : (
-          <p className="mt-3 text-xs text-muted-foreground">{s.spendTrackingSince.replace('{day}', usage.data.trackingSince)}</p>
+          <p className="mt-3 text-xs text-muted-foreground">{s.spendTrackingSince.replace('{day}', formatDay(usage.data.trackingSince, locale))}</p>
         )}
       </C.SettingsGroup>
     </div>
