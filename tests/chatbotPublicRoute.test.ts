@@ -10,6 +10,7 @@ import {
   publicRequest,
   registerBot,
   scriptedTurn,
+  TEST_LIMITS,
   settledTurn,
   type ChatbotHost,
 } from './helpers/chatbotHost.js';
@@ -154,7 +155,7 @@ describe('the visitor token is the only visitor authority', () => {
     // A second chatbot is registered, and a token is forged for it that reuses the FIRST chatbot's token
     // row and visitor. Re-signing with the plugin's own key is the strongest form of this attack a caller
     // could mount, so the database binding — not the signature — is what has to refuse it.
-    current.store.createBot({ chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}`, displayName: 'Škola', prompt: '', origins: [SITE], now: new Date().toISOString() });
+    current.store.createBot({ chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}`, displayName: 'Škola', prompt: '', origins: [SITE], limits: TEST_LIMITS, now: new Date().toISOString() });
     current.store.setBotStatus({ chatbotUserId: 13, status: 'enabled', now: new Date().toISOString() });
     const forged = mintVisitorToken(CHATBOT_SECRET, {
       v: 1,
@@ -231,7 +232,7 @@ describe('the message path', () => {
         { id: 13, username: 'skola-bot', name: 'Škola', avatar: '', isAdmin: false, type: 'chatbot' },
       ],
     });
-    second.store.createBot({ chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}`, displayName: 'Škola', prompt: '', origins: [SITE], now: new Date().toISOString() });
+    second.store.createBot({ chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}`, displayName: 'Škola', prompt: '', origins: [SITE], limits: TEST_LIMITS, now: new Date().toISOString() });
     second.store.setBotStatus({ chatbotUserId: 13, status: 'enabled', now: new Date().toISOString() });
     await second.adapter.connect();
 

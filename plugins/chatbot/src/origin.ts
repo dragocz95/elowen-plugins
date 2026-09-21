@@ -79,12 +79,16 @@ export function checkAllowedOrigin(headerOrigin: string | undefined, allowed: re
 
 /** The response headers an allowed cross-origin call needs. The daemon's global permissive CORS is NOT
  *  the authorization here: this endpoint decides by the `Origin` header and the visitor token, and a
- *  caller outside the allowlist is refused before any of these headers is produced. */
+ *  caller outside the allowlist is refused before any of these headers is produced.
+ *
+ *  Both methods the widget uses are granted. A preflight is a question about a method, and a grant that named
+ *  only `POST` would have the browser refuse the widget's own conversation read and its event stream before
+ *  this plugin ever saw them. */
 export function corsHeaders(origin: string): Record<string, string> {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-headers': 'authorization, content-type',
-    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-max-age': '600',
     vary: 'Origin',
   };

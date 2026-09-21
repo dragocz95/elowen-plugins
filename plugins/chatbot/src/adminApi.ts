@@ -4,6 +4,7 @@ import type { ChatbotStore } from './store.js';
 import { newPublicId } from './token.js';
 import { inspectAccount, type ChatbotBlocker } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
+import { LIMIT_FIELDS, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
 import { validateBotCreate, validateBotPatch } from './validation.js';
 import type { ChatbotStores } from './coreSeams.js';
 
@@ -40,6 +41,14 @@ interface BotView {
   projects: { id: number; slug: string }[];
   blockers: ChatbotBlocker[];
   insecureOrigins: string[];
+  /** Every limit as stored, with an unset one as null. The form writes them all back on every save. */
+  limits: LimitValues;
+  /** The mandatory ones still missing. Non-empty means this chatbot cannot be enabled yet, and the page says
+   *  which numbers are missing rather than offering a button the server would refuse. */
+  missingLimits: MandatoryLimitField[];
+  /** Whether the sensitive-data mode has been ASKED for. Asking is all that is stored: this version refuses
+   *  the request itself until the model location and the retention policy are decided. */
+  sensitiveMode: boolean;
 }
 
 const embedSnippetFor = (baseUrl: string | null, publicId: string): string | null =>
@@ -68,13 +77,40 @@ export function createAdminApi(deps: AdminApiDeps) {
       projects: facts.projects.map((project) => ({ id: project.id, slug: project.slug })),
       blockers,
       insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
+      limits: storedLimits(row),
+      missingLimits: missingLimits(row),
+      sensitiveMode: row.sensitive_mode === 1,
     };
+  };
+
+  /** Fold one write's limits over the row they are replacing.
+   *
+   *  One rule for every field: a field the payload carries is written, including a carried null (which says
+   *  "this number is not decided"), and a field it does not carry keeps what the row has. The enable gate
+   *  below then judges the folded result, so what an administrator is told and what a visitor would get are
+   *  the same set of numbers. */
+  const mergeLimits = (row: BotRow, patch: Partial<LimitValues>): LimitValues => {
+    const stored = storedLimits(row);
+    const merged = {} as LimitValues;
+    for (const field of LIMIT_FIELDS) {
+      merged[field] = field in patch ? patch[field]! : stored[field];
+    }
+    return merged;
   };
 
   /** Admin-only, and re-checked here rather than only by the manifest's `web.adminOnly`: the browser page
    *  is a convenience, the route is the boundary. */
   const requireAdmin = (auth: PluginApiAuth): Reply | null =>
     auth.admin ? null : { status: 403, body: { error: 'forbidden' } };
+
+  /** The only answer the sensitive-data mode gets from this version.
+   *
+   *  Where such a visitor's words are processed and how long they are kept are decisions this plugin does not
+   *  own: the model's location, the contractual terms and the exact retention for identity numbers and
+   *  addresses are still open. Until an owner decides them, the mode is a REQUEST that is stored as nothing
+   *  and answered with this. This is deliberately not a step an implementer may relax, and nothing here may
+   *  choose a provider or call the plugin compliant. */
+  const privacyUnresolved = (): Reply => ({ status: 409, body: { error: 'privacy_policy_unresolved' } });
 
   return {
     async list(auth: PluginApiAuth): Promise<Reply> {
@@ -100,12 +136,16 @@ export function createAdminApi(deps: AdminApiDeps) {
     },
 
     /** Register a draft for an existing chatbot account. `enabled` is never part of creation: a chatbot
-     *  reaches the public hook through an explicit, preflighted enable. */
+     *  reaches the public hook through an explicit, preflighted enable. The limits a draft carries are
+     *  whatever the administrator has already decided; the rest stay unset. */
     async create(auth: PluginApiAuth, body: unknown): Promise<Reply> {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
       const parsed = validateBotCreate(body);
       if (!parsed.ok) return { status: 400, body: { error: 'invalid_request', detail: parsed.error } };
+      // Asking for the sensitive-data mode is answered before anything is written: the mode is a request this
+      // version cannot grant, and a draft that recorded it as granted would be a lie in the database.
+      if (parsed.value.sensitiveMode) return privacyUnresolved();
       if (store.botByUserId(parsed.value.chatbotUserId)) {
         return { status: 409, body: { error: 'already_registered' } };
       }
@@ -123,6 +163,7 @@ export function createAdminApi(deps: AdminApiDeps) {
         displayName: parsed.value.displayName,
         prompt: parsed.value.prompt,
         origins: parsed.value.origins,
+        limits: parsed.value.limits,
         now: now().toISOString(),
       });
       return { status: 200, body: { bot: viewOf(row) } };
@@ -135,9 +176,19 @@ export function createAdminApi(deps: AdminApiDeps) {
       if (refusal) return refusal;
       const parsed = validateBotPatch(body);
       if (!parsed.ok) return { status: 400, body: { error: 'invalid_request', detail: parsed.error } };
+      if (parsed.value.sensitiveMode) return privacyUnresolved();
       const current = store.botByUserId(parsed.value.chatbotUserId);
       if (!current) return { status: 404, body: { error: 'not_found' } };
       if (parsed.value.expectedUpdatedAt !== current.updated_at) return { status: 409, body: { error: 'conflict' } };
+      const limits = mergeLimits(current, parsed.value.limits);
+      const incomplete: MandatoryLimitField[] = incompleteValues(limits);
+
+      // A chatbot that is enabled, or is being enabled, has to come OUT of this write able to serve. A draft
+      // is deliberately free of all of it: a draft is what an administrator is still deciding, and that is
+      // where its numbers are chosen.
+      if (parsed.value.action === 'enable' || current.status === 'enabled') {
+        if (incomplete.length > 0) return { status: 400, body: { error: 'not_ready', detail: incomplete } };
+      }
 
       if (parsed.value.action === 'enable') {
         // Enable is the point at which this chatbot may answer the public internet, so the whole rule is
@@ -155,6 +206,7 @@ export function createAdminApi(deps: AdminApiDeps) {
         displayName: parsed.value.displayName,
         prompt: parsed.value.prompt,
         origins: parsed.value.origins,
+        limits,
         now: now().toISOString(),
       });
       // Lost between the read and the write: someone else committed first.

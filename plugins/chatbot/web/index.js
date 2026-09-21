@@ -235,7 +235,119 @@ var TriangleAlert = createLucideIcon("TriangleAlert", [
 
 // plugins/chatbot/web-src/BotDetail.tsx
 var import_react3 = __toESM(require_react(), 1);
+
+// plugins/chatbot/src/publicContract.ts
+var WIDGET_ASSET_NAME = "widget.js";
+var MESSAGE_MAX_BYTES = 8 * 1024;
+var VISITOR_TEXT_MAX_BYTES = 2 * 1024;
+var PAGE_STATE_MAX_BYTES = MESSAGE_MAX_BYTES - VISITOR_TEXT_MAX_BYTES - 256;
+var WIDGET_MAX_ACTIONS_PER_TURN = 20;
+var PUBLIC_SEGMENTS = {
+  visitors: "visitors",
+  refresh: "refresh",
+  turns: "turns",
+  events: "events",
+  actions: "actions",
+  result: "result",
+  confirmation: "confirmation",
+  conversation: "conversation",
+  widget: WIDGET_ASSET_NAME
+};
+var PUBLIC_PATHS = {
+  visitors: PUBLIC_SEGMENTS.visitors,
+  refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
+  turns: PUBLIC_SEGMENTS.turns,
+  conversation: PUBLIC_SEGMENTS.conversation,
+  events: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
+  actionResult: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
+  actionDecision: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.confirmation}`,
+  widget: PUBLIC_SEGMENTS.widget
+};
+var ACTION_REFUSALS = [
+  "unknown_action",
+  "stale_snapshot",
+  "unknown_target",
+  "capability_not_granted",
+  "submit_is_its_own_action",
+  "not_a_submit_target",
+  "invalid_value",
+  "action_budget_exhausted"
+];
+var PAGE_FAILURE_DETAILS = [
+  "target_gone",
+  "no_form",
+  "form_invalid",
+  "action_failed",
+  "widget_error",
+  ...ACTION_REFUSALS
+];
+
+// plugins/chatbot/src/limits.ts
+var MANDATORY_LIMITS = {
+  // Bounds an address trying to talk to one chatbot. The window is a minute, so even 1000 is far past any
+  // real visitor; the ceiling exists so a typo cannot produce a number the counter cannot hold.
+  rateIpPerMinute: { column: "rate_ip_per_minute", min: 1, max: 1e5 },
+  // Bounds every visitor of one chatbot together, whatever address they come from.
+  rateChatbotPerMinute: { column: "rate_chatbot_per_minute", min: 1, max: 1e5 },
+  // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
+  // whole day's budget in a minute.
+  rateConversationPerMinute: { column: "rate_conversation_per_minute", min: 1, max: 1e4 },
+  // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
+  dailyTurnLimit: { column: "daily_turn_limit", min: 1, max: 1e7 },
+  // How many of this chatbot's turns may run at the same time.
+  maxConcurrentTurns: { column: "max_concurrent_turns", min: 1, max: 64 },
+  // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
+  maxQueueDepth: { column: "max_queue_depth", min: 1, max: 1e4 },
+  // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound: a
+  // visitor who has waited that long has left the page.
+  queueTimeoutSeconds: { column: "queue_timeout_seconds", min: 1, max: 3600 },
+  // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
+  // budget would be one number too many, and the server must never approve an action the widget refuses.
+  maxActionsPerTurn: { column: "max_actions_per_turn", min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN },
+  // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.
+  retentionDays: { column: "retention_days", min: 1, max: 3650 }
+};
+var OPTIONAL_LIMITS = {
+  dailyTokenLimit: { column: "daily_token_limit", min: 1, max: Number.MAX_SAFE_INTEGER },
+  dailyCostMicrousd: { column: "daily_cost_microusd", min: 1, max: Number.MAX_SAFE_INTEGER }
+};
+var LIMITS = { ...MANDATORY_LIMITS, ...OPTIONAL_LIMITS };
+var LIMIT_FIELDS = Object.keys(LIMITS);
+var MANDATORY_FIELDS = Object.keys(MANDATORY_LIMITS);
+function isUsableLimit(value, spec) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= spec.min && value <= spec.max;
+}
+function specOf(field) {
+  return LIMITS[field];
+}
+
+// plugins/chatbot/web-src/BotDetail.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+function limitDraftOf(limits) {
+  const draft = {};
+  for (const field of LIMIT_FIELDS) {
+    const value = limits[field];
+    draft[field] = value === null ? "" : String(value);
+  }
+  return draft;
+}
+function readLimitDraft(draft) {
+  const limits = {};
+  const invalid = [];
+  const missing = [];
+  for (const field of LIMIT_FIELDS) {
+    const raw = draft[field].trim();
+    if (raw === "") {
+      limits[field] = null;
+      if (field in MANDATORY_LIMITS) missing.push(field);
+      continue;
+    }
+    const value = Number(raw);
+    if (!isUsableLimit(value, specOf(field))) invalid.push(field);
+    limits[field] = isUsableLimit(value, specOf(field)) ? value : null;
+  }
+  return { limits, invalid, missing };
+}
 function blockerText(blockers, projectCount, s) {
   return blockers.map((blocker) => {
     if (blocker === "account_unknown") return s.accountUnknown;
@@ -267,6 +379,7 @@ function BotDetail({ bot, onChanged, unknownError }) {
   const [displayName, setDisplayName] = (0, import_react3.useState)(bot.displayName);
   const [prompt, setPrompt] = (0, import_react3.useState)(bot.prompt);
   const [origins, setOrigins] = (0, import_react3.useState)(bot.origins);
+  const [limits, setLimits] = (0, import_react3.useState)(() => limitDraftOf(bot.limits));
   const [draftOrigin, setDraftOrigin] = (0, import_react3.useState)("");
   const [pending, setPending] = (0, import_react3.useState)(false);
   const [error, setError] = (0, import_react3.useState)(null);
@@ -275,6 +388,7 @@ function BotDetail({ bot, onChanged, unknownError }) {
     setDisplayName(bot.displayName);
     setPrompt(bot.prompt);
     setOrigins(bot.origins);
+    setLimits(limitDraftOf(bot.limits));
     setDraftOrigin("");
     setError(null);
     setConfirming(null);
@@ -283,10 +397,16 @@ function BotDetail({ bot, onChanged, unknownError }) {
     setDisplayName(bot.displayName);
     setPrompt(bot.prompt);
     setOrigins(bot.origins);
-  }, [bot.updatedAt, bot.displayName, bot.prompt, bot.origins]);
-  const dirty = displayName !== bot.displayName || prompt !== bot.prompt || origins.join("\n") !== bot.origins.join("\n");
+    setLimits(limitDraftOf(bot.limits));
+  }, [bot.updatedAt, bot.displayName, bot.prompt, bot.origins, bot.limits]);
+  const read = readLimitDraft(limits);
+  const dirty = displayName !== bot.displayName || prompt !== bot.prompt || origins.join("\n") !== bot.origins.join("\n") || LIMIT_FIELDS.some((field) => limits[field] !== (bot.limits[field] === null ? "" : String(bot.limits[field])));
   const hint = originHint(draftOrigin, origins);
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
+  const invalid = read.invalid.length > 0;
+  const enableBlocked = invalid || read.missing.length > 0;
+  const saveBlocked = invalid || bot.status === "enabled" && read.missing.length > 0;
+  const missingText = read.missing.map((field) => s[`limit_${field}`]).join(", ");
   const save = async (action) => {
     setPending(true);
     setError(null);
@@ -297,6 +417,7 @@ function BotDetail({ bot, onChanged, unknownError }) {
         displayName,
         prompt,
         origins,
+        limits: read.limits,
         ...action === null ? {} : { action }
       }));
       onChanged(answer.bot);
@@ -330,7 +451,7 @@ function BotDetail({ bot, onChanged, unknownError }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: bot.status === "enabled" && bot.blockers.length === 0 ? "success" : bot.blockers.length > 0 ? "warning" : void 0, children: statusText(bot, s) }),
-        bot.status === "enabled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: Power, disabled: pending, onClick: () => setConfirming("disable"), children: s.disableAction }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Power, disabled: pending || dirty, onClick: () => setConfirming("enable"), children: s.enableAction })
+        bot.status === "enabled" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: Power, disabled: pending, onClick: () => setConfirming("disable"), children: s.disableAction }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Power, disabled: pending || dirty || enableBlocked, onClick: () => setConfirming("enable"), children: s.enableAction })
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", { className: "grid gap-x-6 gap-y-3 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-2", children: [
@@ -389,6 +510,24 @@ function BotDetail({ bot, onChanged, unknownError }) {
       hint === "invalid" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-2 text-xs text-destructive", children: s.originsInvalid }) : null,
       hint === "duplicate" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-2 text-xs text-destructive", children: s.originsDuplicate }) : null
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: s.limitsTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: s.limitsHint }),
+      read.missing.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-2 text-xs text-destructive", role: "alert", children: s.limitsMissing.replace("{fields}", missingText) }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2", children: LIMIT_FIELDS.map((field) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s[`limit_${field}`], children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        C.Input,
+        {
+          inputMode: "numeric",
+          value: limits[field],
+          onChange: (event) => setLimits({ ...limits, [field]: event.target.value })
+        }
+      ) }, field)) }),
+      read.invalid.map((field) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-2 text-xs text-destructive", role: "alert", children: s.limitsRange.replace("{min}", String(specOf(field).min)).replace("{max}", String(specOf(field).max)) }, field))
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: s.sensitiveTitle }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: s.sensitiveBody })
+    ] }),
     snippet === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "rounded-xl border border-border bg-card p-4", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm font-semibold text-foreground", children: s.embedTitle }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: s.embedHint }),
@@ -396,7 +535,7 @@ function BotDetail({ bot, onChanged, unknownError }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { className: "mt-3", variant: "ghost", icon: ClipboardCopy, onClick: () => void copySnippet(), children: s.embedCopy })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: dirty ? Save : Check, disabled: pending || !dirty, onClick: () => void save(null), children: pending ? s.saveSaving : s.saveAction }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: dirty ? Save : Check, disabled: pending || !dirty || saveBlocked, onClick: () => void save(null), children: pending ? s.saveSaving : s.saveAction }),
       error !== null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: error }) : null
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

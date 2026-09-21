@@ -1,6 +1,11 @@
 import type { ChatbotIngressHandler, ChatbotRelay, ChatbotRelayControl, ChatbotRelayEvent, ChatbotSessionSource } from './coreSeams.js';
 import { MEMORY_TOOL_NAMES } from './coreSeams.js';
 
+/** The one platform name this plugin registers, relays under and is billed as. Core attributes a relayed
+ *  turn's spend to `platform:<name>` in `usage_by_origin`, so the name is not only an identity here: it is
+ *  the key the budget is read back under, and a second spelling of it would be a budget that never counts. */
+export const CHATBOT_PLATFORM = 'chatbot';
+
 /** A visitor's conversation, as core keys a channel session: `platform-channelId`. The plugin's channel id
  *  carries BOTH identities, so two chatbots never share a session even when a visitor id repeats, and the
  *  resulting session id is `brain-ch-chatbot-<chatbotUserId>:<visitorId>`. */
@@ -19,7 +24,7 @@ export function visitorSource(input: {
   instructions: string;
 }): ChatbotSessionSource {
   return {
-    platform: 'chatbot',
+    platform: CHATBOT_PLATFORM,
     // The visitor is the sender and is anonymous: no name, no e-mail and no identity the CLIENT supplied.
     // The random id is only a platform-side handle; authority is the signed token checked before this.
     userId: input.visitorId,
@@ -46,7 +51,7 @@ export function visitorSource(input: {
  *  the answer leaves through the plugin's own event log, so this adapter exists to be the host's registered
  *  platform (identity, session, ownership) and to hold the relay control the queue calls. */
 export class ChatbotAdapter {
-  readonly name = 'chatbot';
+  readonly name = CHATBOT_PLATFORM;
 
   private ingress: ChatbotIngressHandler | null = null;
   private relayFn: ChatbotRelay | null = null;

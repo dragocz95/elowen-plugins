@@ -1,7 +1,49 @@
+import { randomUUID } from 'node:crypto';
 import type { PluginDb, PluginDbStatement } from 'elowen/plugin-api';
-import type { ActionRow, ActionRuleRow, BotRow, TokenRow, TurnEventRow, TurnRow, VisitorRow } from './db.js';
+import type {
+  ActionRow,
+  ActionRuleRow,
+  BotRow,
+  BudgetDayRow,
+  ConversationRow,
+  RateWindowRow,
+  TokenRow,
+  TurnEventRow,
+  TurnRow,
+  VisitorRow,
+} from './db.js';
+import { CHATBOT_PLATFORM } from './adapter.js';
+import { readBotLimits, type BotLimits, type LimitValues } from './limits.js';
+import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay, type OriginUsage } from './budget.js';
+import {
+  chatbotScopeKey,
+  conversationScopeKey,
+  ipScopeKey,
+  retryAfterSeconds,
+  windowAt,
+  type RateScope,
+} from './rateLimit.js';
 import { isActionKind } from './actions.js';
 import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome } from './publicContract.js';
+
+/** The origin core attributes one chatbot's spend to, as `usage_by_origin.orgin` stores it: the platform name
+ *  this plugin relays under. Read from the name rather than spelled out again, because a second spelling is a
+ *  budget that silently counts nothing. */
+const USAGE_ORIGIN = `platform:${CHATBOT_PLATFORM}`;
+
+/** What admitting one visitor message did. Every refusal here is a fact the public route turns into a stable
+ *  code; none of them is ever a model call. */
+export type AdmissionOutcome =
+  | { ok: true; turn: TurnRow }
+  /** The attempt was over a window's ceiling, or the day's budget is spent. Both tell the caller when to
+   *  come back. */
+  | { ok: false; reason: 'rate_limited' | 'budget_exhausted'; retryAfterSeconds: number }
+  /** The day's spend could not be read, the visitor's conversation already has a live turn, the chatbot's
+   *  queue is full, or its limits are not configured: refusals with no retry advice, because the honest
+   *  answer is "not now" rather than a number. */
+  | { ok: false; reason: 'budget_unverifiable' | 'turn_in_progress' | 'chatbot_busy' | 'limits_missing' }
+  /** This exact message is already a turn: the caller gets the SAME turn, never a second model call. */
+  | { ok: false; reason: 'duplicate'; turn: TurnRow };
 
 /** Every plugin-owned read and write in one place, so the public path and the admin surface cannot
  *  disagree about what a row means. */
@@ -35,36 +77,96 @@ export class ChatbotStore {
     return this.stmt('SELECT * FROM p_chatbot_bots ORDER BY display_name COLLATE NOCASE, chatbot_user_id').all() as BotRow[];
   }
 
+  /** Register a bot. `limits` is a DRAFT's: whatever the administrator has decided so far, with the rest left
+   *  unset. No default is applied here — a number this function made up would be a number nobody chose. */
   createBot(input: {
     chatbotUserId: number;
     publicId: string;
     displayName: string;
     prompt: string;
     origins: readonly string[];
+    limits?: Partial<LimitValues>;
     now: string;
   }): BotRow {
     return this.db.transaction(() => {
-      this.stmt(`INSERT INTO p_chatbot_bots (chatbot_user_id, public_id, customer_user_id, display_name, prompt, status, created_at, updated_at)
-                 VALUES (?, ?, NULL, ?, ?, 'draft', ?, ?)`)
-        .run(input.chatbotUserId, input.publicId, input.displayName, input.prompt, input.now, input.now);
+      const limits = input.limits ?? {};
+      this.stmt(`INSERT INTO p_chatbot_bots
+                   (chatbot_user_id, public_id, customer_user_id, display_name, prompt, status,
+                    rate_ip_per_minute, rate_chatbot_per_minute, rate_conversation_per_minute,
+                    daily_turn_limit, daily_token_limit, daily_cost_microusd,
+                    max_concurrent_turns, max_queue_depth, queue_timeout_seconds,
+                    max_actions_per_turn, retention_days, created_at, updated_at)
+                 VALUES (?, ?, NULL, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          input.chatbotUserId,
+          input.publicId,
+          input.displayName,
+          input.prompt,
+          limits.rateIpPerMinute ?? null,
+          limits.rateChatbotPerMinute ?? null,
+          limits.rateConversationPerMinute ?? null,
+          limits.dailyTurnLimit ?? null,
+          limits.dailyTokenLimit ?? null,
+          limits.dailyCostMicrousd ?? null,
+          limits.maxConcurrentTurns ?? null,
+          limits.maxQueueDepth ?? null,
+          limits.queueTimeoutSeconds ?? null,
+          limits.maxActionsPerTurn ?? null,
+          limits.retentionDays ?? null,
+          input.now,
+          input.now,
+        );
       this.replaceOrigins(input.chatbotUserId, input.origins);
       return this.botByUserId(input.chatbotUserId)!;
     });
   }
 
   /** Compare-and-set on `updated_at`, the plugin's only concurrency token for a bot: two administrators
-   *  editing the same row cannot silently overwrite each other, and a stale write reports a conflict. */
+   *  editing the same row cannot silently overwrite each other, and a stale write reports a conflict.
+   *
+   *  `limits` is the WHOLE set: the admin surface folds a payload over the stored row before calling this, so
+   *  a write here cannot half-apply a spending policy.
+   *
+   *  `sensitive_mode` is cleared by every accepted write. A write that ASKS for the mode is refused before it
+   *  reaches this method, so reaching it at all means the administrator did not ask for one — and a row left
+   *  holding a request nothing granted is a row that would keep the chatbot from being enabled for a reason
+   *  its own screen no longer shows. */
   updateBot(input: {
     chatbotUserId: number;
     expectedUpdatedAt: string;
     displayName: string;
     prompt: string;
     origins: readonly string[];
+    limits: LimitValues;
     now: string;
   }): BotRow | null {
     return this.db.transaction(() => {
-      const result = this.stmt('UPDATE p_chatbot_bots SET display_name = ?, prompt = ?, updated_at = ? WHERE chatbot_user_id = ? AND updated_at = ?')
-        .run(input.displayName, input.prompt, input.now, input.chatbotUserId, input.expectedUpdatedAt);
+      const limits = input.limits;
+      const result = this.stmt(`UPDATE p_chatbot_bots SET
+                                  display_name = ?, prompt = ?, updated_at = ?, sensitive_mode = 0,
+                                  rate_ip_per_minute = ?, rate_chatbot_per_minute = ?, rate_conversation_per_minute = ?,
+                                  daily_turn_limit = ?, daily_token_limit = ?, daily_cost_microusd = ?,
+                                  max_concurrent_turns = ?, max_queue_depth = ?, queue_timeout_seconds = ?,
+                                  max_actions_per_turn = ?, retention_days = ?
+                                WHERE chatbot_user_id = ? AND updated_at = ?`)
+        .run(
+          input.displayName,
+          input.prompt,
+          input.now,
+          limits.rateIpPerMinute,
+          limits.rateChatbotPerMinute,
+          limits.rateConversationPerMinute,
+          limits.dailyTurnLimit,
+          limits.dailyTokenLimit,
+          limits.dailyCostMicrousd,
+          limits.maxConcurrentTurns,
+          limits.maxQueueDepth,
+          limits.queueTimeoutSeconds,
+          limits.maxActionsPerTurn,
+          limits.retentionDays,
+          input.chatbotUserId,
+          input.expectedUpdatedAt,
+        );
       if (result.changes === 0) return null;
       this.replaceOrigins(input.chatbotUserId, input.origins);
       return this.botByUserId(input.chatbotUserId);
@@ -82,6 +184,8 @@ export class ChatbotStore {
       this.stmt('DELETE FROM p_chatbot_actions WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turn_events WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ?').run(chatbotUserId);
+      this.stmt('DELETE FROM p_chatbot_conversations WHERE chatbot_user_id = ?').run(chatbotUserId);
+      this.stmt('DELETE FROM p_chatbot_budget_days WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_tokens WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_visitors WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
@@ -150,7 +254,9 @@ export class ChatbotStore {
   }
 
   /** Record a submitted turn. UNIQUE (bot, visitor, client turn id) is what makes a retried POST after a
-   *  lost 202 return the SAME turn instead of starting a second model turn. */
+   *  lost 202 return the SAME turn instead of starting a second model turn. Called by `admitTurn` inside its
+   *  own transaction: a turn row that exists without the counters that admitted it would be a turn nobody
+   *  accounted for. */
   createTurn(input: {
     turnId: string;
     chatbotUserId: number;
@@ -170,14 +276,97 @@ export class ChatbotStore {
       .all(limit) as TurnRow[];
   }
 
-  markTurnRunning(turnId: string, now: string): void {
-    this.stmt("UPDATE p_chatbot_turns SET status = 'running', started_at = ? WHERE turn_id = ? AND status = 'queued'").run(now, turnId);
+  /** The oldest turn of one chatbot that is waiting for a slot: FIFO, and the tie is broken by the turn id so
+   *  two turns submitted in the same millisecond still have one order. This is the queue's own read, and it
+   *  is what makes the queue a reader of durable state rather than of a list held in a process. */
+  nextQueuedTurn(chatbotUserId: number): TurnRow | null {
+    return (this.stmt(`SELECT * FROM p_chatbot_turns WHERE chatbot_user_id = ? AND status = 'queued'
+                       ORDER BY created_at, turn_id LIMIT 1`)
+      .get(chatbotUserId) as TurnRow | undefined) ?? null;
   }
 
-  finishTurn(input: { turnId: string; status: 'done' | 'error'; coreSessionId: string | null; errorCode: string | null; now: string }): void {
-    this.stmt('UPDATE p_chatbot_turns SET status = ?, core_session_id = COALESCE(?, core_session_id), error_code = ?, finished_at = ? WHERE turn_id = ?')
-      .run(input.status, input.coreSessionId, input.errorCode, input.now, input.turnId);
+  /** How many of this chatbot's turns are RUNNING right now. Counted from the rows rather than from a number
+   *  a process keeps: a restart loses the process and nothing else, and a counter that only ever moves one way
+   *  is how a bot ends up unable to run anything.
+   *
+   *  A claimed turn is marked running BEFORE it is launched, so this read is what the concurrency limit is
+   *  checked against, and two simultaneous pumps cannot both see a free slot. */
+  runningCount(chatbotUserId: number): number {
+    const row = this.stmt("SELECT COUNT(*) AS count FROM p_chatbot_turns WHERE chatbot_user_id = ? AND status = 'running'")
+      .get(chatbotUserId) as { count: number };
+    return row.count;
   }
+
+  /** How many of this chatbot's turns are waiting for a slot. Depth is measured in WAITING turns: the ones
+   *  already running are bounded by the concurrency limit instead. */
+  queuedCount(chatbotUserId: number): number {
+    const row = this.stmt("SELECT COUNT(*) AS count FROM p_chatbot_turns WHERE chatbot_user_id = ? AND status = 'queued'")
+      .get(chatbotUserId) as { count: number };
+    return row.count;
+  }
+
+  /** The turn this visitor already has open with this chatbot — queued or running. One conversation runs one
+   *  turn at a time, so a second message either attaches to that turn (same client turn id) or is refused. */
+  activeTurnOf(chatbotUserId: number, visitorId: string): TurnRow | null {
+    return (this.stmt(`SELECT * FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?
+                       AND status IN ('queued', 'running') ORDER BY created_at, turn_id LIMIT 1`)
+      .get(chatbotUserId, visitorId) as TurnRow | undefined) ?? null;
+  }
+
+  /** Claim a queued turn for THIS process. Compare-and-set, so a second process (or a second pump) that
+   *  picked the same row loses rather than running one submitted message twice. */
+  markTurnRunning(turnId: string, now: string): boolean {
+    const changed = this.stmt("UPDATE p_chatbot_turns SET status = 'running', started_at = ? WHERE turn_id = ? AND status = 'queued'")
+      .run(now, turnId);
+    return changed.changes > 0;
+  }
+
+  /** Close one turn, in one transaction: its own row, the day's in-flight count and the conversation's
+   *  retention stamp.
+   *
+   *  The three belong together. A turn that closed without releasing in-flight would hold a slot nobody can
+   *  free; a turn that closed without re-stamping its conversation would let a conversation be deleted while
+   *  the visitor is still talking (the stamp is what the cleaner reads as "due"); and a turn whose core
+   *  session id is known without being recorded would leave the cleaner with nothing to delete in core.
+   *
+   *  A bot whose retention is unreadable is not stamped: the date the admission wrote stands, which is the
+   *  earlier and therefore the safer one. */
+  finishTurn(input: {
+    turnId: string;
+    status: 'done' | 'error';
+    coreSessionId: string | null;
+    errorCode: string | null;
+    now: string;
+  }): void {
+    this.db.transaction(() => {
+      const turn = this.turn(input.turnId);
+      if (!turn) return;
+      this.stmt('UPDATE p_chatbot_turns SET status = ?, core_session_id = COALESCE(?, core_session_id), error_code = ?, finished_at = ? WHERE turn_id = ?')
+        .run(input.status, input.coreSessionId, input.errorCode, input.now, input.turnId);
+      const limits = readBotLimits(this.botByUserId(turn.chatbot_user_id));
+      if (limits) {
+        this.touchConversation({
+          chatbotUserId: turn.chatbot_user_id,
+          visitorId: turn.visitor_id,
+          sessionId: input.coreSessionId,
+          retentionDays: limits.retentionDays,
+          now: input.now,
+        });
+      }
+      this.releaseInFlight(turn, input.now);
+    });
+  }
+
+  /** One admitted turn leaves the day's in-flight count. The day is the one the turn was ADMITTED on, which
+   *  is where `admitTurn` counted it — a turn that runs past midnight must not decrement tomorrow's number
+   *  into the negative. A missing row is not repaired here: the counters are advisory and the boot reconcile
+   *  clears them. */
+  private releaseInFlight(turn: TurnRow, now: string): void {
+    this.stmt(`UPDATE p_chatbot_budget_days SET in_flight = in_flight - 1, updated_at = ?
+               WHERE chatbot_user_id = ? AND day = ? AND in_flight > 0`)
+      .run(now, turn.chatbot_user_id, utcDay(Date.parse(turn.created_at)));
+  }
+
 
   /** Append one redacted event and return its sequence number. The row is committed before a caller may
    *  announce it, so a reconnect reads the same history a live subscriber saw. */
@@ -254,6 +443,285 @@ export class ChatbotStore {
       }
       return rows.map((row) => row.turn_id);
     });
+  }
+
+  // ── admission: rate windows, budget, capacity ───────────────────────────────────────────────────────
+
+  /** Admit one visitor message, or say why not. This is the ONE place a turn starts existing.
+   *
+   *  Two transactions, in this order and for this reason:
+   *
+   *  1. the rate windows, which count ATTEMPTS and therefore must commit even when they refuse — a refused
+   *     request is exactly what a rate limit is for;
+   *  2. everything that only counts ADMISSIONS: the budget read and the counters, the per-conversation
+   *     check, the queue depth and the turn row itself. A refusal here writes nothing at all, so there is no
+   *     half-admitted turn to clean up and no counter to give back.
+   *
+   *  Both run inside the host's write lock, so two simultaneous submissions cannot both see a free slot: the
+   *  read and the write that decides it are one atomic step, which is the property the DB counter has to have
+   *  for a ceiling to mean anything. */
+  admitTurn(input: {
+    turnId: string;
+    bot: BotRow;
+    visitorId: string;
+    clientTurnId: string;
+    message: string;
+    /** The address the HOST resolved for this request; the IP window's second half. */
+    originValue: string;
+    now: string;
+    nowMs: number;
+  }): AdmissionOutcome {
+    const limits = readBotLimits(input.bot);
+    // Belt and braces: the public route refuses an incompletely configured bot before it gets here. If a row
+    // lost a number in between, there is no set of limits to serve under and nothing may be guessed.
+    if (!limits) return { ok: false, reason: 'limits_missing' };
+    const chatbotUserId = input.bot.chatbot_user_id;
+
+    const limited = this.db.transaction(() => {
+      const scopes: { scope: RateScope; key: string; limit: number }[] = [
+        { scope: 'ip', key: ipScopeKey(chatbotUserId, input.originValue), limit: limits.rateIpPerMinute },
+        { scope: 'chatbot', key: chatbotScopeKey(chatbotUserId), limit: limits.rateChatbotPerMinute },
+        { scope: 'conversation', key: conversationScopeKey(chatbotUserId, input.visitorId), limit: limits.rateConversationPerMinute },
+      ];
+      const exceeded: string[] = [];
+      for (const scope of scopes) {
+        const row = this.countRateWindow(scope.scope, scope.key, input.nowMs);
+        if (row.count > scope.limit) exceeded.push(row.expires_at);
+      }
+      // Every exceeded window has to clear, so the wait is the longest of them rather than the first found.
+      return exceeded.length === 0
+        ? null
+        : { ok: false as const, reason: 'rate_limited' as const, retryAfterSeconds: Math.max(...exceeded.map((iso) => retryAfterSeconds(iso, input.nowMs))) };
+    });
+    if (limited) return limited;
+
+    try {
+      return this.db.transaction(() => this.admitWithinBudget({ ...input, chatbotUserId, limits }));
+    } catch (error) {
+      // The one failure this transaction can hit that is not a bug: two submissions of the SAME client turn id
+      // arrived together and the UNIQUE constraint refused the second insert. That is the same answer the fast
+      // path gives, so it is reported as one — and the rollback is what keeps the duplicate from costing a
+      // turn of the budget or a rate window's worth of nothing.
+      const existing = this.turnByClientId(chatbotUserId, input.visitorId, input.clientTurnId);
+      if (!existing) throw error;
+      return { ok: false, reason: 'duplicate', turn: existing };
+    }
+  }
+
+  /** Everything inside the admission transaction that happens once the attempt is allowed at all. */
+  private admitWithinBudget(input: {
+    turnId: string;
+    bot: BotRow;
+    chatbotUserId: number;
+    visitorId: string;
+    clientTurnId: string;
+    message: string;
+    now: string;
+    nowMs: number;
+    limits: BotLimits;
+  }): AdmissionOutcome {
+    // Re-read under the write lock: the caller's earlier read was a fast path, and the row that decides
+    // idempotence has to be the row the insert is about to be judged against.
+    const existing = this.turnByClientId(input.chatbotUserId, input.visitorId, input.clientTurnId);
+    if (existing) return { ok: false, reason: 'duplicate', turn: existing };
+
+    const day = utcDay(input.nowMs);
+    const usage = this.usageFor(input.chatbotUserId, day);
+    // A usage row this plugin cannot read is not an empty one. Nothing below may decide a budget from it.
+    if (!usage) return { ok: false, reason: 'budget_unverifiable' };
+    const today = this.budgetDay(input.chatbotUserId, day);
+    const verdict = decideBudget({ limits: input.limits, admittedTurns: today.admitted_turns, usage });
+    if (!verdict.ok) {
+      return verdict.reason === 'budget_unverifiable'
+        ? { ok: false, reason: 'budget_unverifiable' }
+        : { ok: false, reason: 'budget_exhausted', retryAfterSeconds: secondsUntilNextUtcDay(input.nowMs) };
+    }
+    // One conversation, one turn: a second message while the first is still queued or running is refused
+    // rather than queued behind it, because its answer would arrive after the visitor had been told something
+    // else, and because a conversation with two live turns has no order a widget could render.
+    if (this.activeTurnOf(input.chatbotUserId, input.visitorId)) return { ok: false, reason: 'turn_in_progress' };
+    if (this.queuedCount(input.chatbotUserId) >= input.limits.maxQueueDepth) return { ok: false, reason: 'chatbot_busy' };
+
+    this.bumpBudgetDay(input.chatbotUserId, day, input.now);
+    // The conversation gets its due date at ADMISSION, not only at settle: a turn that never settles is
+    // exactly the case where a conversation would otherwise never expire.
+    this.touchConversation({
+      chatbotUserId: input.chatbotUserId,
+      visitorId: input.visitorId,
+      sessionId: null,
+      retentionDays: input.limits.retentionDays,
+      now: input.now,
+    });
+    return { ok: true, turn: this.createTurn(input) };
+  }
+
+  /** Increment one (scope, key, minute) window and return it. The upsert is the atomic step: `count` is the
+   *  number of attempts in THIS window, whoever made them. */
+  private countRateWindow(scope: RateScope, key: string, nowMs: number): RateWindowRow {
+    const window = windowAt(scope, key, nowMs);
+    this.stmt(`INSERT INTO p_chatbot_rate_windows (scope, scope_key, window_started_at, count, expires_at)
+               VALUES (?, ?, ?, 1, ?)
+               ON CONFLICT (scope, scope_key, window_started_at) DO UPDATE SET count = count + 1`)
+      .run(window.scope, window.key, window.startedAt, window.expiresAt);
+    return this.stmt('SELECT * FROM p_chatbot_rate_windows WHERE scope = ? AND scope_key = ? AND window_started_at = ?')
+      .get(window.scope, window.key, window.startedAt) as RateWindowRow;
+  }
+
+  /** Today's spend for one chatbot, from CORE's own rollup: the only place origin-attributed spend exists in
+   *  this codebase. Nothing here reads `brain_messages`, and no second ledger is kept.
+   *
+   *  `null` means the row exists but is not a usage row this plugin can read — a broken deployment, reported
+   *  as such to the caller rather than flattened into zeros. A missing row is different: it is the ordinary
+   *  state of a chatbot that has not spent anything yet. */
+  usageFor(chatbotUserId: number, day: string): OriginUsage | null {
+    const row = this.stmt(`SELECT turns, total, cost, costed_turns FROM usage_by_origin
+                           WHERE day = ? AND user_id = ? AND origin = ?`)
+      .get(day, chatbotUserId, USAGE_ORIGIN) as { turns: unknown; total: unknown; cost: unknown; costed_turns: unknown } | undefined;
+    if (!row) return NO_USAGE;
+    const turns = countOf(row.turns);
+    const tokens = countOf(row.total);
+    const costedTurns = countOf(row.costed_turns);
+    if (turns === null || tokens === null || costedTurns === null) return null;
+    // Core leaves `cost` NULL for a bucket whose turns reported no price at all, and keeps it NULL on purpose.
+    // Anything that is neither a finite number nor NULL is a value this plugin will not spend against.
+    if (row.cost !== null && (typeof row.cost !== 'number' || !Number.isFinite(row.cost))) return null;
+    return { turns, tokens, costUsd: row.cost === null ? null : row.cost, costedTurns };
+  }
+
+  /** The plugin's own half of the budget for one day. Absent means nothing was admitted yet, which is a fact
+   *  about this plugin rather than a guess about money. */
+  budgetDay(chatbotUserId: number, day: string): BudgetDayRow {
+    return (this.stmt('SELECT * FROM p_chatbot_budget_days WHERE chatbot_user_id = ? AND day = ?')
+      .get(chatbotUserId, day) as BudgetDayRow | undefined)
+      ?? { chatbot_user_id: chatbotUserId, day, admitted_turns: 0, in_flight: 0, updated_at: '' };
+  }
+
+  private bumpBudgetDay(chatbotUserId: number, day: string, now: string): void {
+    this.stmt(`INSERT INTO p_chatbot_budget_days (chatbot_user_id, day, admitted_turns, in_flight, updated_at)
+               VALUES (?, ?, 1, 1, ?)
+               ON CONFLICT (chatbot_user_id, day) DO UPDATE SET
+                 admitted_turns = admitted_turns + 1,
+                 in_flight = in_flight + 1,
+                 updated_at = excluded.updated_at`)
+      .run(chatbotUserId, day, now);
+  }
+
+  // ── conversations and retention ─────────────────────────────────────────────────────────────────────
+
+  conversationOf(chatbotUserId: number, visitorId: string): ConversationRow | null {
+    return (this.stmt('SELECT * FROM p_chatbot_conversations WHERE chatbot_user_id = ? AND visitor_id = ?')
+      .get(chatbotUserId, visitorId) as ConversationRow | undefined) ?? null;
+  }
+
+  /** Move one conversation's clock: its last activity, its due date, and the core session it lives in.
+   *
+   *  A null `sessionId` never erases one already recorded — the id is only known once a turn's relay has
+   *  reported it, and the first writes of a conversation happen before anything has run. */
+  touchConversation(input: {
+    chatbotUserId: number;
+    visitorId: string;
+    sessionId: string | null;
+    retentionDays: number;
+    now: string;
+  }): void {
+    this.stmt(`INSERT INTO p_chatbot_conversations (id, chatbot_user_id, visitor_id, session_id, created_at, last_activity_at, delete_after)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (chatbot_user_id, visitor_id) DO UPDATE SET
+                 session_id = COALESCE(excluded.session_id, session_id),
+                 last_activity_at = excluded.last_activity_at,
+                 delete_after = excluded.delete_after`)
+      .run(
+        randomUUID(),
+        input.chatbotUserId,
+        input.visitorId,
+        input.sessionId,
+        input.now,
+        input.now,
+        dueAt(input.now, input.retentionDays),
+      );
+  }
+
+  /** The next conversations a cleaner pass may delete: due, and with no turn waiting or running.
+   *
+   *  Oldest due date first, so a backlog is worked off in the order it accrued; bounded by the caller, because
+   *  a pass that walked every due conversation would hold the write lock for as long as the backlog is long. */
+  retentionCandidates(input: { now: string; limit: number }): ConversationRow[] {
+    return this.stmt(`SELECT c.* FROM p_chatbot_conversations c
+                       WHERE c.delete_after <= ?
+                         AND NOT EXISTS (
+                           SELECT 1 FROM p_chatbot_turns t
+                            WHERE t.chatbot_user_id = c.chatbot_user_id AND t.visitor_id = c.visitor_id
+                              AND t.status IN ('queued', 'running'))
+                       ORDER BY c.delete_after, c.id
+                       LIMIT ?`)
+      .all(input.now, input.limit) as ConversationRow[];
+  }
+
+  /** Delete one conversation and everything the plugin holds about it, in ONE transaction.
+   *
+   *  Turns, their event log and their actions are reachable only through the (chatbot, visitor) pair the
+   *  conversation is defined by, which is also the pair the core session key is built from. The caller has
+   *  already deleted the core transcript; this removes the plugin's own copy, and it is one transaction so a
+   *  crash cannot leave a conversation without its turns or turns without their conversation. */
+  deleteConversation(conversation: ConversationRow): void {
+    this.db.transaction(() => {
+      this.stmt(`DELETE FROM p_chatbot_actions WHERE turn_id IN (
+                   SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`)
+        .run(conversation.chatbot_user_id, conversation.visitor_id);
+      this.stmt(`DELETE FROM p_chatbot_turn_events WHERE turn_id IN (
+                   SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`)
+        .run(conversation.chatbot_user_id, conversation.visitor_id);
+      this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?')
+        .run(conversation.chatbot_user_id, conversation.visitor_id);
+      this.stmt('DELETE FROM p_chatbot_conversations WHERE id = ?').run(conversation.id);
+    });
+  }
+
+  /** Tokens whose lifetime is over. Only the row is deleted: the token itself was never stored, and its
+   *  signature stops working the moment its `exp` passes whether this ran or not. */
+  purgeExpiredTokens(input: { now: string; limit: number }): number {
+    return this.db.transaction(() => {
+      const rows = this.stmt('SELECT jti FROM p_chatbot_tokens WHERE expires_at <= ? ORDER BY expires_at LIMIT ?')
+        .all(input.now, input.limit) as { jti: string }[];
+      for (const row of rows) this.stmt('DELETE FROM p_chatbot_tokens WHERE jti = ?').run(row.jti);
+      return rows.length;
+    });
+  }
+
+  /** Visitors who can no longer be reached and have nothing left to come back to: no live token, no
+   *  conversation. Their row is the last thing the plugin holds about them, and once it is gone the plugin
+   *  holds nothing about that visitor at all. */
+  purgeOrphanVisitors(input: { now: string; limit: number }): number {
+    return this.db.transaction(() => {
+      const rows = this.stmt(`SELECT v.visitor_id FROM p_chatbot_visitors v
+                               WHERE NOT EXISTS (SELECT 1 FROM p_chatbot_conversations c WHERE c.visitor_id = v.visitor_id)
+                                 AND NOT EXISTS (SELECT 1 FROM p_chatbot_tokens t
+                                                  WHERE t.visitor_id = v.visitor_id AND t.revoked_at IS NULL AND t.expires_at > ?)
+                               ORDER BY v.last_seen_at, v.visitor_id
+                               LIMIT ?`)
+        .all(input.now, input.limit) as { visitor_id: string }[];
+      for (const row of rows) this.stmt('DELETE FROM p_chatbot_visitors WHERE visitor_id = ?').run(row.visitor_id);
+      return rows.length;
+    });
+  }
+
+  /** Rate windows whose minute is over. Nothing reads them again, and they are the one table an attacker can
+   *  add rows to at will, so they are swept on every retention pass rather than left to grow. */
+  purgeExpiredRateWindows(input: { now: string; limit: number }): number {
+    return this.db.transaction(() => {
+      const changed = this.stmt(`DELETE FROM p_chatbot_rate_windows WHERE rowid IN (
+                                   SELECT rowid FROM p_chatbot_rate_windows WHERE expires_at <= ?
+                                    ORDER BY expires_at LIMIT ?)`)
+        .run(input.now, input.limit);
+      return changed.changes;
+    });
+  }
+
+  /** Clear every day's in-flight count. Called by the boot reconcile only: this process runs no turn yet, so
+   *  the number is stale by definition, and a counter whose only writer is a `finally` would stay inflated
+   *  forever once a process died mid-turn. */
+  resetInFlight(now: string): number {
+    return this.stmt('UPDATE p_chatbot_budget_days SET in_flight = 0, updated_at = ? WHERE in_flight > 0').run(now).changes;
   }
 
   // ── page actions and the rules over them ───────────────────────────────────────────────────────────
@@ -357,6 +825,18 @@ export class ChatbotStore {
  *  prepared once. */
 function placeholders(count: number): string {
   return new Array(count).fill('?').join(', ');
+}
+
+/** A count out of a core column, or nothing. `usage_by_origin` is a CORE table read through this plugin's own
+ *  handle, so its values are validated rather than believed: a column that is not a non-negative integer is a
+ *  number this plugin must not spend against. */
+function countOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** The instant a conversation becomes due, `retentionDays` after its last activity. */
+function dueAt(nowIso: string, retentionDays: number): string {
+  return new Date(Date.parse(nowIso) + retentionDays * 86_400_000).toISOString();
 }
 
 /** Decode one stored event payload. Only this plugin writes these rows, so a value that is not a JSON

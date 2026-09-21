@@ -2,16 +2,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { decideAction, isActionKind } from './actions.js';
 import { resolveActionRule } from './actionRules.js';
 import { readRecordedPageState } from './pageState.js';
-import { WIDGET_MAX_ACTIONS_PER_TURN, } from './publicContract.js';
+import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload } from './store.js';
 import { hashToken, sameHash } from './token.js';
-/** The per-turn ceiling on page actions.
- *
- *  A chatbot's own number belongs to the limits phase; until it exists, the ceiling is the one the served
- *  widget already refuses at, because approving more than a page will perform is approving actions that can
- *  never happen — and this is the only ceiling that is enforced in a customer's browser today. Every
- *  decision below reads it as ONE number the policy is given, never as a default it invents per action. */
-const MAX_ACTIONS_PER_TURN = WIDGET_MAX_ACTIONS_PER_TURN;
 /** How long one action may wait for the visitor's page before it is closed as unanswered.
  *
  *  There is one number, not one per kind. A page performs an ordinary action at once, so the wait is only
@@ -53,13 +46,22 @@ export class PageActionService {
         if (!isActionKind(input.request.kind))
             return this.refuse(input, 'unknown_action');
         const kind = input.request.kind;
+        // The per-turn ceiling is the CHATBOT's own number, and it is the only one: the widget refuses at its own
+        // hard limit whatever the server approves, so a server number above that would approve actions no page
+        // would perform, and a number invented here would be a budget the owner never set. A chatbot whose limits
+        // cannot be read has no ceiling to act under and therefore may not act.
+        const limits = readBotLimits(store.botByUserId(input.chatbotUserId));
+        if (!limits) {
+            warn(`chatbot: turn ${input.turn.turn_id} was asked for a page action but its chatbot has no usable limit configuration`);
+            return this.refuse(input, 'action_not_allowed');
+        }
         const verdict = resolveActionRule({
             rules: store.actionRulesOf(input.chatbotUserId),
             allowedOrigins: store.originsOf(input.chatbotUserId),
             origin: page.origin,
             path: page.path,
             action: kind,
-            ceiling: MAX_ACTIONS_PER_TURN,
+            ceiling: limits.maxActionsPerTurn,
         });
         if (!verdict.ok)
             return this.refuse(input, verdict.reason);

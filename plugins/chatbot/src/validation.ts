@@ -1,4 +1,5 @@
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
+import { LIMIT_FIELDS, isUsableLimit, specOf, type LimitValues } from './limits.js';
 import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION, type ActionDecision, type ActionOutcome } from './publicContract.js';
 
 /** Every payload that crosses a trust boundary — the public hook and the admin API — is validated here,
@@ -175,10 +176,16 @@ export interface BotCreatePayload {
   displayName: string;
   prompt: string;
   origins: string[];
+  /** A draft may be registered without any limit filled in; what is carried is validated, and the rest stays
+   *  unset until an administrator decides it. Enabling is where completeness is required. */
+  limits: Partial<LimitValues>;
+  /** Whether this write ASKS for the sensitive-data mode, which this version refuses (see adminApi). */
+  sensitiveMode: boolean;
 }
 
 export function validateBotCreate(body: unknown): Validated<BotCreatePayload> {
-  const outer = strictObject(body, ['chatbotUserId', 'displayName', 'prompt', 'origins'], ['chatbotUserId']);
+  const outer = strictObject(body, ['chatbotUserId', 'displayName', 'prompt', 'origins', 'limits', 'sensitiveMode'],
+    ['chatbotUserId']);
   if (!outer.ok) return outer;
   const userId = outer.value.chatbotUserId;
   if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0) return { ok: false, error: '"chatbotUserId" must be a positive integer' };
@@ -188,7 +195,21 @@ export function validateBotCreate(body: unknown): Validated<BotCreatePayload> {
   if (!prompt.ok) return prompt;
   const origins = validateOrigins(outer.value.origins ?? []);
   if (!origins.ok) return origins;
-  return { ok: true, value: { chatbotUserId: userId, displayName: displayName.value.trim(), prompt: prompt.value, origins: origins.value } };
+  const limits = validateLimits(outer.value.limits ?? {});
+  if (!limits.ok) return limits;
+  const sensitive = readSensitiveMode(outer.value);
+  if (!sensitive.ok) return sensitive;
+  return {
+    ok: true,
+    value: {
+      chatbotUserId: userId,
+      displayName: displayName.value.trim(),
+      prompt: prompt.value,
+      origins: origins.value,
+      limits: limits.value,
+      sensitiveMode: sensitive.value,
+    },
+  };
 }
 
 export interface BotPatchPayload {
@@ -197,14 +218,24 @@ export interface BotPatchPayload {
   displayName: string;
   prompt: string;
   origins: string[];
+  /** The limits this write carries. A field left out is not part of the write; a field carried as null is
+   *  the number the administrator has not decided. */
+  limits: Partial<LimitValues>;
+  /** Whether this write ASKS for the sensitive-data mode, which this version refuses (see adminApi). */
+  sensitiveMode: boolean;
   action: 'enable' | 'disable' | null;
 }
 
 /** The whole editable state is sent on every write. A partial patch would let two administrators each
- *  change one field and lose the other's, and the compare-and-set below could not tell them apart. */
+ *  change one field and lose the other's, and the compare-and-set below could not tell them apart.
+ *
+ *  The limits are the exception the form cannot avoid: a chatbot's numbers are decided over time, so a write
+ *  may carry them, carry none of them, or carry a null for one that is still open. What it may NOT do is
+ *  leave a chatbot enabled without them — the admin route refuses that, judged from this payload folded over
+ *  the stored row rather than from the payload alone. */
 export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
-  const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'action'],
-    ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins']);
+  const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'limits', 'action', 'sensitiveMode'],
+    ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'limits']);
   if (!outer.ok) return outer;
   const userId = outer.value.chatbotUserId;
   if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0) return { ok: false, error: '"chatbotUserId" must be a positive integer' };
@@ -216,6 +247,10 @@ export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
   if (!prompt.ok) return prompt;
   const origins = validateOrigins(outer.value.origins);
   if (!origins.ok) return origins;
+  const limits = validateLimits(outer.value.limits);
+  if (!limits.ok) return limits;
+  const sensitive = readSensitiveMode(outer.value);
+  if (!sensitive.ok) return sensitive;
   const action = outer.value.action ?? null;
   if (action !== null && action !== 'enable' && action !== 'disable') return { ok: false, error: '"action" must be enable or disable' };
   return {
@@ -226,7 +261,44 @@ export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
       displayName: displayName.value.trim(),
       prompt: prompt.value,
       origins: origins.value,
+      limits: limits.value,
+      sensitiveMode: sensitive.value,
       action,
     },
   };
+}
+
+/** The limits one admin write carries.
+ *
+ *  Whatever the payload carries is validated; what it does not carry is not part of the write. A field
+ *  carried as `null` IS part of it and says "this number is not decided" — which is a legitimate state for a
+ *  draft and precisely what the enable gate refuses. Values outside their bounds are refused with the field
+ *  named rather than clamped: a number the reader would not believe must never be stored as though it were. */
+function validateLimits(input: unknown): Validated<Partial<LimitValues>> {
+  const outer = strictObject(input, LIMIT_FIELDS);
+  if (!outer.ok) return outer;
+  const values: Partial<LimitValues> = {};
+  for (const field of LIMIT_FIELDS) {
+    const carried = outer.value[field];
+    if (carried === undefined) continue;
+    if (carried === null) {
+      values[field] = null;
+      continue;
+    }
+    if (!isUsableLimit(carried, specOf(field))) {
+      return { ok: false, error: `"${field}" must be a whole number between ${specOf(field).min} and ${specOf(field).max}` };
+    }
+    values[field] = carried;
+  }
+  return { ok: true, value: values };
+}
+
+/** Whether the payload asks for the sensitive-data mode. Only an EXPLICIT true counts as asking: the mode is
+ *  a request an administrator makes, never a value that arrives by accident, and this plugin refuses the
+ *  request itself until the model location and the retention policy are decided. */
+function readSensitiveMode(record: Record<string, unknown>): Validated<boolean> {
+  const value = record.sensitiveMode;
+  if (value === undefined || value === null) return { ok: true, value: false };
+  if (typeof value !== 'boolean') return { ok: false, error: '"sensitiveMode" must be true or false' };
+  return { ok: true, value };
 }

@@ -8,6 +8,7 @@ import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
 import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
+import type { LimitValues } from '../../plugins/chatbot/src/limits.js';
 import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
 
 /** The fake host every chatbot suite drives the public path against.
@@ -22,6 +23,28 @@ import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, Chatbo
 export const CHATBOT_SECRET = newSecret();
 
 export const CHATBOT_SITE = 'https://www.example.cz';
+
+/** A COMPLETE limit set: what an administrator fills in before a chatbot may be enabled.
+ *
+ *  These numbers belong to the fixture, not to the plugin — the plugin has no defaults at all, and that is the
+ *  property the limit tests exist to prove. A suite that is ABOUT a limit passes its own value through
+ *  `registerBot`/`setLimits` instead of editing this, so the value a test exercises is visible in the test. */
+export const TEST_LIMITS: LimitValues = {
+  // A visitor's own conversation may send ten messages a minute; one address thirty; the chatbot sixty.
+  rateConversationPerMinute: 10,
+  rateIpPerMinute: 30,
+  rateChatbotPerMinute: 60,
+  dailyTurnLimit: 200,
+  // No spending ceiling: an absent one is a decision, and the cost tests set one where it matters.
+  dailyTokenLimit: null,
+  dailyCostMicrousd: null,
+  maxConcurrentTurns: 2,
+  maxQueueDepth: 4,
+  queueTimeoutSeconds: 60,
+  // Above the seven kinds one turn can perform below, so the per-kind suite is not also a budget suite.
+  maxActionsPerTurn: 8,
+  retentionDays: 30,
+};
 
 /** The origin the HOST resolved, which is a separate fact from the browser's Origin header. */
 export const TRUSTED_REQUEST_ORIGIN = { value: '203.0.113.9', kind: 'ip' as const, trusted: true };
@@ -62,6 +85,12 @@ export interface ChatbotHost {
   /** Move the one clock this host reads. A rule about TIME — an action's own expiry, a token's lifetime — is
    *  exercised by moving the instant, never by sleeping through it. */
   setNow: (ms: number) => void;
+  /** Write a chatbot's limits the way an administrator does, so a suite can configure one mid-scenario. */
+  setLimits(chatbotUserId: number, limits: Partial<LimitValues>): void;
+  /** The queue's waiting clock, driven by hand: every deadline it scheduled, keyed by turn, and a way to fire
+   *  one. A turn that WAITS for a slot is how the queue's own timeout is exercised without waiting it out. */
+  queueDeadlines: Map<string, { delayMs: number; fire: () => void }>;
+  fireQueueTimeout(turnId: string): void;
 }
 
 /** The answer the default turn behaviour resolves with. */
@@ -145,6 +174,17 @@ export function createChatbotHost(options: {
     actions: undefined as unknown as PageActionService,
     handler: undefined as unknown as ReturnType<typeof createPublicRoute>,
     setNow: (ms: number) => { clockMs = ms; },
+    setLimits: (chatbotUserId: number, limits: Partial<LimitValues>) => store.updateBot({
+      chatbotUserId,
+      expectedUpdatedAt: store.botByUserId(chatbotUserId)!.updated_at,
+      displayName: store.botByUserId(chatbotUserId)!.display_name,
+      prompt: store.botByUserId(chatbotUserId)!.prompt,
+      origins: store.originsOf(chatbotUserId),
+      limits: { ...TEST_LIMITS, ...limits },
+      now: now().toISOString(),
+    }),
+    queueDeadlines: new Map(),
+    fireQueueTimeout: (turnId: string) => { host.queueDeadlines.get(turnId)?.fire(); },
   };
   adapter.control({
     relay: (src, text, observer) => {
@@ -153,7 +193,19 @@ export function createChatbotHost(options: {
     },
   });
 
-  host.queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+  // The queue's clock is the fixture's, not a real one: a waiting turn's deadline is fired by the test that
+  // is about it, and no suite leaves a pending 60-second timer behind.
+  host.queue = new ChatbotTurnQueue({
+    store,
+    adapter,
+    broker,
+    now: () => now().toISOString(),
+    warn,
+    schedule: (turnId, delayMs, fn) => {
+      host.queueDeadlines.set(turnId, { delayMs, fire: fn });
+      return () => host.queueDeadlines.delete(turnId);
+    },
+  });
   // The action wait is short here on purpose: what a suite is checking is which state answers a waiting
   // tool, not how long a visitor takes to click.
   host.actions = new PageActionService({
@@ -221,12 +273,15 @@ export function postRequest(input: {
   });
 }
 
-/** Register one chatbot for an account. Draft unless a status is given. */
+/** Register one chatbot for an account. Draft unless a status is given, and configured with the fixture's
+ *  complete limit set unless a test passes its own — an enabled chatbot with no numbers is a state the admin
+ *  route refuses to create, so a suite that wants one asks for it explicitly with `limits: {}`. */
 export function registerBot(host: ChatbotHost, input: {
   chatbotUserId?: number;
   publicId?: string;
   status?: 'draft' | 'enabled';
   origins?: string[];
+  limits?: Partial<LimitValues>;
 } = {}): void {
   const row = host.store.createBot({
     chatbotUserId: input.chatbotUserId ?? 12,
@@ -234,6 +289,7 @@ export function registerBot(host: ChatbotHost, input: {
     displayName: 'Městský úřad',
     prompt: 'Pomáhej s formuláři.',
     origins: input.origins ?? [CHATBOT_SITE],
+    limits: input.limits ?? TEST_LIMITS,
     now: NOW_ISO,
   });
   if ((input.status ?? 'enabled') === 'enabled') host.store.setBotStatus({ chatbotUserId: row.chatbot_user_id, status: 'enabled', now: row.updated_at });

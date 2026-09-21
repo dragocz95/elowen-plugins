@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { ChatbotWorkspace } from '../plugins/chatbot/web-src/ChatbotWorkspace';
-import { blockerText, originHint } from '../plugins/chatbot/web-src/BotDetail';
+import { blockerText, limitDraftOf, originHint, readLimitDraft } from '../plugins/chatbot/web-src/BotDetail';
+import { LIMIT_FIELDS, MANDATORY_LIMITS, type LimitValues } from '../plugins/chatbot/src/limits';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
@@ -18,6 +19,22 @@ ensurePluginUiRuntime();
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const SITE = 'https://www.example.cz';
 
+/** The limits the server reports for the fixture chatbot: every field, null where the owner has not decided.
+ *  Written the way the API reports it, so the form is exercised against the shape it really receives. */
+const LIMITS: LimitValues = {
+  rateIpPerMinute: 30,
+  rateChatbotPerMinute: 60,
+  rateConversationPerMinute: 10,
+  dailyTurnLimit: 200,
+  dailyTokenLimit: null,
+  dailyCostMicrousd: null,
+  maxConcurrentTurns: 2,
+  maxQueueDepth: 4,
+  queueTimeoutSeconds: 60,
+  maxActionsPerTurn: 8,
+  retentionDays: 30,
+};
+
 const bot = {
   chatbotUserId: 12,
   publicId: 'cbt_0123456789abcdef01234567',
@@ -31,6 +48,9 @@ const bot = {
   projects: [{ id: 4, slug: 'ured' }],
   blockers: [] as string[],
   insecureOrigins: [] as string[],
+  limits: LIMITS,
+  missingLimits: [] as string[],
+  sensitiveMode: false,
 };
 
 const broken = {
@@ -63,6 +83,8 @@ setDefaults(
         displayName: String(body.displayName ?? ''),
         prompt: String(body.prompt ?? ''),
         origins: Array.isArray(body.origins) ? body.origins as string[] : bot.origins,
+        limits: (body.limits ?? bot.limits) as LimitValues,
+        missingLimits: LIMIT_FIELDS.filter((field) => field in MANDATORY_LIMITS && (body.limits as LimitValues)[field] === null),
         status: body.action === 'disable' ? 'disabled' : body.action === 'enable' ? 'enabled' : bot.status,
         updatedAt: '2026-09-21T17:00:00.000Z',
       },
@@ -156,6 +178,55 @@ describe('the chatbot workspace', () => {
     expect(screen.getByText(strings.originsDuplicate!)).toBeInTheDocument();
   });
 
+  it('shows every limit the server reports, with the ones nobody decided left empty', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    expect(screen.getByText(strings.limitsTitle!)).toBeInTheDocument();
+    // The numbers the chatbot serves under are the ones on screen, field by field.
+    expect((screen.getByLabelText(strings.limit_rateIpPerMinute!) as HTMLInputElement).value).toBe('30');
+    expect((screen.getByLabelText(strings.limit_retentionDays!) as HTMLInputElement).value).toBe('30');
+    // An optional ceiling nobody set is an EMPTY box, never a zero the owner did not choose.
+    expect((screen.getByLabelText(strings.limit_dailyCostMicrousd!) as HTMLInputElement).value).toBe('');
+    // Nothing is missing on a configured chatbot, so the enable path is not blocked by the numbers.
+    expect(screen.queryByText(strings.limitsMissing!.replace('{fields}', ''), { exact: false })).not.toBeInTheDocument();
+  });
+
+  it('shows the sensitive-data mode as unavailable instead of offering a switch it would refuse', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    expect(screen.getByText(strings.sensitiveTitle!)).toBeInTheDocument();
+    expect(screen.getByText(strings.sensitiveBody!)).toBeInTheDocument();
+    // The copy explains a refusal; there is no control that could be mistaken for granting the mode.
+    expect(screen.queryByRole('checkbox', { name: strings.sensitiveTitle! })).not.toBeInTheDocument();
+  });
+
+  it('will not enable a chatbot whose numbers are not all decided, and names the ones missing', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    // The broken chatbot is the draft with no Project, so its blockers already keep it from being enabled.
+    // What this checks is the LIMIT half: clearing a mandatory number disables the action and says which.
+    fireEvent.click(screen.getByRole('button', { name: strings.openBot!.replace('{name}', 'Škola') }));
+    await screen.findByText(strings.detailProjectNone!);
+    const turns = screen.getByLabelText(strings.limit_dailyTurnLimit!) as HTMLInputElement;
+    expect(turns.value).toBe('200');
+    fireEvent.change(turns, { target: { value: '' } });
+    expect(await screen.findByText(strings.limitsMissing!.replace('{fields}', strings.limit_dailyTurnLimit!))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.enableAction! })).toBeDisabled();
+  });
+
+  it('reports a limit the server would refuse, without pretending it was stored', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    const actions = screen.getByLabelText(strings.limit_maxActionsPerTurn!) as HTMLInputElement;
+    fireEvent.change(actions, { target: { value: '0' } });
+    expect(screen.getByText(strings.limitsRange!.replace('{min}', '1').replace('{max}', '20'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.saveAction! })).toBeDisabled();
+  });
+
   it('reports a failed load with a retry instead of an empty register', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
     renderPage();
@@ -190,5 +261,26 @@ describe('the pure helpers the detail pane reports with', () => {
     expect(originHint('https://www.example.cz/x', [])).toBe('invalid');
     expect(originHint(SITE, [SITE])).toBe('duplicate');
     expect(originHint(SITE, [])).toBeNull();
+  });
+
+  it('reads an unset limit as an empty box and a stored one as its number', () => {
+    expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe('200');
+    expect(limitDraftOf({ ...LIMITS, dailyCostMicrousd: null }).dailyCostMicrousd).toBe('');
+  });
+
+  it('judges a box by the server\'s own bounds, and separates "not decided" from "not a number"', () => {
+    const draft = limitDraftOf(LIMITS);
+    expect(readLimitDraft(draft).invalid).toEqual([]);
+    expect(readLimitDraft(draft).missing).toEqual([]);
+    // Cleared mandatory numbers are MISSING — the state that keeps a chatbot from being enabled...
+    const cleared = readLimitDraft({ ...draft, rateIpPerMinute: '', dailyCostMicrousd: '' });
+    expect(cleared.missing).toEqual(['rateIpPerMinute']);
+    expect(cleared.limits.rateIpPerMinute).toBeNull();
+    expect(cleared.limits.dailyCostMicrousd).toBeNull();
+    // ...while a number the server would refuse is INVALID, and never travels as if it were valid.
+    const wrong = readLimitDraft({ ...draft, maxActionsPerTurn: '500' });
+    expect(wrong.invalid).toEqual(['maxActionsPerTurn']);
+    expect(wrong.limits.maxActionsPerTurn).toBeNull();
+    expect(readLimitDraft({ ...draft, retentionDays: '1.5' }).invalid).toEqual(['retentionDays']);
   });
 });
