@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kontaktní formulář | Městský úřad</title>
+  <!--
+    The customer's own page, the way a real one would embed the widget: one script tag in the head, carrying
+    the chatbot's public id. `__HOOK_ORIGIN__` and `__PUBLIC_ID__` are substituted by the test's site server,
+    because the ports of a throwaway run are not known before it starts.
+
+    It deliberately carries the things the widget must handle: a heading, a select, a text field, an email
+    field, a password field and a card-like field whose values must never travel, and a form with a submit
+    button that only a visitor may press.
+  -->
+  <script async src="__HOOK_ORIGIN__/hooks/chatbot/v1/widget.js" data-chatbot="__PUBLIC_ID__"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 40px 24px; color: #16161a; }
+    main { max-width: 560px; margin: 0 auto; }
+    h1 { font-size: 24px; }
+    label { display: block; margin: 16px 0 4px; font-weight: 600; }
+    input, select { width: 100%; padding: 10px; font: inherit; border: 1px solid #c8c8d0; border-radius: 8px; }
+    button[type=submit] { margin-top: 24px; padding: 12px 20px; font: inherit; font-weight: 600; border: 0; border-radius: 999px; background: #16161a; color: #fff; cursor: pointer; }
+    .hint { color: #5b5b66; font-size: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Kontaktní formulář</h1>
+  <p class="hint">Vyplňte prosím údaje a odešlete žádost.</p>
+  <form id="kontakt" name="kontakt" action="/odeslat?zdroj=web" method="post">
+    <label for="jmeno">Jméno a příjmení</label>
+    <input id="jmeno" name="jmeno" type="text" required>
+
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" required>
+
+    <label for="obec">Obec</label>
+    <select id="obec" name="obec">
+      <option>Praha</option>
+      <option>Brno</option>
+      <option>Ostrava</option>
+    </select>
+
+    <label for="heslo">Heslo do portálu</label>
+    <input id="heslo" name="heslo" type="password">
+
+    <label for="karta">Číslo platební karty</label>
+    <input id="karta" name="cislo_karty" autocomplete="cc-number">
+
+    <button id="odeslat" type="submit">Odeslat žádost</button>
+  </form>
+</main>
+</body>
+</html>

@@ -4,6 +4,7 @@
     "plugins/*/index.mjs",
     "plugins/*/src/index.ts",
     "plugins/*/web-src/index.tsx",
+    "plugins/*/embed-src/index.ts",
     "scripts/*.mjs",
     "tests/e2e/*/run.mjs",
     "tests/e2e/whatsapp/fake-baileys-socket.mjs"
@@ -21,7 +22,6 @@
     "readlink"
   ],
   "ignoreDependencies": [
-    "proxy-chain",
-    "puppeteer-core"
+    "proxy-chain"
   ]
 }

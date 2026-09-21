@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": true
   },
-  "include": ["plugins/*/web-src/**/*.ts", "plugins/*/web-src/**/*.tsx"]
+  "include": ["plugins/*/web-src/**/*.ts", "plugins/*/web-src/**/*.tsx", "plugins/*/embed-src/**/*.ts"]
 }
