@@ -492,6 +492,36 @@ try {
   assert(restored.some((message) => message.role === 'ai' && message.text === ANSWER), 'the restored transcript lost the answer');
   pass('a reload restores the conversation from the visitor\'s own projection, with the page state stripped');
 
+  // ── the panel at the widths a customer's visitors actually use ───────────────────────────────────────
+  for (const [width, height, mobile] of [[320, 844, true], [1440, 900, false]]) {
+    await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile });
+    await page.goto(FORM_URL, { waitUntil: 'load' });
+    await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
+    const launcherAt = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher'));
+    await launcherAt.asElement().click();
+    const geometry = await page.evaluate(() => {
+      const root = document.querySelector('[data-elowen-chatbot]').shadowRoot;
+      const box = root.querySelector('.panel').getBoundingClientRect();
+      const button = root.querySelector('.launcher').getBoundingClientRect();
+      return {
+        panel: { top: box.top, left: box.left, right: box.right, bottom: box.bottom },
+        launcher: { right: button.right, bottom: button.bottom },
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert(geometry.panel.left >= 0 && geometry.panel.top >= 0, `the panel hangs off the top-left at ${width}px: ${JSON.stringify(geometry.panel)}`);
+    assert(geometry.panel.right <= geometry.viewport.width + 1, `the panel hangs off the right edge at ${width}px: ${JSON.stringify(geometry.panel)}`);
+    assert(geometry.panel.bottom <= geometry.viewport.height + 1, `the panel hangs off the bottom at ${width}px: ${JSON.stringify(geometry.panel)}`);
+    assert(
+      geometry.launcher.right <= geometry.viewport.width + 1 && geometry.launcher.bottom <= geometry.viewport.height + 1,
+      `the launcher is not reachable at ${width}px: ${JSON.stringify(geometry.launcher)}`,
+    );
+    // The panel must not be what makes the customer's own page scroll sideways.
+    assert(geometry.scrollWidth <= geometry.viewport.width, `the widget widened the page at ${width}px: ${geometry.scrollWidth} > ${geometry.viewport.width}`);
+    pass(`the launcher and the panel fit inside a ${width}x${height} viewport without widening the page`);
+  }
+
   // ── the gates ─────────────────────────────────────────────────────────────────────────────────────────
   assert(consoleErrors.length === 0, `the page logged console errors: ${JSON.stringify(consoleErrors)}`);
   assert(external.length === 0, `the widget reached outside the page and the hook: ${JSON.stringify(external)}`);
