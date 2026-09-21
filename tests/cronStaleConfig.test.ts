@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,6 +16,7 @@ const pluginsDir = join(repoRoot, 'plugins');
 /** The cron adapter internals these tests drive directly (a manual tick, no timers). */
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string, onEvent?: (e: { type: string; sessionId?: string }) => void) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: { type: string; sessionId?: string }) => void }) => Promise<string | undefined> }): void;
   tick(): Promise<void>;
 }
 
@@ -46,7 +48,7 @@ describe('cron stale config tolerance', () => {
     writeJobs(dataRoot, [dueJob()]);
     const adapter = await loadCron(dataRoot, { sessionIdleMs: 0 });
     let seen: SessionSource | undefined;
-    adapter.listen(async (src) => { seen = src; return 'ran'; });
+    wireCronHost(adapter, async (src) => { seen = src; return 'ran'; });
     await adapter.tick();
     expect(seen).toBeDefined();
     expect(seen?.access && 'sessionIdleMs' in seen.access).toBe(false);

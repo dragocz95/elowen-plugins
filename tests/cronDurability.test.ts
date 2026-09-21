@@ -11,6 +11,7 @@ import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(repoRoot, 'plugins');
@@ -21,6 +22,7 @@ const asText = (r: unknown) => ((r as { content: { text: string }[] }).content[0
 interface CronTurnEvent { type: string; sessionId?: string }
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string, onEvent?: (e: CronTurnEvent) => void) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: CronTurnEvent) => void }) => Promise<string | undefined> }): void;
   tick(): Promise<void>;
 }
 
@@ -59,7 +61,7 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     const notify = async (t: string) => { if (deliveryShouldFail) throw new Error('discord 500'); delivered.push(t); };
     const { adapter, logger } = await loadCron(dataRoot, notify);
     let turnCalls = 0;
-    adapter.listen(async () => { turnCalls += 1; return 'the report'; });
+    wireCronHost(adapter, async () => { turnCalls += 1; return 'the report'; });
 
     await adapter.tick(); // delivery fails
     expect(turnCalls).toBe(1);
@@ -89,7 +91,7 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     const notify = async (t: string) => { if (deliveryShouldFail) throw new Error('discord 500'); delivered.push(t); };
     const { adapter } = await loadCron(dataRoot, notify);
     let turnCalls = 0;
-    adapter.listen(async () => { turnCalls += 1; return 'wake-up done'; });
+    wireCronHost(adapter, async () => { turnCalls += 1; return 'wake-up done'; });
 
     await adapter.tick();
     expect(turnCalls).toBe(1);
@@ -118,7 +120,7 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     ]));
     const delivered: string[] = [];
     const { adapter } = await loadCron(dataRoot, async (t: string) => { delivered.push(t); });
-    adapter.listen(async () => 'unused');
+    wireCronHost(adapter, async () => 'unused');
 
     await adapter.tick(); // nothing due — this tick only flushes the queue
 
@@ -141,7 +143,7 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     }]);
     const notify = async () => { throw new Error('sink still down'); }; // every delivery (old + new) fails
     const { adapter, logger } = await loadCron(dataRoot, notify);
-    adapter.listen(async () => 'new result');
+    wireCronHost(adapter, async () => 'new result');
 
     await adapter.tick();
     const pending = JSON.parse(readFileSync(pendingFile(dataRoot), 'utf-8')) as { id: string; body: string }[];
@@ -178,7 +180,7 @@ describe('cron state durability (Tier 2 #22)', () => {
     }]));
     const delivered: string[] = [];
     const { adapter, logger } = await loadCron(dataRoot, async (t: string) => { delivered.push(t); });
-    adapter.listen(async () => 'the report');
+    wireCronHost(adapter, async () => 'the report');
 
     await adapter.tick();
     expect(delivered).toHaveLength(1); // the healthy job still ran
@@ -196,7 +198,7 @@ describe('cron state durability (Tier 2 #22)', () => {
     }]);
     const delivered: string[] = [];
     const { adapter, logger } = await loadCron(dataRoot, async (t: string) => { delivered.push(t); });
-    adapter.listen(async () => 'the report');
+    wireCronHost(adapter, async () => 'the report');
 
     await adapter.tick(); // queueing the new result must not trip over the corrupt queue file
     expect(delivered).toHaveLength(1);

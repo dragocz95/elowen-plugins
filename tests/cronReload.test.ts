@@ -8,6 +8,7 @@ import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
 import { openRunJournal } from '../plugins/cronjob/lib/runJournal.mjs';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 // A plugin reload (stopAll + startAll) replaces the cron adapter while a tick may still be parked on a
 // slow brain turn. The torn-down generation and its replacement share one jobs.json and one delivery
@@ -26,6 +27,7 @@ interface CronAdapterUnderTest {
     usage?: { totalTokens?: number; cost?: number };
     completedAt?: string;
   }) => void) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: { type: string; sessionId?: string; messageId?: string; model?: string; usage?: { totalTokens?: number; cost?: number }; completedAt?: string }) => void }) => Promise<string | undefined> }): void;
   connect(): Promise<void>;
   tick(): Promise<void>;
   runClaim(job: Record<string, unknown>, details: { manual?: boolean; slot: string; now: number; timezone: string; skipReason?: string | null }): { id: string; created: boolean };
@@ -111,7 +113,7 @@ describe('cron scheduler across a plugin reload', () => {
     ]));
     const adapter = await loadCron(dataRoot, async () => {});
     const calls: string[] = [];
-    adapter.listen(async (src: SessionSource, _text, onEvent) => {
+    wireCronHost(adapter, async (src: SessionSource, _text, onEvent) => {
       calls.push(src.channelId);
       onEvent?.({ type: 'session', sessionId: 'brain-manual' });
       onEvent?.({
@@ -165,7 +167,7 @@ describe('cron scheduler across a plugin reload', () => {
 
     const calls: string[] = [];
     const newAdapter = await loadCron(dataRoot, async () => {});
-    newAdapter.listen(async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
+    wireCronHost(newAdapter, async (src: SessionSource) => { calls.push(src.channelId); return 'manual result'; });
     await newAdapter.tick();
     await newAdapter.tick(); // a second tick may NOT run the same manual request again
 
@@ -182,7 +184,7 @@ describe('cron scheduler across a plugin reload', () => {
     const adapter = await loadCron(dataRoot, async (t: string) => { delivered.push(t); });
     const calls: string[] = [];
     const parked = parkingHandler('A', calls);
-    adapter.listen(parked.handler);
+    wireCronHost(adapter, parked.handler);
 
     const tick = adapter.tick();
     await parked.running; // the tick is inside r1's turn — exactly where a reload lands
@@ -205,13 +207,13 @@ describe('cron scheduler across a plugin reload', () => {
 
     const oldAdapter = await loadCron(dataRoot, notify);
     const parked = parkingHandler('old', calls);
-    oldAdapter.listen(parked.handler);
+    wireCronHost(oldAdapter, parked.handler);
     const oldTick = oldAdapter.tick();
     await parked.running; // parked on r1's turn, holding a snapshot of jobs.json that is about to go stale
 
     // The reloaded registry's adapter connects and ticks while the old one is still mid-turn.
     const newAdapter = await loadCron(dataRoot, notify);
-    newAdapter.listen(async (src: SessionSource) => { calls.push(`new:${src.channelId}`); return 'done'; });
+    wireCronHost(newAdapter, async (src: SessionSource) => { calls.push(`new:${src.channelId}`); return 'done'; });
     await newAdapter.tick();
 
     parked.gate.release();
@@ -247,13 +249,13 @@ describe('cron scheduler across a plugin reload', () => {
     };
 
     const oldAdapter = await loadCron(dataRoot, notify);
-    oldAdapter.listen(async () => 'the report');
+    wireCronHost(oldAdapter, async () => 'the report');
     const oldTick = oldAdapter.tick();
     await inFlight; // parked inside deliver(), with the result still queued on disk
     oldAdapter.disconnect(); // the host tears this generation down and builds a fresh one
 
     const newAdapter = await loadCron(dataRoot, notify);
-    newAdapter.listen(async () => 'the report');
+    wireCronHost(newAdapter, async () => 'the report');
     await newAdapter.tick(); // its flush sees the queued entry — and must leave it to its in-flight owner
 
     release();
@@ -278,13 +280,13 @@ describe('cron scheduler across a plugin reload', () => {
     const notify = async (t: string) => { if (sinkDown) throw new Error('discord 500'); delivered.push(t); };
 
     const oldAdapter = await loadCron(dataRoot, notify);
-    oldAdapter.listen(async () => 'the report');
+    wireCronHost(oldAdapter, async () => 'the report');
     await oldAdapter.tick(); // produces the result, fails to send it, and is then torn down
     oldAdapter.disconnect();
 
     sinkDown = false;
     const newAdapter = await loadCron(dataRoot, notify);
-    newAdapter.listen(async () => 'the report');
+    wireCronHost(newAdapter, async () => 'the report');
     await newAdapter.tick();
 
     expect(delivered).toHaveLength(1);

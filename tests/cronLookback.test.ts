@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { loadPlugins } from 'elowen/dist/plugins/loader.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 // `cronLookbackMs` decides how far back a 5-field cron job hunts for a run it missed while the daemon was
 // down. It is only observable as a job that DOES or DOES NOT fire after downtime, so that is what these
@@ -17,6 +18,7 @@ const pluginsDir = join(repoRoot, 'plugins');
 
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: { type: string }) => void }) => Promise<string | undefined> }): void;
   tick(): Promise<void>;
   cronLookbackMs: number;
 }
@@ -59,7 +61,7 @@ function writeMissedCronJob(dataRoot: string): void {
 /** Tick once and report whether the job's prompt was actually handed to the brain. */
 async function tickFired(adapter: CronAdapterUnderTest): Promise<boolean> {
   let fired = false;
-  adapter.listen(async () => { fired = true; return 'ok'; });
+  wireCronHost(adapter, async () => { fired = true; return 'ok'; });
   await adapter.tick();
   return fired;
 }

@@ -11,6 +11,7 @@ import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource, PluginHostWiring } from 'elowen/dist/plugins/api.js';
 import { STUB_CONVERSATION_ID, stubConversationDirectory } from './helpers/conversationDirectory.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,7 +27,9 @@ afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true
 
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string, onEvent?: (e: { type: string; sessionId?: string }) => void) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: { type: string }) => void }) => Promise<string | undefined> }): void;
   tick(): Promise<void>;
+  status(): { ready: boolean };
 }
 
 /** The plugin reads the account view through `ctx.host.stores().usersRead`: `isAdmin` decides whether a
@@ -71,7 +74,7 @@ describe('cron tick — a job that belongs to an account', () => {
     writeJobs(dataRoot, [dueJob({ ownerUserId: 4, projectRef: { kind: 'managed', projectId: 7 }, lastRun: undefined, runAt: new Date(Date.now() - 1000).toISOString() })]);
     const { adapter } = await loadCron(dataRoot);
     let called = false;
-    adapter.listen(async () => { called = true; return 'must not run'; });
+    wireCronHost(adapter, async () => { called = true; return 'must not run'; });
     await adapter.tick();
     expect(called).toBe(false);
     expect(readJobs(dataRoot)).toHaveLength(1);
@@ -85,7 +88,7 @@ describe('cron tick — a job that belongs to an account', () => {
     let authorized = 0;
     Object.assign(adapter, { projectRuntime: { authorize: async (job: { projectRef: unknown }) => { expect(job.projectRef).toEqual({ kind: 'managed', projectId: 7 }); authorized++; } } });
     let seen: SessionSource | undefined;
-    adapter.listen(async (src, _text, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-4' }); return 'done'; });
+    wireCronHost(adapter, async (src, _text, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-4' }); return 'done'; });
     await adapter.tick();
     expect(authorized).toBe(1);
     expect(seen?.access?.projectRef).toEqual({ kind: 'managed', projectId: 7 });
@@ -99,7 +102,7 @@ describe('cron tick — a job that belongs to an account', () => {
     const { adapter } = await loadCron(dataRoot, { notify: async (t) => { delivered.push(t); } });
     let seen: SessionSource | undefined;
     let seenText = '';
-    adapter.listen(async (src, text, onEvent) => {
+    wireCronHost(adapter, async (src, text, onEvent) => {
       seen = src; seenText = text;
       onEvent?.({ type: 'session', sessionId: 'brain-4' }); // the host resolved the owner's own conversation
       return 'her report';
@@ -109,6 +112,11 @@ describe('cron tick — a job that belongs to an account', () => {
     // No admin powers, and the account is named so the host applies THAT account's policy and tool rules.
     expect(seen?.access?.admin).toBe(false);
     expect(seen?.access?.actAsUserId).toBe(4);
+    // Nothing narrows the turn beyond what the person's own chat carries: the account's projects, grants
+    // and deny-list are the host's to apply, and a scheduled run must not arrive with a tighter policy of
+    // its own. An added `denyTools` or `toolPolicy` here would silently subtract rights from the owner.
+    expect(seen?.access).not.toHaveProperty('denyTools');
+    expect(seen?.access).not.toHaveProperty('toolPolicy');
     // The job's OWN conversation, deterministic per job, created and emptied by the host before each run.
     expect(seen?.origin).toEqual({ userId: 4, sessionId: 'brain-4-job-r1', dedicated: { title: 'report' } });
     expect(seenText).toContain('Scheduled job "report" fires now');
@@ -123,7 +131,7 @@ describe('cron tick — a job that belongs to an account', () => {
     const { adapter } = await loadCron(dataRoot, { notify: async (t) => { delivered.push(t); } });
     let seen: SessionSource | undefined;
     let seenText = '';
-    adapter.listen(async (src, text) => { seen = src; seenText = text; return 'the report'; });
+    wireCronHost(adapter, async (src, text) => { seen = src; seenText = text; return 'the report'; });
     await adapter.tick();
 
     expect(seen?.access?.admin).toBe(true);
@@ -134,13 +142,51 @@ describe('cron tick — a job that belongs to an account', () => {
     expect(delivered[0]).toContain('the report');
   });
 
+  // The entry itself is the change: a scheduled run must go through the host relay, because that is what
+  // stamps the provenance an owned room's ownership is derived from. The saved listen handler stays wired
+  // for the adapter lifecycle and is never a way to start work — calling it would run the turn but file
+  // its transcript under whoever runs the instance.
+  it('starts its turns through the relay control and never through the saved listen handler', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 4 })]);
+    const { adapter } = await loadCron(dataRoot);
+    const relayed: string[] = [];
+    const ingress: string[] = [];
+    adapter.listen(async (src) => { ingress.push(src.channelId); return 'must not run'; });
+    adapter.control({ relay: async (src) => { relayed.push(src.channelId); return 'relayed reply'; } });
+
+    await adapter.tick();
+
+    expect(relayed).toEqual(['job-r1']);
+    expect(ingress).toEqual([]);
+    expect(readJobs(dataRoot)[0]!.lastResult).toBe('relayed reply');
+  });
+
+  // Readiness follows the relay control for the same reason: without it the adapter cannot start a turn at
+  // all, and reporting itself ready would let the manual-run route accept work nobody can run.
+  it('is not ready until the relay control is wired, and runs nothing meanwhile', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [dueJob({ ownerUserId: 4 })]);
+    const { adapter } = await loadCron(dataRoot);
+    let ingress = 0;
+    adapter.listen(async () => { ingress += 1; return 'must not run'; });
+
+    expect(adapter.status().ready).toBe(false);
+    await adapter.tick();
+    expect(ingress).toBe(0);
+    expect(readJobs(dataRoot)[0]!.lastResult).toBeUndefined();
+
+    adapter.control({ relay: async () => 'ok' });
+    expect(adapter.status().ready).toBe(true);
+  });
+
   it('does not echo an owned job whose bound delivery never landed — it records the outcome instead', async () => {
     const dataRoot = freshDataRoot();
     const delivered: string[] = [];
     writeJobs(dataRoot, [dueJob({ ownerUserId: 4 })]);
     const { adapter } = await loadCron(dataRoot, { notify: async (t) => { delivered.push(t); } });
     // The host fell back to the job's own channel session (the owner has no conversation yet).
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       onEvent?.({ type: 'session', sessionId: 'brain-ch-cron-job-r1' });
       return 'unreachable report';
     });
@@ -160,7 +206,7 @@ describe('cron tick — scheduling itself is re-authorised at every fire', () =>
       host: { stores: { usersRead: { isAdmin: () => false, mayUsePlugin: (id: number) => !denied.includes(id) } } } as unknown as PluginHostWiring,
     });
     let turns = 0;
-    adapter.listen(async () => { turns += 1; return 'done'; });
+    wireCronHost(adapter, async () => { turns += 1; return 'done'; });
 
     await adapter.tick();
     // Revoking the grant is the one lever an operator reaches for to stop somebody's automation. If the
@@ -192,7 +238,7 @@ describe('cron tick — scheduling itself is re-authorised at every fire', () =>
       host: { stores: { usersRead: { isAdmin: () => false, mayUsePlugin: (id: number) => !denied.includes(id) } } } as unknown as PluginHostWiring,
     });
     let turns = 0;
-    adapter.listen(async () => { turns += 1; return 'done'; });
+    wireCronHost(adapter, async () => { turns += 1; return 'done'; });
 
     await adapter.tick();
     expect(turns).toBe(0);
@@ -216,7 +262,7 @@ describe('cron tick — scheduling itself is re-authorised at every fire', () =>
       host: { stores: { usersRead: { isAdmin: () => true, mayUsePlugin: () => false } } } as unknown as PluginHostWiring,
     });
     let turns = 0;
-    adapter.listen(async () => { turns += 1; return 'done'; });
+    wireCronHost(adapter, async () => { turns += 1; return 'done'; });
     await adapter.tick();
     expect(turns).toBe(1);
   });
@@ -226,7 +272,7 @@ describe('cron tick — scheduling itself is re-authorised at every fire', () =>
     writeJobs(dataRoot, [dueJob({ ownerUserId: 4 })]);
     const { adapter } = await loadCron(dataRoot, { host: null });
     let turns = 0;
-    adapter.listen(async () => { turns += 1; return 'done'; });
+    wireCronHost(adapter, async () => { turns += 1; return 'done'; });
     await adapter.tick();
     // Unattended automation running for an account nobody can vouch for is exactly what must not happen.
     expect(turns).toBe(0);
@@ -242,7 +288,7 @@ describe('cron tick — the shell guard is re-authorised at every fire', () => {
       writeJobs(dataRoot, [job]);
       const { adapter } = await loadCron(dataRoot, { admins: [4], notify: async () => {} });
       let seenText = '';
-      adapter.listen(async (_src, text) => { seenText = text; return 'ok'; });
+      wireCronHost(adapter, async (_src, text) => { seenText = text; return 'ok'; });
       await adapter.tick();
       expect(seenText, JSON.stringify(job.ownerUserId)).toContain('something-new');
     }
@@ -255,7 +301,7 @@ describe('cron tick — the shell guard is re-authorised at every fire', () => {
     writeJobs(dataRoot, [dueJob({ ownerUserId: 4, check: `touch ${marker} && echo new` })]);
     const { adapter } = await loadCron(dataRoot, { admins: [] }); // demoted since the job was written
     let ran = false;
-    adapter.listen(async () => { ran = true; return 'ok'; });
+    wireCronHost(adapter, async () => { ran = true; return 'ok'; });
     await adapter.tick();
 
     expect(ran).toBe(false);
@@ -271,7 +317,7 @@ describe('cron tick — the shell guard is re-authorised at every fire', () => {
       host: { stores: { usersRead: { mayUsePlugin: () => true } } } as unknown as PluginHostWiring,
     });
     let ran = false;
-    adapter.listen(async () => { ran = true; return 'ok'; });
+    wireCronHost(adapter, async () => { ran = true; return 'ok'; });
     await adapter.tick();
 
     expect(ran).toBe(false);
@@ -387,7 +433,7 @@ describe('cron tools — scheduling for the account behind the turn', () => {
     ]);
     const { adapter } = await loadCron(dataRoot);
     const origins: Record<string, SessionSource['origin']> = {};
-    adapter.listen(async (src, _t, onEvent) => {
+    wireCronHost(adapter, async (src, _t, onEvent) => {
       origins[src.channelId.replace('job-', '')] = src.origin;
       onEvent?.({ type: 'session', sessionId: src.origin?.sessionId ?? '' });
       onEvent?.({ type: 'delivery' });
@@ -501,7 +547,7 @@ describe('an operator owning their own jobs', () => {
     writeJobs(dataRoot, [dueJob({ ownerUserId: 1, notifyChannelId: 'discord-42' })]);
     const { adapter } = await loadCron(dataRoot, { admins: [1], notify: async (t) => { delivered.push(t); } });
     let seen: SessionSource | undefined;
-    adapter.listen(async (src) => { seen = src; return 'the report'; });
+    wireCronHost(adapter, async (src) => { seen = src; return 'the report'; });
     await adapter.tick();
 
     // The job still runs as its owner -- that is the whole point of taking ownership...
@@ -520,7 +566,7 @@ describe('an operator owning their own jobs', () => {
     writeJobs(dataRoot, [dueJob({ ownerUserId: 1 })]);
     const { adapter } = await loadCron(dataRoot, { admins: [1], notify: async (t) => { delivered.push(t); } });
     let seen: SessionSource | undefined;
-    adapter.listen(async (src, _t, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-1' }); return 'r'; });
+    wireCronHost(adapter, async (src, _t, onEvent) => { seen = src; onEvent?.({ type: 'session', sessionId: 'brain-1' }); return 'r'; });
     await adapter.tick();
 
     expect(seen?.origin).toEqual({ userId: 1, sessionId: 'brain-1-job-r1', dedicated: { title: 'report' } });

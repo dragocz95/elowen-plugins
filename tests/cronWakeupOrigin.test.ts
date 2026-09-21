@@ -10,6 +10,7 @@ import type { TurnIdentity } from 'elowen/dist/plugins/policyContext.js';
 import type { Policy } from 'elowen/dist/plugins/policy.js';
 import type { SessionSource } from 'elowen/dist/plugins/api.js';
 import { pluginDbFor } from './helpers/pluginDb.js';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,6 +33,7 @@ interface CronTurnEvent { type: string; sessionId?: string; model?: string; usag
  *  resolved scheduler limits (see plugins/cronjob/elowen-plugin.json's "Scheduler" config section). */
 interface CronAdapterUnderTest {
   listen(fn: (src: SessionSource, text: string, onEvent?: (e: CronTurnEvent) => void) => Promise<string | undefined>): void;
+  control(api: { relay: (src: SessionSource, text: string, observer?: { onEvent: (e: CronTurnEvent) => void }) => Promise<string | undefined> }): void;
   tick(): Promise<void>;
   tickMs: number;
   turnAttempts: number;
@@ -126,7 +128,7 @@ describe('cron tick — origin-bound wake-up routing', () => {
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
     let seenSrc: SessionSource | undefined;
     let seenText = '';
-    adapter.listen(async (src, text, onEvent) => {
+    wireCronHost(adapter, async (src, text, onEvent) => {
       seenSrc = src; seenText = text;
       onEvent?.({ type: 'session', sessionId: 'brain-1-abc' }); // host confirms the bound-send route
       return 'done, replied in the conversation';
@@ -144,7 +146,7 @@ describe('cron tick — origin-bound wake-up routing', () => {
     const delivered: string[] = [];
     writeJobs(dataRoot, [dueWakeup({ originSessionId: 'brain-1-gone', originUserId: 1 })]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       onEvent?.({ type: 'session', sessionId: 'brain-ch-cron-job-j1' }); // channel fallback ran instead
       return 'fallback reply';
     });
@@ -160,7 +162,7 @@ describe('cron tick — origin-bound wake-up routing', () => {
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
     let seenSrc: SessionSource | undefined;
     let seenText = '';
-    adapter.listen(async (src, text) => { seenSrc = src; seenText = text; return 'plain reply'; });
+    wireCronHost(adapter, async (src, text) => { seenSrc = src; seenText = text; return 'plain reply'; });
     await adapter.tick();
     expect(seenSrc?.origin).toBeUndefined();
     expect(seenText).toBe('say hi'); // no wake-up framing without an origin conversation
@@ -173,7 +175,7 @@ describe('cron tick — origin-bound wake-up routing', () => {
     const delivered: string[] = [];
     writeJobs(dataRoot, [dueWakeup({ originSessionId: 'brain-1-abc', originUserId: 1 })]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       onEvent?.({ type: 'session', sessionId: 'brain-1-abc' }); // bound-send route confirmed…
       throw new Error('turn blew up after the session event'); // …but the turn then failed, maybe with no client attached
     });
@@ -200,7 +202,7 @@ describe('cron tick — delivered runtime footer', () => {
     const delivered: string[] = [];
     writeJobs(dataRoot, [dueJob()]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       if (idle) onEvent?.(idle);
       return 'the report';
     });
@@ -244,7 +246,7 @@ describe('cron tick — one-shot lifecycle (consume before run)', () => {
     writeJobs(dataRoot, [dueWakeup({})]);
     const { adapter } = await loadCron(dataRoot, async () => {});
     let jobsWhileRunning: unknown[] = [{ marker: true }];
-    adapter.listen(async () => {
+    wireCronHost(adapter, async () => {
       jobsWhileRunning = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')); // read at "mid-turn"
       throw new Error('daemon crashed mid-turn');
     });
@@ -254,7 +256,7 @@ describe('cron tick — one-shot lifecycle (consume before run)', () => {
     // After the crash the job is gone: it can't re-fire and doesn't linger in jobs.json.
     expect(JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8'))).toEqual([]);
     let fired = false;
-    adapter.listen(async () => { fired = true; return 'x'; });
+    wireCronHost(adapter, async () => { fired = true; return 'x'; });
     await adapter.tick();
     expect(fired).toBe(false);
   });
@@ -263,7 +265,7 @@ describe('cron tick — one-shot lifecycle (consume before run)', () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [{ id: 'r1', name: 'poll', schedule: 'every 15m', prompt: 'check', createdAt: new Date().toISOString() }]);
     const { adapter } = await loadCron(dataRoot, async () => {});
-    adapter.listen(async () => 'ran');
+    wireCronHost(adapter, async () => 'ran');
     await adapter.tick();
     const jobs = JSON.parse(readFileSync(jobsFile(dataRoot), 'utf-8')) as Record<string, unknown>[];
     expect(jobs).toHaveLength(1);
@@ -291,7 +293,7 @@ describe('cron tick — reliability (re-entrancy guard + bounded retry)', () => 
     let calls = 0;
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    adapter.listen(async () => { calls++; await gate; return 'ok'; });
+    wireCronHost(adapter, async () => { calls++; await gate; return 'ok'; });
     const first = adapter.tick(); // starts; the handler is invoked and parks on the gate
     await Promise.resolve();
     await adapter.tick(); // second tick overlaps — the guard makes it a no-op
@@ -307,7 +309,7 @@ describe('cron tick — reliability (re-entrancy guard + bounded retry)', () => 
     writeJobs(dataRoot, [dueJob()]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
     let calls = 0;
-    adapter.listen(async () => {
+    wireCronHost(adapter, async () => {
       calls++;
       if (calls === 1) throw new Error('400 "Bad Request (ref: abc)"'); // transient relay blip, nothing ran
       return 'recovered report';
@@ -331,7 +333,7 @@ describe('cron tick — reliability (re-entrancy guard + bounded retry)', () => 
     writeJobs(dataRoot, [dueJob()]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
     let calls = 0;
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       calls++;
       onEvent?.({ type: 'tool' } as { type: string }); // the turn already ran a tool (a side effect)...
       throw new Error('500 upstream blip'); // ...then failed — retrying would repeat the side effect
@@ -347,7 +349,7 @@ describe('cron tick — reliability (re-entrancy guard + bounded retry)', () => 
     writeJobs(dataRoot, [dueJob()]);
     const { adapter } = await loadCron(dataRoot, async (t) => { delivered.push(t); });
     let calls = 0;
-    adapter.listen(async () => { calls++; throw new Error('400 persistent'); });
+    wireCronHost(adapter, async () => { calls++; throw new Error('400 persistent'); });
     vi.useFakeTimers();
     try {
       const p = adapter.tick();
@@ -420,7 +422,7 @@ describe('cron control — pending wake-up origins (the retention seam)', () => 
     writeJobs(dataRoot, [dueWakeup({ originSessionId: 'brain-1-abc', originUserId: 1 })]);
     const { reg, adapter } = await loadCron(dataRoot, async () => {});
     expect(reg.control('cron')!.retainedSessionIds(1)).toEqual(['brain-1-abc']); // pending → protected
-    adapter.listen(async (_src, _text, onEvent) => {
+    wireCronHost(adapter, async (_src, _text, onEvent) => {
       onEvent?.({ type: 'session', sessionId: 'brain-1-abc' });
       return 'done';
     });
@@ -498,7 +500,7 @@ describe('cron scheduler config (user-configurable limits)', () => {
     expect(adapter.turnAttempts).toBe(1);
     expect(adapter.checkTimeoutMs).toBe(15_000);
     let calls = 0;
-    adapter.listen(async () => { calls++; throw new Error('400 transient blip'); });
+    wireCronHost(adapter, async () => { calls++; throw new Error('400 transient blip'); });
     await adapter.tick(); // with attempts=1 there's no retry branch, so no fake-timer backoff wait is needed
     expect(calls).toBe(1); // no retry, unlike the default attempts=2 behavior
     expect(delivered.some((d) => d.includes('Error: 400 transient blip'))).toBe(true);

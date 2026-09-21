@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { register } from '../plugins/cronjob/index.mjs';
 import { pluginDb } from './helpers/pluginDb.mjs';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const asText = (result) => result.content[0].text;
@@ -112,7 +113,7 @@ test('cron persists direct delivery targets and suppresses generic notify after 
   let seenOrigin;
   let hostDeliveries = 0;
   let turns = 0;
-  plugin.adapter.listen(async (src, _text, onEvent) => {
+  wireCronHost(plugin.adapter, async (src, _text, onEvent) => {
     turns += 1;
     seenOrigin = src.origin;
     onEvent({ type: 'session', sessionId: 'brain-ch-whatsapp-4201' });

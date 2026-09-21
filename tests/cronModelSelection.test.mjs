@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { register } from '../plugins/cronjob/index.mjs';
 import { pluginDb } from './helpers/pluginDb.mjs';
+import { wireCronHost } from './helpers/cronAdapter.mjs';
 
 const log = { info() {}, warn() {}, error() {} };
 const asText = (result) => result.content[0].text;
@@ -84,7 +85,7 @@ const dueJob = (extra = {}) => ({
 async function tickOnce(plugin) {
   let seen;
   let turns = 0;
-  plugin.adapter.listen(async (src) => { seen = src; turns += 1; return 'ran'; });
+  wireCronHost(plugin.adapter, async (src) => { seen = src; turns += 1; return 'ran'; });
   await plugin.adapter.tick();
   return { seen, turns };
 }

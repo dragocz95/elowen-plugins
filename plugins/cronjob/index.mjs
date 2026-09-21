@@ -194,7 +194,7 @@ class CronAdapter {
     // Asked at every fire for the same reason: scheduling is a granted capability, and taking the grant
     // away has to actually stop the schedules it allowed.
     this.ownerMaySchedule = ownerMaySchedule;
-    this.handler = null; this.running = false;
+    this.relay = null; this.running = false;
     // A durable manual request is queued ON THE JOB ROW (manualRequest) and the dedupe token lands in
     // `lastManualRequestId` after the claim. A manual request never rewrites the schedule; the tick
     // claims the OLDEST of them before the natural due work and runs it through the exact same
@@ -216,7 +216,17 @@ class CronAdapter {
     this.checkOutputMaxChars = clampConfig(config.checkOutputChars, DEFAULT_CHECK_OUTPUT_CHARS, 2_000, 200_000);
     this.cronLookbackMs = clampConfig(config.cronLookbackMs, DEFAULT_CRON_LOOKBACK_MS, 3_600_000, 604_800_000);
   }
-  listen(onMessage) { this.handler = onMessage; }
+  // The host wires its ordinary inbound handler here. This adapter has no inbound traffic and never turns
+  // one into work: a scheduled or manual run enters through `control().relay` below, the only entry that
+  // carries host-relay provenance — and therefore the only one that files the job's transcript under the
+  // account that scheduled it. The callback is deliberately not kept, so nothing can call it by accident.
+  listen() {}
+  // The host's out-of-band control surface. `relay` is the ONLY entry a synthetic turn may use now: it is
+  // what stamps host-relay provenance, so an owned job's own room is filed under the account that
+  // scheduled it, and a job can never claim more than its owner holds because the host re-resolves the
+  // account's policy, Project and tool authority on every call. Calling a saved listen handler instead
+  // would run the turn but leave its transcript on the operator.
+  control(api) { this.relay = api.relay; }
   async connect() {
     this.journal.prune(Date.now());
     this.maintenanceTimer = setInterval(() => {
@@ -311,7 +321,7 @@ class CronAdapter {
     // One tick at a time. Jobs run sequentially and each is a (slow) LLM turn, so a due-cluster — e.g. the
     // morning batch of daily reports — can exceed the 30s interval; without this guard the next interval
     // overlaps, double-fires a job and hammers the relay with concurrent turns (a source of transient 400s).
-    if (!this.handler || this.running || this.stopped) return;
+    if (!this.relay || this.running || this.stopped) return;
     this.running = true;
     try {
     // Retry any result a previous tick prepared but failed to deliver — a re-send only, never a re-run
@@ -526,7 +536,7 @@ class CronAdapter {
       let reply;
       for (let attempt = 1; ; attempt++) {
         idle = null; boundDelivery = false; sawWork = false;
-        try { reply = await this.handler(src, userText, onEvent); break; }
+        try { reply = await this.relay(src, userText, { onEvent }); break; }
         catch (e) {
           if (attempt < this.turnAttempts && !sawWork && !job.runAt) {
             this.log.warn(`cron job ${job.id} attempt ${attempt} failed (${e?.message ?? e}) — retrying in ${this.retryBackoffMs}ms`);
@@ -595,7 +605,7 @@ class CronAdapter {
    *  one handed to the host before this generation exists may still be running there. */
   status() {
     return {
-      ready: !!(this.handler && !this.stopped),
+      ready: !!(this.relay && !this.stopped),
       ...(this.runningJobId ? { runningJobId: this.runningJobId, runningSince: this.runningSince } : {}),
     };
   }
