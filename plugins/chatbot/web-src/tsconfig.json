@@ -1,0 +1,17 @@
+{
+  "//": "An editor-facing mirror of tsconfig.plugins-web.json, which is the config the repository gate actually runs (it type-checks every plugin's browser sources in one pass). Kept here so opening this folder in an editor uses the same settings instead of inventing its own: esbuild STRIPS types without checking them, so without a typecheck a bundle can pass props the host never had.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true
+  },
+  "include": ["./**/*.ts", "./**/*.tsx"]
+}
