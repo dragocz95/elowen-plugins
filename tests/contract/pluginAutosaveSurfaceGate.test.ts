@@ -14,6 +14,16 @@ type SurfaceContract = {
  * actions, credentials, uploads, source files and atomic multi-step forms remain explicit by design. */
 const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/browser/web-src/BrowserAccount.tsx', mode: 'explicit-save', reason: 'session lifecycle and confirmed destructive profile cleanup actions' },
+  // Chatbot's two write-bearing surfaces are listed even though the write-signal scan cannot see them:
+  // both go through `jsonRequest` in the bundle's own runtime.ts, which the scan deliberately skips as
+  // shared plumbing, so they would be absent from the inventory exactly because they are tidy. Saving a
+  // chatbot is ONE deliberate submit — the row's `updatedAt` is the concurrency token the server compares,
+  // so a debounced autosave would race another administrator for nothing — and enabling it is a separate
+  // confirmed action that must never be a keystroke's side effect. Creating a chatbot spans three owners
+  // (core account, core Project assignment, plugin row) and its retry has to resume at the step that
+  // failed, which no debounce can express.
+  { path: 'plugins/chatbot/web-src/BotDetail.tsx', mode: 'explicit-save', reason: 'whole-row compare-and-set save, plus a separately confirmed enable/disable' },
+  { path: 'plugins/chatbot/web-src/CreateBotDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit multi-owner submit whose retry resumes at the failed step' },
   { path: 'plugins/cronjob/web-src/JobDrawer.tsx', mode: 'canonical' },
   { path: 'plugins/cronjob/web-src/AutomationPage.tsx', mode: 'explicit-save', reason: 'run-now and pause are immediate operational actions; JobDrawer owns canonical field autosave' },
   { path: 'plugins/cronjob/web-src/CreateJobDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit submit: an idempotent requestId guards the retry, not a debounced autosave' },

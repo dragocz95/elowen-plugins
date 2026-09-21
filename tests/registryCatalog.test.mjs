@@ -162,6 +162,14 @@ const EXPECTED_CAPABILITIES = {
   // `controls` resolves the environment provider so a project browser runs INSIDE the selected managed
   // project, and `stores` re-checks that project membership; neither reaches the personal browser.
   browser: { reads: ['controls', 'db', 'stores'], network: true },
+  // Chatbot reads by both halves of its job and nothing else. `db` holds its own bots, visitor tokens,
+  // turns and their public event log; `stores` is how it re-checks, on EVERY admission, that the account
+  // carrying a chatbot still IS a chatbot and still has exactly one usable managed Project — the plugin
+  // keeps no second copy of that decision. No `network`: a chat turn reaches the model through the host
+  // relay and a document download (when it lands) goes through the host's own validated transport, so the
+  // plugin opens no socket of its own. No `mutates`: it owns no prompt, memory or user row outside its
+  // own tables.
+  chatbot: { reads: ['db', 'stores'] },
   // `controls` was added when the semantic index started reading a managed project through the Sandbox
   // control instead of the host filesystem; core approved codebase as a Sandbox consumer in the same
   // change. Without it the index cannot see a managed project's files at all.
