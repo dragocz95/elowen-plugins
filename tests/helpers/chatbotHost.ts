@@ -74,7 +74,9 @@ export function scriptedTurn(reply: string | undefined): (input: TurnInput) => P
     observer?.onEvent({ type: 'session', sessionId: 'brain-ch-chatbot-session' });
     // Reasoning and tool traffic are what a public log must never carry; the queue's allowlist drops them.
     observer?.onEvent({ type: 'reasoning', delta: 'internal thinking' });
-    observer?.onEvent({ type: 'tool', name: 'Search' });
+    // Deliberately NOT a shape the plugin's narrow restatement declares: a public log has to drop a tool
+    // event whatever core puts in it, so this fake carries a field the plugin never reads.
+    observer?.onEvent({ type: 'tool', name: 'Search' } as ChatbotRelayEvent);
     observer?.onEvent({ type: 'text', delta: reply ?? '' });
     return reply;
   };

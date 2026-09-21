@@ -421,7 +421,7 @@ export class ChatSession {
       this.token,
       'POST',
       PUBLIC_PATHS.actionDecision(turnId, frame.actionId),
-      actionDecisionBody(decision, frame.confirmationNonce ?? ''),
+      actionDecisionBody(decision, frame.confirmationNonce),
       undefined,
       true,
     );

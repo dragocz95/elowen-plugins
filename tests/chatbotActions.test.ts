@@ -228,7 +228,7 @@ describe('the page state a turn recorded', () => {
   });
 
   it('refuses anything that is not a description this widget could have produced', () => {
-    const cases: [string, unknown][] = [
+    const cases: [string, Record<string, unknown>][] = [
       ['no snapshot id', pageState({ snapshotId: 'nope' })],
       ['a uuid instead of a snapshot id', pageState({ snapshotId: randomUUID() })],
       ['no url', pageState({ url: undefined })],
@@ -338,7 +338,9 @@ function liveTurn(host: ChatbotHost, options: { visitorId?: string; message?: st
 /** A host whose chatbot may actually answer a visitor: registered, with the site it answers on, and with the
  *  adapter the host wired. A turn can only be acted on where the visitor's traffic was allowed in the first
  *  place, so every suite here starts from exactly that. */
-async function actionHost(options: { actionTimeoutMs?: number; accounts?: Parameters<typeof createChatbotHost>[0]['accounts'] } = {}): Promise<ChatbotHost> {
+type HostOptions = NonNullable<Parameters<typeof createChatbotHost>[0]>;
+
+async function actionHost(options: { actionTimeoutMs?: number; accounts?: HostOptions['accounts'] } = {}): Promise<ChatbotHost> {
   const host = createChatbotHost(options);
   registerBot(host);
   await host.adapter.connect();
@@ -406,6 +408,7 @@ describe('the lifecycle of one action', () => {
       snapshotId: SNAPSHOT,
       requiresConfirmation: false,
     });
+    expect(frame).not.toBeNull();
     expect(frame!.confirmationNonce.length).toBeGreaterThanOrEqual(8);
     expect(readableAtWakeUp).toEqual([row.id]);
 

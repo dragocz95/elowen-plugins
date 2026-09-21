@@ -140,7 +140,10 @@ export interface ActionFrame {
   value: string | null;
   snapshotId: string;
   requiresConfirmation: boolean;
-  confirmationNonce: string | null;
+  /** Always present: every action carries a nonce, and a frame whose nonce is missing or malformed is one
+   *  this reader drops rather than hands on. The type says what the reader guarantees, so no consumer has to
+   *  invent a fallback for a frame that could not have reached it. */
+  confirmationNonce: string;
 }
 
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

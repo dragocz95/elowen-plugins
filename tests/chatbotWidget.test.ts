@@ -308,7 +308,7 @@ describe('describing the page', () => {
     // A form's action travels as a destination without its query string.
     expect(parsed.forms).toEqual([{ id: 'f0', name: 'kontakt', method: 'post', action: 'https://example.test/odeslat' }]);
 
-    const byId = new Map(parsed.targets.map((target: Record<string, unknown>) => [target.id, target]));
+    const byId = new Map<string, Record<string, unknown>>(parsed.targets.map((target: Record<string, unknown>) => [target.id as string, target]));
     expect(parsed.targets).toHaveLength(4);
     expect(byId.get('e0')).toMatchObject({ tag: 'input', name: 'jmeno', label: 'Jméno', value: 'Jan', required: true, form: 'f0' });
     expect(byId.get('e0')!.caps).toContain('fill');
@@ -336,7 +336,7 @@ describe('describing the page', () => {
       expect(snapshot.json).not.toContain(secret);
     }
     const parsed = JSON.parse(snapshot.json) as Record<string, any>;
-    const byId = new Map(parsed.targets.map((target: Record<string, unknown>) => [target.id, target]));
+    const byId = new Map<string, Record<string, unknown>>(parsed.targets.map((target: Record<string, unknown>) => [target.id as string, target]));
     // A password field is invisible to the agent in every way that matters: no value, no read, no write.
     // Its NAME here says nothing, so only the type it declares keeps it out.
     expect(byId.get('e0')).toMatchObject({ type: 'password' });
