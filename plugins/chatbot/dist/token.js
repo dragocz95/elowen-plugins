@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { VISITOR_AUTHORIZATION_SCHEME } from './publicContract.js';
 /** Anonymous visitors carry a credential the SERVER issued. A visitor id guessed, leaked or typed by a
  *  client is worth nothing on its own: authority is the signature over the id, the chatbot it was issued
  *  for and its expiry, and the database row that still records it as live. */
@@ -102,13 +103,12 @@ export function sameHash(a, b) {
 }
 /** The `Authorization` value a widget sends. The scheme is its own, so this credential can never be
  *  mistaken for a bearer token of another surface. */
-const TOKEN_AUTHORIZATION_SCHEME = 'ChatbotVisitor';
 export function readAuthorizationToken(headers) {
     const raw = headers.authorization ?? headers.Authorization;
     if (typeof raw !== 'string')
         return null;
     const [scheme, value, ...rest] = raw.trim().split(/\s+/);
-    if (rest.length > 0 || scheme !== TOKEN_AUTHORIZATION_SCHEME || !value)
+    if (rest.length > 0 || scheme !== VISITOR_AUTHORIZATION_SCHEME || !value)
         return null;
     return value;
 }

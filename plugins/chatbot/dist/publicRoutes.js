@@ -2,17 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
+import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { isCanonicalUuid, PUBLIC_SCHEMA_VERSION, validateTokenIssuance, validateTurnSubmission } from './validation.js';
-/** The one mount this plugin declares: every public endpoint is a remainder under it, so a later version
- *  can be served beside this one instead of changing what a deployed widget talks to.
- *
- *  Nothing here is authorisation by CORS. The daemon's global permissive CORS middleware answers a
- *  preflight (204 with `*`) before the hook dispatcher is reached, and a preflight reads nothing and grants
- *  nothing either way: what admits a request is the plugin's own decision below — an `Origin` header that
- *  matches one of the chatbot's allowed domains, a host-resolved trusted network origin, and a live visitor
- *  token. A caller outside the allowlist is refused here regardless of what any CORS header says. */
-export const PUBLIC_MOUNT = 'v1';
+import { isCanonicalUuid, validateTokenIssuance, validateTurnSubmission } from './validation.js';
+import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
 /** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
  *  restoration aid rather than a history export, and because the whole answer has to stay small enough for
  *  the phone the widget runs on. */
@@ -267,7 +260,7 @@ export function createPublicRoute(deps) {
         // object no widget can read. Refuse instead of answering something that only looks like a stream.
         if (req.acceptsStreamBody !== true)
             return reply(503, { error: 'stream_unavailable' });
-        const after = readAfter(req.query.after);
+        const after = readAfter(req.query[EVENTS_AFTER_QUERY]);
         if (!after.ok)
             return reply(400, { error: 'invalid_request', detail: after.error }, corsHeaders(origin));
         const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
@@ -292,6 +285,17 @@ export function createPublicRoute(deps) {
         const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
         const path = segments.join('/');
         const origin = req.headers.origin ?? req.headers.Origin;
+        // The widget script, answered BEFORE anything else: a customer's own page fetches it with a classic
+        // `<script src>`, which carries no `Origin` header and is not a request by a visitor of any chatbot.
+        // The asset is public by design and grants nothing — every request that asks for state still passes
+        // the origin and token gates below.
+        if (req.method === 'GET' && path === PUBLIC_PATHS.widget)
+            return widgetAssetReply(req);
+        // Nothing below is authorisation by CORS. The daemon's global permissive CORS middleware answers a
+        // preflight (204 with `*`) before the hook dispatcher is reached, and a preflight reads nothing and
+        // grants nothing either way: what admits a request is the plugin's own decision — an `Origin` header
+        // matching one of the chatbot's allowed domains, a host-resolved trusted network origin, and a live
+        // visitor token. A caller outside the allowlist is refused here regardless of any CORS header.
         const gate = checkRequestOrigin(req);
         if (gate)
             return gate;
@@ -299,19 +303,32 @@ export function createPublicRoute(deps) {
         // endpoint serves, and it is checked before anything is parsed.
         if (typeof origin !== 'string' || origin === '')
             return reply(403, { error: 'origin_not_allowed' });
-        if (req.method === 'POST' && path === 'visitors')
+        if (req.method === 'POST' && path === PUBLIC_PATHS.visitors)
             return handleTokenIssuance(req, origin);
-        if (req.method === 'POST' && path === 'visitors/refresh')
+        if (req.method === 'POST' && path === PUBLIC_PATHS.refresh)
             return handleRefresh(req, origin);
-        if (req.method === 'POST' && path === 'turns')
+        if (req.method === 'POST' && path === PUBLIC_PATHS.turns)
             return handleTurn(req, origin);
-        if (req.method === 'GET' && path === 'conversation')
+        if (req.method === 'GET' && path === PUBLIC_PATHS.conversation)
             return handleConversation(req, origin);
-        if (req.method === 'GET' && segments.length === 3 && segments[0] === 'turns' && segments[2] === 'events') {
+        if (req.method === 'GET' && segments.length === 3
+            && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.events) {
             return handleTurnEvents(req, origin, segments[1]);
         }
         return reply(404, { error: 'not_found' });
     };
+}
+/** One request for the widget script. `If-None-Match` is answered with a bodiless `304` so a page load that
+ *  already holds the bundle costs one round trip and no bytes, which is what makes the short cache window
+ *  above affordable: a fix reaches visitors on the next load, and an unchanged bundle costs almost nothing
+ *  in between. */
+function widgetAssetReply(req) {
+    const asset = widgetAsset();
+    const headers = widgetAssetHeaders(asset.etag);
+    const ifNoneMatch = req.headers['if-none-match'] ?? req.headers['If-None-Match'];
+    if (matchesEtag(ifNoneMatch, asset.etag))
+        return { status: 304, headers, body: undefined };
+    return { status: 200, headers, body: asset.body };
 }
 /** A body this endpoint will INTERPRET must say it is JSON. A form-encoded or text/plain body is not a
  *  request this API takes, and answering it as though it were would be guessing at what the caller meant. */

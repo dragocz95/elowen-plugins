@@ -1,9 +1,8 @@
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
-/** The public request and response schema version. A request naming another version is refused, never
- *  reinterpreted, and every public frame carries this same value. */
-export const PUBLIC_SCHEMA_VERSION = 1;
-/** A visitor message. The hook body is capped at 1 MiB by core; this is the bot-specific bound. */
-const MESSAGE_MAX_BYTES = 8 * 1024;
+import { MESSAGE_MAX_BYTES, PUBLIC_SCHEMA_VERSION } from './publicContract.js';
+/** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
+ *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
+ *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
 const DISPLAY_NAME_MAX_CHARS = 80;
 const PROMPT_MAX_CHARS = 8_000;
 const ORIGINS_MAX = 20;
