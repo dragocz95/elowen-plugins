@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
+import { parseStoredAppearance } from './appearanceContract.js';
 import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission } from './validation.js';
@@ -221,6 +222,42 @@ export function createPublicRoute(deps) {
         // event stream next, and that is where a retry after a lost 202 learns what has already happened.
         return turnReceipt(outcome.turn, origin);
     };
+    /** `GET v1/appearance`: how this chatbot's panel looks, for the widget that is about to draw it.
+     *
+     *  It is NOT a secret and it is not state: it is the same document for every visitor of one chatbot. It
+     *  still passes the visitor's own gates, because the alternative — answering it from a bare public id —
+     *  would map which chatbots exist and are enabled for anyone who guessed an id, and the token already
+     *  identifies exactly this chatbot and visitor. A chatbot that does not exist, is disabled, has lost its
+     *  Project or is not the one this token was issued for is refused here exactly as everywhere else. */
+    const handleAppearance = (req, origin) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+        if (!allowed.ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        const blocked = blockedReply(admitted.bot);
+        if (blocked)
+            return blocked;
+        // A row this plugin wrote and can no longer read is a fact about the deployment, not something to paper
+        // over with a look the customer never chose. The visitor keeps the widget's own built-in panel, and the
+        // refusal is logged. The grant travels with the refusal like every other answer a widget can trigger: a
+        // cross-origin reply without it is unreadable in a browser, so this one would surface as a CORS error on
+        // the customer's own page instead of as the refusal it is.
+        let appearance;
+        try {
+            appearance = parseStoredAppearance(admitted.bot.appearance);
+        }
+        catch (error) {
+            warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${error instanceof Error ? error.message : String(error)}`);
+            return reply(503, { error: 'appearance_invalid' }, corsHeaders(origin));
+        }
+        return reply(200, {
+            schemaVersion: PUBLIC_SCHEMA_VERSION,
+            name: admitted.bot.display_name,
+            appearance,
+        }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
+    };
     /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
      *  recent turns, each one's public status and the answer it finished with. It is deliberately NOT a
      *  transcript read: the plugin serves the projection it published, never core's conversation. */
@@ -399,6 +436,8 @@ export function createPublicRoute(deps) {
             return handleRefresh(req, origin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.turns)
             return handleTurn(req, origin, requestOrigin);
+        if (req.method === 'GET' && path === PUBLIC_PATHS.appearance)
+            return handleAppearance(req, origin);
         if (req.method === 'GET' && path === PUBLIC_PATHS.conversation)
             return handleConversation(req, origin);
         if (req.method === 'GET' && segments.length === 3

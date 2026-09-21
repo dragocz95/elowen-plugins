@@ -2,7 +2,8 @@ import { newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
 import { LIMIT_FIELDS, incompleteValues, missingLimits, storedLimits } from './limits.js';
-import { validateBotCreate, validateBotPatch } from './validation.js';
+import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './validation.js';
+import { parseStoredAppearance } from './appearanceContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 /** How many conversations one page of the register holds, and how many turns one transcript read returns.
  *  Both are bounded reads on purpose: this surface is a register and a transcript, not an export. */
@@ -59,6 +60,7 @@ export function createAdminApi(deps) {
             status: row.status,
             origins,
             actionRules: store.actionRulesOf(row.chatbot_user_id).map(ruleView),
+            appearance: parseStoredAppearance(row.appearance),
             embedSnippet: embedSnippetFor(deps.publicBaseUrl(), row.public_id),
             updatedAt: row.updated_at,
             account: facts.account === null ? null : {
@@ -347,6 +349,33 @@ export function createAdminApi(deps) {
                     },
                 },
             };
+        },
+        /** Save the look, and the display name that goes with it, as a whole. Its own route rather than another
+         *  optional field of `PATCH bots`, so the appearance editor cannot touch the prompt or the domains it
+         *  never showed, and so a colour cannot be saved through a payload nobody validated as an appearance. */
+        async updateAppearance(auth, body) {
+            const refusal = requireAdmin(auth);
+            if (refusal)
+                return refusal;
+            const parsed = validateAppearanceWrite(body);
+            if (!parsed.ok)
+                return { status: 400, body: { error: 'invalid_request', detail: parsed.error } };
+            const current = store.botByUserId(parsed.value.chatbotUserId);
+            if (!current)
+                return { status: 404, body: { error: 'not_found' } };
+            if (parsed.value.expectedUpdatedAt !== current.updated_at)
+                return { status: 409, body: { error: 'conflict' } };
+            const updated = store.updateAppearance({
+                chatbotUserId: parsed.value.chatbotUserId,
+                expectedUpdatedAt: parsed.value.expectedUpdatedAt,
+                displayName: parsed.value.displayName,
+                appearance: JSON.stringify(parsed.value.appearance),
+                now: now().toISOString(),
+            });
+            // Lost between the read and the write: someone else committed first.
+            if (!updated)
+                return { status: 409, body: { error: 'conflict' } };
+            return { status: 200, body: { bot: viewOf(updated) } };
         },
     };
 }

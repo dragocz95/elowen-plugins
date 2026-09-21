@@ -103,6 +103,7 @@ export const PUBLIC_SEGMENTS = {
   result: 'result',
   confirmation: 'confirmation',
   conversation: 'conversation',
+  appearance: 'appearance',
   widget: WIDGET_ASSET_NAME,
 } as const;
 
@@ -112,6 +113,7 @@ export const PUBLIC_PATHS = {
   refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
   turns: PUBLIC_SEGMENTS.turns,
   conversation: PUBLIC_SEGMENTS.conversation,
+  appearance: PUBLIC_SEGMENTS.appearance,
   events: (turnId: string): string =>
     `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
   actionResult: (turnId: string, actionId: string): string =>

@@ -81,6 +81,7 @@ export const PUBLIC_SEGMENTS = {
     result: 'result',
     confirmation: 'confirmation',
     conversation: 'conversation',
+    appearance: 'appearance',
     widget: WIDGET_ASSET_NAME,
 };
 /** The public paths, relative to the mount. */
@@ -89,6 +90,7 @@ export const PUBLIC_PATHS = {
     refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
     turns: PUBLIC_SEGMENTS.turns,
     conversation: PUBLIC_SEGMENTS.conversation,
+    appearance: PUBLIC_SEGMENTS.appearance,
     events: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
     actionResult: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
     actionDecision: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.confirmation}`,

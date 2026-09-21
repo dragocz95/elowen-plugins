@@ -16,8 +16,10 @@ export interface WidgetStrings {
   close: string;
   /** The empty input's hint. */
   placeholder: string;
-  /** The greeting the panel opens with. */
+  /** The greeting the panel opens with, when the chatbot is configured with none of its own. */
   intro: string;
+  /** Accessible label of the group of quick buttons under the greeting. Their own text is the chatbot's. */
+  quickButtons: string;
   /** Shown while the answer keeps failing to arrive. */
   reconnecting: string;
   /** A turn that failed on the server after the visitor submitted it. */
@@ -48,6 +50,7 @@ const CS: WidgetStrings = {
   close: 'Zavřít',
   placeholder: 'Napište zprávu',
   intro: 'Dobrý den. Pomohu vám s vyplněním formuláře na této stránce.',
+  quickButtons: 'Rychlé dotazy',
   reconnecting: 'Spojení se přerušilo, zkouším se znovu připojit.',
   errorTurn: 'Odpověď se nepodařilo dokončit. Zkuste to prosím znovu.',
   errorUnavailable: 'Chatbot teď není dostupný. Zkuste to prosím později.',
@@ -68,6 +71,7 @@ const SK: WidgetStrings = {
   close: 'Zavrieť',
   placeholder: 'Napíšte správu',
   intro: 'Dobrý deň. Pomôžem vám s vyplnením formulára na tejto stránke.',
+  quickButtons: 'Rýchle otázky',
   reconnecting: 'Spojenie sa prerušilo, skúšam sa znova pripojiť.',
   errorTurn: 'Odpoveď sa nepodarilo dokončiť. Skúste to prosím znova.',
   errorUnavailable: 'Chatbot teraz nie je dostupný. Skúste to prosím neskôr.',
@@ -88,6 +92,7 @@ const EN: WidgetStrings = {
   close: 'Close',
   placeholder: 'Write a message',
   intro: 'Hello. I can help you fill in the form on this page.',
+  quickButtons: 'Quick questions',
   reconnecting: 'The connection dropped. Reconnecting.',
   errorTurn: 'The answer could not be finished. Please try again.',
   errorUnavailable: 'The chatbot is not available right now. Please try again later.',

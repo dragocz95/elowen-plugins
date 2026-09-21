@@ -22,6 +22,7 @@ import {
   type ActionOutcome,
   type PageFailureDetail,
 } from '../src/publicContract.js';
+import { parseAppearance, type ChatbotLook } from '../src/appearanceContract.js';
 import { decideAction, type ActionRefusal, type ActionTarget, type ApprovedAction } from '../src/actions.js';
 import {
   actionDecisionBody,
@@ -122,6 +123,13 @@ export class ChatSession {
     this.token = this.readStoredToken();
   }
 
+  /** Whether this browser already holds a visitor token, which is the same question as "has this visitor
+   *  engaged with the panel before". A page whose panel has never been opened answers NO, and that is what
+   *  keeps such a page from reaching the hook at all. */
+  hasStoredToken(): boolean {
+    return this.token !== null;
+  }
+
   /** Pick the conversation up where the visitor left it, if this browser ever had one. Nothing is sent to
    *  the server when it did not: a page load with an untouched panel makes no request at all. */
   async start(): Promise<void> {
@@ -147,6 +155,32 @@ export class ChatSession {
       // picks it up from what was already rendered.
       void this.follow(conversation.activeTurnId);
     }
+  }
+
+  /** How this chatbot's panel looks, and the name that goes with it.
+   *
+   *  This is the widget's ONLY configuration read, and it is deliberately not made on page load: it is made
+   *  when the panel is first opened (or, for a visitor this browser has seen before, just before the
+   *  transcript is restored), so a page nobody engaged with is never touched. It answers `null` for every
+   *  refusal — an unavailable chatbot, a spent token, an appearance this version cannot read — and the panel
+   *  then keeps the widget's own built-in look rather than showing something the customer did not choose. */
+  async loadAppearance(): Promise<ChatbotLook | null> {
+    let token: string;
+    try {
+      token = await this.ensureToken();
+    } catch {
+      return null;
+    }
+    const response = await this.request(token, 'GET', PUBLIC_PATHS.appearance, null);
+    if (!response || !response.ok) return null;
+    const body = await readJson(response);
+    if (!body) return null;
+    const parsed = parseAppearance(body.appearance);
+    if (!parsed.ok) {
+      console.warn(`[elowen-chatbot] the appearance this deployment served is not one this widget reads: ${parsed.error}`);
+      return null;
+    }
+    return { name: typeof body.name === 'string' ? body.name : '', appearance: parsed.value };
   }
 
   /** Send one message. `shown` says the panel already displayed it — a submit through the panel's own input

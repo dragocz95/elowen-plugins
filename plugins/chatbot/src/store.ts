@@ -212,6 +212,24 @@ export class ChatbotStore {
     return this.botByUserId(input.chatbotUserId);
   }
 
+  /** Write the look — and the display name, which the panel draws — under the same compare-and-set as every
+   *  other edit of a bot: a stale write reports a conflict instead of replacing another administrator's.
+   *
+   *  It is deliberately its own statement rather than a wider `updateBot`: the appearance editor owns these
+   *  two fields and nothing else, so saving a colour can neither read nor write a prompt it never showed. */
+  updateAppearance(input: {
+    chatbotUserId: number;
+    expectedUpdatedAt: string;
+    displayName: string;
+    appearance: string;
+    now: string;
+  }): BotRow | null {
+    const result = this.stmt('UPDATE p_chatbot_bots SET display_name = ?, appearance = ?, updated_at = ? WHERE chatbot_user_id = ? AND updated_at = ?')
+      .run(input.displayName, input.appearance, input.now, input.chatbotUserId, input.expectedUpdatedAt);
+    if (result.changes === 0) return null;
+    return this.botByUserId(input.chatbotUserId);
+  }
+
   deleteBot(chatbotUserId: number): void {
     this.db.transaction(() => {
       this.stmt('DELETE FROM p_chatbot_actions WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);

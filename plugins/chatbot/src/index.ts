@@ -145,6 +145,10 @@ export function register(published: PluginContext): void {
     return disabled;
   };
 
+  // The look is its own mount rather than another field of `bots`: the editor that owns it sends exactly
+  // what it owns, so a colour can never arrive through a payload that was validated as something else.
+  ctx.registerApiRoute({ path: 'appearance', method: 'PUT', access: 'admin', handler: async (req) => adminApi.updateAppearance(req.auth, await req.json()) });
+
   // A turn this process no longer runs cannot be resumed: the core turn is gone with the process, and
   // replaying it would be a second model turn for one submitted message. Say so instead of leaving a
   // visitor's widget waiting on a turn nobody will finish — and say it in the durable log as well, so a
