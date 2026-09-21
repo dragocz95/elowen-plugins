@@ -1,5 +1,5 @@
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
-import { MESSAGE_MAX_BYTES, PUBLIC_SCHEMA_VERSION } from './publicContract.js';
+import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION, type ActionDecision, type ActionOutcome } from './publicContract.js';
 
 /** Every payload that crosses a trust boundary — the public hook and the admin API — is validated here,
  *  strictly: unknown keys are REFUSED rather than ignored, so a client that sends a field this version
@@ -12,6 +12,11 @@ export type Validated<T> = { ok: true; value: T } | { ok: false; error: string }
 const DISPLAY_NAME_MAX_CHARS = 80;
 const PROMPT_MAX_CHARS = 8_000;
 const ORIGINS_MAX = 20;
+
+/** How much of a page's own explanation may be kept with an action. A `read` answers with the value it
+ *  found, and a failed action with a stable code — both are short, and a page that sends more is not
+ *  answering the question it was asked. */
+const RESULT_DETAIL_MAX_CHARS = 200;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -91,6 +96,55 @@ export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId:
   if (message.value.trim() === '') return { ok: false, error: '"message" must not be empty' };
   if (utf8Length(message.value) > MESSAGE_MAX_BYTES) return { ok: false, error: '"message" is too long' };
   return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value } };
+}
+
+// ── page action reports ───────────────────────────────────────────────────────────────────────────────
+
+/** `POST v1/turns/:turnId/actions/:actionId/result`. What the visitor's page did with an action the server
+ *  approved.
+ *
+ *  `detail` means two different things and is validated as two. A page that FAILED or was REFUSED may only
+ *  name a code this plugin knows: a reason the model reads is the plugin's own word for what happened, and
+ *  an unrecognized string dressed as one would be a page putting words in the plugin's mouth. The value a
+ *  `read` found is the page's own text, so it is bounded rather than recognized — and it is handed to the
+ *  model as page data, never as a reason. */
+
+export function validateActionResult(body: unknown): Validated<{ outcome: ActionOutcome; detail: string | null }> {
+  const outer = strictObject(body, ['schemaVersion', 'outcome', 'detail'], ['schemaVersion', 'outcome']);
+  if (!outer.ok) return outer;
+  const version = readSchemaVersion(outer.value);
+  if (!version.ok) return version;
+  const outcome = readString(outer.value, 'outcome', 16);
+  if (!outcome.ok) return outcome;
+  if (!(ACTION_OUTCOMES as readonly string[]).includes(outcome.value)) {
+    return { ok: false, error: 'that is not an outcome this version reports' };
+  }
+  if (outer.value.detail === undefined) return { ok: true, value: { outcome: outcome.value as ActionOutcome, detail: null } };
+  const detail = readString(outer.value, 'detail', RESULT_DETAIL_MAX_CHARS);
+  if (!detail.ok) return detail;
+  if (outcome.value !== 'done' && !(PAGE_FAILURE_DETAILS as readonly string[]).includes(detail.value)) {
+    return { ok: false, error: 'that is not a reason this version reports' };
+  }
+  return { ok: true, value: { outcome: outcome.value as ActionOutcome, detail: detail.value } };
+}
+
+/** `POST v1/turns/:turnId/actions/:actionId/confirmation`. The visitor's own answer, carrying the nonce the
+ *  server issued with the action: the nonce is what makes it good for one action and one submission, and a
+ *  caller that does not hold it is not the page this action was sent to. */
+export function validateActionDecision(body: unknown): Validated<{ decision: ActionDecision; nonce: string }> {
+  const outer = strictObject(body, ['schemaVersion', 'decision', 'nonce'], ['schemaVersion', 'decision', 'nonce']);
+  if (!outer.ok) return outer;
+  const version = readSchemaVersion(outer.value);
+  if (!version.ok) return version;
+  const decision = readString(outer.value, 'decision', 16);
+  if (!decision.ok) return decision;
+  if (!(ACTION_DECISIONS as readonly string[]).includes(decision.value)) {
+    return { ok: false, error: 'that is not an answer to a confirmation' };
+  }
+  const nonce = readString(outer.value, 'nonce', 128);
+  if (!nonce.ok) return nonce;
+  if (nonce.value.length < 8) return { ok: false, error: '"nonce" is too short to be one this server issued' };
+  return { ok: true, value: { decision: decision.value as ActionDecision, nonce: nonce.value } };
 }
 
 // ── admin payloads ───────────────────────────────────────────────────────────────────────────────────

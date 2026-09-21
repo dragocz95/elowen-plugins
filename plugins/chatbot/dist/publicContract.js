@@ -99,6 +99,37 @@ export const ACTION_OUTCOMES = ['done', 'error', 'denied'];
 /** The visitor's answer to a confirmation the server required. `confirm` is only ever sent from a real
  *  click: a widget that could be talked into confirming has no confirmation at all. */
 export const ACTION_DECISIONS = ['confirm', 'decline'];
+/** Why THIS plugin refused an action request. One vocabulary for both sides: the server answers the model
+ *  with one of these codes, and a widget that refuses a frame on its own reports the same code back, so the
+ *  two can never describe one refusal in two ways. */
+const ACTION_REFUSALS = [
+    'unknown_action',
+    'stale_snapshot',
+    'unknown_target',
+    'capability_not_granted',
+    'submit_is_its_own_action',
+    'not_a_submit_target',
+    'invalid_value',
+    'action_budget_exhausted',
+];
+/** The plugin's own refusals that only the server can reach: the turn recorded no page to act on, the
+ *  chatbot's rules do not allow the action here, and a rule asks for a confirmation this version can only
+ *  carry for a form submission. A page never reports these, so they stay out of `PAGE_FAILURE_DETAILS`. */
+const ACTION_RULE_REFUSALS = ['action_not_allowed', 'confirmation_unavailable'];
+/** What a page may say about an action it did not complete: the failures a browser can hit, the widget's own
+ *  last-resort code, and the plugin's refusals echoed back by the page that received them.
+ *
+ *  A report's `detail` is one of these codes — or, for a `read`, the short value the page showed the visitor.
+ *  Prose from the page never travels as a REASON, because a reason is read by a model as this plugin's own
+ *  word for what happened, while the value a `read` found is page text that is always presented as data. */
+export const PAGE_FAILURE_DETAILS = [
+    'target_gone',
+    'no_form',
+    'form_invalid',
+    'action_failed',
+    'widget_error',
+    ...ACTION_REFUSALS,
+];
 /** Whether an action kind is only ever performed after the visitor themselves confirmed it. */
 export function requiresVisitorConfirmation(kind) {
     return kind === CONFIRMATION_ACTION_KIND;

@@ -4,6 +4,7 @@ import {
   TARGET_ID_PATTERN,
   requiresVisitorConfirmation,
   type ActionKind,
+  type ActionRefusal,
 } from './publicContract.js';
 
 /** The page-action policy: the ONE place that answers whether an action may be performed on a page.
@@ -27,16 +28,12 @@ export interface ActionTarget {
 }
 
 /** Why an action was refused. Every reason is a fact about the request, never about the page's contents:
- *  a caller learns that it asked for something disallowed, not what else is on the page. */
-type ActionRefusal =
-  | 'unknown_action'
-  | 'stale_snapshot'
-  | 'unknown_target'
-  | 'capability_not_granted'
-  | 'submit_is_its_own_action'
-  | 'not_a_submit_target'
-  | 'invalid_value'
-  | 'action_budget_exhausted';
+ *  a caller learns that it asked for something disallowed, not what else is on the page.
+ *
+ *  The vocabulary itself lives in the shared contract, because it is not private to this file: the server
+ *  answers the model with these codes and a widget reports them back, so a second list here is how a caller
+ *  ends up explaining a refusal that never happened. */
+export type { ActionRefusal };
 
 /** One action as it arrived from a model, before anything has been believed about it. */
 interface ActionRequest {
@@ -109,6 +106,11 @@ const CAPABILITY_FOR_KIND: Record<ActionKind, string | null> = {
 
 const isActionKind = (value: string): value is ActionKind => (ACTION_KINDS as readonly string[]).includes(value);
 
+/** Whether a name is one of the kinds this version has an action for. Exported because the server checks
+ *  it before it looks anything up, and because a second membership test beside that one is how the two
+ *  lists drift. */
+export { isActionKind };
+
 /** Whether a described target would submit a form. It is the ONE property that separates an ordinary
  *  click from an irreversible step, so it is read in one place only. */
 export function targetWouldSubmit(target: ActionTarget): boolean {
@@ -137,8 +139,20 @@ export function decideAction(input: ActionPolicyInput): ActionDecision {
   const value = readValue(kind, request.value);
   if (!value.ok) return { ok: false, reason: 'invalid_value' };
 
-  const target = readTarget(kind, request.targetId, input.targets);
-  if (!target.ok) return { ok: false, reason: target.reason };
+  const targetResult = readTarget(kind, request.targetId, input.targets);
+  if (!targetResult.ok) return { ok: false, reason: targetResult.reason };
+  const target = targetResult.value;
+
+  // A kind that needs no target carries none at all, and the page itself is what it acts on. `readTarget`
+  // has already refused a target-less kind that does need one, and the only kind here is `scroll`, whose
+  // capability rule is emptiness and which is neither a click nor a submission — so there is nothing left
+  // to check it against.
+  if (target === null) {
+    return {
+      ok: true,
+      action: { kind, targetId: null, value: value.value, requiresConfirmation: requiresVisitorConfirmation(kind) },
+    };
+  }
 
   // The submit rule is decided BEFORE the capability rule, so a click on a submit button is answered with
   // the one thing that may be done instead, rather than with a capability the element never had.
@@ -146,12 +160,12 @@ export function decideAction(input: ActionPolicyInput): ActionDecision {
   // A submit-capable element can never be clicked: the click would send the form, which is an irreversible
   // step the visitor alone may take. It has to be asked for as `request_submit`, which carries the
   // confirmation the visitor answers themselves.
-  if (kind === 'click' && targetWouldSubmit(target.value)) return { ok: false, reason: 'submit_is_its_own_action' };
-  if (kind === CONFIRMATION_ACTION_KIND && !targetWouldSubmit(target.value)) {
+  if (kind === 'click' && targetWouldSubmit(target)) return { ok: false, reason: 'submit_is_its_own_action' };
+  if (kind === CONFIRMATION_ACTION_KIND && !targetWouldSubmit(target)) {
     return { ok: false, reason: 'not_a_submit_target' };
   }
   const capability = CAPABILITY_FOR_KIND[kind];
-  if (capability !== null && !target.value.caps.includes(capability)) {
+  if (capability !== null && !target.caps.includes(capability)) {
     return { ok: false, reason: 'capability_not_granted' };
   }
 
@@ -159,24 +173,27 @@ export function decideAction(input: ActionPolicyInput): ActionDecision {
     ok: true,
     action: {
       kind,
-      targetId: target.value.id,
+      targetId: target.id,
       value: value.value,
       requiresConfirmation: requiresVisitorConfirmation(kind),
     },
   };
 }
 
+/** The target a request names, resolved against the snapshot's own list of them.
+ *
+ *  A kind that needs no target answers with `null` rather than with an empty id: an empty id is a target
+ *  that resolves to nothing, and a widget that looked it up would report the element as having vanished
+ *  from a page nothing had touched. */
 function readTarget(
   kind: ActionKind,
   raw: string | null,
   targets: readonly ActionTarget[],
-): { ok: true; value: ActionTarget } | { ok: false; reason: ActionRefusal } {
+): { ok: true; value: ActionTarget | null } | { ok: false; reason: ActionRefusal } {
   if (raw === null || raw === '') {
     // A kind that needs no target still refuses a target that is not a target: an id this policy cannot
     // resolve is not something to carry along and hope the page recognises.
-    return TARGET_REQUIRED[kind]
-      ? { ok: false, reason: 'unknown_target' }
-      : { ok: true, value: { id: '', caps: [] } };
+    return TARGET_REQUIRED[kind] ? { ok: false, reason: 'unknown_target' } : { ok: true, value: null };
   }
   if (!TARGET_ID_PATTERN.test(raw)) return { ok: false, reason: 'unknown_target' };
   const found = targets.find((target) => target.id === raw);
