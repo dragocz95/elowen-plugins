@@ -69,7 +69,21 @@ npm run test:e2e:chatbot       # the widget in a real browser, on a page you can
 
 ## Settings
 
-`visitorTokenTtlDays` (Settings → Plugins → chatbot) is the lifetime of an issued visitor token. Everything else is per chatbot, on the **Chatbots** page: its display name, its instructions, the domains it may answer on, and whether it is enabled.
+`visitorTokenTtlDays` (Settings → Plugins → chatbot) is the lifetime of an issued visitor token. Everything else is per chatbot, on the **Chatbots** page: its display name, its instructions, the domains it may answer on, its page-action rules, and whether it is enabled.
+
+## The administrator's page
+
+The **Chatbots** page has three tabs over one selection, so switching tabs keeps the chatbot you were looking at.
+
+- **Chatbots** — the register and one chatbot's configuration: registration facts read live from the account, its instructions, its allowed domains, its page-action rules (which action may be done on which domain and path, how often, and whether the visitor has to confirm it), the embed snippet, and the tools its account can reach right now. Enable and disable are explicit, confirmed actions.
+- **Conversations** — one page of this chatbot's conversations, and one conversation's own words and answers. A conversation is a `(chatbot, visitor)` pair, so no chatbot's history can appear under another's heading, and the transcript holds what the plugin published to the widget: the model's tool calls and its reasoning are core transcript and are not read by this route at all.
+- **Statistics** — the plugin's own admission counters per UTC day (with queue waits), and the account's spend.
+
+**What the numbers are.** The chart and the totals are the plugin's own counters, read from its own rows. The spend figures are read from the instance's `usage_by_origin` rollup through the core admin route, for the chatbot's own account and the same window — that rollup is the only source of origin-attributed spend in this codebase, and neither this page nor the plugin's API ever counts tokens or cost by scanning messages. The rollup begins on the day tracking started, which the page states. The two counters are separate and are not presented as checks on each other.
+
+**Grants are not edited here.** A chatbot's account reaches this plugin's tool only while the account holds the `chatbot` grant, so the dialog that creates a chatbot writes that grant (and the tool grant) alongside core's own account and Project assignment, keeping whatever else the account already had. After that, account grants are edited on the **Users** screen, which owns that rule: this page reports what the account can reach and hands you over rather than keeping a second copy of a permission rule.
+
+**Action rules.** With no rule for a domain, the plugin's own per-turn ceiling governs every action the page allows. A rule is the allowlist of the path it names: the longest matching path prefix wins, and an action the rule does not list is refused there. A rule can only lower the per-turn ceiling, never raise it, and only submitting a form can require the visitor's confirmation — the server refuses a rule it could never act on rather than storing one that reads like a policy and does nothing.
 
 ## Operations
 
