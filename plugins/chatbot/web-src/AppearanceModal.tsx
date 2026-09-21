@@ -21,7 +21,8 @@ import {
   type AppearanceMode,
   type ChatbotAppearance,
 } from '../src/appearanceContract';
-import { apiJson, jsonRequest, runtime, type ChatbotBotView } from './runtime';
+import { apiJson, jsonRequest, runtime } from './runtime';
+import type { ChatbotBotView } from './types';
 import { AppearancePreview } from './AppearancePreview';
 
 /** A hint for the form, never the rule: the server parses every address it is given and refuses one it

@@ -1,7 +1,6 @@
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
-import type { ChatbotAppearance } from '../src/appearanceContract';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
