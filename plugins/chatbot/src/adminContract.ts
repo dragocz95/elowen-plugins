@@ -7,6 +7,7 @@
  *  on this contract. What travels is an administrator's own configuration and aggregate counts. */
 
 import type { LimitValues, MandatoryLimitField } from './limits.js';
+import type { ChatbotAppearance } from './appearanceContract.js';
 
 /** How long one action rule's path prefix may be. */
 export const ACTION_PATH_PREFIX_MAX_CHARS = 200;
@@ -79,6 +80,9 @@ export interface ChatbotBotView {
    *  the request itself until the model location and the retention policy are decided, and the page says so
    *  rather than offering a switch that cannot work. */
   sensitiveMode: boolean;
+  /** The stored look, parsed into a complete appearance. It travels with the bot so the appearance editor
+   *  opens on what a visitor is actually shown rather than asking the server for it again. */
+  appearance: ChatbotAppearance;
 }
 
 /** An account that could carry a chatbot but does not yet. */
