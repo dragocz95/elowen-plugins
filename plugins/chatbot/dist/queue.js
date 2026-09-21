@@ -1,52 +1,142 @@
 import { relayEventFields, visitorSource } from './adapter.js';
+import { readBotLimits } from './limits.js';
 /** The public event log a website reads. Only these names ever reach a browser, and every one of them is
  *  built from the fields this plugin chose to keep — never from a raw host event. */
 const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error'];
 /** Stable public error codes. A visitor learns one of these and nothing about the daemon's internals. */
-const PUBLIC_ERROR_CODES = ['turn_failed', 'relay_no_reply', 'server_restarted'];
-/** Runs submitted turns. The POST that submitted one returned 202 and holds nothing open: this worker owns
- *  the relay promise, so a browser that goes away mid-answer cannot cancel the work, and the answer lands in
- *  the durable event log for whoever reconnects.
+const PUBLIC_ERROR_CODES = ['turn_failed', 'relay_no_reply', 'server_restarted', 'queue_timeout'];
+/** How many turns one pump pass will close when a chatbot cannot run any at all. A bound, not a policy: the
+ *  loop it guards is one that always shrinks the queue, and this only stops it if that ever stops being true. */
+const UNRUNNABLE_DRAIN_LIMIT = 100;
+/** Runs submitted turns.
  *
- *  One turn at a time is a deliberate placeholder: the real per-chatbot concurrency ceiling, the FIFO
- *  bounds and the queue metrics belong to the limits phase, which owns those numbers. What must not wait
- *  for that phase is the shape below — the relay promise is owned here and nowhere else. */
+ *  The POST that submitted one returned 202 and holds nothing open: this worker owns the relay promise, so a
+ *  browser that goes away mid-answer cannot cancel the work, and the answer lands in the durable event log for
+ *  whoever reconnects.
+ *
+ *  What runs, and how much of it, is decided by DURABLE state and the chatbot's own numbers, not by a list
+ *  held in this process:
+ *
+ *  - at most `max_concurrent_turns` of one chatbot's turns run at once, counted from the turn rows
+ *    themselves, so a restart cannot leave a slot held by a turn nobody runs;
+ *  - the oldest waiting turn of a chatbot goes first (FIFO by `created_at`, then by id);
+ *  - a turn that waits longer than `queue_timeout_seconds` is closed as `queue_timeout` without a model call;
+ *  - a turn whose chatbot has no usable limits is failed rather than run under a number this queue invented.
+ *
+ *  Depth and admission are NOT decided here: a turn only exists because the public route admitted it against
+ *  the same numbers, in the database, before this class was told anything. */
 export class ChatbotTurnQueue {
     deps;
-    pending = [];
-    draining = false;
-    stopped = false;
+    /** Chatbots with work that has not been dispatched yet. A hint, not a queue: what runs is read from the
+     *  store, and this set only says which chatbots are worth asking about. */
+    dirty = new Set();
+    deadlines = new Map();
+    pumping = false;
     constructor(deps) {
         this.deps = deps;
     }
-    /** Admit a queued turn. Returns immediately; work happens on the drain loop. */
+    /** Admit a queued turn into this process. Returns immediately; the work happens on the pump. */
     submit(turnId) {
-        if (this.stopped)
+        const turn = this.deps.store.turn(turnId);
+        if (!turn)
             return;
-        this.pending.push(turnId);
-        void this.drain();
+        this.watchDeadline(turn);
+        this.dirty.add(turn.chatbot_user_id);
+        this.pump();
     }
-    /** Boot reconcile left turns behind that this process never ran. They are not replayed: the core turn is
-     *  gone, and pretending to resume it would be a second model turn for one submitted message. */
-    stop() {
-        this.stopped = true;
-        this.pending = [];
-    }
-    async drain() {
-        if (this.draining)
+    /** Dispatch whatever may run right now, for one pass. Synchronous on purpose: every decision below is a
+     *  compare-and-set against the rows, so a second pass cannot interleave with this one and see a slot this
+     *  one has already taken. The launched turns are not awaited — they are why the class exists. */
+    pump() {
+        if (this.pumping)
             return;
-        this.draining = true;
+        this.pumping = true;
         try {
-            for (;;) {
-                const turnId = this.pending.shift();
-                if (turnId === undefined || this.stopped)
-                    return;
-                await this.runOne(turnId);
+            for (const chatbotUserId of [...this.dirty]) {
+                const bot = this.deps.store.botByUserId(chatbotUserId);
+                if (!bot) {
+                    // The bot row is gone while turns of it are not. Nothing here invents a bot: the turns are closed
+                    // so no visitor waits on a chatbot that no longer exists.
+                    this.drainUnrunnable(chatbotUserId, 'the chatbot is no longer registered');
+                    this.dirty.delete(chatbotUserId);
+                    continue;
+                }
+                const limits = readBotLimits(bot);
+                if (!limits) {
+                    this.drainUnrunnable(chatbotUserId, 'the chatbot has no usable limits');
+                    this.dirty.delete(chatbotUserId);
+                    continue;
+                }
+                // The count is re-read every iteration rather than kept in a local number: a turn that failed
+                // synchronously inside this same pass has already given its slot back, and this loop is then free to
+                // dispatch the next one instead of stopping one turn short.
+                while (this.deps.store.runningCount(chatbotUserId) < limits.maxConcurrentTurns) {
+                    const next = this.deps.store.nextQueuedTurn(chatbotUserId);
+                    if (!next) {
+                        this.dirty.delete(chatbotUserId);
+                        break;
+                    }
+                    // Claim it. A lost claim means another process took this turn; the row has left the waiting set, so
+                    // the next read returns a different one and this loop still makes progress.
+                    if (!this.deps.store.markTurnRunning(next.turn_id, this.deps.now()))
+                        break;
+                    this.clearDeadline(next.turn_id);
+                    void this.runTurn(next.turn_id, bot).catch((error) => {
+                        // The only handler left: this call is not awaited, and a failure here would otherwise be an
+                        // unhandled rejection that takes the daemon with it.
+                        this.deps.warn(`chatbot: turn ${next.turn_id} left the queue unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
+                    });
+                }
             }
         }
         finally {
-            this.draining = false;
+            this.pumping = false;
         }
+    }
+    /** Ask again after something settled: a slot may have come free for the next waiting turn. */
+    poke(chatbotUserId) {
+        this.dirty.add(chatbotUserId);
+        this.pump();
+    }
+    /** Close every waiting turn of a chatbot that cannot run any of them, oldest first. Bounded, and only ever
+     *  reached by a state admission already refuses to serve: it exists so a visitor is told, instead of waiting
+     *  forever on a turn nothing will pick up. */
+    drainUnrunnable(chatbotUserId, reason) {
+        for (let guard = 0; guard < UNRUNNABLE_DRAIN_LIMIT; guard += 1) {
+            const next = this.deps.store.nextQueuedTurn(chatbotUserId);
+            if (!next)
+                return;
+            this.deps.warn(`chatbot: turn ${next.turn_id} cannot run: ${reason}`);
+            this.clearDeadline(next.turn_id);
+            this.fail(next.turn_id, 'turn_failed', null);
+        }
+        this.deps.warn(`chatbot: chatbot ${chatbotUserId} stopped being drained after ${UNRUNNABLE_DRAIN_LIMIT} failed turns`);
+    }
+    /** Start the clock on a turn's own wait. A chatbot whose timeout is not configured schedules nothing: the
+     *  deadline is a number the owner sets, and this queue does not invent one. */
+    watchDeadline(turn) {
+        const limits = readBotLimits(this.deps.store.botByUserId(turn.chatbot_user_id));
+        if (!limits)
+            return;
+        const deadline = Date.parse(turn.created_at) + limits.queueTimeoutSeconds * 1_000;
+        const delay = Math.max(0, deadline - Date.parse(this.deps.now()));
+        const cancel = (this.deps.schedule ?? defaultSchedule)(turn.turn_id, delay, () => this.expireWaiting(turn.turn_id));
+        this.deadlines.set(turn.turn_id, cancel);
+    }
+    clearDeadline(turnId) {
+        this.deadlines.get(turnId)?.();
+        this.deadlines.delete(turnId);
+    }
+    /** A waiting turn's clock ran out. Only a turn that is STILL waiting is closed: one that started, finished
+     *  or was already closed has a state of its own, and this timer says nothing about it. */
+    expireWaiting(turnId) {
+        this.deadlines.delete(turnId);
+        const turn = this.deps.store.turn(turnId);
+        if (!turn || turn.status !== 'queued')
+            return;
+        this.deps.warn(`chatbot: turn ${turnId} waited for a slot longer than its chatbot allows and was not run`);
+        this.fail(turnId, 'queue_timeout', null);
+        this.poke(turn.chatbot_user_id);
     }
     /** Write one public event and THEN announce it. The order is the invariant: a subscriber that wakes up
      *  reads the log, so an event nobody can read must never be announced, and an event that was announced is
@@ -60,63 +150,73 @@ export class ChatbotTurnQueue {
         this.record(turnId, 'error', { code });
         this.deps.store.finishTurn({ turnId, status: 'error', coreSessionId: sessionId, errorCode: code, now: this.deps.now() });
     }
-    /** Send one turn through the host relay and project what the visitor is allowed to see. */
-    async runOne(turnId) {
+    /** Send one claimed turn through the host relay and project what the visitor is allowed to see.
+     *
+     *  The turn is already `running`: this process claimed it before launching. Everything between here and the
+     *  settle is either the relay's own outcome or one of the two facts this process can establish without it
+     *  (no relay control, no bot). */
+    async runTurn(turnId, bot) {
         const { store, adapter, warn } = this.deps;
         const turn = store.turn(turnId);
-        if (!turn || turn.status !== 'queued')
+        if (!turn || turn.status !== 'running')
             return;
-        const bot = store.botByUserId(turn.chatbot_user_id);
-        if (!bot) {
-            this.fail(turnId, 'turn_failed', null);
-            return;
-        }
-        // Readiness is re-checked HERE, not only when the request was admitted: a turn can sit in the queue
-        // while the adapter is torn down, and a half-wired relay would otherwise run a turn nothing owns.
-        const relay = adapter.relay();
-        if (!relay) {
-            this.fail(turnId, 'turn_failed', null);
-            return;
-        }
-        store.markTurnRunning(turnId, this.deps.now());
-        this.record(turnId, 'accepted', {});
-        const source = visitorSource({
-            chatbotUserId: turn.chatbot_user_id,
-            visitorId: turn.visitor_id,
-            displayName: bot.display_name,
-            instructions: bot.prompt,
-        });
-        let sessionId = null;
         try {
-            const reply = await relay(source, turn.message, {
-                onEvent: (event) => {
-                    const fields = relayEventFields(event);
-                    if (fields.type === 'session' && fields.sessionId) {
-                        sessionId = fields.sessionId;
-                        return;
-                    }
-                    // Everything else is dropped except the answer's own text. The relay event stream also carries
-                    // reasoning, tool activity, file references and internal error text, and none of that may cross
-                    // into a log an anonymous visitor reads.
-                    if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
-                        this.record(turnId, 'text_delta', { text: fields.delta });
-                    }
-                },
-            });
-            // `undefined` is not an empty answer: the seam documents it as a deliberate silence or a refused
-            // path, and reporting it as success would show a visitor a blank reply. It is an error here.
-            if (reply === undefined) {
-                warn(`chatbot turn ${turnId} produced no reply; the relay resolved without one`);
-                this.fail(turnId, 'relay_no_reply', sessionId);
+            // Readiness is re-checked HERE, not only when the request was admitted: a turn can sit in the queue
+            // while the adapter is torn down, and a half-wired relay would otherwise run a turn nothing owns.
+            const relay = adapter.relay();
+            if (!relay) {
+                this.fail(turnId, 'turn_failed', null);
                 return;
             }
-            this.record(turnId, 'done', { text: reply });
-            store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
+            this.record(turnId, 'accepted', {});
+            const source = visitorSource({
+                chatbotUserId: turn.chatbot_user_id,
+                visitorId: turn.visitor_id,
+                displayName: bot.display_name,
+                instructions: bot.prompt,
+            });
+            let sessionId = null;
+            try {
+                const reply = await relay(source, turn.message, {
+                    onEvent: (event) => {
+                        const fields = relayEventFields(event);
+                        if (fields.type === 'session' && fields.sessionId) {
+                            sessionId = fields.sessionId;
+                            return;
+                        }
+                        // Everything else is dropped except the answer's own text. The relay event stream also carries
+                        // reasoning, tool activity, file references and internal error text, and none of that may cross
+                        // into a log an anonymous visitor reads.
+                        if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
+                            this.record(turnId, 'text_delta', { text: fields.delta });
+                        }
+                    },
+                });
+                // `undefined` is not an empty answer: the seam documents it as a deliberate silence or a refused
+                // path, and reporting it as success would show a visitor a blank reply. It is an error here.
+                if (reply === undefined) {
+                    warn(`chatbot turn ${turnId} produced no reply; the relay resolved without one`);
+                    this.fail(turnId, 'relay_no_reply', sessionId);
+                    return;
+                }
+                this.record(turnId, 'done', { text: reply });
+                store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
+            }
+            catch (error) {
+                // The internal detail stays in the daemon log; the visitor gets a stable code.
+                warn(`chatbot turn ${turnId} failed: ${error instanceof Error ? error.message : String(error)}`);
+                this.fail(turnId, 'turn_failed', sessionId);
+            }
         }
-        catch (error) {
-            // The internal detail stays in the daemon log; the visitor gets a stable code.
-            warn(`chatbot turn ${turnId} failed: ${error instanceof Error ? error.message : String(error)}`);
-            this.fail(turnId, 'turn_failed', sessionId);
+        finally {
+            // The slot comes back however this turn ended, and the next waiting turn of the same chatbot is looked
+            // for. `finishTurn` has already moved the row out of `running`, which is what frees it.
+            this.poke(bot.chatbot_user_id);
         }
     }
 }
+/** The scheduler a running daemon uses. The turn id a test scheduler keys on is of no interest to a timer. */
+const defaultSchedule = (_turnId, delayMs, fn) => {
+    const timer = setTimeout(fn, delayMs);
+    return () => clearTimeout(timer);
+};
