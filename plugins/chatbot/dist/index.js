@@ -97,6 +97,13 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'bots', method: 'GET', access: 'admin', handler: async (req) => adminApi.list(req.auth) });
     ctx.registerApiRoute({ path: 'bots', method: 'POST', access: 'admin', handler: async (req) => adminApi.create(req.auth, await req.json()) });
     ctx.registerApiRoute({ path: 'bots', method: 'PATCH', access: 'admin', handler: async (req) => adminApi.update(req.auth, await req.json()) });
+    // What an administrator reads after registering a chatbot: one page of its conversations, one
+    // conversation's own words and answers, and the plugin's own counters over a window of days. All three
+    // name the chatbot they are about and re-check it, so no route here can answer for a chatbot the caller
+    // did not name.
+    ctx.registerApiRoute({ path: 'conversations', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversations(req.auth, req.query) });
+    ctx.registerApiRoute({ path: 'conversation', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversation(req.auth, req.query) });
+    ctx.registerApiRoute({ path: 'stats', method: 'GET', access: 'admin', handler: async (req) => adminApi.stats(req.auth, req.query) });
     // A turn this process no longer runs cannot be resumed: the core turn is gone with the process, and
     // replaying it would be a second model turn for one submitted message. Say so instead of leaving a
     // visitor's widget waiting on a turn nobody will finish — and say it in the durable log as well, so a

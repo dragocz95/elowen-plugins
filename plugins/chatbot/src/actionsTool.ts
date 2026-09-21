@@ -24,6 +24,11 @@ import type { TurnRow } from './db.js';
  *  therefore thrown, so the model, the transcript and the trace all see that this call did not happen. */
 class ToolError extends Error {}
 
+/** The name this tool is registered under, and therefore the core grant a chatbot ACCOUNT needs for its
+ *  turns to reach a page. Declared once: the registration below uses this constant and the administrator's
+ *  API reports it, so the admin page never restates a name this plugin could rename. */
+export const PAGE_ACTION_TOOL_NAME = 'ChatbotPageAction';
+
 const text = (body: string, details: Record<string, unknown> = {}) =>
   ({ content: [{ type: 'text' as const, text: body }], details });
 
@@ -66,7 +71,7 @@ export function registerPageActionTool(deps: PageActionToolDeps): void {
   };
 
   ctx.registerTool(defineTool({
-    name: 'ChatbotPageAction',
+    name: PAGE_ACTION_TOOL_NAME,
     label: 'Act on the visitor\'s page',
     description: [
       'Do one thing on the web page the visitor is looking at, in the visitor\'s own browser, and wait for the result.',

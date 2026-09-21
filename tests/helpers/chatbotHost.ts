@@ -5,7 +5,7 @@ import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
 import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
 import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
-import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
+import { ChatbotStore, type ActionRuleInput } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
 import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
@@ -227,6 +227,7 @@ export function registerBot(host: ChatbotHost, input: {
   publicId?: string;
   status?: 'draft' | 'enabled';
   origins?: string[];
+  actionRules?: ActionRuleInput[];
 } = {}): void {
   const row = host.store.createBot({
     chatbotUserId: input.chatbotUserId ?? 12,
@@ -234,6 +235,7 @@ export function registerBot(host: ChatbotHost, input: {
     displayName: 'Městský úřad',
     prompt: 'Pomáhej s formuláři.',
     origins: input.origins ?? [CHATBOT_SITE],
+    actionRules: input.actionRules ?? [],
     now: NOW_ISO,
   });
   if ((input.status ?? 'enabled') === 'enabled') host.store.setBotStatus({ chatbotUserId: row.chatbot_user_id, status: 'enabled', now: row.updated_at });

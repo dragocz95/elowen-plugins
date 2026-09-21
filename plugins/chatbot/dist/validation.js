@@ -1,5 +1,6 @@
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
-import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION } from './publicContract.js';
+import { isActionKind } from './actions.js';
+import { ACTION_DECISIONS, ACTION_OUTCOMES, CONFIRMATION_ACTION_KIND, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION, WIDGET_MAX_ACTIONS_PER_TURN, requiresVisitorConfirmation, } from './publicContract.js';
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
@@ -173,8 +174,90 @@ export function validateOrigins(input) {
     }
     return { ok: true, value: [...seen] };
 }
+/** How many rules one chatbot may carry. A rule is a statement about one origin, one path and one action,
+ *  and a list beyond this is a policy nobody can read rather than a policy that is too small. */
+const ACTION_RULES_MAX = 100;
+const PATH_PREFIX_MAX_CHARS = 200;
+/** A path prefix is a path SEGMENT prefix (`actionRules.covers`), so it has to start at the root and never
+ *  carry a query, a fragment or a trailing space. A rule written as a URL would silently cover nothing. */
+const normalizePathPrefix = (raw) => {
+    const value = raw.trim();
+    if (value === '')
+        return null;
+    if (!value.startsWith('/'))
+        return null;
+    if (value.length > PATH_PREFIX_MAX_CHARS)
+        return null;
+    if (value.includes('?') || value.includes('#') || /\s/.test(value))
+        return null;
+    return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+};
+/** The chatbot's page-action rules, normalised and checked as a WHOLE list.
+ *
+ *  Two rules may not describe the same place twice: the table's own UNIQUE constraint would refuse the
+ *  second one at write time, and a request carrying a conflict has to be answered with the conflict rather
+ *  than with whichever row happened to win. A confirmation is refused for any action that is not the
+ *  submitting kind, because the widget's protocol can only carry a confirmation for that one — such a rule
+ *  is a policy that can never be satisfied, and it must not be storable while looking like one. */
+export function validateActionRules(input) {
+    if (!Array.isArray(input))
+        return { ok: false, error: '"actionRules" must be an array' };
+    if (input.length > ACTION_RULES_MAX)
+        return { ok: false, error: `at most ${ACTION_RULES_MAX} action rules` };
+    const seen = new Set();
+    const rules = [];
+    for (const entry of input) {
+        const outer = strictObject(entry, ['origin', 'pathPrefix', 'action', 'requiresConfirmation', 'maxPerTurn'], ['origin', 'pathPrefix', 'action', 'maxPerTurn']);
+        if (!outer.ok)
+            return { ok: false, error: `action rule: ${outer.error}` };
+        const origin = readString(outer.value, 'origin', 255);
+        if (!origin.ok)
+            return origin;
+        let normalized;
+        try {
+            normalized = normalizeOrigin(origin.value);
+        }
+        catch (error) {
+            return { ok: false, error: `action rule origin "${origin.value}": ${error instanceof Error ? error.message : 'invalid domain'}` };
+        }
+        if (isWildcardOrigin(normalized))
+            return { ok: false, error: 'action rule: a wildcard domain is not allowed' };
+        const path = readString(outer.value, 'pathPrefix', PATH_PREFIX_MAX_CHARS);
+        if (!path.ok)
+            return path;
+        const pathPrefix = normalizePathPrefix(path.value);
+        if (pathPrefix === null)
+            return { ok: false, error: 'action rule: "pathPrefix" must be a path starting with "/"' };
+        const action = readString(outer.value, 'action', 32);
+        if (!action.ok)
+            return action;
+        if (!isActionKind(action.value))
+            return { ok: false, error: `action rule: "${action.value}" is not an action this version performs` };
+        const requiresConfirmation = outer.value.requiresConfirmation ?? false;
+        if (typeof requiresConfirmation !== 'boolean')
+            return { ok: false, error: 'action rule: "requiresConfirmation" must be a boolean' };
+        if (requiresConfirmation && !requiresVisitorConfirmation(action.value)) {
+            return { ok: false, error: `action rule: "${action.value}" cannot require a confirmation; only ${CONFIRMATION_ACTION_KIND} is answered with one` };
+        }
+        const maxPerTurn = outer.value.maxPerTurn;
+        if (typeof maxPerTurn !== 'number' || !Number.isSafeInteger(maxPerTurn) || maxPerTurn < 1) {
+            return { ok: false, error: 'action rule: "maxPerTurn" must be a positive integer' };
+        }
+        // A rule can only lower the per-turn ceiling the plugin itself enforces, so a larger number would be a
+        // setting that silently does nothing. Refusing it keeps the editor honest.
+        if (maxPerTurn > WIDGET_MAX_ACTIONS_PER_TURN) {
+            return { ok: false, error: `action rule: "maxPerTurn" may not exceed ${WIDGET_MAX_ACTIONS_PER_TURN}` };
+        }
+        const key = `${normalized}\n${pathPrefix}\n${action.value}`;
+        if (seen.has(key))
+            return { ok: false, error: `action rule: ${normalized}${pathPrefix} ${action.value} is listed twice` };
+        seen.add(key);
+        rules.push({ origin: normalized, pathPrefix, action: action.value, requiresConfirmation, maxPerTurn });
+    }
+    return { ok: true, value: rules };
+}
 export function validateBotCreate(body) {
-    const outer = strictObject(body, ['chatbotUserId', 'displayName', 'prompt', 'origins'], ['chatbotUserId']);
+    const outer = strictObject(body, ['chatbotUserId', 'displayName', 'prompt', 'origins', 'actionRules'], ['chatbotUserId']);
     if (!outer.ok)
         return outer;
     const userId = outer.value.chatbotUserId;
@@ -189,12 +272,24 @@ export function validateBotCreate(body) {
     const origins = validateOrigins(outer.value.origins ?? []);
     if (!origins.ok)
         return origins;
-    return { ok: true, value: { chatbotUserId: userId, displayName: displayName.value.trim(), prompt: prompt.value, origins: origins.value } };
+    const actionRules = validateActionRules(outer.value.actionRules ?? []);
+    if (!actionRules.ok)
+        return actionRules;
+    return {
+        ok: true,
+        value: {
+            chatbotUserId: userId,
+            displayName: displayName.value.trim(),
+            prompt: prompt.value,
+            origins: origins.value,
+            actionRules: actionRules.value,
+        },
+    };
 }
 /** The whole editable state is sent on every write. A partial patch would let two administrators each
  *  change one field and lose the other's, and the compare-and-set below could not tell them apart. */
 export function validateBotPatch(body) {
-    const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'action'], ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins']);
+    const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'actionRules', 'action'], ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'actionRules']);
     if (!outer.ok)
         return outer;
     const userId = outer.value.chatbotUserId;
@@ -212,6 +307,9 @@ export function validateBotPatch(body) {
     const origins = validateOrigins(outer.value.origins);
     if (!origins.ok)
         return origins;
+    const actionRules = validateActionRules(outer.value.actionRules);
+    if (!actionRules.ok)
+        return actionRules;
     const action = outer.value.action ?? null;
     if (action !== null && action !== 'enable' && action !== 'disable')
         return { ok: false, error: '"action" must be enable or disable' };
@@ -223,6 +321,7 @@ export function validateBotPatch(body) {
             displayName: displayName.value.trim(),
             prompt: prompt.value,
             origins: origins.value,
+            actionRules: actionRules.value,
             action,
         },
     };

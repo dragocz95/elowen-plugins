@@ -1,7 +1,37 @@
+import { randomUUID } from 'node:crypto';
 import type { PluginDb, PluginDbStatement } from 'elowen/plugin-api';
 import type { ActionRow, ActionRuleRow, BotRow, TokenRow, TurnEventRow, TurnRow, VisitorRow } from './db.js';
 import { isActionKind } from './actions.js';
 import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome } from './publicContract.js';
+
+/** One rule as an administrator wrote it: the store's own write contract, so the shape the admin payload
+ *  is validated into and the shape this class writes are one declaration rather than two. */
+export interface ActionRuleInput {
+  origin: string;
+  pathPrefix: string;
+  action: string;
+  requiresConfirmation: boolean;
+  maxPerTurn: number;
+}
+
+/** One visitor's conversation as the admin register lists it. Metadata only: what was said is read one
+ *  conversation at a time. */
+export interface ConversationSummaryRow {
+  visitorId: string;
+  turns: number;
+  errors: number;
+  firstAt: string;
+  lastAt: string;
+  lastStatus: string;
+}
+
+/** One UTC day of a chatbot's own turn counters. */
+export interface DailyTurnRow {
+  day: string;
+  turns: number;
+  done: number;
+  errors: number;
+}
 
 /** Every plugin-owned read and write in one place, so the public path and the admin surface cannot
  *  disagree about what a row means. */
@@ -41,6 +71,7 @@ export class ChatbotStore {
     displayName: string;
     prompt: string;
     origins: readonly string[];
+    actionRules: readonly ActionRuleInput[];
     now: string;
   }): BotRow {
     return this.db.transaction(() => {
@@ -48,6 +79,7 @@ export class ChatbotStore {
                  VALUES (?, ?, NULL, ?, ?, 'draft', ?, ?)`)
         .run(input.chatbotUserId, input.publicId, input.displayName, input.prompt, input.now, input.now);
       this.replaceOrigins(input.chatbotUserId, input.origins);
+      this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
       return this.botByUserId(input.chatbotUserId)!;
     });
   }
@@ -60,6 +92,7 @@ export class ChatbotStore {
     displayName: string;
     prompt: string;
     origins: readonly string[];
+    actionRules: readonly ActionRuleInput[];
     now: string;
   }): BotRow | null {
     return this.db.transaction(() => {
@@ -67,6 +100,7 @@ export class ChatbotStore {
         .run(input.displayName, input.prompt, input.now, input.chatbotUserId, input.expectedUpdatedAt);
       if (result.changes === 0) return null;
       this.replaceOrigins(input.chatbotUserId, input.origins);
+      this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
       return this.botByUserId(input.chatbotUserId);
     });
   }
@@ -350,6 +384,127 @@ export class ChatbotStore {
   actionRulesOf(chatbotUserId: number): ActionRuleRow[] {
     return this.stmt('SELECT * FROM p_chatbot_action_rules WHERE chatbot_user_id = ? ORDER BY path_prefix DESC')
       .all(chatbotUserId) as ActionRuleRow[];
+  }
+
+  /** Write this chatbot's rules as a WHOLE list, in the same transaction as the rest of a bot write: the
+   *  administrator's editor hands over a complete policy, and two partial writes would leave a rule behind
+   *  that nobody can see in the editor that is supposed to control it. */
+  private replaceActionRules(chatbotUserId: number, rules: readonly ActionRuleInput[], now: string): void {
+    this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
+    const insert = this.stmt(`INSERT INTO p_chatbot_action_rules
+                                (id, chatbot_user_id, origin, path_prefix, action, requires_confirmation, max_per_turn, created_at, updated_at)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const rule of rules) {
+      insert.run(randomUUID(), chatbotUserId, rule.origin, rule.pathPrefix, rule.action,
+        rule.requiresConfirmation ? 1 : 0, rule.maxPerTurn, now, now);
+    }
+  }
+
+  // ── what an administrator reads: conversations, their transcript, and the counters ────────────────
+
+  /** This chatbot's conversations, newest activity first. A conversation is the plugin's own
+   *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show
+   *  one chatbot's visitor under another chatbot's row. */
+  conversations(input: { chatbotUserId: number; limit: number; offset: number }): ConversationSummaryRow[] {
+    const rows = this.stmt(`SELECT visitor_id,
+                                   COUNT(*) AS turns,
+                                   SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
+                                   MIN(created_at) AS first_at,
+                                   MAX(created_at) AS last_at,
+                                   (SELECT last_turn.status FROM p_chatbot_turns AS last_turn
+                                     WHERE last_turn.chatbot_user_id = turns.chatbot_user_id
+                                       AND last_turn.visitor_id = turns.visitor_id
+                                     ORDER BY last_turn.created_at DESC, last_turn.turn_id DESC LIMIT 1) AS last_status
+                              FROM p_chatbot_turns AS turns
+                             WHERE chatbot_user_id = ?
+                          GROUP BY visitor_id
+                          ORDER BY last_at DESC, visitor_id
+                             LIMIT ? OFFSET ?`)
+      .all(input.chatbotUserId, input.limit, input.offset) as {
+        visitor_id: string; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
+      }[];
+    return rows.map((row) => ({
+      visitorId: row.visitor_id,
+      turns: row.turns,
+      errors: row.errors,
+      firstAt: row.first_at,
+      lastAt: row.last_at,
+      lastStatus: row.last_status,
+    }));
+  }
+
+  /** How many conversations this chatbot has, so a pager never offers a page the server answers empty. */
+  conversationCount(chatbotUserId: number): number {
+    const row = this.stmt('SELECT COUNT(DISTINCT visitor_id) AS count FROM p_chatbot_turns WHERE chatbot_user_id = ?')
+      .get(chatbotUserId) as { count: number };
+    return row.count;
+  }
+
+  /** One conversation's turns, oldest first. `visitorId` is matched TOGETHER with the chatbot, so a
+   *  visitor id that belongs to another chatbot reads as an empty conversation rather than as that
+   *  chatbot's history. */
+  conversationTurns(input: { chatbotUserId: number; visitorId: string; limit: number }): TurnRow[] {
+    return this.stmt(`SELECT * FROM p_chatbot_turns
+                       WHERE chatbot_user_id = ? AND visitor_id = ?
+                    ORDER BY created_at, turn_id
+                       LIMIT ?`)
+      .all(input.chatbotUserId, input.visitorId, input.limit) as TurnRow[];
+  }
+
+  /** This chatbot's own admission counters per UTC day, over an inclusive range of days. Read from the
+   *  plugin's own turns rather than from core: what an administrator checks here is what THIS plugin
+   *  admitted, and core's spend rollup is a separate counter that answers a different question. */
+  dailyTurns(input: { chatbotUserId: number; fromDay: string; toDay: string }): DailyTurnRow[] {
+    const rows = this.stmt(`SELECT date(created_at) AS day,
+                                   COUNT(*) AS turns,
+                                   SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+                                   SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+                              FROM p_chatbot_turns
+                             WHERE chatbot_user_id = ? AND date(created_at) BETWEEN ? AND ?
+                          GROUP BY day
+                          ORDER BY day`)
+      .all(input.chatbotUserId, input.fromDay, input.toDay) as { day: string; turns: number; done: number; errors: number }[];
+    return rows;
+  }
+
+  /** This chatbot's turns by state over the same window, plus what is waiting right now. The two live
+   *  states are read without a day filter on purpose: a turn admitted before midnight and still queued is
+   *  what an administrator has to see now, not on the day it was admitted. */
+  turnTotals(input: { chatbotUserId: number; fromDay: string; toDay: string }): {
+    turns: number; done: number; errors: number; queued: number; running: number;
+  } {
+    const window = this.stmt(`SELECT COUNT(*) AS turns,
+                                     SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+                                     SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+                                FROM p_chatbot_turns
+                               WHERE chatbot_user_id = ? AND date(created_at) BETWEEN ? AND ?`)
+      .get(input.chatbotUserId, input.fromDay, input.toDay) as { turns: number; done: number | null; errors: number | null };
+    const live = this.stmt(`SELECT SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+                                   SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running
+                              FROM p_chatbot_turns WHERE chatbot_user_id = ?`)
+      .get(input.chatbotUserId) as { queued: number | null; running: number | null };
+    return {
+      turns: window.turns,
+      done: window.done ?? 0,
+      errors: window.errors ?? 0,
+      queued: live.queued ?? 0,
+      running: live.running ?? 0,
+    };
+  }
+
+  /** How long each started turn waited between being admitted and starting, in milliseconds, over the
+   *  window. Aggregated by the caller: the percentile of a handful of numbers belongs in code a test can
+   *  read, not in a SQL expression nobody can check. */
+  queueWaitsMs(input: { chatbotUserId: number; fromDay: string; toDay: string }): number[] {
+    const rows = this.stmt(`SELECT created_at, started_at FROM p_chatbot_turns
+                             WHERE chatbot_user_id = ? AND started_at IS NOT NULL
+                               AND date(created_at) BETWEEN ? AND ?`)
+      .all(input.chatbotUserId, input.fromDay, input.toDay) as { created_at: string; started_at: string }[];
+    return rows.flatMap((row) => {
+      const queued = Date.parse(row.created_at);
+      const started = Date.parse(row.started_at);
+      return Number.isFinite(queued) && Number.isFinite(started) && started >= queued ? [started - queued] : [];
+    });
   }
 }
 
