@@ -1,0 +1,273 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { decideAction, isActionKind } from './actions.js';
+import { resolveActionRule } from './actionRules.js';
+import { readRecordedPageState } from './pageState.js';
+import { WIDGET_MAX_ACTIONS_PER_TURN, } from './publicContract.js';
+import { actionRequestPayload, actionResultPayload } from './store.js';
+import { hashToken, sameHash } from './token.js';
+/** The per-turn ceiling on page actions.
+ *
+ *  A chatbot's own number belongs to the limits phase; until it exists, the ceiling is the one the served
+ *  widget already refuses at, because approving more than a page will perform is approving actions that can
+ *  never happen — and this is the only ceiling that is enforced in a customer's browser today. Every
+ *  decision below reads it as ONE number the policy is given, never as a default it invents per action. */
+const MAX_ACTIONS_PER_TURN = WIDGET_MAX_ACTIONS_PER_TURN;
+/** How long one action may wait for the visitor's page before it is closed as unanswered.
+ *
+ *  There is one number, not one per kind. A page performs an ordinary action at once, so the wait is only
+ *  ever spent on a `request_submit`, which waits for a person to read what is about to be sent and click.
+ *  A minute is long enough for that and short enough that the turn behind it does not sit there forever. */
+const ACTION_WAIT_TIMEOUT_MS = 60_000;
+/** The page actions of one process: what a turn may ask a page to do, and what happens to the row while it
+ *  waits for the answer.
+ *
+ *  The order is the contract of this module, and it is the order the phases were written in:
+ *
+ *  1. the request is decided against the description the turn RECORDED, the rules of the page's own origin
+ *     and the element's own claim — a refusal leaves no trace in the plugin's tables and none on the page;
+ *  2. the action row and the frame that asks the page for it are written in ONE transaction, BEFORE anything
+ *     is woken: a widget that reconnects reads the same action a connected one received;
+ *  3. the tool waits for the row to reach a state that answers it, and the wait ends either on the page's
+ *     own report, on the visitor's decision, or on the fixed timeout;
+ *  4. the visitor's confirmation carries a nonce that is consumed exactly once, so a replayed confirmation
+ *     is refused rather than becoming a second submission. */
+export class PageActionService {
+    deps;
+    waiters = new ActionWaiters();
+    timeoutMs;
+    constructor(deps) {
+        this.deps = deps;
+        this.timeoutMs = deps.timeoutMs ?? ACTION_WAIT_TIMEOUT_MS;
+    }
+    /** Decide one action and, if it survives the decision, ask the visitor's page to do it. */
+    async request(input) {
+        const { store, warn } = this.deps;
+        const state = readRecordedPageState(input.turn.message);
+        if (!state.ok) {
+            warn(`chatbot: turn ${input.turn.turn_id} was asked for a page action but recorded no usable page state (${state.error})`);
+            return { status: 'refused', reason: 'no_page_state' };
+        }
+        const page = state.value;
+        // The kind is checked before the rules are asked about it: a name this version has no action for is not
+        // a name to look up in a table of actions.
+        if (!isActionKind(input.request.kind))
+            return this.refuse(input, 'unknown_action');
+        const kind = input.request.kind;
+        const verdict = resolveActionRule({
+            rules: store.actionRulesOf(input.chatbotUserId),
+            allowedOrigins: store.originsOf(input.chatbotUserId),
+            origin: page.origin,
+            path: page.path,
+            action: kind,
+            ceiling: MAX_ACTIONS_PER_TURN,
+        });
+        if (!verdict.ok)
+            return this.refuse(input, verdict.reason);
+        const decision = decideAction({
+            request: input.request,
+            // The snapshot the caller named must be the one this turn recorded, and the targets are the recorded
+            // ones: an id is only meaningful inside the description that issued it.
+            snapshotId: input.request.snapshotId ?? '',
+            turnSnapshotId: page.snapshotId,
+            targets: page.targets,
+            performedActions: store.actionCountOfTurn(input.turn.turn_id),
+            maxActionsPerTurn: verdict.maxPerTurn,
+        });
+        if (!decision.ok)
+            return this.refuse(input, decision.reason);
+        return this.dispatch(input, page, decision.action);
+    }
+    /** `POST …/actions/:actionId/result`: what the page did with an action this plugin approved. */
+    reportResult(input) {
+        const row = this.ownedAction(input.turn, input.actionId);
+        if (!row)
+            return { ok: false, reason: 'not_found' };
+        if (!this.live(row))
+            return { ok: false, reason: 'expired' };
+        // A denial is the page refusing what the plugin approved. It is recorded as the failure it is, and the
+        // widget's own word for it is kept in the result rather than folded into the status: nothing downstream
+        // then has to reconstruct which of the two happened.
+        const settled = this.deps.store.settleActionResult({
+            actionId: row.id,
+            status: input.outcome === 'done' ? 'done' : 'error',
+            result: JSON.stringify({ schemaVersion: 1, outcome: input.outcome, detail: input.detail }),
+            now: this.deps.now().toISOString(),
+        });
+        if (!settled)
+            return { ok: false, reason: row.status === 'expired' ? 'expired' : 'closed' };
+        this.deps.info(`chatbot: action ${row.id} (${actionRequestPayload(settled).kind}) ${input.outcome}`);
+        this.waiters.settle(row.id);
+        return { ok: true, row: settled };
+    }
+    /** `POST …/actions/:actionId/confirmation`: the visitor's own answer, carrying the nonce the plugin
+     *  issued with the action. The nonce is checked for BOTH answers — the caller has to be the widget this
+     *  action was sent to — and only a `confirm` consumes it. */
+    reportDecision(input) {
+        const row = this.ownedAction(input.turn, input.actionId);
+        if (!row)
+            return { ok: false, reason: 'not_found' };
+        if (!this.live(row))
+            return { ok: false, reason: 'expired' };
+        if (row.requires_confirmation !== 1)
+            return { ok: false, reason: 'closed' };
+        if (row.status !== 'confirmation_required')
+            return { ok: false, reason: row.status === 'expired' ? 'expired' : 'closed' };
+        if (row.confirmation_nonce_hash === null || !sameHash(hashToken(input.nonce), row.confirmation_nonce_hash)) {
+            return { ok: false, reason: 'invalid_nonce' };
+        }
+        const decided = this.deps.store.decideAction({
+            actionId: row.id,
+            confirmed: input.decision === 'confirm',
+            now: this.deps.now().toISOString(),
+        });
+        if (!decided)
+            return { ok: false, reason: 'closed' };
+        this.deps.info(`chatbot: action ${row.id} (${actionRequestPayload(decided).kind}) ${input.decision === 'confirm' ? 'confirmed' : 'declined'}`);
+        this.waiters.settle(row.id);
+        return { ok: true, row: decided };
+    }
+    /** The action this visitor's turn owns, or nothing. Ownership is what makes a guess useless: an action id
+     *  from another conversation is indistinguishable from one that does not exist. */
+    ownedAction(turn, actionId) {
+        const row = this.deps.store.action(actionId);
+        return !row || row.turn_id !== turn.turn_id ? null : row;
+    }
+    /** Whether an action is still one this plugin is waiting on: its own expiry is the line, and a report that
+     *  arrives after it is refused as expired rather than folded into a row nobody will read again. What the
+     *  row already recorded stays recorded — a visitor's own confirmation is a fact about their decision, not
+     *  an open question this refusal somehow reopens. */
+    live(row) {
+        return row.expires_at > this.deps.now().toISOString();
+    }
+    refuse(input, reason) {
+        this.deps.warn(`chatbot: action ${input.request.kind} was refused for turn ${input.turn.turn_id}: ${reason}`);
+        return { status: 'refused', reason };
+    }
+    /** Write the action and its frame, wake the widgets, and wait. */
+    async dispatch(input, page, action) {
+        const { store, broker, info } = this.deps;
+        const actionId = randomUUID();
+        // The nonce is minted for EVERY action, not only for a submission: the v1 frame carries it always, and a
+        // frame without it is one a widget drops rather than guesses about. Only a `request_submit` ever checks
+        // it, which is where it is consumed.
+        const nonce = randomBytes(16).toString('hex');
+        const nowMs = this.deps.now().getTime();
+        const row = store.createAction({
+            actionId,
+            turnId: input.turn.turn_id,
+            snapshotId: page.snapshotId,
+            kind: action.kind,
+            targetId: action.targetId,
+            value: action.value,
+            requiresConfirmation: action.requiresConfirmation,
+            nonceHash: hashToken(nonce),
+            expiresAt: new Date(nowMs + this.timeoutMs).toISOString(),
+            frame: {
+                actionId,
+                kind: action.kind,
+                targetId: action.targetId,
+                value: action.value,
+                snapshotId: page.snapshotId,
+                requiresConfirmation: action.requiresConfirmation,
+                confirmationNonce: nonce,
+            },
+            now: new Date(nowMs).toISOString(),
+        });
+        // The row and the frame are durable before anybody is told. A connected widget reads the frame off the
+        // turn's own log, and a widget that reconnects reads the same frame again — neither is handed a copy.
+        broker.publish(input.turn.turn_id);
+        info(`chatbot: action ${actionId} (${action.kind}) requested for turn ${input.turn.turn_id}${input.sessionId === undefined ? '' : ` in ${input.sessionId}`}`);
+        return this.awaitOutcome(row);
+    }
+    /** Wait for the row to reach a state that answers the tool.
+     *
+     *  Every state change is a wake-up and the row itself is re-read, so nothing here has to remember what it
+     *  was waiting for — and the one timeout is spent per STATE the page has to answer in, not once for the
+     *  whole call: an action the visitor has confirmed has left the plugin's hands, and their browser is doing
+     *  the work.
+     *
+     *  A page that never answers is closed as expired. A CONFIRMED action that is never reported is answered
+     *  as submitted: the visitor's decision really happened, a page that navigates away never reports back,
+     *  and saying that the form went out is more honest than pretending the plugin knows nothing — while a
+     *  report that does arrive still refines the row. */
+    async awaitOutcome(created) {
+        for (;;) {
+            const row = this.deps.store.action(created.id) ?? created;
+            if (row.status === 'done' || row.status === 'error')
+                return this.fromResult(row);
+            if (row.status === 'cancelled')
+                return this.fromRow(row, 'cancelled', null);
+            if (row.status === 'expired')
+                return this.fromRow(row, 'expired', null);
+            const waited = await this.waiters.wait(row.id, this.timeoutMs);
+            if (waited === 'settled')
+                continue;
+            // The wait ran out. `row` was read before it and is re-read only through a CAS: every state this plugin
+            // writes goes through a guarded UPDATE followed by a wake-up with nothing awaited in between, so the
+            // state the row held when the timer fired is still the state the CAS decides against.
+            if (row.status === 'confirmed') {
+                this.deps.warn(`chatbot: action ${row.id} was confirmed by the visitor and the page never reported what it did`);
+                return this.fromRow(row, 'submitted', null);
+            }
+            this.deps.warn(`chatbot: action ${row.id} was never answered by the page and expired`);
+            // The CAS decides, and what it returns is the row as it really is now: a state that moved anyway is
+            // answered by the row, never by this call's expectation of it.
+            const closed = this.deps.store.expireAction(row.id, this.deps.now().toISOString())
+                ?? this.deps.store.action(row.id) ?? row;
+            switch (closed.status) {
+                case 'pending':
+                case 'confirmation_required':
+                case 'expired':
+                    return this.fromRow(closed, 'expired', null);
+                case 'done':
+                case 'error':
+                    return this.fromResult(closed);
+                case 'confirmed':
+                    return this.fromRow(closed, 'submitted', null);
+                case 'cancelled':
+                    return this.fromRow(closed, 'cancelled', null);
+            }
+        }
+    }
+    fromResult(row) {
+        const { outcome, detail } = actionResultPayload(row);
+        const status = outcome === 'done' ? 'done' : outcome === 'denied' ? 'denied' : 'error';
+        return this.fromRow(row, status, detail);
+    }
+    /** The answer a caller gets is built from the ROW, never from the request that produced it: what the tool
+     *  is told about an action is what the plugin recorded, including the kind and target it really approved. */
+    fromRow(row, status, detail) {
+        const request = actionRequestPayload(row);
+        return { status, actionId: row.id, kind: request.kind, targetId: request.targetId, detail };
+    }
+}
+/** The one thing that wakes a waiting tool: a promise per action, resolved when its row changes state.
+ *
+ *  Nothing durable lives here — the row IS the state, this is only who is listening to it — so a process
+ *  that restarts loses nothing but its own waiters, together with the turns they belong to. */
+class ActionWaiters {
+    pending = new Map();
+    /** Wait for this action to change state. Answers WHICH of the two happened, because "the page said
+     *  something" and "the visitor's page is not answering" are different facts about a turn. */
+    wait(actionId, timeoutMs) {
+        return new Promise((resolve) => {
+            const listeners = this.pending.get(actionId) ?? new Set();
+            let timer;
+            const finish = (outcome) => {
+                clearTimeout(timer);
+                listeners.delete(onSettle);
+                if (listeners.size === 0)
+                    this.pending.delete(actionId);
+                resolve(outcome);
+            };
+            const onSettle = () => finish('settled');
+            timer = setTimeout(() => finish('timeout'), timeoutMs);
+            listeners.add(onSettle);
+            this.pending.set(actionId, listeners);
+        });
+    }
+    settle(actionId) {
+        for (const listener of [...(this.pending.get(actionId) ?? [])])
+            listener();
+    }
+}

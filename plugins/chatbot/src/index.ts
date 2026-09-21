@@ -1,5 +1,7 @@
 import type { PluginContext } from 'elowen/plugin-api';
 import { ChatbotAdapter } from './adapter.js';
+import { PageActionService } from './actionService.js';
+import { registerPageActionTool } from './actionsTool.js';
 import { TurnEventBroker } from './broker.js';
 import { migrate } from './db.js';
 import { createAdminApi } from './adminApi.js';
@@ -33,6 +35,16 @@ export function register(published: PluginContext): void {
   // subscribers only: every event a visitor can read is already durable in the plugin's own tables.
   const broker = new TurnEventBroker(warn);
   const queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+  // The page actions of this process: what a visitor's turn may ask their page to do, and what becomes of an
+  // action while the turn waits for it. One instance, because the tool that asks and the public route that
+  // receives the answer must wake the same waiters.
+  const actions = new PageActionService({
+    store,
+    broker,
+    now,
+    info: (message) => logger.info(message),
+    warn,
+  });
 
   // The signing key for visitor tokens lives in the instance secret bag: created once, never configured,
   // never returned and never logged. A second process racing the first loses only its own value.
@@ -73,6 +85,7 @@ export function register(published: PluginContext): void {
     adapter,
     stores,
     broker,
+    actions,
     pingIntervalMs: STREAM_PING_INTERVAL_MS,
     secret,
     tokenTtlSeconds,
@@ -83,6 +96,11 @@ export function register(published: PluginContext): void {
     path: PUBLIC_MOUNT,
     handler: async (req) => publicRoute(req),
   });
+
+  // The one thing a turn may do to the visitor's page. Registered instance-wide: a chatbot account is
+  // created by an administrator at any time, so there is no single owner to scope it to. The tool itself
+  // refuses every turn that is not a live chatbot visitor turn.
+  registerPageActionTool({ ctx, store, service: actions });
 
   // One mount, dispatched by method, so the manifest declares exactly what exists.
   ctx.registerApiRoute({ path: 'bots', method: 'GET', access: 'admin', handler: async (req) => adminApi.list(req.auth) });
@@ -109,5 +127,5 @@ export function register(published: PluginContext): void {
     logger.info(`chatbot: removed the registration and history of chatbot ${bot.public_id}`);
   });
 
-  logger.info('chatbot plugin registered: platform, public hook v1 and the admin route');
+  logger.info('chatbot plugin registered: platform, public hook v1, the admin route and the page-action tool');
 }
