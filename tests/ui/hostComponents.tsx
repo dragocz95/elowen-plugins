@@ -176,12 +176,16 @@ export function ControlSurfaceState({ children, tone = 'default' }: { children: 
 /** Responsive register table. Wide-only cells disappear as a unit and the compact grid closes ranks.
  *  The column tracks travel as CSS custom properties, which is the part a panel asserts on: the layout
  *  itself is stylesheet work jsdom never runs, but WHICH tracks a view asked for is its own decision. */
-type TableStyle = CSSProperties & { '--data-table-columns'?: string; '--data-table-compact-columns'?: string };
+type TableStyle = CSSProperties & { '--data-table-columns'?: string; '--data-table-compact-columns'?: string; '--data-table-mobile-columns'?: string };
 
-export function DataTable({ ariaLabel, columns, compactColumns = 'minmax(0,1fr)', children, className = '', ...rest }: {
-  ariaLabel: string; columns: string; compactColumns?: string; children: ReactNode; className?: string;
+export function DataTable({ ariaLabel, columns, compactColumns = 'minmax(0,1fr)', mobileColumns, children, className = '', ...rest }: {
+  ariaLabel: string; columns: string; compactColumns?: string;
+  /** The phone-only template. The host has taken it since API 8 (the browser panel's register is the
+   *  first consumer here); a port that swallowed it would put the prop on the DOM element instead. */
+  mobileColumns?: string;
+  children: ReactNode; className?: string;
 } & Omit<HTMLAttributes<HTMLDivElement>, 'children'>) {
-  const style: TableStyle = { '--data-table-columns': columns, '--data-table-compact-columns': compactColumns };
+  const style: TableStyle = { '--data-table-columns': columns, '--data-table-compact-columns': compactColumns, '--data-table-mobile-columns': mobileColumns };
   return <div role="table" aria-label={ariaLabel} style={style} className={`@container overflow-x-clip rounded-lg border border-border/80 ${className}`} {...rest}>{children}</div>;
 }
 type DataTableRowBase = {
