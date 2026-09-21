@@ -97,6 +97,9 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'bots', method: 'GET', access: 'admin', handler: async (req) => adminApi.list(req.auth) });
     ctx.registerApiRoute({ path: 'bots', method: 'POST', access: 'admin', handler: async (req) => adminApi.create(req.auth, await req.json()) });
     ctx.registerApiRoute({ path: 'bots', method: 'PATCH', access: 'admin', handler: async (req) => adminApi.update(req.auth, await req.json()) });
+    // The look is its own mount rather than another field of `bots`: the editor that owns it sends exactly
+    // what it owns, so a colour can never arrive through a payload that was validated as something else.
+    ctx.registerApiRoute({ path: 'appearance', method: 'PUT', access: 'admin', handler: async (req) => adminApi.updateAppearance(req.auth, await req.json()) });
     // A turn this process no longer runs cannot be resumed: the core turn is gone with the process, and
     // replaying it would be a second model turn for one submitted message. Say so instead of leaving a
     // visitor's widget waiting on a turn nobody will finish — and say it in the durable log as well, so a
@@ -118,5 +121,5 @@ export function register(published) {
         store.deleteBot(userId);
         logger.info(`chatbot: removed the registration and history of chatbot ${bot.public_id}`);
     });
-    logger.info('chatbot plugin registered: platform, public hook v1, the admin route and the page-action tool');
+    logger.info('chatbot plugin registered: platform, public hook v1, the admin routes and the page-action tool');
 }

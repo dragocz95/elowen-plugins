@@ -20,7 +20,8 @@
       "v1"
     ],
     "apiRoutes": [
-      "bots"
+      "bots",
+      "appearance"
     ],
     "tools": [
       "ChatbotPageAction"
@@ -152,7 +153,52 @@
       "stepRegister": "registering the chatbot",
       "cancel": "Cancel",
       "retry": "Try again",
-      "settingsLoadError": "The chatbot settings could not be loaded"
+      "settingsLoadError": "The chatbot settings could not be loaded",
+      "appearanceAction": "Appearance",
+      "appearanceTitle": "Chatbot appearance",
+      "appearanceIntro": "Set how the panel looks on the customer's website. The preview follows every change; nothing is saved until you save.",
+      "appearancePreview": "Panel preview",
+      "appearancePreviewHint": "This is exactly what a visitor of the website will see.",
+      "appearanceNameLabel": "Chatbot name",
+      "appearanceNameHint": "Shown to the visitor in the panel's header and beside its answers.",
+      "appearanceModeLabel": "Mode",
+      "appearanceModeHint": "Switching the mode sets the panel's default colours. Each one can still be changed on its own.",
+      "appearanceModeLight": "Light",
+      "appearanceModeDark": "Dark",
+      "appearanceColorsLabel": "Colours",
+      "appearanceColorPanel": "Panel background",
+      "appearanceColorVisitor": "Visitor bubble",
+      "appearanceColorBot": "Chatbot bubble",
+      "appearanceColorSend": "Send button",
+      "appearanceRadiusLabel": "Corner radius",
+      "appearanceWidthLabel": "Panel width",
+      "appearanceHeightLabel": "Panel height",
+      "appearancePixels": "{value} px",
+      "appearanceIntroLabel": "Greeting",
+      "appearanceIntroHint": "Shown while the conversation is empty. An empty field means the built-in greeting in the page's own language.",
+      "appearanceIntroPlaceholder": "For example: Hello, I can help you fill in the form.",
+      "appearanceAvatarLabel": "Avatar or logo",
+      "appearanceAvatarHint": "An image address starting with https://, or an image embedded as data:image/…. An empty field means no image.",
+      "appearanceAvatarPlaceholder": "https://www.example.com/logo.svg",
+      "appearanceAvatarInvalid": "Enter an address starting with https:// or an image embedded as data:image/….",
+      "appearanceQuickLabel": "Quick buttons",
+      "appearanceQuickHint": "Buttons under the greeting while the visitor has not written yet. Clicking one sends its text as their message.",
+      "appearanceQuickPlaceholder": "For example: I want to fill in the form",
+      "appearanceQuickAdd": "Add button",
+      "appearanceQuickRemove": "Remove {value}",
+      "appearanceQuickEmpty": "No quick button yet.",
+      "appearanceQuickDuplicate": "That button is already in the list.",
+      "appearanceQuickFull": "No more buttons can be added.",
+      "appearancePositionLabel": "Position on the page",
+      "appearancePositionBottomRight": "Bottom right",
+      "appearancePositionBottomLeft": "Bottom left",
+      "appearancePositionTopRight": "Top right",
+      "appearancePositionTopLeft": "Top left",
+      "appearanceSave": "Save appearance",
+      "appearanceSaving": "Saving…",
+      "appearanceSaved": "Appearance saved",
+      "appearanceSaveFailed": "The appearance could not be saved",
+      "appearanceMaxChars": "At most {max} characters."
     }
   }
 }

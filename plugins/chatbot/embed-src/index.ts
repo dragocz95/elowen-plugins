@@ -17,6 +17,7 @@ import { capturePageSnapshot, type PageTargetHandle } from './pageSnapshot.js';
 import { performAction, submitForm, type ActionReport, type PerformableAction } from './pageActions.js';
 import { ChatPanel } from './chatPanel.js';
 import { ChatSession, type CapturedPage, type PageBridge } from './session.js';
+import { DEFAULT_APPEARANCE } from '../src/appearanceContract.js';
 import { WIDGET_PROTOCOL_VERSION } from '../src/publicContract.js';
 import { detectLocale, widgetStrings } from './strings.js';
 
@@ -130,13 +131,35 @@ export function mount(): ElowenChatbotApi | null {
   const page = new BrowserPage();
   let panel: ChatPanel | null = null;
   let session: ChatSession | null = null;
+  /** Whether this chatbot's look has been asked for, and the answer if one is on its way: the read happens
+   *  at most once per page however often the panel is opened. */
+  let lookAsked = false;
+  let looking: Promise<void> | null = null;
+
+  /** Read the chatbot's own name and appearance and draw the panel with them.
+   *
+   *  Deliberately NOT on page load. A visitor this browser has already seen is read just before their
+   *  transcript is restored, and a first-time visitor when they OPEN the panel — a click they make. A page
+   *  whose panel is never opened therefore sends nothing at all, which is the promise the widget makes about
+   *  an untouched page. Every refusal inside is answered with `null`, so this never rejects. */
+  const look = (): Promise<void> => {
+    if (looking !== null) return looking;
+    if (lookAsked) return Promise.resolve();
+    looking = (async () => {
+      const value = await session?.loadAppearance() ?? null;
+      if (value) panel?.applyAppearance(value);
+      lookAsked = true;
+    })();
+    return looking;
+  };
 
   panel = new ChatPanel({
     strings,
-    botName: '',
+    look: { name: '', appearance: DEFAULT_APPEARANCE },
     // The panel already showed the visitor's message; the conversation is told that it did.
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),
     onStop: () => session?.stopWatching(),
+    onOpen: () => void look(),
   });
 
   session = new ChatSession({
@@ -150,8 +173,10 @@ export function mount(): ElowenChatbotApi | null {
   });
 
   (document.body ?? document.documentElement).appendChild(panel.host);
-  // A conversation this tab already had is restored, and nothing at all is sent when it never had one.
-  void session.start();
+  // A conversation this tab already had is restored, and nothing at all is sent when it never had one. The
+  // look is read FIRST, because a panel that has to be built with it cannot restore a transcript into a
+  // panel that would then be replaced under it.
+  if (session.hasStoredToken()) void look().then(() => session.start());
 
   const api: ElowenChatbotApi = {
     version: WIDGET_PROTOCOL_VERSION,

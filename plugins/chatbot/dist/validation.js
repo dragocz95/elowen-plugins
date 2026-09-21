@@ -1,3 +1,4 @@
+import { parseAppearance } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION } from './publicContract.js';
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
@@ -224,6 +225,35 @@ export function validateBotPatch(body) {
             prompt: prompt.value,
             origins: origins.value,
             action,
+        },
+    };
+}
+/** The appearance editor's own payload: the look, plus the display name the panel draws with it. The name is
+ *  the ONE stored name — the register and the panel read the same column — so this route writes it rather
+ *  than keeping a second copy inside the appearance document. */
+export function validateAppearanceWrite(body) {
+    const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'appearance'], ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'appearance']);
+    if (!outer.ok)
+        return outer;
+    const userId = outer.value.chatbotUserId;
+    if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0)
+        return { ok: false, error: '"chatbotUserId" must be a positive integer' };
+    const expected = readString(outer.value, 'expectedUpdatedAt', 64);
+    if (!expected.ok)
+        return expected;
+    const displayName = readString(outer.value, 'displayName', DISPLAY_NAME_MAX_CHARS);
+    if (!displayName.ok)
+        return displayName;
+    const appearance = parseAppearance(outer.value.appearance);
+    if (!appearance.ok)
+        return { ok: false, error: appearance.error };
+    return {
+        ok: true,
+        value: {
+            chatbotUserId: userId,
+            expectedUpdatedAt: expected.value,
+            displayName: displayName.value.trim(),
+            appearance: appearance.value,
         },
     };
 }

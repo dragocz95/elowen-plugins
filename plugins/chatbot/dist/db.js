@@ -140,6 +140,22 @@ const MIGRATIONS = [
       `);
         },
     },
+    {
+        /** Step 3: how the chatbot's panel looks. ONE nullable column, so a chatbot registered before this step
+         *  keeps answering with the widget's built-in look until an administrator saves one — nothing already
+         *  written is rewritten, and no row needs a backfill to be valid. */
+        version: 3,
+        up(db) {
+            db.exec(`
+        -- The appearance as JSON: the four colours, the corner radius, the panel size, the position, the
+        -- greeting, the avatar and the quick buttons. Stored as one document rather than as eleven columns
+        -- because it is read and written as a whole and never queried by field, and because the shape is
+        -- validated at the boundary (parseAppearance) rather than by a CHECK constraint that would have to
+        -- be rewritten for every added control.
+        ALTER TABLE p_chatbot_bots ADD COLUMN appearance TEXT;
+      `);
+        },
+    },
 ];
 /** Create the plugin's tables. A no-op outside the daemon process (the host's handle reports that itself). */
 export function migrate(db) {
