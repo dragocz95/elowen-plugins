@@ -140,6 +140,98 @@ const MIGRATIONS = [
       `);
         },
     },
+    {
+        /** Step 3: the abuse, capacity, budget and retention layer. Additive in both directions: eleven nullable
+         *  columns on the bot row (a draft that never had a limit filled in is refused, never defaulted) and four
+         *  tables, none of which rewrites a row that already exists.
+         *
+         *  Every time in this step is an ISO string like the rest of the plugin's tables. The rate window is the
+         *  one place where that costs a little arithmetic (the minute bucket is computed as a number and then
+         *  written as the string it names), and that is deliberate: a second time format is a second thing every
+         *  reader would have to know. */
+        version: 3,
+        up(db) {
+            db.exec(`
+        -- NULL means "the owner has not decided this number yet". There is no default and no implicit
+        -- unlimited: the enable gate refuses a bot that is missing any of them (see limits.ts).
+        ALTER TABLE p_chatbot_bots ADD COLUMN sensitive_mode INTEGER NOT NULL DEFAULT 0
+          CHECK (sensitive_mode IN (0, 1));
+        ALTER TABLE p_chatbot_bots ADD COLUMN rate_ip_per_minute INTEGER
+          CHECK (rate_ip_per_minute IS NULL OR rate_ip_per_minute > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN rate_chatbot_per_minute INTEGER
+          CHECK (rate_chatbot_per_minute IS NULL OR rate_chatbot_per_minute > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN rate_conversation_per_minute INTEGER
+          CHECK (rate_conversation_per_minute IS NULL OR rate_conversation_per_minute > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN daily_turn_limit INTEGER
+          CHECK (daily_turn_limit IS NULL OR daily_turn_limit > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN daily_token_limit INTEGER
+          CHECK (daily_token_limit IS NULL OR daily_token_limit > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN daily_cost_microusd INTEGER
+          CHECK (daily_cost_microusd IS NULL OR daily_cost_microusd > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN max_concurrent_turns INTEGER
+          CHECK (max_concurrent_turns IS NULL OR max_concurrent_turns > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN max_queue_depth INTEGER
+          CHECK (max_queue_depth IS NULL OR max_queue_depth > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN queue_timeout_seconds INTEGER
+          CHECK (queue_timeout_seconds IS NULL OR queue_timeout_seconds > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN max_actions_per_turn INTEGER
+          CHECK (max_actions_per_turn IS NULL OR max_actions_per_turn > 0);
+        ALTER TABLE p_chatbot_bots ADD COLUMN retention_days INTEGER
+          CHECK (retention_days IS NULL OR retention_days > 0);
+
+        -- One fixed window per (scope, key, minute). The row is the counter: admission increments it and reads
+        -- it back in one transaction, so two simultaneous requests cannot both pass a limit of one. A refused
+        -- request still counts -- the window bounds ATTEMPTS, which is what makes it a rate limit rather than a
+        -- success counter -- and the row is deleted by the cleaner once its window is over.
+        CREATE TABLE IF NOT EXISTS p_chatbot_rate_windows (
+          scope TEXT NOT NULL CHECK (scope IN ('ip', 'chatbot', 'conversation')),
+          scope_key TEXT NOT NULL,
+          window_started_at TEXT NOT NULL,
+          count INTEGER NOT NULL CHECK (count > 0),
+          expires_at TEXT NOT NULL,
+          PRIMARY KEY (scope, scope_key, window_started_at)
+        );
+        CREATE INDEX IF NOT EXISTS p_chatbot_rate_expiry ON p_chatbot_rate_windows (expires_at);
+
+        -- The plugin's half of the daily budget: how many turns this bot ADMITTED today, and how many of them
+        -- are still running. The money and the tokens are NOT duplicated here -- they are read from core's
+        -- usage_by_origin, the one place origin-attributed spend exists. A row is created by the first
+        -- admission of the day and removed with the bot.
+        CREATE TABLE IF NOT EXISTS p_chatbot_budget_days (
+          chatbot_user_id INTEGER NOT NULL,
+          day TEXT NOT NULL,
+          admitted_turns INTEGER NOT NULL DEFAULT 0,
+          in_flight INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (chatbot_user_id, day)
+        );
+
+        -- One conversation per (chatbot, visitor), which is also the key of the core channel session. It
+        -- exists for two reasons: retention needs a due date per conversation rather than per turn, and the
+        -- cleaner needs the core session id to delete.
+        --
+        -- 'session_id' is NULL until a turn's relay has reported one. The plugin never derives or guesses the
+        -- id: a conversation nothing has run in has no core transcript to delete, and inventing an id would
+        -- mean deleting a session this plugin never saw.
+        CREATE TABLE IF NOT EXISTS p_chatbot_conversations (
+          id TEXT PRIMARY KEY,
+          chatbot_user_id INTEGER NOT NULL,
+          visitor_id TEXT NOT NULL,
+          session_id TEXT,
+          created_at TEXT NOT NULL,
+          last_activity_at TEXT NOT NULL,
+          delete_after TEXT NOT NULL,
+          UNIQUE (chatbot_user_id, visitor_id)
+        );
+        CREATE INDEX IF NOT EXISTS p_chatbot_conversation_retention
+          ON p_chatbot_conversations (delete_after, chatbot_user_id);
+
+        -- The cleaner's other two due columns, each indexed by the column it is due on.
+        CREATE INDEX IF NOT EXISTS p_chatbot_tokens_expiry ON p_chatbot_tokens (expires_at);
+        CREATE INDEX IF NOT EXISTS p_chatbot_visitors_seen ON p_chatbot_visitors (last_seen_at);
+      `);
+        },
+    },
 ];
 /** Create the plugin's tables. A no-op outside the daemon process (the host's handle reports that itself). */
 export function migrate(db) {
