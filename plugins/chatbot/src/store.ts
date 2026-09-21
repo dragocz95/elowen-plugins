@@ -1,5 +1,7 @@
 import type { PluginDb, PluginDbStatement } from 'elowen/plugin-api';
-import type { BotRow, TokenRow, TurnEventRow, TurnRow, VisitorRow } from './db.js';
+import type { ActionRow, ActionRuleRow, BotRow, TokenRow, TurnEventRow, TurnRow, VisitorRow } from './db.js';
+import { isActionKind } from './actions.js';
+import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome } from './publicContract.js';
 
 /** Every plugin-owned read and write in one place, so the public path and the admin surface cannot
  *  disagree about what a row means. */
@@ -77,10 +79,12 @@ export class ChatbotStore {
 
   deleteBot(chatbotUserId: number): void {
     this.db.transaction(() => {
+      this.stmt('DELETE FROM p_chatbot_actions WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turn_events WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_tokens WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_visitors WHERE chatbot_user_id = ?').run(chatbotUserId);
+      this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_origins WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_bots WHERE chatbot_user_id = ?').run(chatbotUserId);
     });
@@ -232,17 +236,120 @@ export class ChatbotStore {
   /** Boot reconcile: a turn this process no longer runs cannot be resumed, and reporting it as still
    *  running would leave a visitor waiting forever. Each row is closed with the SAME public error event the
    *  running queue would have written, so the durable log a reconnecting widget reads is complete rather
-   *  than silent. Core turn recovery is explicitly not guaranteed, and no turn is replayed. */
+   *  than silent. Core turn recovery is explicitly not guaranteed, and no turn is replayed.
+   *
+   *  A turn the process no longer runs cannot have a live page action either: the tool that waits for one
+   *  died with the turn, so an action still waiting is closed in the same transaction rather than left as a
+   *  row something might still answer. A CONFIRMED action is deliberately left alone: the visitor's own
+   *  decision happened, and their page may still report what it did with it. */
   closeOrphanedTurns(now: string, errorCode: string): string[] {
     return this.db.transaction(() => {
       const rows = this.stmt("SELECT turn_id FROM p_chatbot_turns WHERE status IN ('queued', 'running') ORDER BY created_at").all() as { turn_id: string }[];
       for (const row of rows) {
         this.appendEvent(row.turn_id, 'error', { code: errorCode }, now);
+        this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE turn_id = ? AND status IN ('pending', 'confirmation_required')")
+          .run(now, row.turn_id);
         this.stmt("UPDATE p_chatbot_turns SET status = 'error', error_code = ?, finished_at = ? WHERE turn_id = ? AND status IN ('queued', 'running')")
           .run(errorCode, now, row.turn_id);
       }
       return rows.map((row) => row.turn_id);
     });
+  }
+
+  // ── page actions and the rules over them ───────────────────────────────────────────────────────────
+
+  /** The turn a visitor's action request belongs to: the one this visitor has RUNNING. A turn that is
+   *  queued, done or failed is not it, and two running turns for one visitor cannot exist — the tool that
+   *  asks for an action is running inside exactly one of them. */
+  runningTurnOf(chatbotUserId: number, visitorId: string): TurnRow | null {
+    return (this.stmt("SELECT * FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ? AND status = 'running' ORDER BY started_at DESC, turn_id DESC LIMIT 1")
+      .get(chatbotUserId, visitorId) as TurnRow | undefined) ?? null;
+  }
+
+  /** How many actions this turn has already spent. Every row counts, whatever became of it: an action that
+   *  was approved has been asked of a page, and a page that refuses them all must not be asked forever. */
+  actionCountOfTurn(turnId: string): number {
+    const row = this.stmt('SELECT COUNT(*) AS count FROM p_chatbot_actions WHERE turn_id = ?').get(turnId) as { count: number };
+    return row.count;
+  }
+
+  /** Record one approved action AND the event that asks the page for it, in ONE transaction. The order is
+   *  the whole point: an announcement of an action nobody recorded, and an action nobody was told about,
+   *  are both states this plugin would have to guess its way out of. */
+  createAction(input: {
+    actionId: string;
+    turnId: string;
+    snapshotId: string;
+    kind: string;
+    targetId: string | null;
+    value: string | null;
+    requiresConfirmation: boolean;
+    nonceHash: string;
+    expiresAt: string;
+    frame: Record<string, unknown>;
+    now: string;
+  }): ActionRow {
+    return this.db.transaction(() => {
+      this.stmt(`INSERT INTO p_chatbot_actions
+                   (id, turn_id, snapshot_id, action, target_id, request_json, status, requires_confirmation, confirmation_nonce_hash, created_at, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(
+          input.actionId,
+          input.turnId,
+          input.snapshotId,
+          input.kind,
+          input.targetId,
+          JSON.stringify({ schemaVersion: 1, kind: input.kind, targetId: input.targetId, value: input.value }),
+          input.requiresConfirmation ? 'confirmation_required' : 'pending',
+          input.requiresConfirmation ? 1 : 0,
+          input.nonceHash,
+          input.now,
+          input.expiresAt,
+        );
+      this.appendEvent(input.turnId, 'action', input.frame, input.now);
+      return this.action(input.actionId)!;
+    });
+  }
+
+  action(actionId: string): ActionRow | null {
+    return (this.stmt('SELECT * FROM p_chatbot_actions WHERE id = ?').get(actionId) as ActionRow | undefined) ?? null;
+  }
+
+  /** Write down what the page did. Accepted from the two states a report can belong to: an action still
+   *  waiting for it, and one the visitor confirmed and their browser is carrying out. Anything else — a
+   *  decision nobody gave, an action already reported, one that expired — is refused rather than
+   *  overwritten, so the row always describes one thing that really happened. */
+  settleActionResult(input: { actionId: string; status: 'done' | 'error'; result: string; now: string }): ActionRow | null {
+    const changed = this.stmt("UPDATE p_chatbot_actions SET status = ?, result_json = ?, completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmed')")
+      .run(input.status, input.result, input.now, input.actionId);
+    return changed.changes > 0 ? this.action(input.actionId) : null;
+  }
+
+  /** Record the visitor's own answer to a confirmation, or refuse because it was already answered. It is the
+   *  one statement that consumes the nonce: a confirmation is good for exactly one form, so the hash is
+   *  cleared as it is accepted and a replay finds nothing left to match. */
+  decideAction(input: { actionId: string; confirmed: boolean; now: string }): ActionRow | null {
+    const changed = this.stmt(`UPDATE p_chatbot_actions
+                                  SET status = ?, completed_at = ?, confirmation_nonce_hash = CASE WHEN ? = 1 THEN NULL ELSE confirmation_nonce_hash END
+                                WHERE id = ? AND status = 'confirmation_required'`)
+      .run(input.confirmed ? 'confirmed' : 'cancelled', input.confirmed ? null : input.now, input.confirmed ? 1 : 0, input.actionId);
+    return changed.changes > 0 ? this.action(input.actionId) : null;
+  }
+
+  /** Close an action the page never answered. Only the states that are still WAITING for an answer can
+   *  expire: a confirmed action belongs to the visitor and their browser, and closing it would erase a
+   *  decision they really made. */
+  expireAction(actionId: string, now: string): ActionRow | null {
+    const changed = this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmation_required')")
+      .run(now, actionId);
+    return changed.changes > 0 ? this.action(actionId) : null;
+  }
+
+  /** Every rule this chatbot has. Read in one query and resolved in memory, because the resolution is a
+   *  decision about a path and belongs in code that can be read and tested, not in SQL. */
+  actionRulesOf(chatbotUserId: number): ActionRuleRow[] {
+    return this.stmt('SELECT * FROM p_chatbot_action_rules WHERE chatbot_user_id = ? ORDER BY path_prefix DESC')
+      .all(chatbotUserId) as ActionRuleRow[];
   }
 }
 
@@ -259,6 +366,57 @@ export function eventPayload(row: TurnEventRow): Record<string, unknown> {
   const parsed: unknown = JSON.parse(row.data);
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`chatbot: stored event ${row.turn_id}#${row.seq} is not a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** The action one row was written for. Read back rather than remembered, so what a caller is told about an
+ *  action is what the plugin RECORDED, never what the caller itself passed in. A row that does not carry
+ *  what the policy approved is corrupt, and saying so beats reading it as some other action. */
+export interface ActionRequestPayload {
+  kind: ActionKind;
+  targetId: string | null;
+  value: string | null;
+}
+
+export function actionRequestPayload(row: ActionRow): ActionRequestPayload {
+  const parsed = jsonColumnOf(row.request_json, `action ${row.id}`);
+  if (parsed.schemaVersion !== 1) throw new Error(`chatbot: action ${row.id} carries an unknown request schemaVersion`);
+  const { kind, targetId, value } = parsed;
+  if (typeof kind !== 'string' || !isActionKind(kind)) {
+    throw new Error(`chatbot: action ${row.id} carries an action this plugin never approves: ${String(kind)}`);
+  }
+  if ((targetId !== null && typeof targetId !== 'string') || (value !== null && typeof value !== 'string')) {
+    throw new Error(`chatbot: action ${row.id} carries a request that is not one`);
+  }
+  return { kind, targetId: (targetId as string | null) ?? null, value: (value as string | null) ?? null };
+}
+
+/** What the page reported. `outcome` is the widget's own word for it (`denied` is a page refusing what the
+ *  server approved), and `detail` is a stable code or the short value a `read` returned. */
+export interface ActionResultPayload {
+  outcome: ActionOutcome;
+  detail: string | null;
+}
+
+export function actionResultPayload(row: ActionRow): ActionResultPayload {
+  if (row.result_json === null) throw new Error(`chatbot: action ${row.id} is ${row.status} without a result`);
+  const parsed = jsonColumnOf(row.result_json, `action ${row.id}`);
+  if (parsed.schemaVersion !== 1) throw new Error(`chatbot: action ${row.id} carries an unknown result schemaVersion`);
+  const { outcome, detail } = parsed;
+  if (typeof outcome !== 'string' || !(ACTION_OUTCOMES as readonly string[]).includes(outcome)) {
+    throw new Error(`chatbot: action ${row.id} carries an outcome this plugin never writes: ${String(outcome)}`);
+  }
+  if (detail !== undefined && detail !== null && typeof detail !== 'string') {
+    throw new Error(`chatbot: action ${row.id} carries a result detail that is not text`);
+  }
+  return { outcome: outcome as ActionOutcome, detail: typeof detail === 'string' ? detail : null };
+}
+
+function jsonColumnOf(raw: string, what: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`chatbot: ${what} stores a JSON column that is not an object`);
   }
   return parsed as Record<string, unknown>;
 }

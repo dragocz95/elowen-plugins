@@ -1,7 +1,11 @@
 /** Plugin-owned tables, all namespaced `p_chatbot_` so nothing here can collide with a core table. */
 const SCHEMA_VERSION = 1;
 /** Ordered, additive migrations. A step runs at most once per database (the host's `migrate` keeps the
- *  bookkeeping row), so adding a column later means a new step, never an edit to this one. */
+ *  bookkeeping row), so adding a column later means a new step, never an edit to this one.
+ *
+ *  All times are ISO strings, as in every other table here. Timestamps are compared only inside this plugin
+ *  and always by the same code that wrote them, so the format is an internal decision — what matters is
+ *  that there is ONE of it. */
 const MIGRATIONS = [
     {
         version: SCHEMA_VERSION,
@@ -73,6 +77,65 @@ const MIGRATIONS = [
           data TEXT NOT NULL,
           created_at TEXT NOT NULL,
           PRIMARY KEY (turn_id, seq)
+        );
+      `);
+        },
+    },
+    {
+        /** Step 2: the page actions a turn may take on a visitor's page, and the administrator's own rule over
+         *  what may be done where. Two tables and no column on an existing one, so nothing already written is
+         *  rewritten by this step. */
+        version: 2,
+        up(db) {
+            db.exec(`
+        -- One row per action the SERVER approved for a turn. It is written BEFORE the page is told about
+        -- it: an action a page performed is then always an action this plugin can explain, and a page that
+        -- never answered is a row that expired rather than a gap.
+        --
+        -- No FOREIGN KEY is declared, here or above: the plugin deletes its own rows explicitly (see
+        -- deleteBot) and the host's handle does not turn foreign-key enforcement on, so a declaration would
+        -- be a comment pretending to be a constraint.
+        CREATE TABLE IF NOT EXISTS p_chatbot_actions (
+          id TEXT PRIMARY KEY,
+          turn_id TEXT NOT NULL,
+          snapshot_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target_id TEXT,
+          request_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN ('pending', 'confirmation_required', 'confirmed', 'done', 'error', 'cancelled', 'expired')
+          ),
+          requires_confirmation INTEGER NOT NULL CHECK (requires_confirmation IN (0, 1)),
+          confirmation_nonce_hash TEXT,
+          result_json TEXT,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS p_chatbot_actions_pending ON p_chatbot_actions (turn_id, status, expires_at);
+
+        -- What may be done where, per chatbot. A rule is the allowlist of the paths it names: an action a
+        -- matching rule does not list is refused even when the element itself said it could do it. An origin
+        -- with no rule at all is governed by the implicit policy its allowlist entry implies (see
+        -- actionRules.ts), which is what lets a chatbot act usefully before its first rule is written.
+        --
+        -- Nothing writes this table yet: the administrator's editor for it is a later phase, and the tool
+        -- reads it strictly — a table with no writer is a policy nobody has changed, not a policy that
+        -- grants everything.
+        CREATE TABLE IF NOT EXISTS p_chatbot_action_rules (
+          id TEXT PRIMARY KEY,
+          chatbot_user_id INTEGER NOT NULL,
+          origin TEXT NOT NULL,
+          path_prefix TEXT NOT NULL,
+          action TEXT NOT NULL CHECK (
+            action IN ('read', 'focus', 'click', 'fill', 'select', 'scroll', 'request_submit')
+          ),
+          requires_confirmation INTEGER NOT NULL DEFAULT 0
+            CHECK (requires_confirmation IN (0, 1)),
+          max_per_turn INTEGER NOT NULL CHECK (max_per_turn > 0),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (chatbot_user_id, origin, path_prefix, action)
         );
       `);
         },
