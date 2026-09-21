@@ -20,6 +20,8 @@
     h1 { font-size: 24px; }
     label { display: block; margin: 16px 0 4px; font-weight: 600; }
     input, select { width: 100%; padding: 10px; font: inherit; border: 1px solid #c8c8d0; border-radius: 8px; }
+    label.check { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.9rem; }
+    label.check input { width: auto; }
     button[type=submit] { margin-top: 24px; padding: 12px 20px; font: inherit; font-weight: 600; border: 0; border-radius: 999px; background: #16161a; color: #fff; cursor: pointer; }
     .hint { color: #5b5b66; font-size: 14px; }
   </style>
@@ -47,6 +49,8 @@
 
     <label for="karta">Číslo platební karty</label>
     <input id="karta" name="cislo_karty" autocomplete="cc-number">
+
+    <label class="check" for="souhlas"><input id="souhlas" name="souhlas" type="checkbox"> Souhlasím se zpracováním údajů</label>
 
     <button id="odeslat" type="submit">Odeslat žádost</button>
   </form>

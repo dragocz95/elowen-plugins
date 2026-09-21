@@ -292,7 +292,8 @@ async function modelTurn({ src, observer }) {
   const obec = target('obec select', (candidate) => candidate.name === 'obec');
   const card = target('card field', (candidate) => candidate.name === 'cislo_karty');
   const submit = target('submit button', (candidate) => candidate.tag === 'button' && candidate.type === 'submit');
-  assert(asSeenByTheModel.targets.length === 6, `the sample form was described as ${asSeenByTheModel.targets.length} targets`);
+  const souhlas = target('consent checkbox', (candidate) => candidate.name === 'souhlas');
+  assert(asSeenByTheModel.targets.length === 7, `the sample form was described as ${asSeenByTheModel.targets.length} targets`);
   assert(submit !== undefined && card !== jmeno, 'the sample form was not described the way the visitor sees it');
   assert(
     asSeenByTheModel.targets.find((candidate) => candidate.id === card).caps.join() === 'focus',
@@ -320,6 +321,9 @@ async function modelTurn({ src, observer }) {
   await record('read', { action: 'read', targetId: jmeno });
   await record('fill', { action: 'fill', targetId: email, value: FILLED_EMAIL });
   await record('select', { action: 'select', targetId: obec, value: 'Praha' });
+  // An ordinary click: the visitor's own consent box, which nothing depends on except the page itself. It is
+  // the kind that must reach the page and change it — unlike a click on the submit button, refused below.
+  await record('click', { action: 'click', targetId: souhlas });
   await record('scroll', { action: 'scroll', value: 'down' });
 
   // Flow 5: a click on the submit button never happens — the server refuses it before any page is asked.
@@ -560,10 +564,13 @@ try {
   assert((await poll('the fill to be answered', () => actionOf('fill'))).status === 'done', `the fill failed: ${JSON.stringify(actionOf('fill'))}`);
   await poll('the agent to choose an option', async () => page.$eval('#obec', (select) => select.value === 'Praha'));
   assert((await poll('the select to be answered', () => actionOf('select'))).status === 'done', `the select failed: ${JSON.stringify(actionOf('select'))}`);
+  await poll('the agent to click the consent box', async () => page.$eval('#souhlas', (box) => box.checked));
+  const clicked = await poll('the click to be answered', () => actionOf('click'));
+  assert(clicked.status === 'done', `the click failed: ${JSON.stringify(clicked)}`);
   await poll('the agent to scroll the page', async () => page.evaluate(() => window.scrollY > 0));
   assert(actionOf('scroll').status === 'done', `the scroll failed: ${JSON.stringify(actionOf('scroll'))}`);
   assert(actionOf('scroll').targetId === null, `a page scroll carried a target: ${JSON.stringify(actionOf('scroll'))}`);
-  pass('read, fill, select and a target-less scroll all happened on the page, each reported done');
+  pass('read, fill, select, a real click and a target-less scroll all happened on the page, each reported done');
 
   // ── flow 5: a submit needs the visitor, and a click can never be one ──────────────────────────────────
   const refusedClick = await poll('the server to refuse a click on the submit button', () => actionOf('click-submit'));
@@ -579,12 +586,18 @@ try {
   assert(JSON.parse(hostile.result_json).outcome === 'denied', `the widget did not deny the hostile frame: ${hostile.result_json}`);
   assert(JSON.parse(hostile.result_json).detail === 'submit_is_its_own_action', `the widget denied the hostile frame for the wrong reason: ${hostile.result_json}`);
   assert(site.submissions.length === 0, 'a click the widget refused still sent the form');
-  // The only click action this run ever recorded is the one the scenario wrote as a compromised server: the
-  // plugin itself approved none, which is what "a submit can never be an ordinary click" means on the wire.
-  const clickRows = db.prepare('SELECT id FROM p_chatbot_actions WHERE action = ?').all('click');
+  // What "a submit can never be an ordinary click" means on the wire: NO click the plugin approved targets
+  // the element that sends the form. The one click row on it is the scenario's own frame, written as a
+  // compromised server would; the only other click this run asked for is the ordinary consent box.
+  const submitTarget = pageState.targets.find((candidate) => candidate.tag === 'button' && candidate.type === 'submit');
+  assert(submitTarget, 'the sample form described no submit button');
+  const clickRows = db.prepare('SELECT id, target_id FROM p_chatbot_actions WHERE action = ?').all('click');
+  const scenarioRow = clickRows.find((row) => row.id === hook.hostileActionId);
+  assert(scenarioRow && scenarioRow.target_id === submitTarget.id, `the scenario's own click row did not target the submit button: ${JSON.stringify(clickRows)}`);
+  const approvedClicks = clickRows.filter((row) => row.id !== hook.hostileActionId);
   assert(
-    clickRows.length === 1 && clickRows[0].id === hook.hostileActionId,
-    `the plugin approved ${clickRows.length} click action(s) of its own: ${JSON.stringify(clickRows)}`,
+    approvedClicks.length === 1 && approvedClicks[0].target_id !== submitTarget.id,
+    `the plugin approved a click it may not have: ${JSON.stringify(approvedClicks)}`,
   );
   pass('the server refused a click on a submit button, and the widget refused a hostile frame of the same kind');
 
@@ -636,7 +649,7 @@ try {
   pass('the visitor\'s own click on the confirmation is what sent the form');
 
   // ── flow 7: the answer ends whole, and a reload restores the conversation ─────────────────────────────
-  assert(hook.actions.length === 8, `the model asked for ${hook.actions.length} actions, not the eight this scenario scripts`);
+  assert(hook.actions.length === 9, `the model asked for ${hook.actions.length} actions, not the nine this scenario scripts`);
   // Sending the form navigated the page to the office's own confirmation, where the widget is not embedded.
   // Coming back is what a visitor does, and it also puts the last part of the answer to the test: the widget
   // resumes the turn that is still running from the visitor's own conversation and streams what is left.
