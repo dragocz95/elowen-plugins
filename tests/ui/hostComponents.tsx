@@ -84,6 +84,37 @@ export function Toggle({ checked, onChange, label, disabled = false }: { checked
 
 export interface SegmentedOption { value: string; label: string }
 
+/** A scalar slider, ported from `web/components/ui/Slider.tsx`: a controlled single value with a range, and
+ *  the accessible name carried by the control the reader actually touches.
+ *
+ *  The host composes this from Radix, whose thumb is the element wearing `role="slider"` — hence the app
+ *  wrapper forwarding `aria-label` to `thumbProps`. A native `input[type=range]` is the same control in one
+ *  element: same role, same accessible name, same `change` event a suite fires at it. */
+export function Slider({ value, onChange, min = 0, max = 100, step = 1, className, 'aria-label': ariaLabel }: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  className?: string;
+  'aria-label'?: string;
+}) {
+  return (
+    <input
+      type="range"
+      role="slider"
+      aria-label={ariaLabel}
+      aria-valuenow={value}
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      className={className}
+      onChange={(event) => onChange(Number(event.target.value))}
+    />
+  );
+}
+
 /** A connected segmented switch — a radiogroup whose options are `role="radio"` buttons named by their
  *  label. The scope filter and the create form's "visible to" control are both this. */
 export function Segmented({ options, value, onChange, className, 'aria-label': ariaLabel }: {

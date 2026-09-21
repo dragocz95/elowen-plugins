@@ -1,6 +1,7 @@
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
+import type { ChatbotAppearance } from '../src/appearanceContract';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
@@ -19,6 +20,9 @@ export interface ChatbotBotView {
   prompt: string;
   status: 'draft' | 'enabled' | 'disabled';
   origins: string[];
+  /** The stored look, parsed by the server into a complete appearance. It comes with the bot, so the
+   *  appearance editor opens on what a visitor is actually shown rather than asking for it again. */
+  appearance: ChatbotAppearance;
   embedSnippet: string | null;
   updatedAt: string;
   account: ChatbotAccountView | null;
@@ -98,7 +102,13 @@ interface ChatbotComponents {
     title: string;
     onClose: () => void;
     children?: ReactNode;
-    size?: 'default' | 'lg';
+    /** The room a centered window takes. `lg` is the app's data window — the widest one there is — and the
+     *  one the appearance editor needs: the controls and the live preview have to be visible at once. */
+    size?: 'default' | 'lg' | 'xl' | 'md' | 'sm';
+    /** `center` is what makes this a window rather than the right-hand drawer the host opens by default for
+     *  the first click out of a page. */
+    presentation?: 'auto' | 'center' | 'drawer' | 'sheet' | 'fullscreen';
+    intent?: 'edit' | 'inspect';
     description?: string;
     icon?: LucideIcon;
     'aria-busy'?: true;
@@ -126,6 +136,27 @@ interface ChatbotComponents {
     variant?: 'default' | 'line';
     disabled?: boolean;
     className?: string;
+  }>;
+  /** The host's scalar slider, which is how the panel's size and its corner radius are set. A number typed
+   *  into a box cannot show a customer what they are about to get; a slider that drives a live preview
+   *  can. */
+  Slider: ComponentType<{
+    value: number;
+    onChange(value: number): void;
+    min?: number;
+    max?: number;
+    step?: number;
+    'aria-label'?: string;
+    className?: string;
+  }>;
+  /** The host's two-option switch, for light and dark. A dropdown for two choices makes the customer open a
+   *  list to discover what the other choice is. */
+  Segmented: ComponentType<{
+    options: { value: string; label: string }[];
+    value: string;
+    onChange(value: string): void;
+    className?: string;
+    'aria-label'?: string;
   }>;
   WorkspaceMetric: ComponentType<{ label: string; value: ReactNode; icon?: LucideIcon }>;
   WorkspaceShell: ComponentType<{
@@ -175,6 +206,6 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Every write the page makes is an explicit submit, so the method is stated once here rather than
  *  spelled out at each call site. */
-export function jsonRequest(method: 'POST' | 'PATCH', body: unknown): RequestInit {
+export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH', body: unknown): RequestInit {
   return { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }

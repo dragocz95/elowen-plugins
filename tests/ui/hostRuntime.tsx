@@ -37,6 +37,8 @@ export function ensurePluginUiRuntime(): void {
     jsxRuntime: JsxRuntime,
     components: {
       Badge: C.Badge, Button: C.Button, Input: C.Input, Field: C.Field, Toggle: C.Toggle, Segmented: C.Segmented,
+      // The scalar slider: a plugin's panel settings drive a live preview with it.
+      Slider: C.Slider,
       // The picker lives beside the other primitive ports now, so the register stub and a plugin's own
       // filter render through ONE implementation instead of two that could drift apart. `disabled` and
       // `invalid` are honoured there, because the host honours them: msteams locks its account picker

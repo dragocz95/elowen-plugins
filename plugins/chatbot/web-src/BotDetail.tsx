@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Check, ClipboardCopy, Plus, Power, Save, Trash2 } from 'lucide-react';
+import { Check, ClipboardCopy, Palette, Plus, Power, Save, Trash2 } from 'lucide-react';
 import { apiJson, jsonRequest, runtime, type ChatbotBotView } from './runtime';
+import { AppearanceModal } from './AppearanceModal';
 
 /** One chatbot's configuration. Every field here is saved as a whole, on an explicit click: the row's
  *  `updatedAt` is the concurrency token, so a debounced autosave would race another administrator's edit
@@ -52,6 +53,7 @@ export function BotDetail({ bot, onChanged, unknownError }: {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<'enable' | 'disable' | null>(null);
+  const [editingLook, setEditingLook] = useState(false);
 
   // A different chatbot is a different form, so it starts from that chatbot's values with nothing open.
   useEffect(() => {
@@ -124,6 +126,7 @@ export function BotDetail({ bot, onChanged, unknownError }: {
           <p className="break-all font-mono text-[11px] text-subtle-foreground">{bot.publicId}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <C.Button variant="ghost" icon={Palette} disabled={pending} onClick={() => setEditingLook(true)}>{s.appearanceAction}</C.Button>
           <C.Badge tone={bot.status === 'enabled' && bot.blockers.length === 0 ? 'success' : bot.blockers.length > 0 ? 'warning' : undefined}>{statusText(bot, s)}</C.Badge>
           {bot.status === 'enabled' ? (
             <C.Button variant="ghost" icon={Power} disabled={pending} onClick={() => setConfirming('disable')}>{s.disableAction}</C.Button>
@@ -222,6 +225,16 @@ export function BotDetail({ bot, onChanged, unknownError }: {
         onConfirm={() => void save(confirming)}
         onClose={() => setConfirming(null)}
       />
+
+      {editingLook ? (
+        <AppearanceModal
+          bot={bot}
+          onClose={() => setEditingLook(false)}
+          // The saved row comes back from the server, so this pane's own fields re-seed from it — a name
+          // changed in the appearance editor is the only name, and both surfaces read the same value.
+          onChanged={onChanged}
+        />
+      ) : null}
     </div>
   );
 }
