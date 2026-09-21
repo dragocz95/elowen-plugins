@@ -21,8 +21,13 @@ export function createPublicRoute(deps) {
     const iso = () => now().toISOString();
     /** The gate every stateful endpoint passes first: the host must have resolved a NETWORK origin it
      *  considers canonical. It is deliberately not derived from a header the plugin could read itself — the
-     *  deployment's proxy trust is one decision, and it is core's. */
-    const checkRequestOrigin = (req) => isTrustedRequestOrigin(readRequestOrigin(req)) ? null : reply(403, { error: 'trusted_origin_required' });
+     *  deployment's proxy trust is one decision, and it is core's. The resolved origin is returned because it is
+     *  also the key the per-address rate window counts, and a second read of it would be a second answer to
+     *  "where did this request come from". */
+    const trustedOrigin = (req) => {
+        const origin = readRequestOrigin(req);
+        return isTrustedRequestOrigin(origin) ? origin : null;
+    };
     /** An enabled, started chatbot, or the refusal a caller gets instead. Unknown, draft and disabled
      *  chatbots answer identically: a public id is not a secret, but which sites' chatbots exist is not
      *  something an anonymous caller needs mapped for them. */
@@ -154,8 +159,13 @@ export function createPublicRoute(deps) {
         }, corsHeaders(origin));
     };
     /** `POST v1/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
-     *  the owner side of the relay, so a client that disconnects has stopped watching, not stopped work. */
-    const handleTurn = async (req, origin) => {
+     *  the owner side of the relay, so a client that disconnects has stopped watching, not stopped work.
+     *
+     *  Everything that decides whether this message may be served happens in `store.admitTurn`, in the order the
+     *  implementation plan fixes: the chatbot's own numbers, then the rate windows, then the daily budget, then
+     *  the visitor's conversation and the chatbot's queue, and only then the turn row. Nothing here re-decides
+     *  any of it, and nothing below can spend anything. */
+    const handleTurn = async (req, origin, requestOrigin) => {
         const admitted = presentedToken(req);
         if ('status' in admitted)
             return admitted;
@@ -175,22 +185,41 @@ export function createPublicRoute(deps) {
         if (!parsed.ok)
             return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
         // Idempotent submission: a widget that lost the 202 retries with the same client turn id and receives
-        // the SAME turn, never a second model turn for one message it showed once.
+        // the SAME turn, never a second model turn for one message it showed once. Checked before anything is
+        // counted, so a retry costs neither a rate window nor a turn of the budget.
         const existing = store.turnByClientId(admitted.bot.chatbot_user_id, admitted.visitorId, parsed.value.clientTurnId);
-        const turn = existing ?? store.createTurn({
-            turnId: randomUUID(),
-            chatbotUserId: admitted.bot.chatbot_user_id,
-            visitorId: admitted.visitorId,
-            clientTurnId: parsed.value.clientTurnId,
-            message: parsed.value.message,
-            now: iso(),
-        });
+        if (existing)
+            return turnReceipt(existing, origin);
+        let outcome;
+        try {
+            outcome = store.admitTurn({
+                turnId: randomUUID(),
+                bot: admitted.bot,
+                visitorId: admitted.visitorId,
+                clientTurnId: parsed.value.clientTurnId,
+                message: parsed.value.message,
+                originValue: requestOrigin.value,
+                now: iso(),
+                nowMs: now().getTime(),
+            });
+        }
+        catch (error) {
+            // Admission reads core's own spend rollup, so it can fail for reasons that are not this request's fault.
+            // The visitor gets the same stable code every other unavailable chatbot answers with, and the operator
+            // gets the detail: nothing was queued and nothing was spent.
+            warn(`chatbot ${admitted.bot.public_id} could not admit a turn: ${error instanceof Error ? error.message : String(error)}`);
+            return reply(503, { error: 'bot_unavailable' }, corsHeaders(origin));
+        }
+        if (!outcome.ok) {
+            if (outcome.reason === 'duplicate')
+                return turnReceipt(outcome.turn, origin);
+            return admissionReply(outcome, origin);
+        }
         store.touchVisitor(admitted.visitorId, iso());
-        if (!existing)
-            queue.submit(turn.turn_id);
+        queue.submit(outcome.turn.turn_id);
         // A receipt describes ADMISSION, not the turn's current state: the widget attaches to the turn's own
         // event stream next, and that is where a retry after a lost 202 learns what has already happened.
-        return reply(202, { schemaVersion: PUBLIC_SCHEMA_VERSION, turnId: turn.turn_id, status: 'queued', lastSeq: 0 }, corsHeaders(origin));
+        return turnReceipt(outcome.turn, origin);
     };
     /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
      *  recent turns, each one's public status and the answer it finished with. It is deliberately NOT a
@@ -318,6 +347,25 @@ export function createPublicRoute(deps) {
             return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
         return actionReportReply(actions.reportDecision({ turn, actionId, decision: parsed.value.decision, nonce: parsed.value.nonce }), origin);
     };
+    /** A preflight for a cross-origin call the widget makes.
+     *
+     *  The allowlist is per chatbot, and a preflight names no chatbot: it carries only the page's origin and the
+     *  method it is about to use. So the answer is "some ENABLED chatbot of this deployment answers on that
+     *  origin" — which grants nothing on its own, because the request that follows still has to present a token
+     *  that matches THIS chatbot and a visitor's own conversation. What it does give away is which domains this
+     *  deployment serves; the alternative, answering every preflight, would be telling a caller nothing true at
+     *  all while making the browser attempt a request the plugin then refuses.
+     *
+     *  The requested method is checked because a preflight is a question about a method: `GET` and `POST` are
+     *  the two the widget uses, and nothing else is worth a grant. */
+    const handlePreflight = (req, origin) => {
+        const requested = (req.headers['access-control-request-method'] ?? req.headers['Access-Control-Request-Method'] ?? '').toUpperCase();
+        if (requested !== '' && requested !== 'GET' && requested !== 'POST')
+            return reply(403, { error: 'origin_not_allowed' });
+        const served = store.listBots()
+            .some((bot) => bot.status === 'enabled' && store.originsOf(bot.chatbot_user_id).includes(origin));
+        return served ? reply(204, undefined, corsHeaders(origin)) : reply(403, { error: 'origin_not_allowed' });
+    };
     return async function handlePublicRequest(req) {
         const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
         const path = segments.join('/');
@@ -333,19 +381,24 @@ export function createPublicRoute(deps) {
         // grants nothing either way: what admits a request is the plugin's own decision — an `Origin` header
         // matching one of the chatbot's allowed domains, a host-resolved trusted network origin, and a live
         // visitor token. A caller outside the allowlist is refused here regardless of any CORS header.
-        const gate = checkRequestOrigin(req);
-        if (gate)
-            return gate;
+        const requestOrigin = trustedOrigin(req);
+        if (!requestOrigin)
+            return reply(403, { error: 'trusted_origin_required' });
         // The browser's own statement of which site asked. A request without one is not a request this
         // endpoint serves, and it is checked before anything is parsed.
         if (typeof origin !== 'string' || origin === '')
             return reply(403, { error: 'origin_not_allowed' });
+        // The preflight a cross-origin call with an `Authorization` header is preceded by. Answered HERE rather
+        // than left to the daemon's own middleware, which knows nothing about chatbot domains and would tell a
+        // website outside every allowlist that its request may proceed.
+        if (req.method === 'OPTIONS')
+            return handlePreflight(req, origin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.visitors)
             return handleTokenIssuance(req, origin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.refresh)
             return handleRefresh(req, origin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.turns)
-            return handleTurn(req, origin);
+            return handleTurn(req, origin, requestOrigin);
         if (req.method === 'GET' && path === PUBLIC_PATHS.conversation)
             return handleConversation(req, origin);
         if (req.method === 'GET' && segments.length === 3
@@ -359,6 +412,42 @@ export function createPublicRoute(deps) {
         }
         return reply(404, { error: 'not_found' });
     };
+}
+/** The receipt one admitted turn is answered with, and the same receipt a retried submission of it gets: the
+ *  two are one function because a retry must be indistinguishable from the original answer.
+ *
+ *  It describes ADMISSION, never the turn's current state — the widget attaches to the turn's own event stream
+ *  next, and that is where a reconnect learns what has already happened. */
+function turnReceipt(turn, origin) {
+    return reply(202, { schemaVersion: PUBLIC_SCHEMA_VERSION, turnId: turn.turn_id, status: 'queued', lastSeq: 0 }, corsHeaders(origin));
+}
+/** Why one message was not admitted, as the caller is told. This is the only place these codes exist, and each
+ *  one is a stable fact rather than a description: a widget shows the visitor one sentence for all of them,
+ *  while the operator sees which ceiling answered in the plugin's own log.
+ *
+ *  `Retry-After` is present exactly where this plugin can say when the refusal stops being true — the end of
+ *  the rate window, or the beginning of the next UTC day — and absent where it cannot, because a made-up
+ *  number invites a retry loop that the ceiling will keep refusing. */
+function admissionReply(outcome, origin) {
+    const headers = corsHeaders(origin);
+    switch (outcome.reason) {
+        case 'rate_limited':
+            return reply(429, { error: 'rate_limited' }, { ...headers, 'retry-after': String(outcome.retryAfterSeconds) });
+        case 'budget_exhausted':
+            return reply(429, { error: 'budget_exhausted' }, { ...headers, 'retry-after': String(outcome.retryAfterSeconds) });
+        case 'budget_unverifiable':
+            return reply(429, { error: 'budget_unverifiable' }, headers);
+        case 'turn_in_progress':
+            // 409: the same visitor already has a turn this chatbot has not finished. The widget's answer is to
+            // follow THAT turn rather than to send this one again.
+            return reply(409, { error: 'turn_in_progress' }, headers);
+        case 'chatbot_busy':
+            return reply(429, { error: 'chatbot_busy' }, headers);
+        case 'limits_missing':
+            // An enabled chatbot whose numbers are absent: there is no set to serve under and nothing to fall back
+            // on, so it is the same refusal as any other chatbot that cannot run.
+            return reply(503, { error: 'bot_unavailable' }, headers);
+    }
 }
 /** What a widget is told after reporting an action. The success body is deliberately thin — the widget
  *  reads the status code and nothing else — while a refusal distinguishes the three ways a report can
