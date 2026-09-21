@@ -2,6 +2,7 @@ import { useId, useState, type ChangeEvent } from 'react';
 import { Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { runtime } from './runtime';
 import type { ChatbotActionRuleView } from './types';
+import { normalizeActionPathPrefix } from '../src/adminContract.js';
 import {
   ACTION_KINDS,
   WIDGET_MAX_ACTIONS_PER_TURN,
@@ -33,8 +34,9 @@ export function draftRuleRefusal(
 ): DraftRuleRefusal | null {
   if (allowedOrigins.length === 0) return 'no_origin';
   if (draft.origin === '') return 'pick_origin';
-  const path = draft.pathPrefix.trim();
-  if (!path.startsWith('/') || /\s/.test(path) || path.includes('?') || path.includes('#')) return 'bad_path';
+  // The server's own reading of a path, so what this field accepts is exactly what will be enforced.
+  const path = normalizeActionPathPrefix(draft.pathPrefix);
+  if (path === null) return 'bad_path';
   const limit = Number(draft.maxPerTurn);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > WIDGET_MAX_ACTIONS_PER_TURN) return 'bad_limit';
   if (existing.some((rule) => actionRuleKey(rule) === actionRuleKey({ origin: draft.origin, pathPrefix: path, action: draft.action }))) return 'duplicate';
@@ -60,6 +62,9 @@ export function SecuritySettings({ origins, rules, disabled, onChange }: {
   const [maxPerTurn, setMaxPerTurn] = useState('1');
 
   const actionLabel = (kind: string): string => s[`action_${kind}`] ?? kind;
+  // The prefix as the server will store it, read once so the row and the verdict cannot describe two
+  // different paths.
+  const draftPath = normalizeActionPathPrefix(pathPrefix);
   const refusal = draftRuleRefusal({ origin, pathPrefix, action, maxPerTurn }, origins, rules);
   const refusalText = refusal === null ? null
     : refusal === 'no_origin' ? s.ruleOriginNone
@@ -69,10 +74,10 @@ export function SecuritySettings({ origins, rules, disabled, onChange }: {
             : s.ruleDuplicate;
 
   const add = () => {
-    if (refusal !== null) return;
+    if (refusal !== null || draftPath === null) return;
     onChange([...rules, {
       origin,
-      pathPrefix: pathPrefix.trim(),
+      pathPrefix: draftPath,
       action,
       // A confirmation is only ever carried for the kind that IS one: the widget's protocol has no frame
       // for any other, and the server refuses such a rule outright.

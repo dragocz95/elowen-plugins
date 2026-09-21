@@ -28,18 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../../elowen-plugins/node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -74,19 +74,19 @@ var chatbotApi = {
 // plugins/chatbot/web-src/ChatbotWorkspace.tsx
 var import_react8 = __toESM(require_react(), 1);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/shared/src/utils.js
+// node_modules/lucide-react/dist/esm/shared/src/utils.js
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var import_react = __toESM(require_react());
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.js
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -99,7 +99,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.js
 var Icon = (0, import_react.forwardRef)(
   ({
     color = "currentColor",
@@ -131,7 +131,7 @@ var Icon = (0, import_react.forwardRef)(
   }
 );
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.js
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react2.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
@@ -145,7 +145,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/activity.js
+// node_modules/lucide-react/dist/esm/icons/activity.js
 var Activity = createLucideIcon("Activity", [
   [
     "path",
@@ -156,7 +156,7 @@ var Activity = createLucideIcon("Activity", [
   ]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/bot.js
+// node_modules/lucide-react/dist/esm/icons/bot.js
 var Bot = createLucideIcon("Bot", [
   ["path", { d: "M12 8V4H8", key: "hb8ula" }],
   ["rect", { width: "16", height: "12", x: "4", y: "8", rx: "2", key: "enze0r" }],
@@ -166,10 +166,10 @@ var Bot = createLucideIcon("Bot", [
   ["path", { d: "M9 13v2", key: "rq6x2g" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/check.js
+// node_modules/lucide-react/dist/esm/icons/check.js
 var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
+// node_modules/lucide-react/dist/esm/icons/clipboard-copy.js
 var ClipboardCopy = createLucideIcon("ClipboardCopy", [
   ["rect", { width: "8", height: "4", x: "8", y: "2", rx: "1", ry: "1", key: "tgr4d6" }],
   ["path", { d: "M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2", key: "4jdomd" }],
@@ -178,7 +178,7 @@ var ClipboardCopy = createLucideIcon("ClipboardCopy", [
   ["path", { d: "m15 10-4 4 4 4", key: "5dvupr" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/coins.js
+// node_modules/lucide-react/dist/esm/icons/coins.js
 var Coins = createLucideIcon("Coins", [
   ["circle", { cx: "8", cy: "8", r: "6", key: "3yglwk" }],
   ["path", { d: "M18.09 10.37A6 6 0 1 1 10.34 18", key: "t5s6rm" }],
@@ -186,20 +186,20 @@ var Coins = createLucideIcon("Coins", [
   ["path", { d: "m16.71 13.88.7.71-2.82 2.82", key: "1rbuyh" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/external-link.js
+// node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/gauge.js
+// node_modules/lucide-react/dist/esm/icons/gauge.js
 var Gauge = createLucideIcon("Gauge", [
   ["path", { d: "m12 14 4-4", key: "9kzdfg" }],
   ["path", { d: "M3.34 19a10 10 0 1 1 17.32 0", key: "19p75a" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/layers.js
+// node_modules/lucide-react/dist/esm/icons/layers.js
 var Layers = createLucideIcon("Layers", [
   [
     "path",
@@ -212,7 +212,7 @@ var Layers = createLucideIcon("Layers", [
   ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/list-checks.js
+// node_modules/lucide-react/dist/esm/icons/list-checks.js
 var ListChecks = createLucideIcon("ListChecks", [
   ["path", { d: "m3 17 2 2 4-4", key: "1jhpwq" }],
   ["path", { d: "m3 7 2 2 4-4", key: "1obspn" }],
@@ -221,25 +221,25 @@ var ListChecks = createLucideIcon("ListChecks", [
   ["path", { d: "M13 18h8", key: "oe0vm4" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/messages-square.js
+// node_modules/lucide-react/dist/esm/icons/messages-square.js
 var MessagesSquare = createLucideIcon("MessagesSquare", [
   ["path", { d: "M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z", key: "p1xzt8" }],
   ["path", { d: "M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1", key: "1cx29u" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/plus.js
+// node_modules/lucide-react/dist/esm/icons/plus.js
 var Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/power.js
+// node_modules/lucide-react/dist/esm/icons/power.js
 var Power = createLucideIcon("Power", [
   ["path", { d: "M12 2v10", key: "mnfbl" }],
   ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/save.js
+// node_modules/lucide-react/dist/esm/icons/save.js
 var Save = createLucideIcon("Save", [
   [
     "path",
@@ -252,13 +252,13 @@ var Save = createLucideIcon("Save", [
   ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/search.js
+// node_modules/lucide-react/dist/esm/icons/search.js
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/shield-check.js
+// node_modules/lucide-react/dist/esm/icons/shield-check.js
 var ShieldCheck = createLucideIcon("ShieldCheck", [
   [
     "path",
@@ -270,7 +270,7 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/trash-2.js
+// node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", key: "4alrt4" }],
@@ -279,7 +279,7 @@ var Trash2 = createLucideIcon("Trash2", [
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
 ]);
 
-// ../../elowen-plugins/node_modules/lucide-react/dist/esm/icons/triangle-alert.js
+// node_modules/lucide-react/dist/esm/icons/triangle-alert.js
 var TriangleAlert = createLucideIcon("TriangleAlert", [
   [
     "path",
@@ -310,6 +310,16 @@ var seconds = (value, locale) => value == null ? "\u2014" : `${new Intl.NumberFo
 
 // plugins/chatbot/web-src/SecuritySettings.tsx
 var import_react3 = __toESM(require_react(), 1);
+
+// plugins/chatbot/src/adminContract.ts
+var ACTION_PATH_PREFIX_MAX_CHARS = 200;
+function normalizeActionPathPrefix(raw) {
+  const value = raw.trim();
+  if (value === "" || !value.startsWith("/")) return null;
+  if (value.includes("?") || value.includes("#") || /\s/.test(value)) return null;
+  const collapsed = value.replace(/\/+/g, "/").replace(/(.)\/$/, "$1");
+  return collapsed.length > ACTION_PATH_PREFIX_MAX_CHARS ? null : collapsed;
+}
 
 // plugins/chatbot/src/publicContract.ts
 var WIDGET_ASSET_NAME = "widget.js";
@@ -370,8 +380,8 @@ function actionRuleKey(rule) {
 function draftRuleRefusal(draft, allowedOrigins, existing) {
   if (allowedOrigins.length === 0) return "no_origin";
   if (draft.origin === "") return "pick_origin";
-  const path = draft.pathPrefix.trim();
-  if (!path.startsWith("/") || /\s/.test(path) || path.includes("?") || path.includes("#")) return "bad_path";
+  const path = normalizeActionPathPrefix(draft.pathPrefix);
+  if (path === null) return "bad_path";
   const limit = Number(draft.maxPerTurn);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > WIDGET_MAX_ACTIONS_PER_TURN) return "bad_limit";
   if (existing.some((rule) => actionRuleKey(rule) === actionRuleKey({ origin: draft.origin, pathPrefix: path, action: draft.action }))) return "duplicate";
@@ -388,13 +398,14 @@ function SecuritySettings({ origins, rules, disabled, onChange }) {
   const [requiresConfirmation, setRequiresConfirmation] = (0, import_react3.useState)(false);
   const [maxPerTurn, setMaxPerTurn] = (0, import_react3.useState)("1");
   const actionLabel = (kind) => s[`action_${kind}`] ?? kind;
+  const draftPath = normalizeActionPathPrefix(pathPrefix);
   const refusal = draftRuleRefusal({ origin, pathPrefix, action, maxPerTurn }, origins, rules);
   const refusalText = refusal === null ? null : refusal === "no_origin" ? s.ruleOriginNone : refusal === "pick_origin" ? s.ruleOriginRequired : refusal === "bad_path" ? s.rulePathInvalid : refusal === "bad_limit" ? s.ruleLimitInvalid.replace("{max}", String(WIDGET_MAX_ACTIONS_PER_TURN)) : s.ruleDuplicate;
   const add = () => {
-    if (refusal !== null) return;
+    if (refusal !== null || draftPath === null) return;
     onChange([...rules, {
       origin,
-      pathPrefix: pathPrefix.trim(),
+      pathPrefix: draftPath,
       action,
       // A confirmation is only ever carried for the kind that IS one: the widget's protocol has no frame
       // for any other, and the server refuses such a rule outright.

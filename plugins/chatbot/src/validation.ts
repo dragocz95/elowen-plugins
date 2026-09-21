@@ -1,3 +1,4 @@
+import { ACTION_PATH_PREFIX_MAX_CHARS, normalizeActionPathPrefix } from './adminContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { isActionKind } from './actions.js';
 import type { ActionRuleInput } from './store.js';
@@ -191,18 +192,6 @@ export type ActionRulePayload = ActionRuleInput;
 /** How many rules one chatbot may carry. A rule is a statement about one origin, one path and one action,
  *  and a list beyond this is a policy nobody can read rather than a policy that is too small. */
 const ACTION_RULES_MAX = 100;
-const PATH_PREFIX_MAX_CHARS = 200;
-
-/** A path prefix is a path SEGMENT prefix (`actionRules.covers`), so it has to start at the root and never
- *  carry a query, a fragment or a trailing space. A rule written as a URL would silently cover nothing. */
-const normalizePathPrefix = (raw: string): string | null => {
-  const value = raw.trim();
-  if (value === '') return null;
-  if (!value.startsWith('/')) return null;
-  if (value.length > PATH_PREFIX_MAX_CHARS) return null;
-  if (value.includes('?') || value.includes('#') || /\s/.test(value)) return null;
-  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
-};
 
 /** The chatbot's page-action rules, normalised and checked as a WHOLE list.
  *
@@ -229,9 +218,9 @@ export function validateActionRules(input: unknown): Validated<ActionRulePayload
       return { ok: false, error: `action rule origin "${origin.value}": ${error instanceof Error ? error.message : 'invalid domain'}` };
     }
     if (isWildcardOrigin(normalized)) return { ok: false, error: 'action rule: a wildcard domain is not allowed' };
-    const path = readString(outer.value, 'pathPrefix', PATH_PREFIX_MAX_CHARS);
+    const path = readString(outer.value, 'pathPrefix', ACTION_PATH_PREFIX_MAX_CHARS);
     if (!path.ok) return path;
-    const pathPrefix = normalizePathPrefix(path.value);
+    const pathPrefix = normalizeActionPathPrefix(path.value);
     if (pathPrefix === null) return { ok: false, error: 'action rule: "pathPrefix" must be a path starting with "/"' };
     const action = readString(outer.value, 'action', 32);
     if (!action.ok) return action;

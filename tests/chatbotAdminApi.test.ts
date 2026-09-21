@@ -297,4 +297,16 @@ describe('page-action rules travel with the bot and are stored as the server rea
     expect(validateActionRules([good, { ...good, pathPrefix: '/kontakt/' }])).toMatchObject({ ok: false });
     expect(validateActionRules('nope')).toMatchObject({ ok: false });
   });
+
+  it('reads a path the way the editor shows it, so a doubled slash still describes a real place', () => {
+    // The editor's field opens with a "/", and a reader who types their path over it sends "//kontakt".
+    // Stored verbatim that rule matches no request while looking exactly like one that does.
+    expect(validateActionRules([{ origin: SITE, pathPrefix: '//kontakt', action: 'fill', maxPerTurn: 2 }]))
+      .toEqual({ ok: true, value: [{ origin: SITE, pathPrefix: '/kontakt', action: 'fill', requiresConfirmation: false, maxPerTurn: 2 }] });
+    expect(validateActionRules([{ origin: SITE, pathPrefix: '/a//b/', action: 'click', maxPerTurn: 1 }]))
+      .toEqual({ ok: true, value: [{ origin: SITE, pathPrefix: '/a/b', action: 'click', requiresConfirmation: false, maxPerTurn: 1 }] });
+    // Which is also what makes the duplicate check catch the same place written both ways.
+    expect(validateActionRules([{ origin: SITE, pathPrefix: '/kontakt', action: 'fill', maxPerTurn: 2 }, { origin: SITE, pathPrefix: '//kontakt', action: 'fill', maxPerTurn: 2 }]))
+      .toMatchObject({ ok: false });
+  });
 });

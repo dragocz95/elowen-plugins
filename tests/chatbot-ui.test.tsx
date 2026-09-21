@@ -445,7 +445,8 @@ describe('page-action rules', () => {
     await findBots();
 
     fireEvent.change(screen.getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    fireEvent.change(screen.getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '/kontakt' } });
+    // The field opens holding "/", so this is what a reader typing their own path into it really sends.
+    fireEvent.change(screen.getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '//kontakt' } });
     fireEvent.click(screen.getByRole('button', { name: strings.ruleAdd! }));
     await waitFor(() => expect(screen.getByText(`${SITE}/kontakt`)).toBeInTheDocument());
 
@@ -567,6 +568,11 @@ describe('the pure helpers the detail pane reports with', () => {
     expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/a', action: 'read', maxPerTurn: '21' }, allowed, existing)).toBe('bad_limit');
     expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/', action: 'read', maxPerTurn: '2' }, allowed, existing)).toBe('duplicate');
     expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/a', action: 'click', maxPerTurn: '2' }, allowed, existing)).toBeNull();
+    // The field opens with a "/", so a reader typing their path over it sends "//kontakt": that is the same
+    // place as "/kontakt" and must be accepted as it, and refused as a duplicate of it.
+    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '//kontakt', action: 'read', maxPerTurn: '2' }, allowed, [])).toBeNull();
+    // ... and as the SAME place as the rule already written without the extra slash.
+    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '//kontakt', action: 'read', maxPerTurn: '2' }, allowed, [{ origin: SITE, pathPrefix: '/kontakt', action: 'read', requiresConfirmation: false, maxPerTurn: 1 }])).toBe('duplicate');
   });
 
   it('reads the statistics window as the same range of UTC days for both requests', () => {
