@@ -43,6 +43,18 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'dep_storage_missing', 'dep_storage_missing_fix', 'dep_artifacts_missing', 'dep_artifacts_missing_fix',
     ],
   },
+  // The limits form renders one field per entry of the chatbot's own limit table and reads
+  // `s[`limit_${field}`]`. The field names come from `plugins/chatbot/src/limits.ts`, the same table the
+  // server enforces the numbers from — one table, so the list below is the whole set it can produce.
+  {
+    file: 'chatbot/web-src/BotDetail.tsx',
+    keys: [
+      'limit_rateIpPerMinute', 'limit_rateChatbotPerMinute', 'limit_rateConversationPerMinute',
+      'limit_dailyTurnLimit', 'limit_dailyTokenLimit', 'limit_dailyCostMicrousd',
+      'limit_maxConcurrentTurns', 'limit_maxQueueDepth', 'limit_queueTimeoutSeconds',
+      'limit_maxActionsPerTurn', 'limit_retentionDays',
+    ],
+  },
   {
     file: 'cronjob/web-src/fields.tsx',
     keys: ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'],

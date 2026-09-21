@@ -70,6 +70,22 @@ const FILLED_EMAIL = 'jan.novak@example.cz';
 const SECRET_PASSWORD = 'TajneHeslo123';
 const SECRET_CARD = '4111111111111111';
 
+/** The limit set this chatbot is configured with, complete because a chatbot cannot be enabled without one:
+ *  the plugin has no defaults, and the scenario wants turns to run rather than to be refused. */
+const SCENARIO_LIMITS = {
+  rateIpPerMinute: 120,
+  rateChatbotPerMinute: 120,
+  rateConversationPerMinute: 60,
+  dailyTurnLimit: 500,
+  dailyTokenLimit: null,
+  dailyCostMicrousd: null,
+  maxConcurrentTurns: 4,
+  maxQueueDepth: 8,
+  queueTimeoutSeconds: 60,
+  maxActionsPerTurn: 8,
+  retentionDays: 30,
+};
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function assert(condition, message) {
@@ -139,6 +155,9 @@ const bot = store.createBot({
   displayName: 'Městský úřad',
   prompt: 'Pomáhej návštěvníkům s formulářem.',
   origins: [],
+  // A chatbot serves under numbers its owner decided; the plugin has none of its own, and it refuses to serve
+  // without them. The scenario writes a complete set, exactly as an administrator would have.
+  limits: SCENARIO_LIMITS,
   now: now().toISOString(),
 });
 adapter.listen(async () => undefined);
@@ -442,6 +461,7 @@ store.updateBot({
   displayName: 'Městský úřad',
   prompt: 'Pomáhej návštěvníkům s formulářem.',
   origins: [siteOrigin],
+  limits: SCENARIO_LIMITS,
   now: now().toISOString(),
 });
 store.setBotStatus({ chatbotUserId: CHATBOT_ACCOUNT, status: 'enabled', now: now().toISOString() });
