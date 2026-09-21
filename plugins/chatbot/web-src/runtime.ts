@@ -1,6 +1,7 @@
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
+import type { LimitField, LimitValues } from '../src/limits';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
@@ -27,6 +28,13 @@ export interface ChatbotBotView {
    *  chatbot cannot run instead of a chatbot that silently answers nobody. */
   blockers: string[];
   insecureOrigins: string[];
+  /** Every limit as stored, with an unset one as null. The form writes the whole set back on every save. */
+  limits: LimitValues;
+  /** The mandatory numbers still unset. Non-empty means this chatbot cannot be enabled yet. */
+  missingLimits: LimitField[];
+  /** Whether the sensitive-data mode has been asked for. Asking is all this version stores; it refuses the
+   *  request itself, and the page says so rather than offering a switch that cannot work. */
+  sensitiveMode: boolean;
 }
 
 export interface ChatbotAccountOption {
