@@ -19639,7 +19639,12 @@ function chatConfig(input) {
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
   return {
     chatStyle: {
-      backgroundColor: appearance.colors.panel,
+      // The GROUND is painted by the panel's own `.messages` element, not here. deep-chat reads `chatStyle`
+      // when it first renders and keeps it: reconfiguring an existing element updates the bubbles and the
+      // input area but leaves this background at whatever the panel was built with, so switching a template
+      // left a white panel with a black conversation. What this element owns has to be transparent for the
+      // colour underneath to be the one in force.
+      backgroundColor: "transparent",
       color: ramp.foreground,
       border: "none",
       width: "100%",
@@ -19786,7 +19791,7 @@ function styleText(appearance) {
 .status { margin: 0; padding: 10px 16px; border-bottom: 1px solid ${ramp.border}; background: ${appearance.colors.panel}; color: ${ramp.muted}; font-size: 13px; line-height: 1.45; }
 .status[hidden] { display: none; }
 .status-error { color: ${ramp.ember}; }
-.messages { flex: 1 1 auto; min-height: 0; display: flex; }
+.messages { flex: 1 1 auto; min-height: 0; display: flex; background: ${appearance.colors.panel}; }
 .messages > deep-chat { flex: 1 1 auto; min-height: 0; }
 .confirm {
   border-top: 1px solid ${ramp.border}; background: ${ramp.raised}; padding: 14px 16px;
