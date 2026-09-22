@@ -177,7 +177,10 @@ interface MutationResult<TVars, TData = unknown> {
   mutateAsync(vars: TVars): Promise<TData>;
   isPending: boolean;
 }
-interface QueryClient { invalidateQueries(input: { queryKey: unknown[] }): Promise<void> }
+interface QueryClient {
+  invalidateQueries(input: { queryKey: unknown[] }): Promise<void>;
+  setQueryData<T>(queryKey: unknown[], updater: (previous?: T) => T | undefined): void;
+}
 
 type PageFilterField =
   | { id: string; label: string; control: ReactNode; hint?: string; active: false }
@@ -448,6 +451,17 @@ export const PREVIEW_POLL_MS = 4000;
  *  without being asked. A register nothing is happening in polls nothing. */
 export const awaitingPreview = (sites: readonly SiteView[]): boolean =>
   sites.some((site) => site.preview.state === 'pending');
+
+/** How long the setup dialog waits before checking a custom domain again. Short enough that a record
+ *  created a moment ago is picked up while its owner is still looking at the screen, and it has to be
+ *  the dialog that asks: the instance's own schedule backs off to hours after a few failed lookups,
+ *  which is right for a domain nobody is watching and far too slow for one somebody is. */
+export const DOMAIN_CHECK_POLL_MS = 20_000;
+
+/** Whether a custom domain is still on its way to being served, which is the only reason to keep asking
+ *  about it. A ready domain has nothing left to reach, and one being removed is on its way out. */
+export const awaitingDomain = (domain: SiteDomainView): boolean =>
+  domain.status !== 'ready' && domain.removalState === 'active';
 
 /** Relative time localized by the document language the host already selected. */
 export function relativeTime(iso: string | null): string {

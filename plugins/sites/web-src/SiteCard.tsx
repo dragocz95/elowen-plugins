@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, ArrowUpRight, Copy, ExternalLink, FolderGit2 } from 'lucide-react';
 import { runtime, avatarUser, previewImageUrl, relativeTime, type SiteView } from './runtime.js';
 import {
-  displayStatus, monogram, siteAddress, KIND_ICON, KIND_STRING,
+  displayStatus, monogram, siteAddress, KIND_ICON,
   STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_STRING, VISIBILITY_TONE,
 } from './meta.js';
 
@@ -167,14 +167,15 @@ export function SiteCard({ site, strings, selected, onOpen, onNavigate }: {
         </span>
       </div>
 
-      {/* State. Lifecycle, who may open it and which of the two publications it is — each said once. */}
+      {/* State: where the publication stands and who may open it. Which of the two publication shapes it
+          is stays out of this band — the address line already carries its icon, and spelling it out a
+          third time only crowds the card. */}
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Badge tone={STATUS_TONE[state]}>{strings[STATUS_STRING[state]]}</Badge>
         <Badge tone={VISIBILITY_TONE[site.visibility]}>
           <VisibilityIcon size={10} aria-hidden className="mr-1" />
           {strings[VISIBILITY_STRING[site.visibility]]}
         </Badge>
-        <Badge tone={site.kind === 'proxy' ? 'accent' : 'muted'}>{strings[KIND_STRING[site.kind]]}</Badge>
       </div>
 
       {hint ? (
