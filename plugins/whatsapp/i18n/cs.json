@@ -1,53 +1,53 @@
 {
-  "description": "WhatsApp bot (Baileys): napište mu a odpoví z Elowen AI. Textové příkazy (/model, /new, /help), výběr modelu pro každý chat (číslované textové menu, odpovíte číslem), živé streamované odpovědi (úprava zprávy za běhu se stopou nástrojů), stavové reakce a proaktivní cron/tick oznámení. Skupinové nástroje: výpis a info o skupinách, vytvoření skupiny, přidání/odebrání členů a poslání zprávy do libovolného chatu (provozovatel). Každý odesílatel (telefonní číslo, JID nebo celá skupina) se mapuje na povolené projekty Elowen a prompt role. Párování naskenováním QR kódu nebo pomocí párovacího kódu.",
+  "description": "Bot WhatsAppu (Baileys): napište mu a odpoví prostřednictvím Elowen AI. Textové příkazy (/model, /new, /help), výběr modelu pro každý chat (číslované menu, odpovězte číslem), průběžně upravované zprávy s přehledem volání nástrojů, stavové reakce a proaktivní oznámení z cron/tick úloh. Skupinové nástroje: zobrazit a prohlížet skupiny, vytvářet skupiny, přidávat a odebírat členy a posílat zprávy do libovolného chatu (provozovatel). Každý odesílatel (telefonní číslo, JID nebo celá skupina) se přiřazuje k povoleným projektům Elowen a promptu s pokyny pro roli. Propojte účet naskenováním QR kódu nebo zadáním párovacího kódu.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",
-      "hint": "Jak se bot napojí na WhatsApp a kam posílá proaktivní zprávy. Spárujte naskenováním QR kódu z logů pluginu, nebo párovacím kódem."
+      "hint": "Jak propojit bota s WhatsAppem a kam posílat proaktivní zprávy. Spárujte ho naskenováním QR kódu z výpisu pluginu nebo pomocí párovacího kódu."
     },
     "phoneNumber": {
       "label": "Telefonní číslo pro párování",
-      "hint": "Volitelné: číslo bota v mezinárodním formátu BEZ +, mezer a pomlček (např. 420777123456). Když vyplníte, plugin místo QR vypíše do logů 8znakový párovací kód — zadejte ho ve WhatsApp → Propojená zařízení → Propojit přes číslo. Prázdné = párování QR kódem."
+      "hint": "Nepovinné: číslo bota v mezinárodním formátu BEZ +, mezer a pomlček (např. 420777123456). Po vyplnění plugin vypíše do výpisu místo QR kódu osmiznakový párovací kód. Zadejte ho v WhatsAppu v části Propojená zařízení, volba Propojit pomocí telefonního čísla. Nechte pole prázdné, pokud chcete párovat QR kódem."
     },
     "groupIds": {
       "label": "Povolené skupiny",
-      "hint": "JID skupin (…@g.us), ve kterých smí bot odpovídat. Prázdné = každá skupina, kde píše namapovaný odesílatel. Přímé chaty zůstávají povolené."
+      "hint": "JID skupin (…@g.us), ve kterých smí bot odpovídat. Při prázdném poli může odpovídat ve všech skupinách, kde píše přiřazený odesílatel. V přímých chatech může odpovídat přiřazeným odesílatelům."
     },
     "notifyChat": {
-      "label": "Oznamovací chat",
-      "hint": "Kam se posílají proaktivní zprávy (výsledky cronů/ticků, eskalace, oznámení o restartu) — telefonní číslo nebo JID (…@s.whatsapp.net / …@g.us). Prázdné = žádné proaktivní zprávy."
+      "label": "Chat pro oznámení",
+      "hint": "Kam posílat proaktivní zprávy, například výsledky cron/tick úloh, eskalace a oznámení o restartu. Zadejte telefonní číslo nebo JID (…@s.whatsapp.net / …@g.us). Nechte pole prázdné, pokud proaktivní zprávy posílat nechcete."
     },
     "sec_replies": {
       "label": "Odpovědi a chování",
       "hint": "Kdy a jak bot odpovídá."
     },
     "respondWithoutMention": {
-      "label": "Odpovídat bez zmínky",
-      "hint": "Zapnuto: ve skupinách bot odpovídá na každou zprávu namapovaného odesílatele. Vypnuto: ve skupinách odpovídá jen při @zmínce nebo když někdo odpoví na jeho zprávu. Přímé chaty dostanou odpověď vždy."
+      "label": "Odpovídat i bez zmínky",
+      "hint": "Zapnuto: ve skupinách bot odpovídá na každou zprávu přiřazeného odesílatele. Vypnuto: odpovídá jen tehdy, když ho někdo zmíní pomocí @ nebo odpoví na jeho zprávu. V přímých chatech odpovídá vždy."
     },
     "streaming": {
       "label": "Živý průběh práce",
-      "hint": "Zobrazovat průběh práce agenta (volání nástrojů) ve zprávě, která se během práce průběžně upravuje. Samotná odpověď přijde vždy jako jedna zpráva na konci. Vypnuto = jen finální odpověď."
+      "hint": "Během práce zobrazovat průběh volání nástrojů ve zprávě, kterou bot průběžně upravuje. Konečnou odpověď vždy pošle jako samostatnou zprávu. Při vypnutí se zobrazí jen konečná odpověď."
     },
     "deleteToolActivityAfterTurn": {
-      "label": "Nahradit průběh finální odpovědí",
-      "hint": "Během práce zobrazí jednu živou zprávu s průběhem a na konci ji přepíše finální odpovědí. Žádná zpráva se nemaže."
+      "label": "Nahradit průběh odpovědí",
+      "hint": "Během práce zobrazit jednu průběžnou zprávu a po dokončení ji nahradit konečnou odpovědí. Žádná zpráva se nesmaže."
     },
     "reactions": {
       "label": "Reakce během zpracování",
       "hint": "Zobrazuje stav zpracování pomocí reakcí na příchozí zprávě."
     },
     "runtimeFooter": {
-      "label": "Stavový řádek",
-      "hint": "Připojit pod finální odpověď malý řádek „model · % kontextu“."
+      "label": "Informace o běhu",
+      "hint": "Přidat pod konečnou odpověď stručný řádek „model · % kontextu“."
     },
     "showReasoning": {
       "label": "Zobrazit uvažování",
-      "hint": "Streamovat uvažování modelu do průběžné zprávy (modely s extended thinking). Výchozí = vypnuto — většinou je to šum."
+      "hint": "Zobrazovat uvažování modelu během odpovědi. Dostupné jen u modelů s rozšířeným uvažováním. Ve výchozím nastavení vypnuto."
     },
     "language": {
       "label": "Jazyk služebních zpráv",
-      "hint": "Jazyk vlastních zpráv bota (/new, /model, zástupné texty): en (výchozí), cs nebo sk.",
+      "hint": "Jazyk vlastních zpráv bota (/new, /model a zástupné texty): en (výchozí), cs nebo sk.",
       "options": {
         "en": "Angličtina",
         "cs": "Čeština",
@@ -60,35 +60,35 @@
     },
     "visionModel": {
       "label": "Model pro obrázky",
-      "hint": "Model pro zprávy s obrázkovými přílohami (musí umět vision). Prázdné = běžný model chatu."
+      "hint": "Model používaný pro zprávy s obrázkovými přílohami. Musí podporovat zpracování obrázků. Nechte prázdné, chcete-li použít běžný model chatu."
     },
     "sec_media": {
       "label": "Limity médií",
-      "hint": "Limity pro příchozí/odchozí obrázky a jak dlouho zůstává otevřená čekající otázka."
+      "hint": "Limity pro příchozí a odchozí obrázky a doba platnosti čekající otázky."
     },
     "maxImageBytes": {
       "label": "Max. velikost příchozího obrázku",
-      "hint": "Největší obrázková příloha (v bajtech), kterou bot stáhne pro vision; větší jen poznamená."
+      "hint": "Největší obrázková příloha v bajtech, kterou bot stáhne ke zpracování. Větší soubory pouze zaznamená."
     },
     "maxImages": {
       "label": "Max. obrázků na zprávu",
-      "hint": "Kolik obrázkových příloh z jedné příchozí zprávy bot pošle vision modelu."
+      "hint": "Počet obrázků z jedné zprávy, které bot předá modelu ke zpracování."
     },
     "maxUploadImages": {
       "label": "Max. obrázků na odpověď",
-      "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi."
+      "hint": "Počet vygenerovaných obrázků, které bot připojí k jedné odpovědi."
     },
     "askTimeoutMs": {
-      "label": "Timeout otázky (ms)",
-      "hint": "Jak dlouho zůstává čekající AskUserQuestion otevřená pro číselnou odpověď nebo volný text, než ji bot zahodí jako zastaralou. Stejné okno platí i pro interaktivní menu."
+      "label": "Časový limit otázky (ms)",
+      "hint": "Jak dlouho lze na otázku AskUserQuestion odpovědět číslem nebo volným textem, než její platnost vyprší. Stejný limit platí pro interaktivní nabídky."
     },
     "sec_senders": {
-      "label": "Pravidla odesílatelů",
-      "hint": "Mapování WhatsApp odesílatelů na povolené projekty, prompt role a nástroje, které smí bot použít."
+      "label": "Pravidla pro odesílatele",
+      "hint": "Přiřaďte odesílatele z WhatsAppu k povoleným projektům, promptu s pokyny pro roli a nástrojům, které smí bot používat."
     },
     "senderPolicies": {
-      "label": "Pravidla odesílatelů",
-      "hint": "Vyhrává první odpovídající odesílatel; odesílatelé bez pravidla jsou ignorováni. ID je telefonní číslo (420777123456), JID (…@s.whatsapp.net) nebo celá skupina (…@g.us) — ID skupiny dá přístup všem v ní. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje sdílené výběry /model, /reasoning a /context a řídicí příkazy místnosti /stop, /stats, /compact a /restart — /restart restartuje démona pro všechny. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
+      "label": "Pravidla pro odesílatele",
+      "hint": "Platí první odpovídající pravidlo. Odesílatelé bez přiřazeného pravidla se ignorují. ID může být telefonní číslo (420777123456), JID (…@s.whatsapp.net) nebo JID celé skupiny (…@g.us). ID skupiny zpřístupní bota všem jejím členům. Hvězdička * odpovídá všem odesílatelům a musí být poslední, jinak by zastínila pravidla pro konkrétní odesílatele. Klíč `admin` povoluje sdílené nabídky /model, /reasoning a /context i příkazy pro ovládání chatu /stop, /stats, /compact a /restart. Příkaz /restart restartuje démona pro všechny. Projekty a oprávnění k nástrojům se přebírají z účtu Elowen propojeného s odesílatelem."
     }
   },
   "web": {
@@ -97,16 +97,16 @@
     },
     "strings": {
       "pairTitle": "Párování",
-      "pairHint": "Propojte bota s WhatsApp účtem. Naskenujte QR ve WhatsApp → Propojená zařízení, nebo použijte párovací kód.",
+      "pairHint": "Propojte bota s účtem WhatsApp. Naskenujte QR kód v části Propojená zařízení ve WhatsAppu nebo použijte párovací kód.",
       "pairButton": "Spárovat zařízení",
       "pairModalTitle": "Spárovat WhatsApp",
-      "pairScan": "Otevřete WhatsApp → Propojená zařízení → Propojit zařízení a naskenujte tento kód:",
-      "pairCode": "Nebo propojte přes telefonní číslo tímto kódem:",
-      "pairWaiting": "Čekám na QR kód… ověřte, že je plugin zapnutý.",
+      "pairScan": "Ve WhatsAppu otevřete Propojená zařízení, zvolte Propojit zařízení a naskenujte tento kód:",
+      "pairCode": "Nebo propojte účet pomocí telefonního čísla a tohoto kódu:",
+      "pairWaiting": "Čeká se na QR kód… Zkontrolujte, zda je plugin zapnutý.",
       "pairRefresh": "Nový kód",
-      "pairError": "Nepodařilo se spojit s WhatsApp pluginem. Je zapnutý?",
+      "pairError": "K pluginu WhatsApp se nelze připojit. Je zapnutý?",
       "unpairButton": "Zrušit párování",
-      "unpairConfirm": "Odpojit tento WhatsApp účet? Bot přestane přijímat zprávy, dokud znovu nespárujete.",
+      "unpairConfirm": "Odpojit tento účet WhatsApp? Bot přestane přijímat zprávy, dokud účet znovu nespárujete.",
       "unpairError": "Párování se nepodařilo zrušit. Zařízení zůstává připojené.",
       "retry": "Zkusit znovu",
       "close": "Zavřít"

@@ -1,14 +1,14 @@
 {
-  "description": "Kódová inteligencia cez language servery: skontroluje úpravu hneď, ako vznikne (LspDiagnostics), skočí na definíciu, nájde všetky referencie, ukáže signatúru z hoveru a vypíše symboly dokumentu aj celého workspace — všetko odpovedá skutočný language server daného súboru, nie textové hľadanie. Elowen riadi servery, ktoré pozná (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) a tie npm-ové si vie nainštalovať do vlastného prefixu. Vypnutím sa zastavia všetky language servery a nástroje zmiznú.",
+  "description": "Nástroje jazykového servera pomáhajú s kódom: kontrolujú typy po úprave (LspDiagnostics), hľadajú definície a použitia, zobrazujú podpisy a vypisujú symboly. Odpovede poskytuje jazykový server pre daný súbor, nie textové vyhľadávanie. Elowen podporuje napríklad TypeScript, Pyright, gopls, rust-analyzer a clangd. Servery založené na npm môže nainštalovať do vlastného priečinka. Po vypnutí sa všetky servery zastavia a nástroje prestanú byť dostupné.",
   "web": { "strings": { "railTitle": "LSP", "active": "Aktívne", "inactive": "Neaktívne" } },
   "fields": {
     "diagnosticsEnabled": {
       "label": "Živá diagnostika",
-      "hint": "Kontroluje úpravy cez language servery. Vypnutie zastaví všetky bežiace servery; nástroje zostanú vypísané a nahlásia, že je LSP vypnuté. Príkaz `/lsp` prepína to isté."
+      "hint": "Kontroluje zmeny pomocou jazykových serverov. Vypnutím zastavíte všetky spustené servery. Nástroje zostanú v ponuke, ale oznámia, že LSP je vypnuté. Príkaz `/lsp` prepína rovnaké nastavenie."
     },
     "idleTtlMinutes": {
-      "label": "Vypnúť server po nečinnosti",
-      "hint": "Language server, ktorý sa nepoužíva, sa po tejto dobe vypne a uvoľní pamäť. Napátať sa spustí znova, čo trvá niekoľko sekúnd. Hodnota 0 vypínanie podľa času vypína; server, ktorému zmizol koreň projektu, sa vypne vždy. Rozsah 0 až 240 minút, predvolene 10."
+      "label": "Ako dlho ponechať servery spustené",
+      "hint": "Ako dlho zostane server pripravený, keď na ňom neprebieha kontrola. Každý spustený server drží index projektu v pamäti; opätovné spustenie trvá približne 15 sekúnd. Hodnota 0 ponechá servery spustené, kým sa nenaplní ich fond alebo nevypnete LSP. Server sa uvoľní aj pri vymazaní priečinka projektu. V spravovanom projekte sa server obnoví najneskôr po 15 minútach bez ohľadu na toto nastavenie. Rozsah je 0 až 240 minút, predvolená hodnota 10."
     }
   }
 }

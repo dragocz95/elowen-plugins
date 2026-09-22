@@ -1,9 +1,9 @@
 {
-  "description": "Telegram bot (grammY): napište mu a odpoví z Elowen AI. Slash příkazy (/model, /reasoning, /display, /new, /help), nastavení modelu a zobrazení pro každý chat, živá aktivita nástrojů s nezávislým doručením odpovědi, stavové reakce a proaktivní cron/tick oznámení. Chat nástroje: info o chatu/členovi, počet členů, připnutí/odepnutí, mazání zpráv, ban/unban, povýšení, název/popis chatu, fórum témata (vytvořit/upravit/zavřít) a odeslání zprávy do libovolného chatu (provozovatel). Každé pravidlo role mapuje Telegram user ID / @username / chat ID na povolené projekty Elowen a prompt role.",
+  "description": "Telegramový bot (grammY): napište mu a odpoví za Elowen AI. Podporuje příkazy /model, /reasoning, /display, /new a /help, nastavení modelu a zobrazení pro jednotlivé chaty, průběžný přehled o práci nástrojů, samostatné doručení odpovědi, stavové reakce a proaktivní oznámení z cron úloh. Nástroje pro chaty umožňují zobrazit informace o chatu a členech, zjistit počet členů, připínat a odepínat zprávy, mazat zprávy, blokovat a odblokovat členy, povyšovat je, měnit název a popis chatu, spravovat témata fóra a poslat zprávu do libovolného chatu jako operátor. Každé pravidlo role přiřazuje Telegram ID uživatele, @username nebo ID chatu k povoleným projektům Elowen a promptu role.",
   "fields": {
     "sec_connection": {
       "label": "Připojení",
-      "hint": "Token bota a kde poslouchá."
+      "hint": "Token bota a místo, kde přijímá zprávy."
     },
     "sec_replies": {
       "label": "Odpovědi a chování",
@@ -19,11 +19,11 @@
     },
     "sec_roles": {
       "label": "Pravidla rolí",
-      "hint": "Mapování Telegram odesílatelů na povolené projekty, prompt role a nástroje, které smí bot použít."
+      "hint": "Přiřaďte odesílatele Telegramu k povoleným projektům, promptu role a nástrojům, které smí bot používat."
     },
     "sec_media": {
       "label": "Limity médií",
-      "hint": "Limity pro příchozí/odchozí obrázky a jak dlouho zůstává otevřená čekající otázka."
+      "hint": "Limity pro příchozí a odchozí obrázky a dobu, po kterou lze odpovědět na čekající otázku."
     },
     "botToken": {
       "label": "Token bota",
@@ -35,7 +35,7 @@
     },
     "notifyChatId": {
       "label": "ID oznamovacího chatu",
-      "hint": "Kam se posílají proaktivní zprávy (výsledky cronů/ticků, eskalace) — číselné chat id nebo @channelusername. Prázdné = žádné proaktivní zprávy."
+      "hint": "Sem se posílají proaktivní zprávy, například výsledky cron úloh a ticků nebo eskalace. Zadejte číselné ID chatu nebo @channelusername. Nechte prázdné, pokud proaktivní zprávy nechcete."
     },
     "respondWithoutMention": {
       "label": "Odpovídat bez zmínky",
@@ -43,23 +43,23 @@
     },
     "toolActivity": {
       "label": "Aktivita nástrojů",
-      "hint": "Vypnuto skryje pracovní stopu. Živý stav ukazuje spuštění a dokončení nástrojů. Živý výstup navíc streamuje omezený průběh Bash. Pro chat lze přepsat přes /display.",
+      "hint": "Vypnuto skryje průběh práce. Živý stav oznamuje spuštění a dokončení nástrojů. Živý výstup navíc průběžně zobrazuje omezený výstup příkazu Bash. Nastavení pro jednotlivý chat změňte příkazem /display.",
       "options": { "off": "Vypnuto", "status": "Živý stav", "live": "Živý výstup" }
     },
     "answerMode": {
       "label": "Doručení odpovědi",
-      "hint": "Finální odpověď pošle jednu kompletní zprávu pod živou stopu nástrojů. Živě průběžně upravuje vznikající odpověď. Pro chat lze přepsat přes /display.",
-      "options": { "final": "Jen finální odpověď", "live": "Živě streamovat odpověď" }
+      "hint": "V režimu Jen finální odpověď se po průběhu práce zobrazí jedna úplná zpráva. V živém režimu se odpověď průběžně upravuje. Nastavení pro jednotlivý chat změňte příkazem /display.",
+      "options": { "final": "Jen finální odpověď", "live": "Průběžně zobrazovat odpověď" }
     },
     "toolOutput": {
       "label": "Detail výstupu nástrojů",
-      "hint": "Určuje, kolik omezeného výstupu se ukáže pod stavem nástroje. Celý raw výstup se do Telegramu nikdy nevypisuje.",
-      "options": { "hidden": "Jen stav", "summary": "Krátké shrnutí", "tail": "Průběžný konec výstupu" }
+      "hint": "Určuje, kolik omezeného výstupu nástrojů se zobrazí pod jejich stavem. Celý původní výstup se do Telegramu nikdy neposílá.",
+      "options": { "hidden": "Jen stav", "summary": "Krátké shrnutí", "tail": "Poslední část výstupu" }
     },
     "toolMessageMode": {
       "label": "Rozložení zpráv nástrojů",
-      "hint": "Jedna živá zpráva udrží chat přehledný. Jedna zpráva na nástroj dá každému volání vlastní upravovanou zprávu v Telegramu.",
-      "options": { "single": "Jedna živá zpráva", "per_tool": "Jedna zpráva na nástroj" }
+      "hint": "Jedna průběžně aktualizovaná zpráva udrží chat přehledný. Při volbě jedné zprávy na nástroj dostane každý nástroj vlastní upravovatelnou zprávu v Telegramu.",
+      "options": { "single": "Jedna živá zpráva", "per_tool": "Jedna zpráva pro každý nástroj" }
     },
     "deleteToolActivityAfterTurn": {
       "label": "Nahradit průběh finální odpovědí",
@@ -75,40 +75,40 @@
     },
     "showReasoning": {
       "label": "Zobrazit uvažování",
-      "hint": "Streamovat uvažování modelu do průběžné zprávy (modely s extended thinking). Výchozí = vypnuto — většinou je to šum."
+      "hint": "Zobrazovat uvažování modelu během odpovědi. Dostupné jen u modelů s rozšířeným uvažováním. Ve výchozím stavu vypnuto."
     },
     "language": {
       "label": "Jazyk služebních zpráv",
-      "hint": "Jazyk vlastních zpráv bota (/new, /model, zástupné texty): en (výchozí), cs nebo sk.",
+      "hint": "Jazyk vlastních zpráv bota (/new, /model a zástupné texty): en (výchozí), cs nebo sk.",
       "options": { "en": "Angličtina", "cs": "Čeština", "sk": "Slovenština" }
     },
     "visionModel": {
       "label": "Model pro obrázky",
-      "hint": "Model pro zprávy s obrázkovými přílohami (musí umět vision). Prázdné = běžný model chatu."
+      "hint": "Model pro zprávy s obrázky. Musí podporovat rozpoznávání obrázků. Prázdné = běžný model chatu."
     },
     "maxImageBytes": {
       "label": "Max. velikost příchozího obrázku",
-      "hint": "Největší obrázková příloha (v bajtech), kterou bot stáhne pro vision; větší jen poznamená."
+      "hint": "Největší obrázková příloha v bajtech, kterou bot stáhne pro rozpoznání obsahu. Větší soubory pouze zaznamená."
     },
     "maxImages": {
       "label": "Max. obrázků na zprávu",
-      "hint": "Kolik obrázkových příloh z jedné příchozí zprávy bot pošle vision modelu."
+      "hint": "Kolik obrázků z jedné zprávy bot pošle modelu k rozpoznání."
     },
     "maxUploadImages": {
       "label": "Max. obrázků na odpověď",
       "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi."
     },
     "askTimeoutMs": {
-      "label": "Timeout otázky (ms)",
-      "hint": "Jak dlouho zůstává čekající AskUserQuestion otevřená pro klik na tlačítko nebo textovou odpověď, než ji bot zahodí jako zastaralou. Stejné okno platí i pro interaktivní menu a výběry."
+      "label": "Časový limit otázky (ms)",
+      "hint": "Jak dlouho lze na otázku AskUserQuestion odpovědět tlačítkem nebo volným textem, než její platnost vyprší. Stejný limit platí pro interaktivní nabídky a výběry."
     },
     "voiceProvider": {
       "label": "Poskytovatel hlasu",
-      "hint": "Který nakonfigurovaný OpenAI-kompatibilní poskytovatel pohání hlas (Whisper STT + TTS) — použije jeho klíč, žádný zvlášť. Poskytovatele přidáte v Nastavení → Brain. Prázdné = hlas vypnutý."
+      "hint": "Vyberte nastaveného poskytovatele kompatibilního s OpenAI pro hlasové funkce (Whisper STT + TTS). Použije se jeho klíč, samostatný klíč není potřeba. Poskytovatele přidáte v Nastavení → Brain. Nechte prázdné, pokud chcete hlas vypnout."
     },
     "stt": {
       "label": "Přepisovat hlasové zprávy",
-      "hint": "Přepsat příchozí hlasové zprávy / audio přílohy přes Whisper, aby jim agent rozuměl. Vyžaduje OpenAI API klíč."
+      "hint": "Whisper přepíše příchozí hlasové zprávy a zvukové přílohy, aby jim agent rozuměl. Je potřeba klíč API OpenAI."
     },
     "sttModel": {
       "label": "Model pro přepis řeči",
@@ -116,19 +116,19 @@
     },
     "tts": {
       "label": "Mluvené odpovědi (výchozí)",
-      "hint": "Výchozí pro chaty: připojit mluvenou audio verzi odpovědí jako hlasovou zprávu. Živě přepínatelné per chat přes /voice. Vyžaduje OpenAI API klíč."
+      "hint": "Výchozí nastavení pro chaty: k odpovědím se připojí jejich hlasová verze jako hlasová zpráva. V každém chatu ji lze zapnout nebo vypnout příkazem /voice. Je potřeba klíč API OpenAI."
     },
     "ttsModel": {
       "label": "Model pro syntézu řeči",
-      "hint": "TTS model (výchozí: gpt-4o-mini-tts)."
+      "hint": "Model pro převod textu na řeč (výchozí: gpt-4o-mini-tts)."
     },
     "ttsVoice": {
-      "label": "Hlas TTS",
+      "label": "Hlas pro převod textu na řeč",
       "hint": "Hlas: alloy, echo, fable, onyx, nova nebo shimmer (výchozí: alloy)."
     },
     "rolePolicies": {
       "label": "Pravidla rolí",
-      "hint": "Vyhrává první odpovídající pravidlo; odesílatelé bez namapovaného pravidla jsou ignorováni. ID je Telegram user ID (123456789), @username, nebo celé chat ID (u skupin záporné) — chat ID zpřístupní bota všem v něm. Hvězdička * odpovídá komukoli a patří poslední, nad pojmenovanými pravidly by je pohltila. Klíč `admin` povoluje sdílené výběry /model, /reasoning a /context a řídicí příkazy místnosti /stop, /stats, /compact a /restart — /restart restartuje démona pro všechny. Projekty a oprávnění nástrojů se přebírají z propojeného účtu Elowen odesílatele."
+      "hint": "Platí první odpovídající pravidlo. Odesílatelé bez přiřazeného pravidla jsou ignorováni. Zadejte Telegram ID uživatele (123456789), @username nebo celé ID chatu. U skupin je ID záporné a jeho zadáním zpřístupníte bota všem členům. Hvězdička * odpovídá všem odesílatelům, proto ji uveďte až za pojmenovanými pravidly. Klíč `admin` zpřístupní společné volby /model, /reasoning a /context i řídicí příkazy chatu /stop, /stats, /compact a /restart. Příkaz /restart restartuje démona všem. Projekty a oprávnění k nástrojům se přebírají z propojeného účtu Elowen odesílatele."
     }
   }
 }

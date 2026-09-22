@@ -1,6 +1,6 @@
 {
   "name": "image-edit",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows directly in the chat.",
@@ -29,7 +29,7 @@
         "oauth-openai-codex"
       ],
       "required": true,
-      "hint": "Which configured provider renders the edits: an OpenAI-compatible endpoint (its key and base URL are reused) or the connected ChatGPT account. Add providers in Settings → Brain."
+      "hint": "Choose an image editing provider: an OpenAI-compatible endpoint reuses its key and base URL, or use the connected ChatGPT account. Add providers in Settings → Brain."
     },
     {
       "key": "model",

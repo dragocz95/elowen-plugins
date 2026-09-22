@@ -1,13 +1,13 @@
 {
-  "description": "Zrcadlí Projekt mezi démonem a osobním OneDrive každého člověka v obou směrech, takže soubory vytvořené agentem se objeví v jeho OneDrivu, aniž by je bylo nutné předávat v chatu.",
+  "description": "Synchronizuje projekt oběma směry s osobním OneDrivem každého uživatele. Soubory vytvořené agentem se tam objeví bez posílání v chatu.",
   "fields": {
     "rootFolder": {
       "label": "Složka v OneDrive",
-      "hint": "Nadřazená složka vytvořená v osobním OneDrivu každého člověka. Projekty a pracovní prostory Sandboxu se zrcadlí do oddělených podsložek."
+      "hint": "Nadřazená složka vytvořená v osobním OneDrivu každého uživatele. Projekty a pracovní prostory sandboxu se synchronizují do oddělených podsložek."
     },
     "intervalSeconds": {
       "label": "Interval synchronizace",
-      "hint": "Jak často se připojené zrcadlo kontroluje, v sekundách. Nižší hodnota reaguje rychleji a spotřebuje více volání Microsoft Graphu."
+      "hint": "Jak často kontrolovat změny, v sekundách. Kratší interval reaguje rychleji, ale častěji volá Microsoft Graph."
     },
     "maxFileMb": {
       "label": "Největší soubor",
@@ -15,11 +15,11 @@
     },
     "extraIgnore": {
       "label": "Další ignorované cesty",
-      "hint": "Vzory oddělené čárkou, vyloučené nad rámec souboru .gitignore daného projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje jsou vyloučeny vždy a nelze je zde povolit."
+      "hint": "Další vzory cest oddělené čárkou, které se vynechají nad rámec souboru .gitignore projektu. Interní soubory správy verzí, závislosti a přihlašovací údaje se vynechají vždy a nelze je zde znovu povolit."
     },
     "applyRemoteDeletions": {
-      "label": "Promítat smazání z OneDrive",
-      "hint": "Když někdo smaže zrcadlený soubor v OneDrivu, přesune se místní kopie do koše daného zrcadla. Soubor se nikdy neodstraní natrvalo a vždy jej lze obnovit."
+      "label": "Promítat smazání z OneDrivu",
+      "hint": "Když někdo smaže zrcadlený soubor v OneDrive, místní kopie se přesune do koše daného zrcadlení. Soubor se nikdy nesmaže natrvalo a lze ho kdykoli obnovit."
     }
   },
   "web": {
@@ -30,7 +30,7 @@
       "title": "OneDrive",
       "status": "Stav",
       "connectCta": "Připojit OneDrive",
-      "connectHint": "Zrcadlete tento projekt do vlastního OneDrivu, v obou směrech.",
+      "connectHint": "Synchronizujte tento projekt oběma směry se svým OneDrivem.",
       "connectConfirm": "Spustit zrcadlení",
       "notLinked": "Váš účet není propojen s Microsoftem.",
       "statusIdle": "Synchronizováno",
@@ -42,10 +42,10 @@
       "files": "Soubory",
       "folder": "Složka",
       "openFolder": "Otevřít v OneDrive",
-      "workspaces": "Pracovní prostory Sandboxu",
-      "workspacesHint": "Každý pracovní prostor se zrcadlí do vlastní složky, odděleně od samotného projektu.",
+      "workspaces": "Pracovní prostory sandboxu",
+      "workspacesHint": "Každý pracovní prostor se synchronizuje do vlastní složky, odděleně od projektu.",
       "conflicts": "Konflikty",
-      "conflictsHint": "Obě verze byly zachovány. Vyberte, která má platit; nic se v žádném případě nesmaže.",
+      "conflictsHint": "Obě kopie zůstaly zachované. Vyberte, která má platit. Ani jedna se nesmaže.",
       "close": "Zavřít",
       "keepLocal": "Použít verzi z projektu",
       "keepRemote": "Použít verzi z OneDrivu",
@@ -55,11 +55,11 @@
       "disconnect": "Odpojit",
       "disconnectHint": "Zrcadlení se zastaví. Soubory, které již v OneDrivu jsou, zůstanou beze změny.",
       "mirrorScope": "Co se zrcadlí",
-      "mirrorScopeHint": "Soubory vyloučené projektovým souborem .gitignore se nezrcadlí. Nikdy se nezrcadlí .git, node_modules, .env, soukromé klíče ani soubory s přihlašovacími údaji. Další cesty můžete vyloučit v nastavení pluginu, tato ochranná pravidla však vypnout nelze.",
+      "mirrorScopeHint": "Soubory vyloučené v souboru .gitignore projektu se nesynchronizují. Nikdy se nesynchronizují ani .git, node_modules, .env, soukromé klíče a soubory s přihlašovacími údaji. V nastavení pluginu můžete vyloučit další cesty. Tato ochranná pravidla nelze vypnout.",
       "statusBlocked": "Čeká na potvrzení",
       "confirmDeletions": "Odstranit {count} souborů z OneDrivu",
-      "chooseFolder": "Zrcadlená složka",
-      "chooseFolderHint": "Zvolená složka určuje rozsah: zrcadlí se její soubory a podsložky, průběžně a v obou směrech. Zbytek projektu nikoli.",
+      "chooseFolder": "Složka k synchronizaci",
+      "chooseFolderHint": "Synchronizují se soubory ve zvolené složce a jejích podsložkách, průběžně a oběma směry. Zbytek projektu zůstane beze změny.",
       "mirrorWholeProject": "Zrcadlit celý projekt",
       "mirrorThisFolder": "Zrcadlit tuto složku",
       "noSubfolders": "Tato složka neobsahuje žádné podsložky, které lze zrcadlit.",
@@ -68,7 +68,7 @@
       "statusConflict": "Čeká na vaše rozhodnutí",
       "statusFirstRun": "Čeká na první synchronizaci",
       "blockedTitle": "Má se z OneDrivu odstranit {count} souborů?",
-      "blockedBody": "Z projektu najednou zmizelo {count} zrcadlených souborů, proto zatím nebylo z OneDrivu odstraněno nic. Pokud šlo o záměr, potvrďte tuto jednu synchronizaci. V opačném případě zkontrolujte, zda je složka projektu úplná, a synchronizaci spusťte znovu.",
+      "blockedBody": "Z projektu najednou zmizely synchronizované soubory. Počet: {count}. Z OneDrivu jsme proto zatím nic neodstranili. Pokud je to záměr, potvrďte jen tuto synchronizaci. Jinak zkontrolujte, zda je složka projektu úplná, a spusťte synchronizaci znovu.",
       "destination": "Složka v OneDrivu",
       "account": "Účet OneDrivu",
       "selected": "Vybráno",

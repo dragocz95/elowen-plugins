@@ -1,9 +1,9 @@
 {
   "name": "skills",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
+  "description": "Loads skills from disk and makes them available to the assistant.",
   "entry": "index.mjs",
   "provides": {
     "skills": [
@@ -70,7 +70,7 @@
     ],
     "strings": {
       "title": "Skills",
-      "sectionHint": "Reusable instructions injected into the system prompt. Apply to new conversations.",
+      "sectionHint": "Reusable instructions in the system prompt. They are used in new conversations.",
       "empty": "No skills yet.",
       "badgeProvided": "provided",
       "badgeUser": "custom",
@@ -78,7 +78,7 @@
       "edit": "Edit skill",
       "remove": "Delete skill",
       "deleteTitle": "Delete skill",
-      "deleteDesc": "The skill “{name}” will be removed. Support files in its folder will be kept.",
+      "deleteDesc": "The skill “{name}” will be deleted. Support files in its folder will be kept.",
       "name": "Name",
       "description": "Description",
       "content": "Content",
@@ -120,7 +120,7 @@
       "pickerEmpty": "No skills",
       "pickerEmptyDesc": "Skills you add appear here and load with one click.",
       "pickerDeleteTitle": "Delete skill?",
-      "pickerDeleteDesc": "The skill “{name}” will be removed. Support files in its folder will be kept.",
+      "pickerDeleteDesc": "The skill “{name}” will be deleted. Files in its folder will be kept.",
       "unavailable": "The skills plugin is unavailable."
     }
   }

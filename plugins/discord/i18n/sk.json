@@ -1,9 +1,9 @@
 {
-  "description": "Discord bot: spomeňte ho a odpovie z Elowen AI. Slash príkazy (/model, /display, /new, /help), nastavenie modelu a zobrazenia pre každý kanál, živá aktivita nástrojov s nezávislým doručením odpovede, stavové reakcie a proaktívne cron/tick oznámenia. Serverové nástroje: info o serveri/kanáli/členovi, výpis a hľadanie členov, role, piny, vlákna (vytvoriť/archivovať/zamknúť/členovia), kanály (vytvoriť/premenovať/zmazať, kategórie) a správa správ (mazanie/purge). Discord roly riadia prístup, dôveryhodný administrátorský kontext a prompt miestnosti; oprávnenia sa preberajú z prepojeného účtu Elowen.",
+  "description": "Bot Discordu: keď ho spomeniete, odpovie cez Elowen AI. Ponúka príkazy (/model, /display, /new, /help), nastavenia modelu a zobrazenia pre jednotlivé kanály, živý prehľad činnosti nástrojov, rôzne spôsoby doručovania odpovedí, stavové reakcie a proaktívne oznámenia z cron/tick úloh. Nástroje servera umožňujú zobraziť informácie o serveri, kanáloch a členoch, vyhľadávať členov, spravovať roly, pripnuté správy, vlákna, kanály, kategórie a správy. Roly Discordu riadia prístup, dôveryhodný administrátorský kontext a prompt miestnosti. Oprávnenia účtu sa preberajú z prepojeného účtu Elowen.",
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",
-      "hint": "Token bota a kde počúva."
+      "hint": "Token bota a kanály, v ktorých odpovedá."
     },
     "sec_replies": {
       "label": "Odpovede a správanie",
@@ -19,27 +19,27 @@
     },
     "sec_roles": {
       "label": "Pravidlá rolí",
-      "hint": "Mapovanie Discord rolí na prístup, dôveryhodný administrátorský kontext a prompt miestnosti."
+      "hint": "Priraďte role Discordu k prístupu, dôveryhodnému administrátorskému kontextu a promptu pre konkrétnu miestnosť."
     },
     "sec_media": {
       "label": "Limity médií",
-      "hint": "Limity pre prichádzajúce/odchádzajúce obrázky a ako dlho zostáva otvorená čakajúca otázka."
+      "hint": "Limity prichádzajúcich a odchádzajúcich obrázkov a čas, počas ktorého zostane čakajúca otázka otvorená."
     },
     "maxImageBytes": {
       "label": "Max. veľkosť prichádzajúceho obrázka",
-      "hint": "Najväčšia obrázková príloha (v bajtoch), ktorú bot stiahne pre vision; väčšie len poznamená."
+      "hint": "Najväčšia obrazová príloha v bajtoch, ktorú bot stiahne na rozpoznanie obsahu. Väčšie súbory iba zaznamená."
     },
     "maxImages": {
       "label": "Max. obrázkov na správu",
-      "hint": "Koľko obrázkových príloh z jednej prichádzajúcej správy bot pošle vision modelu."
+      "hint": "Koľko obrázkov z jednej správy bot pošle modelu na rozpoznanie."
     },
     "maxFileBytes": {
       "label": "Max. veľkosť súboru (B)",
-      "hint": "Najväčšia neobrázková príloha stiahnutá do projektu odosielateľa; väčšia sa iba zaznamená."
+      "hint": "Najväčšia príloha okrem obrázkov, ktorú bot stiahne do projektu odosielateľa. Väčší súbor iba zaznamená."
     },
     "maxFiles": {
       "label": "Max. súborov na správu",
-      "hint": "Koľko neobrázkových príloh z jednej správy sa uloží do projektu odosielateľa."
+      "hint": "Počet príloh okrem obrázkov, ktoré sa z jednej správy uložia do projektu odosielateľa."
     },
     "maxUploadImages": {
       "label": "Max. obrázkov na odpoveď",
@@ -47,11 +47,11 @@
     },
     "botToken": {
       "label": "Token bota",
-      "hint": "Discord Developer Portal → Bot → Token. Zapnite oprávnenie Message Content intent."
+      "hint": "Discord Developer Portal → Bot → Token. Povoľte zámer Message Content."
     },
     "guildId": {
       "label": "ID servera",
-      "hint": "Voliteľné: odpovedať len na tomto serveri (prázdne = všetky servery, kde bot je)."
+      "hint": "Voliteľné: bot bude odpovedať iba na tomto serveri. Ak pole necháte prázdne, bude odpovedať na všetkých serveroch, ktorých je členom."
     },
     "threadIds": {
       "label": "Povolené vlákna",
@@ -59,30 +59,30 @@
     },
     "notifyChannelId": {
       "label": "Cieľ oznámení",
-      "hint": "Kanál alebo vlákno pre proaktívne správy (výsledky cronov/tickov a eskalácie). Prázdne = žiadne proaktívne správy."
+      "hint": "Kanál alebo vlákno pre proaktívne správy, napríklad výsledky cron/tick úloh a upozornenia. Ak pole necháte prázdne, bot nebude posielať proaktívne správy."
     },
     "toolActivity": {
       "label": "Aktivita nástrojov",
-      "hint": "Vypnuté skryje pracovnú stopu. Živý stav ukazuje spustenie a dokončenie nástrojov. Živý výstup navyše streamuje obmedzený priebeh Bash. Pre kanál možno prepísať cez /display.",
+      "hint": "Určuje, čo sa zobrazí počas práce: nič, stav nástrojov alebo aj časť ich výstupu. Nastavenie kanála môžete zmeniť príkazom /display.",
       "options": { "off": "Vypnuté", "status": "Živý stav", "live": "Živý výstup" }
     },
     "answerMode": {
       "label": "Doručenie odpovede",
-      "hint": "Finálna odpoveď pošle jednu kompletnú správu pod živú stopu nástrojov. Živo priebežne upravuje vznikajúcu odpoveď. Pre kanál možno prepísať cez /display.",
-      "options": { "final": "Len finálna odpoveď", "live": "Živo streamovať odpoveď" }
+      "hint": "Možnosť Finálna odpoveď odošle jednu úplnú správu pod živým priebehom práce nástrojov. Možnosť Naživo priebežne upravuje vznikajúcu odpoveď. Nastavenie kanála môžete zmeniť príkazom /display.",
+      "options": { "final": "Len finálna odpoveď", "live": "Priebežne zobrazovať odpoveď" }
     },
     "toolOutput": {
       "label": "Detail výstupu nástrojov",
-      "hint": "Určuje, koľko obmedzeného výstupu sa ukáže pod stavom nástroja. Celý raw výstup sa do Discordu nikdy nevypisuje.",
-      "options": { "hidden": "Len stav", "summary": "Krátke zhrnutie", "tail": "Priebežný koniec výstupu" }
+      "hint": "Určuje, koľko z obmedzeného výstupu nástroja sa zobrazí pri jednotlivých stavoch. Celý pôvodný výstup sa do Discordu nikdy neposiela.",
+      "options": { "hidden": "Len stav", "summary": "Krátke zhrnutie", "tail": "Posledná časť výstupu" }
     },
     "toolMessageMode": {
       "label": "Rozloženie správ nástrojov",
-      "hint": "Jedna živá správa udrží kanál prehľadný. Jedna správa na nástroj dá každému volaniu vlastnú upravovanú bublinu v Discorde.",
+      "hint": "Jedna živá správa udrží kanál prehľadný. Pri možnosti jednej správy pre každý nástroj má každé jeho volanie vlastnú upraviteľnú správu v Discorde.",
       "options": { "single": "Jedna živá správa", "per_tool": "Jedna správa na nástroj" }
     },
     "deleteToolActivityAfterTurn": {
-      "label": "Nahradiť priebeh finálnou odpoveďou",
+      "label": "Nahradiť priebeh práce odpoveďou",
       "hint": "Počas práce zobrazí jednu živú správu s priebehom a na konci ju prepíše finálnou odpoveďou. Žiadna správa sa nemaže; živé odpovede a rozloženie po nástrojoch sa nepoužijú."
     },
     "reactions": {
@@ -95,20 +95,20 @@
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvá zodpovedajúca rola. Používatelia bez namapovanej roly sú ignorovaní. ID je ID roly na Discorde, alebo * pre kohokoľvek — pravidlo s * nechajte posledné, nad pomenovanými pravidlami by ich pohltilo. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
+      "hint": "Platí prvá zodpovedajúca rola. Používatelia bez priradenej roly sa ignorujú. Zadajte ID roly Discordu alebo * pre všetkých členov. Pravidlo s * umiestnite až za pomenované pravidlá, inak ich zatieni. Rola `admin` sprístupní spoločné ponuky /model, /reasoning a /context a príkazy miestnosti /stop, /stats, /compact a /restart. Príkaz /restart reštartuje démona všetkým. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
     },
     "language": {
       "label": "Jazyk služobných správ",
-      "hint": "Jazyk vlastných správ bota (/new, /model, zástupné texty): en (predvolené), cs alebo sk.",
+      "hint": "Jazyk systémových správ bota (/new, /model a zástupné texty).",
       "options": { "en": "Angličtina", "cs": "Čeština", "sk": "Slovenčina" }
     },
     "visionModel": {
       "label": "Model pre obrázky",
-      "hint": "Model pre správy s obrázkovými prílohami (musí vedieť vision). Prázdne = bežný model kanála."
+      "hint": "Model pre správy s obrázkami. Musí vedieť rozpoznávať obrázky. Prázdne pole znamená bežný model kanála."
     },
     "historyLimit": {
       "label": "Načítanie histórie kanála",
-      "hint": "Koľko posledných správ kanála si NOVÁ konverzácia načíta ako kontext (0 = vypnuté, max 100). Bežiace konverzácie históriu znova nenačítajú."
+      "hint": "Koľko posledných správ z kanála načíta ako kontext úplne nová konverzácia (0 = vypnuté, najviac 100). Prebiehajúce konverzácie históriu znova nenačítavajú."
     },
     "runtimeFooter": {
       "label": "Stavový riadok",
@@ -116,15 +116,15 @@
     },
     "showReasoning": {
       "label": "Zobraziť uvažovanie",
-      "hint": "Streamovať uvažovanie modelu do priebežnej bubliny (modely s extended thinking). Predvolené = vypnuté — na Discorde je to väčšinou šum."
+      "hint": "Zobrazovať uvažovanie modelu počas odpovede. Dostupné len pri modeloch s rozšíreným uvažovaním. Predvolene vypnuté."
     },
     "voiceProvider": {
       "label": "Poskytovateľ hlasu",
-      "hint": "Ktorý nakonfigurovaný OpenAI-kompatibilný poskytovateľ poháňa hlas (Whisper STT + TTS) — použije jeho kľúč, žiadny zvlášť. Poskytovateľov pridáte v Nastavenia → Brain. Prázdne = hlas vypnutý."
+      "hint": "Vyberte nakonfigurovaného poskytovateľa kompatibilného s OpenAI pre hlas (Whisper STT + TTS). Použije sa jeho kľúč, samostatný kľúč netreba. Poskytovateľov pridáte v Nastavenia → Brain. Prázdne pole vypne hlas."
     },
     "stt": {
       "label": "Prepisovať hlasové správy",
-      "hint": "Prepísať prichádzajúce hlasové správy / audio prílohy cez Whisper, aby im agent rozumel. Vyžaduje OpenAI API kľúč."
+      "hint": "Whisper prepíše prichádzajúce hlasové správy a zvukové prílohy, aby im agent rozumel. Potrebujete kľúč API OpenAI."
     },
     "sttModel": {
       "label": "Model pre prepis reči",
@@ -132,7 +132,7 @@
     },
     "tts": {
       "label": "Mluvené odpovede (predvolené)",
-      "hint": "Predvolené pre kanály: pripojiť mluvenú audio verziu odpovedí. Živo prepínateľné per kanál cez /voice. Vyžaduje OpenAI API kľúč."
+      "hint": "Predvolené nastavenie kanálov: k odpovediam sa pripojí ich zvuková verzia. Funkciu môžete pre jednotlivé kanály zapnúť alebo vypnúť príkazom /voice. Potrebujete kľúč API OpenAI."
     },
     "ttsModel": {
       "label": "Model pre syntézu reči",

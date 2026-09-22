@@ -1,45 +1,45 @@
 {
-  "description": "Naplánované prompty: opakujúce sa úlohy (\"every 30m\", \"daily 07:30\") a jednorazové prebudenie (\"in 20m\", \"at 18:30\"), bežiace menom majiteľa. Svoj Automation panel si spravuje každý účet; inštanciové úlohy iba administrátor.",
+  "description": "Plánované prompty: opakované úlohy (\"every 30m\", \"daily 07:30\") a jednorazové prebudenia (\"in 20m\", \"at 18:30\"). Osobné plány bežia s oprávneniami svojho vlastníka a výsledok doručia do vlastnej konverzácie alebo späť do priameho chatu, kde vznikli. Úlohy pre celú inštanciu bežia s oprávneniami jej vlastníka a výsledok posielajú do oznamovacieho kanála; spravovať ich môže len vlastník inštancie.",
   "fields": {
     "sec_scheduler": {
       "label": "Plánovač",
-      "hint": "Interval kontroly, správanie opakovania a timeout kontroly guardu."
+      "hint": "Interval kontroly, správanie opakovania a časový limit kontrolného príkazu."
     },
     "tickMs": {
       "label": "Interval kontroly (ms)",
-      "hint": "Ako často sa kontrolujú splatné úlohy."
+      "hint": "Ako často sa kontrolujú úlohy, ktoré sa majú spustiť."
     },
     "retryAttempts": {
-      "label": "Počet pokusov o ťah",
-      "hint": "Celkový počet pokusov o ťah opakujúcej sa úlohy pri dočasnej chybe požiadavky — 1 znamená žiadny retry, 2 (predvolené) znamená jeden retry."
+      "label": "Počet pokusov",
+      "hint": "Počet pokusov opakovanej úlohy pri dočasnej chybe požiadavky. Hodnota 1 znamená, že sa pokus neopakuje. Predvolená hodnota 2 znamená jeden opakovaný pokus."
     },
     "retryBackoffMs": {
-      "label": "Oneskorenie pred opakovaním (ms)",
+      "label": "Odstup medzi pokusmi (ms)",
       "hint": "Pauza pred opakovaním, aby dočasný problém mohol odznieť."
     },
     "checkTimeoutMs": {
-      "label": "Timeout kontroly (ms)",
-      "hint": "Timeout pre lacný guard príkaz \"check\" úlohy."
+      "label": "Časový limit kontroly (ms)",
+      "hint": "Časový limit príkazu `check` danej úlohy."
     },
     "checkOutputChars": {
       "label": "Limit výstupu kontroly (znaky)",
-      "hint": "Koľko výstupu z guard príkazu „check“ sa odovzdá do ťahu mozgu. Zvýšte pre collectory, ktoré vytvárajú veľké agregované dáta."
+      "hint": "Koľko znakov z výstupu príkazu `check` sa odovzdá asistentovi. Limit zvýšte, ak príkaz vracia dlhý súhrn."
     },
     "cronLookbackMs": {
       "label": "Okno dohľadania zmeškaných cron spustení (ms)",
-      "hint": "Ako ďaleko dozadu hľadá päťpoľová cron úloha spustenie, ktoré zmeškala počas výpadku démona. Dohľadá sa vždy len posledné zmeškané spustenie, nikdy nahromadený rad. Rozsah 1 hodina až 7 dní, predvolené 24 hodín."
+      "hint": "Ako ďaleko do minulosti hľadá päťpoľová cron úloha spustenie zmeškané počas výpadku démona. Dohľadá sa iba posledné zmeškané spustenie, nie celý rad. Rozsah: 1 hodina až 7 dní, predvolená hodnota: 24 hodín."
     },
     "sec_user_limits": {
       "label": "Limity pre účet",
-      "hint": "Stropy na to, čo smie naplánovať jeden neadministrátorský účet. Inštančné úlohy (od administrátora) obmedzené nie sú."
+      "hint": "Limity pre osobné úlohy účtu bez oprávnení administrátora. Úlohy pre celú inštanciu nemajú limit."
     },
     "maxJobsPerUser": {
       "label": "Úloh na účet",
-      "hint": "Koľko naplánovaných úloh smie mať jeden neadministrátorský účet súčasne."
+      "hint": "Koľko naplánovaných úloh môže mať účet bez oprávnení administrátora súčasne."
     },
     "minIntervalMinutes": {
       "label": "Najkratší interval (minúty)",
-      "hint": "Najrýchlejšie opakovanie, ktoré smie nastaviť neadministrátorský účet. Každé spustenie je volanie modelu, ktoré platí prevádzkovateľ."
+      "hint": "Najkratší interval opakovanej úlohy, ktorý môže nastaviť účet bez oprávnení administrátora. Každé spustenie využíva model a náklady hradí prevádzkovateľ."
     }
   },
   "web": {
@@ -50,8 +50,8 @@
       "title": "Automatizácia",
       "sectionHint": "Opakované prompty spúšťané podľa plánu. Zmeny sa prejavia do 30 sekúnd.",
       "addJob": "Pridať úlohu",
-      "removeJob": "Vymazať úlohu",
-      "deleteTitle": "Vymazať úlohu",
+      "removeJob": "Odstrániť úlohu",
+      "deleteTitle": "Odstrániť úlohu",
       "deleteDesc": "Úloha „{name}“ bude natrvalo odstránená.",
       "jobNew": "Nová úloha",
       "name": "Názov",
@@ -72,10 +72,10 @@
       "saveError": "Uloženie úlohy sa nezdarilo",
       "deleteError": "Vymazanie úlohy sa nezdarilo",
       "runNow": "Spustiť teraz",
-      "runStarting": "Spúšťam…",
+      "runStarting": "Spúšťa sa…",
       "runQueued": "Úloha sa práve spúšťa",
       "runError": "Spustenie úlohy sa nepodarilo",
-      "helpSchedule": "Pre interval, denný alebo týždenný plán použite sprievodcu. Pokročilý režim zachová surový päťpoľový cron aj existujúce hodnoty, ktoré sprievodca nevie vyjadriť.",
+      "helpSchedule": "Pre intervalové, denné alebo týždenné plány použite sprievodcu. Pokročilý režim zachová päťpoľový cron zápis aj existujúce hodnoty, ktoré sprievodca nevie vyjadriť.",
       "scheduleMode": "Typ plánu",
       "scheduleEvery": "Interval",
       "scheduleDaily": "Denne",
@@ -97,7 +97,7 @@
       "weekdayThu": "Štvrtok",
       "weekdayFri": "Piatok",
       "weekdaySat": "Sobota",
-      "helpHours": "Voliteľné okno celých hodín od 0 do 23. Podporované sú aj okná cez polnoc, napríklad 22-5; minúty podporované nie sú.",
+      "helpHours": "Voliteľné časové okno v celých hodinách od 0 do 23. Možno nastaviť aj čas cez polnoc, napríklad 22-5. Minúty nie je možné zadať.",
       "hoursMode": "Režim aktívnych hodín",
       "hoursOff": "Celý deň",
       "hoursWindow": "Obmedzené hodiny",
@@ -105,11 +105,11 @@
       "hoursStart": "Počiatočná hodina",
       "hoursEnd": "Koncová hodina",
       "hoursLegacyHint": "Táto uložená hodnota nie je okno celých hodín vo formáte H-H a zostane bez zmeny, kým nezvolíte iný režim:",
-      "helpHeader": "Zapnuté = doručená správa začína riadkom „⏰ názov úlohy“. Vypnite pre persona správy vo vyhradenom kanáli.",
-      "helpCheck": "Lacná shell kontrola pred promptom. Prázdny výstup = AI sa nespustí (šetrí model); výstup sa odovzdá asistentovi.",
+      "helpHeader": "Zapnuté = doručená správa sa začína riadkom \"⏰ názov úlohy\". Vypnite túto možnosť pre správy persony vo vyhradenom kanáli.",
+      "helpCheck": "Kontrolný príkaz v shelli sa spustí pred promptom. Ak nič nevypíše, asistent sa nespustí a nespotrebuje volanie modelu. Inak dostane jeho výstup.",
       "helpPrompt": "Čo má asistent pri každom spustení urobiť.",
-      "helpChannel": "Kam sa na Discorde doručí výsledok. Predvolené = notifikačný kanál pluginu discord.",
-      "helpModel": "Na ktorom modeli úloha pobeží. Predvolené = predvolený model servera.",
+      "helpChannel": "Kanál Discordu, do ktorého sa doručí výsledok. Predvolený je oznamovací kanál pluginu Discord.",
+      "helpModel": "Model, ktorý úloha použije. Predvolený je model servera.",
       "metricActive": "Aktívne",
       "workspaceEyebrow": "Automatizácia",
       "searchPlaceholder": "Hľadať úlohu…",
@@ -119,51 +119,51 @@
       "ownerInstance": "Všetci",
       "ownerSystem": "Systém",
       "ownerMine": "Moje",
-      "ownerFieldHint": "Inštančná úloha beží bez účtu a hlási do svojho oznamovacieho kanála. Prevzatím pobeží s vašimi oprávneniami a bude hlásiť do vlastnej konverzácie pomenovanej po úlohe.",
+      "ownerFieldHint": "Úloha pre celú inštanciu beží bez účtu a posiela výsledok do oznamovacieho kanála. Ak ju priradíte sebe, bude bežať s vašimi oprávneniami a výsledok sa zobrazí v samostatnej konverzácii pomenovanej podľa úlohy.",
       "filterMine": "Moje",
-      "filterInstance": "Inštančné",
+      "filterInstance": "Inštancia",
       "executionProject": "Projekt na spustenie",
-      "helpExecutionProject": "Súbory a príkazy sa spracujú v tomto projekte nezávisle od zaradenia konverzácie. Spravované projekty vyžadujú osobnú úlohu. Prihlasovacie údaje projektu sú zdieľané s jeho členmi.",
+      "helpExecutionProject": "Súbory a príkazy sa spúšťajú v tomto projekte bez ohľadu na zaradenie konverzácie. Spravované projekty vyžadujú osobnú úlohu. Prihlasovacie údaje projektu zdieľajú jeho členovia.",
       "executionLegacy": "Doterajšie pravidlá spúšťania",
       "executionHost": "Správa hostiteľa",
       "executionUnavailable": "Projekty na spustenie sa nepodarilo načítať.",
       "conversation": "Konverzácia",
-      "helpConversation": "Kam je úloha zaradená v zozname konverzácií. Iba organizácia: nemení to, s akým kontextom úloha beží, na akom modeli, s akými oprávneniami ani kam sa doručí výsledok.",
+      "helpConversation": "Tu určíte, kde sa úloha zobrazí v zozname konverzácií. Nemá to vplyv na jej kontext, model, oprávnenia ani doručenie výsledku.",
       "conversationManage": "Vybrať konverzáciu",
       "conversationRequired": "Vyberte konverzáciu. Nová opakovaná úloha sa uloží po zaradení.",
       "conversationUnassigned": "Nezaradené",
       "conversationUnavailable": "Konverzácia nie je dostupná",
-      "conversationUnavailableHint": "Konverzácia, do ktorej bola úloha zaradená, už neexistuje. Úloha beží ďalej podľa plánu; vyberte inú konverzáciu pre nové zaradenie.",
+      "conversationUnavailableHint": "Konverzácia, ku ktorej je úloha priradená, už neexistuje. Úloha však naďalej beží podľa plánu. Vyberte inú konverzáciu a priraďte k nej úlohu.",
       "conversationOwnerHint": "Zaradená konverzácia patrí predchádzajúcemu vlastníkovi. Vyberte takú, ktorú môže použiť nový vlastník.",
       "conversationUnresolvedHint": "Zaradenú konverzáciu sa práve nepodarilo načítať. Úloha beží ďalej podľa plánu a jej zaradenie zostáva bez zmeny.",
-      "conversationDirectoryUnavailable": "Táto inštancia nevie vypísať konverzácie.",
+      "conversationDirectoryUnavailable": "Táto inštancia Elowen nedokáže zobraziť zoznam konverzácií.",
       "conversationLoading": "Načítavanie konverzácií…",
       "conversationListError": "Konverzácie sa nepodarilo načítať. Skúste to prosím znova.",
       "conversationOwnChat": "Vlastné konverzácie",
       "linkUnavailableHint": "Bola zmazaná, alebo patrí inému účtu. Vyberte úlohu zo zoznamu.",
       "workspaceTitle": "Automatizácia",
       "calEmptyTitle": "Zatiaľ nič nenaplánované",
-      "calEmptyHint": "Vytvorte jednorazové prebudenie alebo opakujúcu sa úlohu.",
-      "nextRun": "Nabeho",
-      "nextRunPaused": "Pozastavené — zapnutie plánuje odtiaľ dnes.",
-      "nextRunUnknown": "Nabližšie spustenie sa teraz nepodarilo zistiť.",
+      "calEmptyHint": "Vytvorte jednorazovú pripomienku alebo opakovanú úlohu.",
+      "nextRun": "Najbližšie spustenie",
+      "nextRunPaused": "Pozastavené. Po opätovnom zapnutí sa úloha naplánuje od tejto chvíle.",
+      "nextRunUnknown": "Najbližšie spustenie sa teraz nepodarilo zistiť.",
       "runningSince": "Beží od {t}",
       "lastStarted": "Naposledy spustené",
       "badgeOneShot": "Jednorazové",
       "badgeRecurring": "Opakujúce sa",
-      "badgeGuardedHint": "Najskôr beží check príkaz; ťah AI môže byť vynechaný.",
+      "badgeGuardedHint": "Najprv sa spustí kontrolný príkaz. Asistent potom nemusí odpovedať.",
       "badgeLateHint": "Čas už uplynul; plánovač to vyrieši na nasledujúcom tiku.",
       "badgeCatchUpHint": "Meškajúci slot po výpadku sa dobehne len raz.",
-      "badgeDeferredHint": "Aktívne hodiny presúvajú spustenie na neskorší čas.",
+      "badgeDeferredHint": "Mimo aktívneho času sa spustenie odloží na neskôr v ten istý deň.",
       "createOneShot": "Jednorazové",
       "createRecurring": "Opakovaná úloha",
-      "createOneShotTitle": "Naplánovať jednorazové prebudenie",
+      "createOneShotTitle": "Naplánovať jednorazovú pripomienku",
       "createRecurringTitle": "Vytvoriť opakovanú úlohu",
-      "createOneShotSubmit": "Vytvoriť jednorazové",
+      "createOneShotSubmit": "Naplánovať jednorazovo",
       "createRecurringSubmit": "Vytvoriť opakovanú úlohu",
       "createAdvanced": "Pokročilé",
       "createDone": "Úloha bola vytvorená",
-      "createReplayed": "Úloha už existuje — nič nevzniklo dvakrát",
+      "createReplayed": "Úloha už existuje. Nevytvorila sa duplicitne.",
       "createPayloadMismatch": "Táto požiadavka už bola použitá s iným obsahom",
       "createError": "Vytvorenie úlohy sa nepodarilo",
       "date": "Dátum",
@@ -173,10 +173,10 @@
       "pauseLabel": "Pozastaviť",
       "pauseLabelOn": "Znova zapnúť",
       "calToday": "Dnes",
-      "saveErrorResponse": "server odmietol odoslanie",
+      "saveErrorResponse": "Server odmietol požiadavku.",
       "close": "Zavrieť",
-      "helpCreatePrompt": "Jednoduchý prompt presne vymedzený. Kratšie je lepšie.",
-      "createPaused": "Vytvoriť pozastavené",
+      "helpCreatePrompt": "Stručne opíšte, čo má asistent urobiť. Čím kratšie, tým lepšie.",
+      "createPaused": "Vytvoriť pozastavenú úlohu",
       "schedulePreviewNext": "Najbližšie spustenia:",
       "tabCalendar": "Kalendár",
       "tabHistory": "História",
@@ -213,7 +213,7 @@
       "runResultGone": "Úplný výsledok prepisu už nie je dostupný. Zachoval sa vyššie uvedený náhľad.",
       "runFullResult": "Zobraziť úplný výsledok",
       "loading": "Načítavanie…",
-      "dayNothing": "V tento deň nič neprebehlo ani nie je naplánované",
+      "dayNothing": "V tento deň sa nič nespustilo ani nie je naplánované.",
       "intervalsTitle": "Opakované úlohy",
       "historyEmpty": "Žiadna história spustení",
       "historyEmptyHint": "História spustení sa zaznamenáva od tejto aktualizácie.",
@@ -225,7 +225,7 @@
       "dayAddTask": "Naplánovať úlohu na {date}",
       "showResult": "Zobraziť výsledok",
       "runNoneForDay": "Pre túto úlohu nie je k danému dňu zaznamenaný žiadny beh.",
-      "presetLabel": "Rýchly štart",
+      "presetLabel": "Rýchly začiatok",
       "presetHint": "Vyberte východiskový bod; všetky polia zostanú upraviteľné.",
       "presetDigest": "Denný prehľad",
       "presetDigestName": "denny-prehlad",
