@@ -192,9 +192,11 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
             />
           </C.SettingsGroup>
 
-          {/* The card's own heading and description ARE the field's label and hint, so the textarea carries
-              the accessible name and nothing states the same words twice. */}
-          <C.SettingsGroup title={s.promptLabel} description={s.promptHint} icon={MessageSquareText}>
+          {/* The whole drawer reads as records: a card names what it configures, its rows name a value, and
+              what would otherwise be a sentence under a heading waits behind the heading's own `?`. The
+              instructions card is also the field's label: the textarea carries the accessible name and
+              nothing states the same words twice. */}
+          <C.SettingsGroup title={s.promptLabel} hint={s.promptHint} icon={MessageSquareText}>
             <textarea
               value={prompt}
               aria-label={s.promptLabel}
@@ -209,7 +211,7 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
 
           <SecuritySettings origins={origins} rules={rules} disabled={pending} onChange={setRules} />
 
-          <C.SettingsGroup title={s.limitsTitle} description={s.limitsHint} icon={Gauge} density="compact">
+          <C.SettingsGroup title={s.limitsTitle} hint={s.limitsHint} icon={Gauge} density="compact">
             <C.SettingsRow
               label={s.limitsEdit}
               status={enableBlocked ? <C.Badge tone="warning">{s.statusAttention}</C.Badge> : null}
@@ -224,7 +226,7 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
           {snippet === null ? null : (
             <C.SettingsGroup
               title={s.embedTitle}
-              description={s.embedHint}
+              hint={s.embedHint}
               icon={Code2}
               collapsible
               defaultOpen={false}

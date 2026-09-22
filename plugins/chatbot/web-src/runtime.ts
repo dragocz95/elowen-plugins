@@ -56,12 +56,21 @@ type HostDictionary = Record<string, Record<string, string>>;
  *  and which of the two shapes the navigation is being asked for. */
 type DeckNavigationLayout = 'sidebar' | 'tabs';
 
-interface DeckNavItem {
+/** One record a query matched, offered as its own way in under the record it belongs to. */
+interface DeckNavMatch {
+  id: string;
+  label: string;
+  onActivate(): void;
+}
+
+export interface DeckNavItem {
   id: string;
   label: string;
   icon: LucideIcon;
   current?: boolean;
   onActivate(): void;
+  /** The matches this record's own search found, each addressable on its own. */
+  matches?: DeckNavMatch[];
 }
 
 export interface DeckNavGroup {
@@ -182,8 +191,6 @@ interface ChatbotComponents {
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   Field: ComponentType<{ label: string; htmlFor?: string; hint?: string; description?: string; error?: string; required?: boolean; children?: ReactNode }>;
-  /** Long-form guidance for one heading, kept behind the host's own help affordance. */
-  HelpTip: ComponentType<{ align?: 'left' | 'right'; children?: ReactNode }>;
   /** The host's icon-only action: one glyph carrying its own accessible name. What a list row's remove
    *  affordance is everywhere else in the app. */
   IconButton: ComponentType<{
@@ -253,7 +260,9 @@ interface ChatbotComponents {
     children?: ReactNode;
   }>;
   /** The deck's section navigation, in the two shapes the two viewports have room for. `SectionDeck`
-   *  asks for it twice — once per layout — and hides the one the viewport has no room for. */
+   *  asks for it twice — once per layout — and hides the one the viewport has no room for. The column's
+   *  `search` is the HOST's own filter over the records it was handed; the strip carries none, so a phone
+   *  moves between sections without a field. */
   DeckNavigation: ComponentType<{
     label: string;
     groups: DeckNavGroup[];
@@ -304,7 +313,11 @@ interface ChatbotComponents {
    *  that shape, which is why they are not rebuilt out of raw markup. */
   SettingsGroup: ComponentType<{
     title?: string;
+    /** The heading's one plain line, read on the surface. */
     description?: string;
+    /** Long-form guidance for the heading, kept behind the host's own help affordance — the same one a
+     *  row's own help mark wears. */
+    hint?: string;
     icon?: LucideIcon;
     actions?: ReactNode;
     tone?: 'default' | 'danger';

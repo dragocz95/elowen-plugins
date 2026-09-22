@@ -1,4 +1,4 @@
-import { ShieldCheck, Wrench } from 'lucide-react';
+import { ShieldCheck, SlidersHorizontal, Wrench } from 'lucide-react';
 import { runtime, type PluginConfigField } from './runtime';
 import { useChatbots } from './useChatbots';
 
@@ -48,6 +48,11 @@ export function SharedSettings({ plugin }: { plugin: string }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* This section's own heading, and it is a card of its own: what follows is the HOST's config
+          document rather than a card that could wear a title, and a heading is what tells the reader which
+          of the four sections they are standing in. */}
+      <C.SettingsGroup title={s.sectionShared} description={s.sectionSharedHint} icon={SlidersHorizontal} />
+
       {detail.isError ? <C.ErrorState message={s.sharedLoadError} onRetry={() => detail.refetch()} />
         : detail.data === undefined ? <C.LoadingState variant="block" />
           : (

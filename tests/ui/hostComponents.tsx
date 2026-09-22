@@ -760,11 +760,15 @@ export function WorkspaceMetric({ label, value, icon: Icon }: { label: string; v
  *  here: each record is a button named by its label, the one on screen carries `aria-current="page"`, and
  *  clicking it calls the bundle's own `onActivate`.
  *
+ *  A record's `matches` — the rows its own search found — are buttons of their own under that record, and
+ *  the COLUMN draws them and nothing else does: the phone's strip is a way between places, so the host
+ *  gives it no rows and this port gives it none either.
+ *
  *  The sidebar's row takes its accessible name through `aria-labelledby`, as the real one does: the
  *  button is an invisible overlay over the row, so the name cannot come from its own content. */
 export function DeckNavigation({ label, groups, layout, testId, search, emptyLabel, className = '' }: {
   label: string;
-  groups: { id: string; caption?: string; items: { id: string; label: string; icon: LucideIcon; current?: boolean; onActivate: () => void }[] }[];
+  groups: { id: string; caption?: string; items: { id: string; label: string; icon: LucideIcon; current?: boolean; onActivate: () => void; matches?: { id: string; label: string; onActivate: () => void }[] }[] }[];
   layout: 'sidebar' | 'tabs';
   testId: string;
   search?: { value: string; onChange: (value: string) => void; label: string };
@@ -806,7 +810,20 @@ export function DeckNavigation({ label, groups, layout, testId, search, emptyLab
           {groups.filter((group) => group.items.length > 0).map((group, index) => (
             <div key={group.id} className={index > 0 ? 'mt-3' : undefined}>
               {group.caption ? <p className="px-2 pb-1 text-xs text-muted-foreground">{group.caption}</p> : null}
-              {group.items.map((item) => <DeckNavRow key={item.id} {...item} />)}
+              {group.items.map((item) => (
+                <div key={item.id}>
+                  <DeckNavRow {...item} />
+                  {item.matches && item.matches.length > 0 ? (
+                    <div className="mb-2 ml-4 flex flex-col border-l border-border pl-3">
+                      {item.matches.map((match) => (
+                        <button key={match.id} type="button" onClick={match.onActivate} className="rounded px-2 py-1 text-left text-xs text-muted-foreground">
+                          {match.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
             </div>
           ))}
           {items.length === 0 ? <p className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyLabel}</p> : null}
@@ -2328,8 +2345,13 @@ export function SettingsDocument({ children, className = '' }: { children: React
   return <div data-control-surface data-settings-document className={`control-surface-document settings-document ${className}`}>{children}</div>;
 }
 
-export function SettingsGroup({ title, description, icon: Icon, actions, tone = 'default', density = 'comfortable', columns = 1, children, className = '' }: {
-  title?: string; description?: string; icon?: LucideIcon; actions?: ReactNode;
+export function SettingsGroup({ title, description, hint, icon: Icon, actions, tone = 'default', density = 'comfortable', columns = 1, children, className = '' }: {
+  title?: string;
+  description?: string;
+  /** Long-form guidance for the heading, rendered as the host renders it: behind the heading's own help
+   *  mark, never under the heading. */
+  hint?: string;
+  icon?: LucideIcon; actions?: ReactNode;
   tone?: 'default' | 'danger'; density?: 'comfortable' | 'compact'; columns?: 1 | 2;
   children?: ReactNode; className?: string;
   /** Accepted and ignored: it opted a group out of the orbital rendering the host has since retired. */
@@ -2348,7 +2370,7 @@ export function SettingsGroup({ title, description, icon: Icon, actions, tone = 
           <div className="settings-group__heading">
             {Icon ? <span className="settings-group__icon" aria-hidden><Icon size={17} /></span> : null}
             <div>
-              {title ? <h2>{title}</h2> : null}
+              {title ? <h2>{title}{hint ? <HelpTip align="left">{hint}</HelpTip> : null}</h2> : null}
               {description ? <p>{description}</p> : null}
             </div>
           </div>

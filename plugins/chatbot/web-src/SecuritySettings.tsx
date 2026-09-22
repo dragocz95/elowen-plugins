@@ -104,12 +104,7 @@ export function SecuritySettings({ origins, rules, disabled, onChange }: {
   };
 
   return (
-    <C.SettingsGroup
-      title={s.securityTitle}
-      description={s.securityHint}
-      icon={ShieldCheck}
-      actions={<C.HelpTip align="right">{s.securityHelp}</C.HelpTip>}
-    >
+    <C.SettingsGroup title={s.securityTitle} hint={s.securityHint} icon={ShieldCheck}>
       <C.SelectionSummary
         countText={rules.length === 0 ? s.rulesEmpty : s.rulesCount.replace('{n}', String(rules.length))}
         samples={rules.slice(0, SAMPLES).map((rule) => ({ id: actionRuleKey(rule), label: rulePlace(rule), icon: <ShieldCheck size={12} aria-hidden /> }))}
@@ -118,12 +113,13 @@ export function SecuritySettings({ origins, rules, disabled, onChange }: {
         manageLabel={t.managePicker.manage}
         manageAriaLabel={s.securityTitle}
       />
-      {rules.length === 0 ? <p className="text-xs text-muted-foreground">{s.rulesEmptyHint}</p> : null}
 
       {open ? (
         <C.Modal
           title={s.securityTitle}
-          description={s.securityHint}
+          // What a rule IS, stated in the window where one is written: the card's own mark already said
+          // what this section governs and what happens without a rule.
+          description={s.securityHelp}
           icon={ShieldCheck}
           size="lg"
           presentation="center"
@@ -131,9 +127,9 @@ export function SecuritySettings({ origins, rules, disabled, onChange }: {
           onClose={() => setOpen(false)}
         >
           <C.ModalBody>
-            {rules.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{s.rulesEmptyHint}</p>
-            ) : (
+            {/* No empty state: with no rule there is nothing to list, and what that means for the chatbot
+                is on the card's own help mark, where the summary that says "no rule yet" already is. */}
+            {rules.length === 0 ? null : (
               <ul className="flex flex-col gap-1.5">
                 {rules.map((rule) => (
                   <li key={actionRuleKey(rule)} className="flex items-center justify-between gap-3">

@@ -6,6 +6,7 @@ import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
 import { limitDraftOf, readLimitDraft, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
+import { matchingBots } from '../plugins/chatbot/web-src/search';
 import { LIMIT_FIELDS, MANDATORY_LIMITS, OPTIONAL_LIMITS, specOf, type LimitValues } from '../plugins/chatbot/src/limits';
 import { actionRuleKey, draftRuleRefusal } from '../plugins/chatbot/web-src/SecuritySettings';
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
@@ -258,22 +259,39 @@ afterEach(() => {
 afterAll(() => close());
 
 /** Mount the deck at one section's own address, exactly as the host mounts it: the modal's `rest` is the
- *  address inside the plugin, and `surface` is `deck` because the host owns the frame around it. */
-function renderSection(id: 'bots' | 'conversations' | 'statistics' | 'shared') {
+ *  address inside the plugin, and `surface` is `deck` because the host owns the frame around it.
+ *
+ *  ONE wrapper builds the tree, so `at` can hand the same deck a new address the way the host does: the
+ *  overlay rewrites its own history entry and re-renders the frame it already has mounted. Everything the
+ *  deck is holding therefore survives the move — which is exactly what a suite about the column's search
+ *  has to be able to observe, and what the fixture's `navigate` alone (an address, recorded) cannot show. */
+type SectionId = 'bots' | 'conversations' | 'statistics' | 'shared';
+
+const restOf = (id: SectionId): string[] => {
   const route = CHATBOT_SECTIONS.find((section) => section.id === id)!.route;
+  return route === '' ? [] : route.split('/');
+};
+
+function renderSection(id: SectionId) {
   const { wrapper: Wrapper } = createWrapper();
-  return render(
+  const tree = (at: SectionId) => (
     <Wrapper>
       <ToastProvider>
-        <ChatbotDeck plugin="chatbot" rest={route === '' ? [] : route.split('/')} />
+        <ChatbotDeck plugin="chatbot" rest={restOf(at)} />
       </ToastProvider>
-    </Wrapper>,
+    </Wrapper>
   );
+  const view = render(tree(id));
+  return { ...view, at: (next: SectionId) => view.rerender(tree(next)) };
 }
 
 /** Every destination is in the document TWICE — the column and the phone's strip are both rendered, and
  *  which one a reader sees is the deck's CSS decision. A test therefore asks for all of them. */
 const destinations = (label: string) => screen.getAllByRole('button', { name: label });
+
+/** How many destinations carry one label, asked without throwing: a query that names nothing leaves the
+ *  column empty, and that is an answer this suite has to be able to state. */
+const destinationsNamed = (label: string) => screen.queryAllByRole('button', { name: label }).length;
 
 /** Wait until the page's own copy has arrived. The plugin's strings come from a listing query, so the
  *  first paint renders every label empty and React then REUSES those nodes with text — a control queried
@@ -346,6 +364,84 @@ describe('the chatbot modal deck', () => {
     // …and the register keeps the bare address the navigation entry itself opens.
     fireEvent.click(destinations(strings.sectionBots!)[1]!);
     expect(pluginNavigations).toEqual(['/p/chatbot/conversations', '/p/chatbot']);
+  });
+
+  it('answers the column\'s search with the chatbot a match names, and opens it', async () => {
+    renderSection('bots');
+    await settled();
+    // The account a chatbot runs as is one of the four things it is found by, and the register's own filter
+    // reads the same haystack — so a name typed in either place finds the same chatbot.
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.sectionsSearch! }), { target: { value: 'skola-bot' } });
+
+    // A query narrows the column to what answers it: the three sections that hold nothing about a chatbot
+    // are not destinations for one.
+    await waitFor(() => expect(destinationsNamed(strings.sectionStatistics!)).toBe(0));
+    expect(destinations(strings.sectionBots!)).toHaveLength(2);
+
+    // The match IS the register's own row action: the reader who searched for a chatbot lands in its
+    // drawer, which is the only thing this plugin can do with one.
+    fireEvent.click(screen.getByRole('button', { name: 'Gymnázium' }));
+    expect(within(await screen.findByRole('dialog')).getByPlaceholderText(strings.promptPlaceholder!)).toBeInTheDocument();
+    expect(within(top()).getByRole('heading', { name: 'Gymnázium' })).toBeInTheDocument();
+  });
+
+  it('takes a match from another section to the register, which is where that chatbot is a row', async () => {
+    const deck = renderSection('conversations');
+    await screen.findByRole('combobox', { name: strings.pickerLabel! });
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.sectionsSearch! }), { target: { value: 'Gymnázium' } });
+    resetPluginNavigations();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Gymnázium' }));
+    // A chatbot is a record of the register, so the column asks the host for THAT section's address rather
+    // than growing a second way to open a drawer.
+    expect(pluginNavigations).toEqual(['/p/chatbot']);
+
+    // The overlay rewrites its own history entry and re-renders the frame it already has mounted, so what
+    // the match set is still set when the register arrives: the drawer is open on that chatbot.
+    deck.at('bots');
+    expect(within(await screen.findByRole('dialog')).getByRole('heading', { name: 'Gymnázium' })).toBeInTheDocument();
+  });
+
+  it('says in the host\'s own words when nothing answers the query', async () => {
+    renderSection('bots');
+    await settled();
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.sectionsSearch! }), { target: { value: 'nikdo' } });
+
+    // Every record answered nothing, so the column keeps none of them — and the deck's own line says why,
+    // instead of a column of four destinations offered for a query that names none.
+    expect(await screen.findByText(strings.sectionsNoMatches!)).toBeInTheDocument();
+    for (const section of CHATBOT_SECTIONS) expect(destinationsNamed(section.label(strings))).toBe(0);
+  });
+});
+
+describe('what a chatbot is found by', () => {
+  it('reads the four fields a reader recognizes one by, and nothing else', () => {
+    expect(matchingBots([bot, broken, second], 'Gymnázium').map((found) => found.chatbotUserId)).toEqual([second.chatbotUserId]);
+    // The account it runs as, its public id, and the Project it works in.
+    expect(matchingBots([bot, second], 'skola-bot').map((found) => found.chatbotUserId)).toEqual([second.chatbotUserId]);
+    expect(matchingBots([bot, second], 'cbt_ffff').map((found) => found.chatbotUserId)).toEqual([second.chatbotUserId]);
+    expect(matchingBots([bot, second], 'skola').map((found) => found.chatbotUserId)).toEqual([second.chatbotUserId]);
+    // NOT its state, its domains or its instructions: those are read once the reader is looking at the
+    // chatbot, and a column that answered "enabled" would be filtering somebody else's question.
+    expect(matchingBots([bot, second], 'enabled')).toEqual([]);
+    expect(matchingBots([bot, second], 'www.skola.cz')).toEqual([]);
+    // An empty query is not a filter: it is what the register shows with nothing typed.
+    expect(matchingBots([bot, second], '  ')).toHaveLength(2);
+  });
+});
+
+describe('the heading each section wears', () => {
+  it.each([
+    ['bots', 'sectionBots', 'sectionBotsHint'],
+    ['conversations', 'sectionConversations', 'sectionConversationsHint'],
+    ['statistics', 'sectionStatistics', 'sectionStatisticsHint'],
+    ['shared', 'sectionShared', 'sectionSharedHint'],
+  ] as const)('names the %s section and says in one line what it holds', async (id, name, hint) => {
+    renderSection(id);
+    // The name comes from the same key the column's record reads, so the heading and the record cannot
+    // drift; the line under it is what tells the reader where the surface begins.
+    expect(await screen.findByRole('heading', { name: strings[name]! })).toBeInTheDocument();
+    expect(screen.getByText(strings[hint]!)).toBeInTheDocument();
   });
 });
 
@@ -451,6 +547,37 @@ describe('the chatbots section', () => {
     // option somebody can try to turn on.
     expect(within(drawer).queryByRole('switch', { name: strings.sensitiveTitle! })).not.toBeInTheDocument();
     expect(within(drawer).queryByRole('checkbox', { name: strings.sensitiveTitle! })).not.toBeInTheDocument();
+  });
+
+  it('keeps a card\'s reasoning behind its own help mark instead of under its heading', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    // Every card in the drawer is a heading and rows that name a value; what used to be a sentence under
+    // the heading waits behind the `?` the host draws for it, which is where this app keeps long-form copy.
+    expect(within(drawer).getByTitle(strings.limitsHint!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.limitsHint!)).not.toBeInTheDocument();
+    expect(within(drawer).getByTitle(strings.promptHint!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.promptHint!)).not.toBeInTheDocument();
+
+    // The value itself stays on the surface: what the reader opened the drawer for costs no click.
+    expect(within(drawer).getByText(strings.detailAccount!)).toBeInTheDocument();
+    expect(within(drawer).getByText('@ured-bot')).toBeInTheDocument();
+  });
+
+  it('states an empty domain list as a value, and what that costs behind the help mark', async () => {
+    use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([{ ...bot, origins: [] }]))));
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    expect(within(drawer).getByText(strings.originsEmpty!)).toBeInTheDocument();
+    // "answers nobody" is reasoning about a mechanism, so it reads behind the card's own mark rather than
+    // in the place a value belongs.
+    expect(within(drawer).getByTitle(strings.originsHint!)).toBeInTheDocument();
   });
 
   it('reports a failed load with a retry instead of an empty register', async () => {
@@ -748,6 +875,15 @@ describe('page-action rules', () => {
     expect(within(drawer).getByText(strings.rulesEmpty!)).toBeInTheDocument();
     expect(within(drawer).queryByRole('combobox', { name: strings.ruleOriginLabel! })).not.toBeInTheDocument();
     expect(within(drawer).queryByRole('button', { name: strings.ruleAdd! })).not.toBeInTheDocument();
+  });
+
+  it('keeps ONE help mark on the card, and states what a rule is in the window that writes one', async () => {
+    const { drawer, rules } = await openRules();
+    // The card's mark is the section's own reasoning; the concept a reader needs while authoring a rule
+    // belongs to the window that authors it, not to a second mark beside the first.
+    expect(within(drawer).getByTitle(strings.securityHint!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.securityHint!)).not.toBeInTheDocument();
+    expect(within(rules).getByText(strings.securityHelp!)).toBeInTheDocument();
   });
 
   it('adds a rule and sends the whole policy with the save', async () => {

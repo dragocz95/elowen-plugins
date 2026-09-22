@@ -49,7 +49,7 @@ export function OriginsField({ origins, insecure, disabled, onChange }: {
   };
 
   return (
-    <C.SettingsGroup title={s.originsLabel} description={s.originsHint} icon={Globe}>
+    <C.SettingsGroup title={s.originsLabel} hint={s.originsHint} icon={Globe}>
       <C.SelectionSummary
         countText={origins.length === 0 ? s.originsEmpty : s.originsCount.replace('{n}', String(origins.length))}
         samples={origins.slice(0, SAMPLES).map((origin) => ({ id: origin, label: origin, icon: <Globe size={12} aria-hidden /> }))}

@@ -71,6 +71,9 @@ var chatbotApi = {
   accountTools: (userId) => `/users/${userId}/tools`
 };
 
+// plugins/chatbot/web-src/ChatbotDeck.tsx
+var import_react13 = __toESM(require_react(), 1);
+
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
@@ -533,102 +536,92 @@ function SecuritySettings({ origins, rules, disabled, onChange }) {
     setRequiresConfirmation(false);
     setMaxPerTurn("1");
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-    C.SettingsGroup,
-    {
-      title: s.securityTitle,
-      description: s.securityHint,
-      icon: ShieldCheck,
-      actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.HelpTip, { align: "right", children: s.securityHelp }),
-      children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          C.SelectionSummary,
-          {
-            countText: rules.length === 0 ? s.rulesEmpty : s.rulesCount.replace("{n}", String(rules.length)),
-            samples: rules.slice(0, SAMPLES).map((rule) => ({ id: actionRuleKey(rule), label: rulePlace(rule), icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { size: 12, "aria-hidden": true }) })),
-            moreCount: Math.max(0, rules.length - SAMPLES),
-            onManage: () => setOpen(true),
-            manageLabel: t.managePicker.manage,
-            manageAriaLabel: s.securityTitle
-          }
-        ),
-        rules.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.rulesEmptyHint }) : null,
-        open ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-          C.Modal,
-          {
-            title: s.securityTitle,
-            description: s.securityHint,
-            icon: ShieldCheck,
-            size: "lg",
-            presentation: "center",
-            closeLabel: t.common.close,
-            onClose: () => setOpen(false),
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalBody, { children: [
-                rules.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.rulesEmptyHint }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: rules.map((rule) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-3", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "break-all font-mono text-xs text-foreground", children: rulePlace(rule) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: actionLabel(rule.action) })
-                  ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex shrink-0 items-center gap-2", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: rule.requiresConfirmation ? "warning" : "muted", children: rule.requiresConfirmation ? s.ruleNeedsConfirmation : s.ruleLimit.replace("{count}", String(rule.maxPerTurn)) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                      C.IconButton,
-                      {
-                        icon: Trash2,
-                        variant: "danger",
-                        label: s.ruleRemove.replace("{value}", actionRuleKey(rule)),
-                        disabled,
-                        onClick: () => onChange(rules.filter((candidate) => actionRuleKey(candidate) !== actionRuleKey(rule)))
-                      }
-                    )
-                  ] })
-                ] }, actionRuleKey(rule))) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 grid gap-3 sm:grid-cols-2", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleOriginLabel, hint: s.ruleOriginHint, children: origins.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.ruleOriginNone }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SelectMenu, { value: origin, onChange: setOrigin, options: origins.map((value) => ({ value, label: value })), label: s.ruleOriginLabel }) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.rulePathLabel, htmlFor: pathFieldId, hint: s.rulePathHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                    C.Input,
-                    {
-                      id: pathFieldId,
-                      value: pathPrefix,
-                      onChange: (event) => setPathPrefix(event.target.value),
-                      placeholder: "/kontakt"
-                    }
-                  ) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleActionLabel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                    C.SelectMenu,
-                    {
-                      value: action,
-                      onChange: (value) => setAction(value),
-                      options: ACTION_KINDS.map((kind) => ({ value: kind, label: actionLabel(kind) })),
-                      label: s.ruleActionLabel
-                    }
-                  ) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleLimitLabel, htmlFor: limitFieldId, hint: s.ruleLimitHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                    C.Input,
-                    {
-                      id: limitFieldId,
-                      type: "number",
-                      min: 1,
-                      max: WIDGET_MAX_ACTIONS_PER_TURN,
-                      value: maxPerTurn,
-                      onChange: (event) => setMaxPerTurn(event.target.value)
-                    }
-                  ) }),
-                  requiresVisitorConfirmation(action) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleConfirmationLabel, hint: s.ruleConfirmationHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: requiresConfirmation, onChange: setRequiresConfirmation, label: s.ruleConfirmationLabel }) }) : null,
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-3 sm:col-span-2", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: Plus, disabled: disabled || refusal !== null, onClick: add, children: s.ruleAdd }),
-                    refusalText === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: refusalText })
-                  ] })
-                ] })
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.SettingsGroup, { title: s.securityTitle, hint: s.securityHint, icon: ShieldCheck, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      C.SelectionSummary,
+      {
+        countText: rules.length === 0 ? s.rulesEmpty : s.rulesCount.replace("{n}", String(rules.length)),
+        samples: rules.slice(0, SAMPLES).map((rule) => ({ id: actionRuleKey(rule), label: rulePlace(rule), icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { size: 12, "aria-hidden": true }) })),
+        moreCount: Math.max(0, rules.length - SAMPLES),
+        onManage: () => setOpen(true),
+        manageLabel: t.managePicker.manage,
+        manageAriaLabel: s.securityTitle
+      }
+    ),
+    open ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      C.Modal,
+      {
+        title: s.securityTitle,
+        description: s.securityHelp,
+        icon: ShieldCheck,
+        size: "lg",
+        presentation: "center",
+        closeLabel: t.common.close,
+        onClose: () => setOpen(false),
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalBody, { children: [
+            rules.length === 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: "flex flex-col gap-1.5", children: rules.map((rule) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: "flex items-center justify-between gap-3", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "break-all font-mono text-xs text-foreground", children: rulePlace(rule) }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: actionLabel(rule.action) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ModalFooter, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => setOpen(false), children: t.common.done }) })
-            ]
-          }
-        ) : null
-      ]
-    }
-  );
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex shrink-0 items-center gap-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: rule.requiresConfirmation ? "warning" : "muted", children: rule.requiresConfirmation ? s.ruleNeedsConfirmation : s.ruleLimit.replace("{count}", String(rule.maxPerTurn)) }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                  C.IconButton,
+                  {
+                    icon: Trash2,
+                    variant: "danger",
+                    label: s.ruleRemove.replace("{value}", actionRuleKey(rule)),
+                    disabled,
+                    onClick: () => onChange(rules.filter((candidate) => actionRuleKey(candidate) !== actionRuleKey(rule)))
+                  }
+                )
+              ] })
+            ] }, actionRuleKey(rule))) }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-4 grid gap-3 sm:grid-cols-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleOriginLabel, hint: s.ruleOriginHint, children: origins.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-muted-foreground", children: s.ruleOriginNone }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.SelectMenu, { value: origin, onChange: setOrigin, options: origins.map((value) => ({ value, label: value })), label: s.ruleOriginLabel }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.rulePathLabel, htmlFor: pathFieldId, hint: s.rulePathHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Input,
+                {
+                  id: pathFieldId,
+                  value: pathPrefix,
+                  onChange: (event) => setPathPrefix(event.target.value),
+                  placeholder: "/kontakt"
+                }
+              ) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleActionLabel, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.SelectMenu,
+                {
+                  value: action,
+                  onChange: (value) => setAction(value),
+                  options: ACTION_KINDS.map((kind) => ({ value: kind, label: actionLabel(kind) })),
+                  label: s.ruleActionLabel
+                }
+              ) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleLimitLabel, htmlFor: limitFieldId, hint: s.ruleLimitHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                C.Input,
+                {
+                  id: limitFieldId,
+                  type: "number",
+                  min: 1,
+                  max: WIDGET_MAX_ACTIONS_PER_TURN,
+                  value: maxPerTurn,
+                  onChange: (event) => setMaxPerTurn(event.target.value)
+                }
+              ) }),
+              requiresVisitorConfirmation(action) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.ruleConfirmationLabel, hint: s.ruleConfirmationHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Toggle, { checked: requiresConfirmation, onChange: setRequiresConfirmation, label: s.ruleConfirmationLabel }) }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-3 sm:col-span-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { icon: Plus, disabled: disabled || refusal !== null, onClick: add, children: s.ruleAdd }),
+                refusalText === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-xs text-destructive", children: refusalText })
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.ModalFooter, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: () => setOpen(false), children: t.common.done }) })
+        ]
+      }
+    ) : null
+  ] });
 }
 
 // plugins/chatbot/web-src/OriginsField.tsx
@@ -654,7 +647,7 @@ function OriginsField({ origins, insecure, disabled, onChange }) {
     onChange([...origins, draft.trim()]);
     setDraft("");
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(C.SettingsGroup, { title: s.originsLabel, description: s.originsHint, icon: Globe, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(C.SettingsGroup, { title: s.originsLabel, hint: s.originsHint, icon: Globe, children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       C.SelectionSummary,
       {
@@ -20145,7 +20138,7 @@ function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose }) {
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.promptLabel, description: s.promptHint, icon: MessageSquareText, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.promptLabel, hint: s.promptHint, icon: MessageSquareText, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
             "textarea",
             {
               value: prompt,
@@ -20158,7 +20151,7 @@ function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose }) {
           ) }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(OriginsField, { origins, insecure: bot.insecureOrigins, disabled: pending, onChange: setOrigins }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SecuritySettings, { origins, rules, disabled: pending, onChange: setRules }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.limitsTitle, description: s.limitsHint, icon: Gauge, density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.limitsTitle, hint: s.limitsHint, icon: Gauge, density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
             C.SettingsRow,
             {
               label: s.limitsEdit,
@@ -20170,7 +20163,7 @@ function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose }) {
             C.SettingsGroup,
             {
               title: s.embedTitle,
-              description: s.embedHint,
+              hint: s.embedHint,
               icon: CodeXml,
               collapsible: true,
               defaultOpen: false,
@@ -20361,6 +20354,18 @@ function CreateBotDialog({ plugin, requiredTools, projects, candidates, onClose,
   );
 }
 
+// plugins/chatbot/web-src/search.ts
+function chatbotHaystack(bot) {
+  return `${bot.displayName} ${bot.publicId} ${bot.account?.username ?? ""} ${bot.projects.map((project) => project.slug).join(" ")}`;
+}
+function normalizeQuery(query) {
+  return query.trim().toLowerCase();
+}
+function matchingBots(bots, query) {
+  const needle = normalizeQuery(query);
+  return needle === "" ? [...bots] : bots.filter((bot) => chatbotHaystack(bot).toLowerCase().includes(needle));
+}
+
 // plugins/chatbot/web-src/useChatbots.ts
 var CHATBOTS_KEY = ["plugin", "chatbot", "bots"];
 function useChatbots() {
@@ -20395,21 +20400,15 @@ function useChatbots() {
 
 // plugins/chatbot/web-src/BotsSection.tsx
 var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
-function BotsSection({ plugin }) {
+function BotsSection({ plugin, openBotId, onOpenBot }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const register = useChatbots();
   const [search, setSearch] = (0, import_react10.useState)("");
-  const [openId, setOpenId] = (0, import_react10.useState)(null);
   const [creating, setCreating] = (0, import_react10.useState)(false);
   const { answer, bots, loadError } = register;
-  const needle = search.trim().toLowerCase();
-  const visible = bots.filter((bot) => {
-    if (needle === "") return true;
-    const haystack = `${bot.displayName} ${bot.publicId} ${bot.account?.username ?? ""} ${bot.projects.map((project) => project.slug).join(" ")}`;
-    return haystack.toLowerCase().includes(needle);
-  });
-  const open = bots.find((bot) => bot.chatbotUserId === openId) ?? null;
+  const visible = matchingBots(bots, search);
+  const open = bots.find((bot) => bot.chatbotUserId === openBotId) ?? null;
   const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${loadError}`, onRetry: register.reload }) : answer === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.LoadingState, { variant: "list" }) : bots.length === 0 ? (
     // No second creation button here: the card's header carries it in every state, and one card
     // offering the same action twice is two things to read where there is one thing to do.
@@ -20426,7 +20425,7 @@ function BotsSection({ plugin }) {
         {
           icon: Settings2,
           label: s.openBot.replace("{name}", bot.displayName || s.botFallback),
-          onClick: () => setOpenId(bot.chatbotUserId)
+          onClick: () => onOpenBot(bot.chatbotUserId)
         }
       )
     },
@@ -20436,6 +20435,9 @@ function BotsSection({ plugin }) {
     /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       C.SettingsGroup,
       {
+        title: s.sectionBots,
+        description: s.sectionBotsHint,
+        icon: Bot,
         actions: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
           bots.length === 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             C.RegisterSearch,
@@ -20460,7 +20462,7 @@ function BotsSection({ plugin }) {
         requiredTools: register.requiredTools,
         onChanged: register.upsert,
         unknownError: s.saveFailed,
-        onClose: () => setOpenId(null)
+        onClose: () => onOpenBot(null)
       },
       open.chatbotUserId
     ),
@@ -20474,7 +20476,7 @@ function BotsSection({ plugin }) {
         onClose: () => setCreating(false),
         onCreated: (bot) => {
           register.upsert(bot);
-          setOpenId(bot.chatbotUserId);
+          onOpenBot(bot.chatbotUserId);
         }
       }
     ) : null
@@ -20513,6 +20515,7 @@ function ConversationsSection() {
   const { locale } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
+  const heading = { title: s.sectionConversations, description: s.sectionConversationsHint, icon: MessagesSquare };
   const [selected, setSelected] = (0, import_react11.useState)(null);
   const [answer, setAnswer] = (0, import_react11.useState)(null);
   const [loadError, setLoadError] = (0, import_react11.useState)(null);
@@ -20536,10 +20539,10 @@ function ConversationsSection() {
   const statusTone = (status) => status === "done" ? "success" : status === "error" ? "danger" : "warning";
   const statusLabel = (status) => s[`turnStatus_${status}`] ?? status;
   if (register.loadError !== null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
   }
   if (bot === null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: MessagesSquare }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: MessagesSquare }) });
   }
   const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.conversationsEmptyTitle, description: s.conversationsEmptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COMPACT_COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
@@ -20576,7 +20579,7 @@ function ConversationsSection() {
     /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Pager, { page, pageSize: PAGE_SIZE, total: answer.total, onPageChange: setPage, ariaLabel: s.conversationsTab })
   ] });
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }), children: body }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }), children: body }),
     open === null ? null : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Transcript, { bot, conversation: open, onClose: () => setOpen(null) })
   ] });
 }
@@ -20651,6 +20654,7 @@ function StatsSection() {
   const { locale } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
+  const heading = { title: s.sectionStatistics, description: s.sectionStatisticsHint, icon: Activity };
   const [selected, setSelected] = (0, import_react12.useState)(null);
   const [days, setDays] = (0, import_react12.useState)("30");
   const [answer, setAnswer] = (0, import_react12.useState)(null);
@@ -20682,15 +20686,16 @@ function StatsSection() {
     { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) }
   ];
   if (register.loadError !== null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
   }
   if (bot === null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: Activity }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: Activity }) });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex flex-col gap-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       C.SettingsGroup,
       {
+        ...heading,
         actions: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }),
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
@@ -20742,6 +20747,7 @@ function SharedSettings({ plugin }) {
   }));
   const riskText = (risk) => risk === "high" ? t.pluginDetail.riskHigh : risk === "medium" ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow;
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { title: s.sectionShared, description: s.sectionSharedHint, icon: SlidersHorizontal }),
     detail.isError ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: s.sharedLoadError, onRetry: () => detail.refetch() }) : detail.data === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       C.PluginConfigEditor,
       {
@@ -20770,10 +20776,10 @@ function SharedSettings({ plugin }) {
 // plugins/chatbot/web-src/sections.tsx
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var CHATBOT_SECTIONS = [
-  { id: "bots", route: "", label: (s) => s.sectionBots, icon: Bot, render: (plugin) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BotsSection, { plugin }) },
+  { id: "bots", route: "", label: (s) => s.sectionBots, icon: Bot, render: ({ plugin, openBotId, onOpenBot }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BotsSection, { plugin, openBotId, onOpenBot }) },
   { id: "conversations", route: "conversations", label: (s) => s.sectionConversations, icon: MessagesSquare, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConversationsSection, {}) },
   { id: "statistics", route: "statistics", label: (s) => s.sectionStatistics, icon: Activity, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(StatsSection, {}) },
-  { id: "shared", route: "shared", label: (s) => s.sectionShared, icon: SlidersHorizontal, render: (plugin) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedSettings, { plugin }) }
+  { id: "shared", route: "shared", label: (s) => s.sectionShared, icon: SlidersHorizontal, render: ({ plugin }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedSettings, { plugin }) }
 ];
 function sectionForRoute(route) {
   return CHATBOT_SECTIONS.find((section) => section.route === route) ?? CHATBOT_SECTIONS[0];
@@ -20787,19 +20793,38 @@ var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 function ChatbotDeck({ plugin, rest }) {
   const { components: C, hooks, navigate } = runtime();
   const s = hooks.usePluginStrings("chatbot");
+  const register = useChatbots();
+  const [query, setQuery] = (0, import_react13.useState)("");
+  const [openBotId, setOpenBotId] = (0, import_react13.useState)(null);
   const active = sectionForRoute(rest.join("/"));
+  const needle = normalizeQuery(query);
+  const found = needle === "" ? [] : matchingBots(register.bots, query);
+  const openBot = (chatbotUserId) => {
+    setOpenBotId(chatbotUserId);
+    navigate(sectionHref(plugin, CHATBOT_SECTIONS[0].route));
+  };
   const groups = [{
     id: "chatbot",
-    items: CHATBOT_SECTIONS.map((section) => ({
-      id: section.id,
-      label: section.label(s),
-      icon: section.icon,
-      current: section.id === active.id,
-      // Each section is its own address inside the modal. Inside an overlay the runtime's navigate keeps
-      // the page underneath mounted and rewrites the modal's own history entry, so a section is
-      // deep-linkable and shareable without the modal ever closing.
-      onActivate: () => navigate(sectionHref(plugin, section.route))
-    }))
+    items: CHATBOT_SECTIONS.flatMap((section) => {
+      const label = section.label(s);
+      const matches = section.id === "bots" ? found.map((bot) => ({
+        id: String(bot.chatbotUserId),
+        label: bot.displayName || s.botFallback,
+        onActivate: () => openBot(bot.chatbotUserId)
+      })) : [];
+      if (needle !== "" && matches.length === 0 && !label.toLowerCase().includes(needle)) return [];
+      return [{
+        id: section.id,
+        label,
+        icon: section.icon,
+        current: section.id === active.id,
+        // Each section is its own address inside the modal. Inside an overlay the runtime's navigate keeps
+        // the page underneath mounted and rewrites the modal's own history entry, so a section is
+        // deep-linkable and shareable without the modal ever closing.
+        onActivate: () => navigate(sectionHref(plugin, section.route)),
+        matches
+      }];
+    })
   }];
   return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
     C.SectionDeck,
@@ -20813,11 +20838,12 @@ function ChatbotDeck({ plugin, rest }) {
           groups,
           layout,
           testId: "chatbot-navigation",
-          emptyLabel: s.sectionsEmpty,
+          search: { value: query, onChange: setQuery, label: s.sectionsSearch },
+          emptyLabel: s.sectionsNoMatches,
           className
         }
       ),
-      children: active.render(plugin)
+      children: active.render({ plugin, openBotId, onOpenBot: setOpenBotId })
     }
   );
 }

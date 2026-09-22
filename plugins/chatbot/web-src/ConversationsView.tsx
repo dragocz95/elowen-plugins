@@ -27,6 +27,9 @@ export function ConversationsSection() {
   const { locale } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
+  // The section's own heading, worn by whichever card its state renders: the reader is told what this is
+  // before being told what is missing or what it found.
+  const heading = { title: s.sectionConversations, description: s.sectionConversationsHint, icon: MessagesSquare };
 
   const [selected, setSelected] = useState<number | null>(null);
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
@@ -64,11 +67,11 @@ export function ConversationsSection() {
   // The register is this section's own precondition: there is nothing to read from until it arrives, and
   // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
   if (register.loadError !== null) {
-    return <C.SettingsGroup><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
+    return <C.SettingsGroup {...heading}><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
   }
   if (bot === null) {
     return (
-      <C.SettingsGroup>
+      <C.SettingsGroup {...heading}>
         {register.isLoading
           ? <C.LoadingState variant="list" />
           : <C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={MessagesSquare} />}
@@ -114,9 +117,8 @@ export function ConversationsSection() {
 
   return (
     <>
-      {/* No card title: the section's own navigation record already names it. The header carries the one
-          control this section needs — which chatbot it is about. */}
-      <C.SettingsGroup actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}>
+      {/* The section's own heading, and the one control it needs: which chatbot this list is about. */}
+      <C.SettingsGroup {...heading} actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}>
         {body}
       </C.SettingsGroup>
       {open === null ? null : <Transcript bot={bot} conversation={open} onClose={() => setOpen(null)} />}

@@ -67,6 +67,9 @@ export function StatsSection() {
   const { locale } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
+  // The section's own heading, worn by whichever card its state renders: the reader is told what this is
+  // before being told what is missing or what it counted.
+  const heading = { title: s.sectionStatistics, description: s.sectionStatisticsHint, icon: Activity };
   const [selected, setSelected] = useState<number | null>(null);
   const [days, setDays] = useState<string>('30');
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
@@ -109,11 +112,11 @@ export function StatsSection() {
   // The register is this section's own precondition: there is nothing to count until it arrives, and
   // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
   if (register.loadError !== null) {
-    return <C.SettingsGroup><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
+    return <C.SettingsGroup {...heading}><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
   }
   if (bot === null) {
     return (
-      <C.SettingsGroup>
+      <C.SettingsGroup {...heading}>
         {register.isLoading
           ? <C.LoadingState variant="block" />
           : <C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={Activity} />}
@@ -128,6 +131,7 @@ export function StatsSection() {
           row is too narrow for all three: the track scrolls with the host's own fade instead of the last
           window being clipped on a phone. */}
       <C.SettingsGroup
+        {...heading}
         actions={(
           <>
             <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />
