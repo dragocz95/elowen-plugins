@@ -11,6 +11,9 @@ import { createChatbotHost, registerBot, NOW_MS } from './helpers/chatbotHost.js
 
 const day = utcDay(NOW_MS);
 const admin = { admin: true, userId: 1 } as PluginApiAuth;
+/** These cases only ever read the budget. Erasing from here would mean the route under test called
+ *  something it has no business calling, so the stub fails instead of quietly returning a count. */
+const noErase = (): never => { throw new Error('erase is not part of this test'); };
 
 describe('daily budget read model', () => {
   it.each([
@@ -27,7 +30,7 @@ describe('daily budget read model', () => {
       (day,user_id,origin,origin_kind,trusted,turns,input,output,cache_read,cache_write,total,cost,costed_turns,first_at,last_at)
       VALUES (?,12,'platform:chatbot','platform',1,?,0,0,1090000,0,1090000,?,?,?,?)`)
       .run(day, turns, cost, priced, NOW_MS, NOW_MS);
-    const api = createAdminApi({ store: host.store, stores: host.stores, publicBaseUrl: () => null, now: () => new Date(NOW_MS) });
+    const api = createAdminApi({ store: host.store, stores: host.stores, publicBaseUrl: () => null, now: () => new Date(NOW_MS), erase: noErase });
     const response = await api.list(admin);
     const budget = (response.body as { bots: { budget: unknown }[] }).bots[0]!.budget;
     expect(budget).toMatchObject({ day, admittedTurns: admitted, usage: { tokens: 1_090_000 }, verdict });
@@ -44,7 +47,7 @@ describe('daily budget read model', () => {
     for (const [id, origin, cost] of [[12, 'platform:chatbot', 0.0737], [12, 'platform:discord', 80], [99, 'platform:chatbot', 90]] as const) {
       insert.run(day, id, origin, cost, NOW_MS, NOW_MS);
     }
-    const api = createAdminApi({ store: host.store, stores: host.stores, publicBaseUrl: () => null, now: () => new Date(NOW_MS) });
+    const api = createAdminApi({ store: host.store, stores: host.stores, publicBaseUrl: () => null, now: () => new Date(NOW_MS), erase: noErase });
     const before = utcDay(NOW_MS - 86400000);
     const response = await api.stats(admin, { chatbotUserId: '12', from: before, to: day });
     expect(response.body).toMatchObject({ days: [], spend: [
