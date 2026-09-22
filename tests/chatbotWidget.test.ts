@@ -20,7 +20,7 @@ import {
 import { capturePageSnapshot, isSensitiveField, wouldSubmit } from '../plugins/chatbot/embed-src/pageSnapshot.js';
 import { ChatSession, type ChatView, type PageBridge } from '../plugins/chatbot/embed-src/session.js';
 import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel.js';
-import { APPEARANCE_TEMPLATES, DEFAULT_APPEARANCE, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
+import { APPEARANCE_BOUNDS, APPEARANCE_TEMPLATES, DEFAULT_APPEARANCE, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
 import { widgetStrings } from '../plugins/chatbot/embed-src/strings.js';
 
 /** The widget's own half of the protocol, and the two things it promises a customer's page: that a
@@ -1093,6 +1093,60 @@ describe('the look a panel is given', () => {
     expect(after).not.toBe(before);
     expect(after.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
     expect(groundOf(instance)).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
+    instance.destroy();
+  });
+
+  it('draws the presence dot on the launcher corner only when the look asks for one', () => {
+    const instance = panelWith(look());
+    const shadow = () => instance.host.shadowRoot!;
+    const css = () => shadow().querySelector('style')!.textContent ?? '';
+    const dot = () => shadow().querySelector('.launcher-dot');
+    const dotRule = () => /\.launcher-dot \{[^}]*\}/.exec(css())![0];
+
+    // Off by default: the launcher stays the plain button it has always been, and nothing is left on the
+    // stylesheet for a decoration nobody asked for.
+    expect(dot()).toBeNull();
+    expect(css()).not.toContain('.launcher-dot');
+
+    const dotColour = '#22c55e';
+    const dotted = (size: number): ChatbotLook => ({
+      name: 'Městský úřad',
+      appearance: { ...DEFAULT_APPEARANCE, launcher: { ...DEFAULT_APPEARANCE.launcher, presenceDot: true, presenceDotColor: dotColour, size } },
+    });
+    instance.applyAppearance(dotted(DEFAULT_APPEARANCE.launcher.size));
+
+    const mark = dot();
+    expect(mark).not.toBeNull();
+    expect(shadow().querySelector('.launcher')!.contains(mark!)).toBe(true);
+    // A decoration, and nothing else: no text, and nothing about it is read out or inspected as a statement
+    // about whether anybody is available to answer.
+    expect(mark!.getAttribute('aria-hidden')).toBe('true');
+    expect(mark!.textContent).toBe('');
+
+    // The colour the owner chose, ringed in the launcher's own colour so the mark stays visible on any page.
+    expect(dotRule()).toContain(`background: ${dotColour}`);
+    expect(dotRule()).toContain(`solid ${DEFAULT_APPEARANCE.colors.launcher}`);
+
+    // Anchored to the corner of the launcher and measured from it, so every size the bounds allow keeps the
+    // same place on the corner and the same weight.
+    const geometry = [APPEARANCE_BOUNDS.launcherSize.min, APPEARANCE_BOUNDS.launcherSize.max].map((size) => {
+      instance.applyAppearance(dotted(size));
+      const rule = dotRule();
+      expect(rule).toContain('position: absolute; top: 0; right: 0;');
+      return { width: Number(/width: (\d+)px/.exec(rule)![1]), ring: Number(/border: (\d+)px solid/.exec(rule)![1]) };
+    });
+    expect(geometry[0]!.ring).toBeGreaterThanOrEqual(2);
+    expect(geometry[1]!.width).toBeGreaterThan(geometry[0]!.width);
+
+    // The gentle pulse follows the panel's own motion convention: a keyframe of its own, and the reader's own
+    // preference switches it off.
+    expect(css()).toContain('@keyframes cb-presence-pulse');
+    expect(/@media \(prefers-reduced-motion: reduce\) \{\s*\.launcher-dot \{ animation: none; \}/.test(css())).toBe(true);
+
+    // Turning it off takes the mark off the button rather than leaving it behind.
+    instance.applyAppearance(look());
+    expect(dot()).toBeNull();
+    expect(css()).not.toContain('.launcher-dot');
     instance.destroy();
   });
 });

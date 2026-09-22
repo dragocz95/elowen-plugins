@@ -300,6 +300,25 @@ function styleText(appearance: ChatbotAppearance): string {
   // is anchored to.
   const fromTop = appearance.position.startsWith('top');
   const fromLeft = appearance.position.endsWith('left');
+  // The presence dot is measured from the launcher rather than from a number of its own, so it keeps the same
+  // place on the corner and the same weight at every size the bounds allow. Its ring is the launcher's own
+  // colour, which is what keeps it apart from whatever the page underneath happens to be.
+  const dotSize = Math.max(8, Math.round(appearance.launcher.size * .32));
+  const dotRing = Math.max(2, Math.round(appearance.launcher.size * .04));
+  const presenceDot = appearance.launcher.presenceDot ? `
+.launcher-dot {
+  position: absolute; top: 0; right: 0; width: ${dotSize}px; height: ${dotSize}px; border-radius: 50%;
+  background: ${appearance.launcher.presenceDotColor}; border: ${dotRing}px solid ${appearance.colors.launcher};
+  animation: cb-presence-pulse 2.6s ease-in-out infinite;
+}
+@keyframes cb-presence-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launcher-dot { animation: none; }
+}
+` : '';
   return `
 :host {
   --cb-avail-w: calc(100vw - ${inset.width}px);
@@ -315,6 +334,7 @@ function styleText(appearance: ChatbotAppearance): string {
 }
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
+  position: relative;
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
   border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
@@ -366,7 +386,7 @@ function styleText(appearance: ChatbotAppearance): string {
 .confirm-no { border: 1px solid ${ramp.border}; background: transparent; color: ${ramp.foreground}; }
 .confirm-no:hover { border-color: ${ramp.muted}; }
 .confirm-actions button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-`;
+${presenceDot}`;
 }
 
 export class ChatPanel implements ChatView {
@@ -810,6 +830,14 @@ export class ChatPanel implements ChatView {
     if (this.avatar.hidden) this.avatar.removeAttribute('src');
     else this.avatar.src = appearance.avatarUrl;
     this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.presenceDot) {
+      const dot = document.createElement('span');
+      dot.className = 'launcher-dot';
+      // An ornament, not a claim: it says nothing about whether anybody is there to answer, so nothing about
+      // it reaches a screen reader or a page that inspects the button.
+      dot.setAttribute('aria-hidden', 'true');
+      this.launcher.append(dot);
+    }
     if (appearance.launcher.label !== '') {
       const label = document.createElement('span');
       label.className = 'launcher-label';
