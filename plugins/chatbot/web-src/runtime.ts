@@ -47,16 +47,35 @@ export interface AccountToolRow {
   toggleable: boolean;
 }
 
+/** One row of the host's managed-selection list. Declared here because this bundle builds the rows it
+ *  hands to {@link ChatbotComponents.ManageSelectionModal}, and the shape is the host's. */
+export interface ManageSelectionItem {
+  id: string;
+  label: string;
+  /** Grouping key; `''` pins the row above the grouped sections with no header of its own. */
+  group: string;
+  groupLabel?: string;
+  icon?: ReactNode;
+  badges?: { text: string; tone?: 'accent' | 'muted' }[];
+  /** In `readOnly` mode this is simply the row's description, shown on hover. */
+  disabledHint?: string;
+}
+
 type PageFilterField =
   | { id: string; label: string; control: ReactNode; hint?: string; active: false }
   | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
 
+/** The core translation catalog, narrowed the way every bundle that mounts a host affordance narrows it.
+ *  Only host-generic sections are read here: `managePicker.manage` is the word on the button that opens a
+ *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
+type HostDictionary = Record<string, Record<string, string>>;
+
 interface ChatbotHooks {
   /** This plugin's own page copy: its manifest's English fallback, with the active locale's overrides. */
   usePluginStrings(plugin: string): Record<string, string>;
-  /** The app's own locale and dictionary. Only `locale` is read here: every number, price and timestamp on
-   *  this surface is formatted in the reader's own locale rather than in a fixed one. */
-  useTranslation(): { locale: string };
+  /** The app's own locale and dictionary. `locale` is what formats every number, price and timestamp on
+   *  this surface in the reader's own locale; `t` supplies the host's words for the host's own controls. */
+  useTranslation(): { locale: string; t: HostDictionary };
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
   /** ADMIN-ONLY on the server: a non-admin caller is refused by design. `enabled` only keeps a request
    *  that is meant to fail from being fired; it is not the access control. */
@@ -106,9 +125,31 @@ interface ChatbotComponents {
   Field: ComponentType<{ label: string; htmlFor?: string; hint?: string; description?: string; error?: string; required?: boolean; children?: ReactNode }>;
   /** Long-form guidance for one heading, kept behind the host's own help affordance. */
   HelpTip: ComponentType<{ align?: 'left' | 'right'; children?: ReactNode }>;
+  /** The host's icon-only action: one glyph carrying its own accessible name. What a list row's remove
+   *  affordance is everywhere else in the app. */
+  IconButton: ComponentType<{
+    icon: LucideIcon;
+    label: string;
+    variant?: 'default' | 'danger';
+    disabled?: boolean;
+    onClick?: () => void;
+  }>;
   Input: ComponentType<ComponentProps<'input'>>;
   LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
   LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  /** The host's searchable, grouped list behind a {@link ChatbotComponents.SelectionSummary}. `readOnly`
+   *  is the display-only variant: the rows are information, so they carry no checkbox and the footer
+   *  offers Close — which is exactly what an account's tool access is on this surface, since the grants
+   *  themselves are owned by the Users screen. */
+  ManageSelectionModal: ComponentType<{
+    title: string;
+    subtitle?: string;
+    open: boolean;
+    onClose: () => void;
+    items: ManageSelectionItem[];
+    countLabel?: (count: number) => string;
+    readOnly: true;
+  }>;
   Modal: ComponentType<{
     title: string;
     onClose: () => void;
@@ -152,6 +193,24 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
+  /** The compact stand-in for a long list: a count line, a few sample chips and one button that opens the
+   *  list. It is how the app states a managed selection everywhere — the account tool set on the Users
+   *  screen, a job's destination in cronjob — so the sections here that used to render every item inline
+   *  are this row plus one window. */
+  SelectionSummary: ComponentType<{
+    countText: string;
+    samples: { id?: string; label: string; icon?: ReactNode }[];
+    moreCount: number;
+    onManage: () => void;
+    manageLabel: string;
+    manageAriaLabel?: string;
+    variant?: 'default' | 'line';
+    /** The list behind the button is display-only, so the affordance is an eye rather than a gear. */
+    readOnly?: boolean;
+  }>;
+  /** A stack of section cards rather than one bordered document: what every settings and account surface
+   *  in the app is, and therefore what one chatbot's configuration is. */
+  SettingsDocument: ComponentType<{ children?: ReactNode; className?: string }>;
   /** A records card: an accent-marked heading above a body of rows. The admin sections below are exactly
    *  that shape, which is why they are not rebuilt out of raw markup. */
   SettingsGroup: ComponentType<{
@@ -162,6 +221,11 @@ interface ChatbotComponents {
     tone?: 'default' | 'danger';
     density?: 'comfortable' | 'compact';
     columns?: 1 | 2;
+    /** Fold the body under the header. `storageKey` is the host's ONE mechanism for remembering that
+     *  choice, so this bundle keeps no fold state of its own. */
+    collapsible?: boolean;
+    defaultOpen?: boolean;
+    storageKey?: string;
     children?: ReactNode;
     className?: string;
   }>;

@@ -110,7 +110,10 @@ export function ChatbotWorkspace({ plugin }: { plugin: string }) {
   };
 
   const register = (
-    <C.ControlSurfaceRegister className="grid min-h-[31rem] grid-cols-1 gap-4 p-4 lg:!grid-cols-[22rem_minmax(0,1fr)] lg:items-start">
+    // The register surface owns its own inset (`control-surface-register`), so the arrangement here is the
+    // two columns and nothing else: no padding of its own to override the host's, no `!important` against a
+    // rule that does not exist, and no fixed minimum height for a page whose height is its content.
+    <C.ControlSurfaceRegister className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start">
       <div className="min-w-0">
         {visible.length === 0 ? (
           <C.ControlSurfaceState>
@@ -163,7 +166,7 @@ export function ChatbotWorkspace({ plugin }: { plugin: string }) {
   );
 
   const scoped = (
-    <C.ControlSurfaceRegister className="flex min-h-[31rem] flex-col gap-4 p-4">
+    <C.ControlSurfaceRegister className="flex flex-col gap-4">
       {selected === null ? (
         <C.ControlSurfaceState>
           <C.EmptyState title={s.botsEmptyTitle} description={s.botsEmptyDescription} icon={Bot} />

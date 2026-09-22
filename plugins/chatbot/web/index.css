@@ -8,6 +8,9 @@
   .absolute {
     position: absolute;
   }
+  .fixed {
+    position: fixed;
+  }
   .relative {
     position: relative;
   }
@@ -50,8 +53,8 @@
   .mt-3 {
     margin-top: calc(var(--spacing, 0.25rem) * 3);
   }
-  .mb-2 {
-    margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  .mt-4 {
+    margin-top: calc(var(--spacing, 0.25rem) * 4);
   }
   .ml-1 {
     margin-left: var(--spacing, 0.25rem);
@@ -77,20 +80,14 @@
   .table {
     display: table;
   }
-  .h-8 {
-    height: calc(var(--spacing, 0.25rem) * 8);
+  .h-7 {
+    height: calc(var(--spacing, 0.25rem) * 7);
   }
   .h-\[38rem\] {
     height: 38rem;
   }
-  .min-h-\[31rem\] {
-    min-height: 31rem;
-  }
   .w-10 {
     width: calc(var(--spacing, 0.25rem) * 10);
-  }
-  .w-16 {
-    width: calc(var(--spacing, 0.25rem) * 16);
   }
   .w-full {
     width: 100%;
@@ -109,9 +106,6 @@
   }
   .min-w-\[14rem\] {
     min-width: 14rem;
-  }
-  .flex-1 {
-    flex: 1;
   }
   .shrink-0 {
     flex-shrink: 0;
@@ -149,8 +143,8 @@
   .justify-between {
     justify-content: space-between;
   }
-  .gap-1 {
-    gap: var(--spacing, 0.25rem);
+  .gap-1\.5 {
+    gap: calc(var(--spacing, 0.25rem) * 1.5);
   }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
@@ -167,11 +161,17 @@
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
   }
+  .gap-x-4 {
+    column-gap: calc(var(--spacing, 0.25rem) * 4);
+  }
   .gap-x-6 {
     column-gap: calc(var(--spacing, 0.25rem) * 6);
   }
-  .gap-y-3 {
-    row-gap: calc(var(--spacing, 0.25rem) * 3);
+  .gap-y-2 {
+    row-gap: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .gap-y-4 {
+    row-gap: calc(var(--spacing, 0.25rem) * 4);
   }
   .truncate {
     overflow: hidden;
@@ -206,18 +206,6 @@
   .bg-card {
     background-color: var(--color-card, #070707);
   }
-  .bg-muted\/20 {
-    background-color: color-mix(in srgb, #0d0d0d 20%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 20%, transparent);
-    }
-  }
-  .bg-muted\/30 {
-    background-color: color-mix(in srgb, #0d0d0d 30%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 30%, transparent);
-    }
-  }
   .bg-muted\/40 {
     background-color: color-mix(in srgb, #0d0d0d 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -236,20 +224,11 @@
   .p-3 {
     padding: calc(var(--spacing, 0.25rem) * 3);
   }
-  .p-4 {
-    padding: calc(var(--spacing, 0.25rem) * 4);
-  }
   .px-3 {
     padding-inline: calc(var(--spacing, 0.25rem) * 3);
   }
-  .py-1\.5 {
-    padding-block: calc(var(--spacing, 0.25rem) * 1.5);
-  }
   .py-2 {
     padding-block: calc(var(--spacing, 0.25rem) * 2);
-  }
-  .text-right {
-    text-align: right;
   }
   .font-mono {
     font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
@@ -359,8 +338,8 @@
     .lg\:order-2 {
       order: 2;
     }
-    .lg\:\!grid-cols-\[22rem_minmax\(0\,1fr\)\] {
-      grid-template-columns: 22rem minmax(0,1fr) !important;
+    .lg\:grid-cols-\[20rem_minmax\(0\,1fr\)\] {
+      grid-template-columns: 20rem minmax(0,1fr);
     }
     .lg\:grid-cols-\[minmax\(0\,1fr\)_minmax\(0\,32rem\)\] {
       grid-template-columns: minmax(0,1fr) minmax(0,32rem);

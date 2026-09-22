@@ -48,9 +48,14 @@ function pluginsDeclaringABundle(): string[] {
  *  set cannot be nudged: a plugin that starts or stops reading host copy has to be added or removed here
  *  deliberately, which is a reviewed change with a reason attached.
  *
- *  Today: `cronjob`, `editor` and `stats` use `common` (save/close/cancel/back/daemonUnreachable) plus
- *  `managePicker`; `skills` uses `assetEditor`. The other bundles ship their own strings only. */
-const HOST_COPY_CONSUMERS = ['cronjob', 'editor', 'skills', 'stats'];
+ *  Today: `chatbot`, `cronjob`, `editor` and `stats` use `common` (save/close/done/cancel/back/
+ *  daemonUnreachable) plus `managePicker`; `skills` uses `assetEditor`. The other bundles ship their own
+ *  strings only.
+ *
+ *  `chatbot` joined the list when its admin surface adopted the host's managed-selection pair: the word on
+ *  a `SelectionSummary`'s button and the one that closes the window it opens belong to the host that draws
+ *  them, exactly as they do for `cronjob`. */
+const HOST_COPY_CONSUMERS = ['chatbot', 'cronjob', 'editor', 'skills', 'stats'];
 
 function bundleFiles(): string[] {
   const out: string[] = [];

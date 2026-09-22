@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { ChatbotWorkspace } from '../plugins/chatbot/web-src/ChatbotWorkspace';
-import { blockerText, limitDraftOf, originHint, readLimitDraft } from '../plugins/chatbot/web-src/BotDetail';
+import { blockerText, limitDraftOf, readLimitDraft } from '../plugins/chatbot/web-src/BotDetail';
+import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { LIMIT_FIELDS, MANDATORY_LIMITS, type LimitValues } from '../plugins/chatbot/src/limits';
 import { actionRuleKey, draftRuleRefusal } from '../plugins/chatbot/web-src/SecuritySettings';
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
@@ -244,6 +245,18 @@ const openTab = async (label: string) => {
   fireEvent.click(screen.getByRole('radio', { name: label }));
 };
 
+/** Open a managed selection from the summary row that stands for it.
+ *
+ *  The detail pane states its three lists — the allowed domains, the page-action rules and the account's
+ *  tools — as a count with a few sample chips and ONE button, which is how the app states a managed
+ *  selection everywhere. The editor for each lives in the window that button opens, so a test that means to
+ *  touch a control goes through it, exactly as an administrator does. The button carries the section's own
+ *  name (`manageAriaLabel`), so this also proves the three summaries are told apart. */
+const manage = async (section: string): Promise<HTMLElement> => {
+  fireEvent.click(screen.getByRole('button', { name: section }));
+  return await screen.findByRole('dialog');
+};
+
 describe('the chatbot workspace', () => {
   it('renders the register, the hero figures and one detail pane through the host components', async () => {
     renderPage();
@@ -300,15 +313,36 @@ describe('the chatbot workspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: strings.enableAction! })).toBeInTheDocument());
   });
 
-  it('refuses to add a domain the server would reject, and says why', async () => {
+  it('states the allowed domains as a summary, and refuses one the server would reject', async () => {
     renderPage();
     await settled();
     await findBots();
-    const field = screen.getByPlaceholderText(strings.originsPlaceholder!);
+    // The page itself names the domains it answers on, without listing them as rows.
+    expect(screen.getByText(strings.originsCount!.replace('{n}', '1'))).toBeInTheDocument();
+    expect(screen.getAllByText(SITE).length).toBeGreaterThan(0);
+
+    const dialog = await manage(strings.originsLabel!);
+    const field = within(dialog).getByPlaceholderText(strings.originsPlaceholder!);
     fireEvent.change(field, { target: { value: 'www.example.cz' } });
-    expect(screen.getByText(strings.originsInvalid!)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.originsInvalid!)).toBeInTheDocument();
     fireEvent.change(field, { target: { value: SITE } });
-    expect(screen.getByText(strings.originsDuplicate!)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.originsDuplicate!)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: strings.originsAdd! })).toBeDisabled();
+  });
+
+  it('adds a domain in the window and carries it into the summary', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    const dialog = await manage(strings.originsLabel!);
+    fireEvent.change(within(dialog).getByPlaceholderText(strings.originsPlaceholder!), { target: { value: 'https://www.druhy.cz' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.originsAdd! }));
+    // The window edits the DRAFT the page holds, so closing it leaves the new domain counted and the save
+    // offered — nothing is stored until that explicit click.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.getByText(strings.originsCount!.replace('{n}', '2'))).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: strings.saveAction! })).toBeEnabled();
+    expect(asked.botPatch).toHaveLength(0);
   });
 
   it('shows every limit the server reports, with the ones nobody decided left empty', async () => {
@@ -510,16 +544,35 @@ describe('one chatbot\'s statistics', () => {
 });
 
 describe('page-action rules', () => {
+  it('says on the page that there is no rule, and does not open the author for it', async () => {
+    renderPage();
+    await settled();
+    await findBots();
+    // The section states the policy as it stands and keeps the six controls that write one behind its own
+    // button: no permanently open form on a page that carries seven other sections.
+    expect(screen.getByText(strings.rulesEmpty!)).toBeInTheDocument();
+    expect(screen.getAllByText(strings.rulesEmptyHint!).length).toBe(1);
+    expect(screen.queryByRole('combobox', { name: strings.ruleOriginLabel! })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: strings.ruleAdd! })).not.toBeInTheDocument();
+  });
+
   it('adds a rule and sends the whole policy with the save', async () => {
     renderPage();
     await settled();
     await findBots();
 
-    fireEvent.change(screen.getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
+    const dialog = await manage(strings.securityTitle!);
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
     // The field opens holding "/", so this is what a reader typing their own path into it really sends.
-    fireEvent.change(screen.getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '//kontakt' } });
-    fireEvent.click(screen.getByRole('button', { name: strings.ruleAdd! }));
-    await waitFor(() => expect(screen.getByText(`${SITE}/kontakt`)).toBeInTheDocument());
+    fireEvent.change(within(dialog).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '//kontakt' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.ruleAdd! }));
+    await waitFor(() => expect(within(dialog).getByText(`${SITE}/kontakt`)).toBeInTheDocument());
+    expect(within(dialog).getByText(strings.ruleLimit!.replace('{count}', '1'))).toBeInTheDocument();
+
+    // Closed again, the summary names the place the rule governs, so the page still says what was configured.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.getByText(strings.rulesCount!.replace('{n}', '1'))).toBeInTheDocument());
+    expect(screen.getByText(`${SITE}/kontakt`)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: strings.saveAction! }));
     // The rule travels with the rest of the editable state, and it is the one the editor showed.
@@ -527,49 +580,51 @@ describe('page-action rules', () => {
     expect(asked.botPatch[0]!.actionRules).toEqual([
       { origin: SITE, pathPrefix: '/kontakt', action: 'read', requiresConfirmation: false, maxPerTurn: 1 },
     ]);
-    await waitFor(() => expect(screen.getByText(strings.ruleLimit!.replace('{count}', '1'))).toBeInTheDocument());
   });
 
   it('refuses the same rule twice and a limit beyond the per-turn ceiling', async () => {
     renderPage();
     await settled();
     await findBots();
-    fireEvent.change(screen.getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    fireEvent.click(screen.getByRole('button', { name: strings.ruleAdd! }));
-    await waitFor(() => expect(screen.getByText(`${SITE}/`)).toBeInTheDocument());
+    const dialog = await manage(strings.securityTitle!);
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.ruleAdd! }));
+    await waitFor(() => expect(within(dialog).getByText(`${SITE}/`)).toBeInTheDocument());
 
     // The same domain, path and action are already listed.
-    expect(screen.getByText(strings.ruleDuplicate!)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
+    expect(within(dialog).getByText(strings.ruleDuplicate!)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '/kontakt' } });
-    const limit = screen.getByRole('spinbutton');
+    fireEvent.change(within(dialog).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '/kontakt' } });
+    const limit = within(dialog).getByRole('spinbutton');
     fireEvent.change(limit, { target: { value: '21' } });
-    expect(screen.getByText(strings.ruleLimitInvalid!.replace('{max}', '20'))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
+    expect(within(dialog).getByText(strings.ruleLimitInvalid!.replace('{max}', '20'))).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
     fireEvent.change(limit, { target: { value: '3' } });
-    expect(screen.getByRole('button', { name: strings.ruleAdd! })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: strings.ruleAdd! })).toBeEnabled();
   });
 
   it('offers the visitor\'s confirmation only where the protocol can carry one', async () => {
     renderPage();
     await settled();
     await findBots();
+    const dialog = await manage(strings.securityTitle!);
     // `read` cannot be confirmed, so the control is not offered at all.
-    expect(screen.queryByText(strings.ruleConfirmationLabel!)).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: strings.ruleActionLabel! }), { target: { value: 'request_submit' } });
-    expect(screen.getByText(strings.ruleConfirmationLabel!)).toBeInTheDocument();
+    expect(within(dialog).queryByText(strings.ruleConfirmationLabel!)).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.ruleActionLabel! }), { target: { value: 'request_submit' } });
+    expect(within(dialog).getByText(strings.ruleConfirmationLabel!)).toBeInTheDocument();
   });
 
   it('requires a domain, a path and a limit the server would accept before offering to add', async () => {
     renderPage();
     await settled();
     await findBots();
+    const dialog = await manage(strings.securityTitle!);
     // Nothing is chosen yet, so the domain is asked for rather than silently defaulted.
-    expect(screen.getByText(strings.ruleOriginRequired!)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    fireEvent.change(screen.getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: 'kontakt' } });
-    expect(screen.getByText(strings.rulePathInvalid!)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.ruleOriginRequired!)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
+    fireEvent.change(within(dialog).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: 'kontakt' } });
+    expect(within(dialog).getByText(strings.rulePathInvalid!)).toBeInTheDocument();
   });
 });
 
@@ -579,10 +634,21 @@ describe('the account\'s tools', () => {
     await settled();
     await findBots();
     expect(await screen.findByText(strings.toolsTitle!)).toBeInTheDocument();
-    expect(await screen.findByText(strings.toolState_allowed!)).toBeInTheDocument();
-    expect(screen.getByText(strings.toolsCount!.replace('{n}', '2').replace('{total}', '2'))).toBeInTheDocument();
+    // The page states how much of the account's access is usable; the tools themselves are the list behind
+    // the summary, exactly as the Users screen states the same account.
+    expect(await screen.findByText(strings.toolsCount!.replace('{n}', '2').replace('{total}', '2'))).toBeInTheDocument();
+    expect(screen.queryByText(strings.toolState_allowed!)).not.toBeInTheDocument();
     // Nothing is missing for the working chatbot, so no warning is shown.
     expect(screen.queryByText(strings.toolsMissing!, { exact: false })).not.toBeInTheDocument();
+
+    // Opened, it names every tool and what state it is in — and offers nothing to change, because the
+    // grants belong to the Users screen and a checkbox here would ignore the click.
+    const dialog = await manage(strings.toolsTitle!);
+    expect(within(dialog).getByText(REQUIRED_TOOL)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.toolState_allowed!)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.toolState_inherited!)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
   it('says which needed tool is missing rather than letting the chatbot act on nothing', async () => {

@@ -10,7 +10,7 @@
  *  this editor writes that column and stores no second copy of it in the appearance document. */
 
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Palette, Plus, Save, Trash2 } from 'lucide-react';
+import { MousePointerClick, Palette, Plus, Ruler, Save, Trash2 } from 'lucide-react';
 import {
   APPEARANCE_BOUNDS,
   APPEARANCE_INTRO_MAX_CHARS,
@@ -148,100 +148,105 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
               />
             </C.Field>
 
-            <C.Field label={s.appearanceModeLabel} hint={s.appearanceModeHint}>
-              <C.Segmented
-                aria-label={s.appearanceModeLabel}
-                value={appearance.mode}
-                // The mode IS its colour set: switching it puts that set in the pickers below, which is what
-                // makes "light or dark" one click rather than four. Every colour stays editable afterwards.
-                onChange={(mode: string) => setAppearance(presetAppearance(mode as AppearanceMode))}
-                options={[
-                  { value: 'light', label: s.appearanceModeLight },
-                  { value: 'dark', label: s.appearanceModeDark },
-                ]}
-              />
-            </C.Field>
+            {/* Mode and corner side by side: two short choices that used to take two full-width rows. */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <C.Field label={s.appearanceModeLabel} hint={s.appearanceModeHint}>
+                <C.Segmented
+                  aria-label={s.appearanceModeLabel}
+                  value={appearance.mode}
+                  // The mode IS its colour set: switching it puts that set in the pickers below, which is what
+                  // makes "light or dark" one click rather than four. Every colour stays editable afterwards.
+                  onChange={(mode: string) => setAppearance(presetAppearance(mode as AppearanceMode))}
+                  options={[
+                    { value: 'light', label: s.appearanceModeLight },
+                    { value: 'dark', label: s.appearanceModeDark },
+                  ]}
+                />
+              </C.Field>
 
-            <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-sm font-semibold text-foreground">{s.appearanceColorsLabel}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {COLOR_FIELDS.map((field) => (
-                  <label key={field} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                    <span className="min-w-0 text-sm text-foreground">{colorLabels[field]}</span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="font-mono text-[11px] uppercase text-muted-foreground">{appearance.colors[field]}</span>
-                      <input
-                        type="color"
-                        aria-label={colorLabels[field]}
-                        value={appearance.colors[field]}
-                        disabled={pending}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => setColor(field, event.target.value)}
-                        className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent p-0"
-                      />
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <C.Field label={s.appearancePositionLabel}>
+                <C.SelectMenu
+                  label={s.appearancePositionLabel}
+                  value={appearance.position}
+                  onChange={(position: string) => patch({ position: position as ChatbotAppearance['position'] })}
+                  options={[
+                    { value: 'bottom-right', label: s.appearancePositionBottomRight },
+                    { value: 'bottom-left', label: s.appearancePositionBottomLeft },
+                    { value: 'top-right', label: s.appearancePositionTopRight },
+                    { value: 'top-left', label: s.appearancePositionTopLeft },
+                  ]}
+                />
+              </C.Field>
             </div>
 
-            <C.Field label={s.appearanceRadiusLabel}>
-              <div className="flex items-center gap-3">
-                <C.Slider
-                  className="flex-1"
-                  value={appearance.radius}
-                  min={APPEARANCE_BOUNDS.radius.min}
-                  max={APPEARANCE_BOUNDS.radius.max}
-                  step={1}
-                  aria-label={s.appearanceRadiusLabel}
-                  onChange={(value: number) => patch({ radius: value })}
+            {/* The four colours as four records of the host's own section card: a label opposite its
+                control, which is what this was imitating with a bordered label of its own. */}
+            <C.SettingsGroup title={s.appearanceColorsLabel} icon={Palette} columns={2} density="compact">
+              {COLOR_FIELDS.map((field) => (
+                <C.SettingsRow
+                  key={field}
+                  label={colorLabels[field]}
+                  status={<span className="font-mono text-[11px] uppercase">{appearance.colors[field]}</span>}
+                  control={(
+                    <input
+                      type="color"
+                      aria-label={colorLabels[field]}
+                      value={appearance.colors[field]}
+                      disabled={pending}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => setColor(field, event.target.value)}
+                      className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0"
+                    />
+                  )}
                 />
-                <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">{pixels(appearance.radius)}</span>
-              </div>
-            </C.Field>
+              ))}
+            </C.SettingsGroup>
 
-            <C.Field label={s.appearanceWidthLabel}>
-              <div className="flex items-center gap-3">
-                <C.Slider
-                  className="flex-1"
-                  value={appearance.width}
-                  min={APPEARANCE_BOUNDS.width.min}
-                  max={APPEARANCE_BOUNDS.width.max}
-                  step={10}
-                  aria-label={s.appearanceWidthLabel}
-                  onChange={(value: number) => patch({ width: value })}
-                />
-                <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">{pixels(appearance.width)}</span>
-              </div>
-            </C.Field>
-
-            <C.Field label={s.appearanceHeightLabel}>
-              <div className="flex items-center gap-3">
-                <C.Slider
-                  className="flex-1"
-                  value={appearance.height}
-                  min={APPEARANCE_BOUNDS.height.min}
-                  max={APPEARANCE_BOUNDS.height.max}
-                  step={10}
-                  aria-label={s.appearanceHeightLabel}
-                  onChange={(value: number) => patch({ height: value })}
-                />
-                <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">{pixels(appearance.height)}</span>
-              </div>
-            </C.Field>
-
-            <C.Field label={s.appearancePositionLabel}>
-              <C.SelectMenu
-                label={s.appearancePositionLabel}
-                value={appearance.position}
-                onChange={(position: string) => patch({ position: position as ChatbotAppearance['position'] })}
-                options={[
-                  { value: 'bottom-right', label: s.appearancePositionBottomRight },
-                  { value: 'bottom-left', label: s.appearancePositionBottomLeft },
-                  { value: 'top-right', label: s.appearancePositionTopRight },
-                  { value: 'top-left', label: s.appearancePositionTopLeft },
-                ]}
+            {/* The three scalars as three records, each one line: the slider opposite its name with the
+                value it is at, instead of a stacked field per number. */}
+            <C.SettingsGroup title={s.appearanceSizeLabel} icon={Ruler} density="compact">
+              <C.SettingsRow
+                label={s.appearanceRadiusLabel}
+                status={<span className="font-mono text-[11px]">{pixels(appearance.radius)}</span>}
+                control={(
+                  <C.Slider
+                    value={appearance.radius}
+                    min={APPEARANCE_BOUNDS.radius.min}
+                    max={APPEARANCE_BOUNDS.radius.max}
+                    step={1}
+                    aria-label={s.appearanceRadiusLabel}
+                    onChange={(value: number) => patch({ radius: value })}
+                  />
+                )}
               />
-            </C.Field>
+              <C.SettingsRow
+                label={s.appearanceWidthLabel}
+                status={<span className="font-mono text-[11px]">{pixels(appearance.width)}</span>}
+                control={(
+                  <C.Slider
+                    value={appearance.width}
+                    min={APPEARANCE_BOUNDS.width.min}
+                    max={APPEARANCE_BOUNDS.width.max}
+                    step={10}
+                    aria-label={s.appearanceWidthLabel}
+                    onChange={(value: number) => patch({ width: value })}
+                  />
+                )}
+              />
+              <C.SettingsRow
+                label={s.appearanceHeightLabel}
+                status={<span className="font-mono text-[11px]">{pixels(appearance.height)}</span>}
+                control={(
+                  <C.Slider
+                    value={appearance.height}
+                    min={APPEARANCE_BOUNDS.height.min}
+                    max={APPEARANCE_BOUNDS.height.max}
+                    step={10}
+                    aria-label={s.appearanceHeightLabel}
+                    onChange={(value: number) => patch({ height: value })}
+                  />
+                )}
+              />
+            </C.SettingsGroup>
 
             <C.Field label={s.appearanceIntroLabel} hint={`${s.appearanceIntroHint} ${maxChars(APPEARANCE_INTRO_MAX_CHARS)}`}>
               <textarea
@@ -266,20 +271,22 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
             </C.Field>
             {avatar === 'invalid' ? <p className="text-xs text-destructive">{s.appearanceAvatarInvalid}</p> : null}
 
-            <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-sm font-semibold text-foreground">{s.appearanceQuickLabel}</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{`${s.appearanceQuickHint} ${maxChars(APPEARANCE_QUICK_BUTTON_MAX_CHARS)}`}</p>
+            <C.SettingsGroup
+              title={s.appearanceQuickLabel}
+              description={`${s.appearanceQuickHint} ${maxChars(APPEARANCE_QUICK_BUTTON_MAX_CHARS)}`}
+              icon={MousePointerClick}
+            >
               {appearance.quickButtons.length === 0 ? (
-                <p className="mt-3 text-xs text-muted-foreground">{s.appearanceQuickEmpty}</p>
+                <p className="text-xs text-muted-foreground">{s.appearanceQuickEmpty}</p>
               ) : (
-                <ul className="mt-3 flex flex-col gap-1">
+                <ul className="flex flex-col gap-1.5">
                   {appearance.quickButtons.map((text) => (
-                    <li key={text} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-1.5">
+                    <li key={text} className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate text-sm text-foreground">{text}</span>
-                      <C.Button
-                        variant="ghost"
+                      <C.IconButton
                         icon={Trash2}
-                        aria-label={s.appearanceQuickRemove.replace('{value}', text)}
+                        variant="danger"
+                        label={s.appearanceQuickRemove.replace('{value}', text)}
                         disabled={pending}
                         onClick={() => patch({ quickButtons: appearance.quickButtons.filter((candidate) => candidate !== text) })}
                       />
@@ -287,7 +294,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                   ))}
                 </ul>
               )}
-              <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <C.Field label={s.appearanceQuickAdd}>
                   <C.Input
                     value={draftButton}
@@ -301,9 +308,9 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                   {s.appearanceQuickAdd}
                 </C.Button>
               </div>
-              {buttonHint === 'duplicate' ? <p className="mt-2 text-xs text-destructive">{s.appearanceQuickDuplicate}</p> : null}
-              {quickFull ? <p className="mt-2 text-xs text-muted-foreground">{s.appearanceQuickFull}</p> : null}
-            </div>
+              {buttonHint === 'duplicate' ? <p className="text-xs text-destructive">{s.appearanceQuickDuplicate}</p> : null}
+              {quickFull ? <p className="text-xs text-muted-foreground">{s.appearanceQuickFull}</p> : null}
+            </C.SettingsGroup>
           </div>
 
           <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-0">

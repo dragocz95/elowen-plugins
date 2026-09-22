@@ -1,19 +1,31 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
-import { Check, ClipboardCopy, ExternalLink, ListChecks, Palette, Plus, Power, Save, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle, BadgeCheck, Check, ClipboardCopy, Code2, ExternalLink, Gauge, ListChecks, MessageSquareText,
+  Palette, Power, Save, ShieldAlert,
+} from 'lucide-react';
 import { LIMIT_FIELDS, MANDATORY_LIMITS, isUsableLimit, specOf, type LimitField, type LimitValues } from '../src/limits';
-import { apiJson, chatbotApi, jsonRequest, runtime, type AccountToolRow } from './runtime';
+import { apiJson, chatbotApi, jsonRequest, runtime, type AccountToolRow, type ManageSelectionItem } from './runtime';
 import { formatDateTime } from './format';
 import { SecuritySettings, actionRuleKey } from './SecuritySettings';
+import { OriginsField } from './OriginsField';
 import { AppearanceModal } from './AppearanceModal';
 import type { ChatbotActionRuleView, ChatbotBotView } from './types';
 
-/** One chatbot's configuration. Every field here is saved as a whole, on an explicit click: the row's
- *  `updatedAt` is the concurrency token, so a debounced autosave would race another administrator's edit
- *  for no benefit, and `Enable` must never be the side effect of a keystroke.
+/** One chatbot's configuration, as a SETTINGS DOCUMENT: the host's own stack of section cards, the same
+ *  surface /settings and /account are built from, rather than eight hand-rolled blocks of its own.
  *
- *  The grants below are the exception to "everything is configured here": a core account's tool access is
- *  edited on the Users screen, which owns the rule for it. This surface REPORTS what the account can reach
- *  and hands the administrator over, rather than keeping a second implementation of a permission rule. */
+ *  Every field here is saved as a whole, on an explicit click: the row's `updatedAt` is the concurrency
+ *  token, so a debounced autosave would race another administrator's edit for no benefit, and `Enable`
+ *  must never be the side effect of a keystroke.
+ *
+ *  Three of the sections are LISTS whose height would otherwise grow with the customer's estate — the
+ *  allowed domains, the page-action rules and the account's tools. Each is now a summary row opening one
+ *  window, which is how the app states a managed selection everywhere: what used to be roughly a thousand
+ *  pixels of permanently open lists and forms is three rows.
+ *
+ *  The grants are the exception to "everything is configured here": a core account's tool access is edited
+ *  on the Users screen, which owns the rule for it. This surface REPORTS what the account can reach and
+ *  hands the administrator over, rather than keeping a second implementation of a permission rule. */
 
 /** What the limit inputs hold: the text a person typed, one entry per limit, empty meaning "not set". */
 export type LimitDraft = Record<LimitField, string>;
@@ -68,30 +80,28 @@ export function blockerText(blockers: string[], projectCount: number, s: Record<
   });
 }
 
-/** A hint for the form, never the rule: the server normalises and validates every domain it is given and
- *  refuses an entry it cannot reduce to `scheme://host`. This only keeps an obviously wrong value out of
- *  the list, so the failure is explained next to the field instead of by a failed save. */
-export function originHint(value: string, existing: string[]): string | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  if (!/^https?:\/\/[^\s/]+$/i.test(trimmed)) return 'invalid';
-  if (existing.includes(trimmed)) return 'duplicate';
-  return null;
-}
-
 export function statusText(bot: ChatbotBotView, s: Record<string, string>): string {
   if (bot.blockers.length > 0) return s.statusAttention;
   return bot.status === 'enabled' ? s.statusEnabled : bot.status === 'disabled' ? s.statusDisabled : s.statusDraft;
 }
 
-/** The account's tool access, as the host's own users panel derives it: which tools this chatbot can
- *  actually reach right now, and which of the ones its turns NEED are missing. A chatbot whose relay runs
- *  is not the same thing as a chatbot that can act on a page, and the difference is entirely this list. */
+/** How many tools the summary names before it counts the rest, as every summary in the app does. */
+const TOOL_SAMPLES = 3;
+
+/** The account's tool access, stated the way the host's own users panel states it: a summary of how many
+ *  tools this chatbot can actually reach, and the full list behind one click.
+ *
+ *  It is deliberately the READ-ONLY variant of the host's picker. Nothing here may change a grant — the
+ *  Users screen owns that rule, and the section's own action hands the administrator over to it — so the
+ *  rows carry no checkbox that would ignore a click. A chatbot whose relay runs is not the same thing as a
+ *  chatbot that can act on a page, and the difference is entirely this list. */
 function AccountTools({ bot, requiredTools }: { bot: ChatbotBotView; requiredTools: string[] }) {
   const { components: C, hooks, utils, navigate } = runtime();
   const s = hooks.usePluginStrings('chatbot');
+  const { t } = hooks.useTranslation();
   const [tools, setTools] = useState<AccountToolRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoadError(null);
@@ -103,11 +113,22 @@ function AccountTools({ bot, requiredTools }: { bot: ChatbotBotView; requiredToo
   useEffect(() => { load(); }, [load]);
 
   const reachable = (state: string): boolean => state === 'allowed' || state === 'inherited';
-  const usable = (tools ?? []).filter((tool) => reachable(tool.state));
+  const all = tools ?? [];
+  const usable = all.filter((tool) => reachable(tool.state));
   const missing = requiredTools.filter((name) => {
-    const tool = (tools ?? []).find((candidate) => candidate.name === name);
+    const tool = all.find((candidate) => candidate.name === name);
     return tool === undefined || !reachable(tool.state);
   });
+  // One row per tool, grouped by the plugin that owns it — the grouping the Users screen uses, so the same
+  // account reads the same way on both screens.
+  const items: ManageSelectionItem[] = all.map((tool) => ({
+    id: tool.name,
+    label: tool.name,
+    group: tool.plugin ?? tool.group,
+    groupLabel: tool.plugin ?? s[`toolGroup_${tool.group}`] ?? tool.group,
+    badges: [{ text: s[`toolState_${tool.state}`] ?? tool.state, tone: reachable(tool.state) ? 'accent' as const : 'muted' as const }],
+    disabledHint: tool.label,
+  }));
 
   return (
     <C.SettingsGroup
@@ -118,28 +139,31 @@ function AccountTools({ bot, requiredTools }: { bot: ChatbotBotView; requiredToo
     >
       {loadError !== null ? <C.ErrorState message={`${s.toolsLoadError} — ${loadError}`} onRetry={load} />
         : tools === null ? <C.LoadingLine layout="block" />
-          : tools.length === 0 ? <C.EmptyState title={s.toolsEmptyTitle} description={s.toolsEmptyDescription} icon={ListChecks} />
+          : all.length === 0 ? <C.EmptyState title={s.toolsEmptyTitle} description={s.toolsEmptyDescription} icon={ListChecks} />
             : (
               <>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {s.toolsCount.replace('{n}', String(usable.length)).replace('{total}', String(tools.length))}
-                </p>
-                {tools.map((tool) => (
-                  <C.SettingsRow
-                    key={tool.name}
-                    label={tool.name}
-                    description={tool.plugin ?? s[`toolGroup_${tool.group}`] ?? tool.group}
-                    status={(
-                      <C.Badge tone={reachable(tool.state) ? 'success' : tool.state === 'unavailable' ? 'muted' : 'warning'}>
-                        {s[`toolState_${tool.state}`] ?? tool.state}
-                      </C.Badge>
-                    )}
-                  />
-                ))}
+                <C.SelectionSummary
+                  readOnly
+                  countText={s.toolsCount.replace('{n}', String(usable.length)).replace('{total}', String(all.length))}
+                  samples={usable.slice(0, TOOL_SAMPLES).map((tool) => ({ id: tool.name, label: tool.name }))}
+                  moreCount={Math.max(0, usable.length - TOOL_SAMPLES)}
+                  onManage={() => setOpen(true)}
+                  manageLabel={t.managePicker.manage}
+                  manageAriaLabel={s.toolsTitle}
+                />
+                <C.ManageSelectionModal
+                  readOnly
+                  title={s.toolsTitle}
+                  subtitle={s.toolsHint}
+                  open={open}
+                  onClose={() => setOpen(false)}
+                  items={items}
+                  countLabel={(count: number) => s.toolsCount.replace('{n}', String(usable.length)).replace('{total}', String(count))}
+                />
               </>
             )}
       {missing.length === 0 ? null : (
-        <p className="mt-3 text-xs text-destructive">{s.toolsMissing.replace('{names}', missing.join(', '))}</p>
+        <p className="text-xs text-destructive">{s.toolsMissing.replace('{names}', missing.join(', '))}</p>
       )}
     </C.SettingsGroup>
   );
@@ -160,7 +184,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
   const [origins, setOrigins] = useState<string[]>(bot.origins);
   const [limits, setLimits] = useState<LimitDraft>(() => limitDraftOf(bot.limits));
   const [rules, setRules] = useState<ChatbotActionRuleView[]>(bot.actionRules);
-  const [draftOrigin, setDraftOrigin] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<'enable' | 'disable' | null>(null);
@@ -173,7 +196,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
     setOrigins(bot.origins);
     setLimits(limitDraftOf(bot.limits));
     setRules(bot.actionRules);
-    setDraftOrigin('');
     setError(null);
     setConfirming(null);
   }, [bot.chatbotUserId]);
@@ -196,7 +218,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
   const dirty = displayName !== bot.displayName || prompt !== bot.prompt || origins.join('\n') !== bot.origins.join('\n')
     || LIMIT_FIELDS.some((field) => limits[field] !== (bot.limits[field] === null ? '' : String(bot.limits[field])))
     || !rulesEqual;
-  const hint = originHint(draftOrigin, origins);
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
   // A chatbot whose numbers are not all decided yet cannot be enabled, and the form says which ones are
   // missing instead of offering a button that would be refused. Saving is a different question: a DRAFT may
@@ -230,12 +251,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
     }
   };
 
-  const addOrigin = () => {
-    if (hint !== null) return;
-    setOrigins([...origins, draftOrigin.trim()]);
-    setDraftOrigin('');
-  };
-
   const snippet = bot.embedSnippet;
   const copySnippet = async () => {
     if (snippet === null) return;
@@ -248,15 +263,17 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
   };
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <C.SettingsDocument>
+      {/* The identity strip: what this chatbot IS, its state, and the actions that change that state — one
+          line, the way every detail surface in the app opens. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold text-foreground">{bot.displayName || s.botFallback}</h2>
           <p className="break-all font-mono text-[11px] text-subtle-foreground">{bot.publicId}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <C.Button variant="ghost" icon={Palette} disabled={pending} onClick={() => setEditingLook(true)}>{s.appearanceAction}</C.Button>
           <C.Badge tone={bot.status === 'enabled' && bot.blockers.length === 0 ? 'success' : bot.blockers.length > 0 ? 'warning' : undefined}>{statusText(bot, s)}</C.Badge>
+          <C.Button variant="ghost" icon={Palette} disabled={pending} onClick={() => setEditingLook(true)}>{s.appearanceAction}</C.Button>
           {bot.status === 'enabled' ? (
             <C.Button variant="ghost" icon={Power} disabled={pending} onClick={() => setConfirming('disable')}>{s.disableAction}</C.Button>
           ) : (
@@ -265,101 +282,92 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
         </div>
       </div>
 
-      {blockers.map((text) => (
-        <p key={text} className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">{text}</p>
-      ))}
+      {/* What keeps this chatbot from working, as its own marked card rather than three grey paragraphs
+          floating above the form. */}
+      {blockers.length === 0 ? null : (
+        <C.SettingsGroup tone="danger" title={s.statusAttention} icon={AlertTriangle} density="compact">
+          {blockers.map((text) => <C.SettingsRow key={text} label={text} />)}
+        </C.SettingsGroup>
+      )}
 
-      <C.SettingsGroup title={s.detailFactsTitle} description={s.detailFactsHint} columns={1}>
+      <C.SettingsGroup title={s.detailFactsTitle} description={s.detailFactsHint} icon={BadgeCheck} columns={2} density="compact">
         <C.SettingsRow label={s.detailAccount} status={bot.account === null ? '—' : `@${bot.account.username}`} />
         <C.SettingsRow label={s.detailProject} status={bot.projects.length === 1 ? bot.projects[0]!.slug : '—'} />
         <C.SettingsRow label={s.detailPublicId} status={<span className="font-mono text-[11px]">{bot.publicId}</span>} />
         <C.SettingsRow label={s.detailUpdated} status={formatDateTime(bot.updatedAt, locale)} />
       </C.SettingsGroup>
 
-      <C.SettingsGroup title={s.promptLabel} description={s.promptHint}>
-        <C.Field label={s.promptLabel} hint={s.promptHint}>
-          <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            rows={5}
-            placeholder={s.promptPlaceholder}
-            className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
-          />
-        </C.Field>
+      {/* The card's own heading and description ARE the field's label and hint, so the textarea carries the
+          accessible name and nothing states the same words twice. */}
+      <C.SettingsGroup title={s.promptLabel} description={s.promptHint} icon={MessageSquareText}>
+        <textarea
+          value={prompt}
+          aria-label={s.promptLabel}
+          onChange={(event) => setPrompt(event.target.value)}
+          rows={4}
+          placeholder={s.promptPlaceholder}
+          className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+        />
       </C.SettingsGroup>
 
-      <C.SettingsGroup title={s.originsLabel} description={s.originsHint}>
-        {origins.length === 0 ? <p className="text-xs text-muted-foreground">{s.originsEmpty}</p> : (
-          <ul className="flex flex-col gap-1">
-            {origins.map((origin) => (
-              <li key={origin} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-1.5">
-                <span className="break-all font-mono text-xs text-foreground">{origin}</span>
-                <C.Button
-                  variant="ghost"
-                  icon={Trash2}
-                  aria-label={s.originsRemove.replace('{value}', origin)}
-                  disabled={pending}
-                  onClick={() => setOrigins(origins.filter((candidate) => candidate !== origin))}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {bot.insecureOrigins.length > 0 ? <p className="mt-3 text-xs text-destructive">{s.originsInsecure}</p> : null}
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <C.Field label={s.originsAdd}>
-            <C.Input
-              value={draftOrigin}
-              placeholder={s.originsPlaceholder}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setDraftOrigin(event.target.value)}
-            />
-          </C.Field>
-          <C.Button icon={Plus} disabled={pending || draftOrigin.trim() === '' || hint !== null} onClick={addOrigin}>{s.originsAdd}</C.Button>
-        </div>
-        {hint === 'invalid' ? <p className="mt-2 text-xs text-destructive">{s.originsInvalid}</p> : null}
-        {hint === 'duplicate' ? <p className="mt-2 text-xs text-destructive">{s.originsDuplicate}</p> : null}
-      </C.SettingsGroup>
+      <OriginsField origins={origins} insecure={bot.insecureOrigins} disabled={pending} onChange={setOrigins} />
 
       <SecuritySettings origins={origins} rules={rules} disabled={pending} onChange={setRules} />
 
       <AccountTools bot={bot} requiredTools={requiredTools} />
 
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold text-foreground">{s.limitsTitle}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.limitsHint}</p>
-        {read.missing.length > 0 ? (
-          <p className="mt-2 text-xs text-destructive" role="alert">{s.limitsMissing.replace('{fields}', missingText)}</p>
-        ) : null}
-        <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          {LIMIT_FIELDS.map((field) => (
-            <C.Field key={field} label={s[`limit_${field}`]}>
+      {/* Eleven numbers as eleven records in two stacks: the label opposite its box, which is the shape
+          every settings card in the app reads as, and half the height of a column of stacked fields. */}
+      <C.SettingsGroup
+        title={s.limitsTitle}
+        description={s.limitsHint}
+        icon={Gauge}
+        columns={2}
+        density="compact"
+        tone={enableBlocked ? 'danger' : 'default'}
+      >
+        {LIMIT_FIELDS.map((field) => (
+          <C.SettingsRow
+            key={field}
+            label={s[`limit_${field}`]!}
+            control={(
               <C.Input
                 inputMode="numeric"
+                aria-label={s[`limit_${field}`]}
                 value={limits[field]}
                 onChange={(event: ChangeEvent<HTMLInputElement>) => setLimits({ ...limits, [field]: event.target.value })}
               />
-            </C.Field>
-          ))}
-        </div>
-        {/* The bounds in this sentence come from the same table the server reads, so what a reader is told
-            here is the rule that will judge the number. One line per offending field: the label sits directly
-            above the input, so repeating it would only make the message longer. */}
-        {read.invalid.map((field) => (
-          <p key={field} className="mt-2 text-xs text-destructive" role="alert">
-            {s.limitsRange.replace('{min}', String(specOf(field).min)).replace('{max}', String(specOf(field).max))}
-          </p>
+            )}
+          />
         ))}
-      </div>
+      </C.SettingsGroup>
+      {read.missing.length > 0 ? (
+        <p className="text-xs text-destructive" role="alert">{s.limitsMissing.replace('{fields}', missingText)}</p>
+      ) : null}
+      {/* The bounds in this sentence come from the same table the server reads, so what a reader is told
+          here is the rule that will judge the number. One line per offending field: the label sits directly
+          beside the input, so repeating it would only make the message longer. */}
+      {read.invalid.map((field) => (
+        <p key={field} className="text-xs text-destructive" role="alert">
+          {s.limitsRange.replace('{min}', String(specOf(field).min)).replace('{max}', String(specOf(field).max))}
+        </p>
+      ))}
 
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold text-foreground">{s.sensitiveTitle}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.sensitiveBody}</p>
-      </div>
+      {/* A refusal with no setting to make: the card's heading and its description are the whole story, so
+          it has no body at all rather than a paragraph pretending to be one. */}
+      <C.SettingsGroup title={s.sensitiveTitle} description={s.sensitiveBody} icon={ShieldAlert} />
 
       {snippet === null ? null : (
-        <C.SettingsGroup title={s.embedTitle} description={s.embedHint}>
+        <C.SettingsGroup
+          title={s.embedTitle}
+          description={s.embedHint}
+          icon={Code2}
+          collapsible
+          defaultOpen={false}
+          storageKey="chatbot.embed"
+          actions={<C.Button variant="ghost" icon={ClipboardCopy} onClick={() => void copySnippet()}>{s.embedCopy}</C.Button>}
+        >
           <pre className="overflow-x-auto rounded-lg bg-muted/40 p-3 font-mono text-[11px] text-foreground">{snippet}</pre>
-          <C.Button className="mt-3" variant="ghost" icon={ClipboardCopy} onClick={() => void copySnippet()}>{s.embedCopy}</C.Button>
         </C.SettingsGroup>
       )}
 
@@ -390,6 +398,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError }: {
           onChanged={onChanged}
         />
       ) : null}
-    </div>
+    </C.SettingsDocument>
   );
 }

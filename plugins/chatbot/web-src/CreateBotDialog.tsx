@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent } from 'react';
+import { Bot } from 'lucide-react';
 import { runtime, apiJson, chatbotApi, jsonRequest } from './runtime';
 import type { ChatbotAccountOptionView, ChatbotBotView, ChatbotProjectView } from './types';
 
@@ -142,13 +143,18 @@ export function CreateBotDialog({ plugin, requiredTools, projects, candidates, o
   return (
     <C.Modal
       title={s.createTitle}
+      icon={Bot}
+      size="md"
+      presentation="center"
       onClose={onClose}
       closeLabel={s.cancel}
       closeDisabled={pending}
       {...(pending ? { 'aria-busy': true as const } : {})}
     >
       <C.ModalBody>
-        <div className="flex flex-col gap-4">
+        {/* Four short choices in two columns rather than a column of four: the dialog is one screenful on a
+            phone and still one glance on a desktop, which is what every creation window in the app is. */}
+        <div className="grid gap-3 sm:grid-cols-2">
           <C.Field label={s.createModeLabel}>
             <C.SelectMenu
               value={mode}
@@ -190,7 +196,7 @@ export function CreateBotDialog({ plugin, requiredTools, projects, candidates, o
           </C.Field>
 
           {failure === null ? null : (
-            <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground" role="alert">
+            <p className="text-xs text-destructive sm:col-span-2" role="alert">
               {failure.chatbotUserId === null
                 ? `${s.createFailed} — ${failure.detail}`
                 : `${s.createPartial.replace('{step}', stepLabel[failure.step])} — ${failure.detail}`}
