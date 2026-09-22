@@ -56,6 +56,9 @@
   .ml-1 {
     margin-left: var(--spacing, 0.25rem);
   }
+  .ml-auto {
+    margin-left: auto;
+  }
   .block {
     display: block;
   }
@@ -86,11 +89,14 @@
   .w-10 {
     width: calc(var(--spacing, 0.25rem) * 10);
   }
-  .w-24 {
-    width: calc(var(--spacing, 0.25rem) * 24);
+  .w-28 {
+    width: calc(var(--spacing, 0.25rem) * 28);
   }
   .w-full {
     width: 100%;
+  }
+  .max-w-44 {
+    max-width: calc(var(--spacing, 0.25rem) * 44);
   }
   .min-w-0 {
     min-width: 0px;
@@ -150,9 +156,6 @@
   }
   .overflow-hidden {
     overflow: hidden;
-  }
-  .overflow-x-auto {
-    overflow-x: auto;
   }
   .rounded {
     border-radius: var(--radius, 0.5rem);
@@ -224,6 +227,10 @@
   .font-medium {
     --tw-font-weight: var(--font-weight-medium, 500);
     font-weight: var(--font-weight-medium, 500);
+  }
+  .font-semibold {
+    --tw-font-weight: var(--font-weight-semibold, 600);
+    font-weight: var(--font-weight-semibold, 600);
   }
   .tracking-wide {
     --tw-tracking: var(--tracking-wide, 0.025em);
