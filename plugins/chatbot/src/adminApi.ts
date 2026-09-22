@@ -71,6 +71,8 @@ export function percentileMs(samples: readonly number[], fraction: number): numb
   return sorted[index]!;
 }
 
+// Keep this URL stable: widgetAssetHeaders requires ETag revalidation on every page load.
+// Per-load query strings would discard the cached body and defeat the cheap 304 path.
 const embedSnippetFor = (baseUrl: string | null, publicId: string): string | null =>
   baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
 

@@ -48,6 +48,7 @@ describe('the served widget', () => {
     expect(revalidated.status).toBe(304);
     expect(revalidated.body).toBeUndefined();
     expect(revalidated.headers?.etag).toBe(asset.etag);
+    expect(revalidated.headers?.['cache-control']).toBe('public, no-cache, must-revalidate');
 
     const changed = await host.handler(publicRequest({
       method: 'GET',
@@ -62,9 +63,8 @@ describe('the served widget', () => {
     const asset = widgetAsset();
     const expected = createHash('sha256').update(asset.body, 'utf8').digest('hex').slice(0, 32);
     expect(asset.etag).toBe(`"${expected}"`);
-    // The window is short and must be revalidated: the URL the customer pasted carries no build hash, so a
-    // long-lived cache would hold a bug in place with nothing the site owner could do about it.
-    expect(WIDGET_CACHE_CONTROL).toContain('max-age=300');
+    // The stable snippet must ask on each load but retain the body for a cheap 304 response.
+    expect(WIDGET_CACHE_CONTROL).toBe('public, no-cache, must-revalidate');
     expect(WIDGET_CACHE_CONTROL).toContain('must-revalidate');
     expect(matchesEtag(`"other", ${asset.etag}`, asset.etag)).toBe(true);
     expect(matchesEtag(undefined, asset.etag)).toBe(false);
