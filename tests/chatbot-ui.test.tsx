@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
+import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
 import { limitDraftOf, readLimitDraft, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
@@ -10,19 +11,19 @@ import { actionRuleKey, draftRuleRefusal } from '../plugins/chatbot/web-src/Secu
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
-import { ensurePluginUiRuntime } from './ui/hostRuntime';
+import { ensurePluginUiRuntime, pluginNavigations, resetPluginNavigations } from './ui/hostRuntime';
 
-/** The chatbot admin surface — FOUR sections of Settings → Plugins → Chatbots — rendered the way the host
- *  renders them: ONE section at a time, with `surface="deck"`, inside the host's own runtime fixture,
- *  reaching every component and every string through `window.ElowenUiRuntime`.
+/** The chatbot admin surface — ONE entry in the primary navigation, opened in the host's reading modal,
+ *  with four sections switching inside the host's own `SectionDeck` — rendered the way the host renders
+ *  it: the deck at one of its four addresses, inside the host's own runtime fixture, reaching every
+ *  component and every string through `window.ElowenUiRuntime`.
  *
- *  Each section is mounted on its own here because that is how it is mounted in production: the host
- *  draws the section navigation and the panel, and hands one component the panel to fill. What this
- *  cannot prove is what that frame looks like — a browser's judgement, reported as unverified. What it
- *  does prove is that every declared section has a component that mounts against the published contract,
- *  that the sections read only strings the manifest declares, that their loading, error, empty and
- *  populated states are all drawn, that conversations and statistics are scoped to ONE chatbot, and that
- *  the surface writes back exactly the grants, rules and numbers it showed. */
+ *  What this cannot prove is what the modal and the deck LOOK like — a browser's judgement, reported as
+ *  unverified. What it does prove is that the deck offers every section, that activating one asks the
+ *  host for that section's own address, that each address renders its own section and nothing of its
+ *  siblings, that the surface reads only strings the manifest declares, that its loading, error, empty
+ *  and populated states are all drawn, that conversations and statistics are scoped to ONE chatbot, and
+ *  that it writes back exactly the grants, rules and numbers it showed. */
 
 ensurePluginUiRuntime();
 
@@ -120,8 +121,9 @@ setDefaults(
     name: 'chatbot',
     url: '/plugins/chatbot/web/index.js',
     apiVersion: 12,
-    nav: [],
-    settings: manifest.web.settings,
+    nav: manifest.web.nav,
+    settings: [],
+    presentation: manifest.web.presentation,
     strings,
   }])),
   // The plugin's OWN instance configuration, as the host's admin route answers it: the manifest's schema,
@@ -255,14 +257,23 @@ afterEach(() => {
 });
 afterAll(() => close());
 
-/** Mount ONE section exactly as the host mounts it: by the id the manifest advertised, with `surface`
- *  set to `deck`, because every section of this plugin is placed inside the plugin's detail workspace and
- *  the panel around it is the host's. */
+/** Mount the deck at one section's own address, exactly as the host mounts it: the modal's `rest` is the
+ *  address inside the plugin, and `surface` is `deck` because the host owns the frame around it. */
 function renderSection(id: 'bots' | 'conversations' | 'statistics' | 'shared') {
-  const Section = CHATBOT_SECTIONS[id]!;
+  const route = CHATBOT_SECTIONS.find((section) => section.id === id)!.route;
   const { wrapper: Wrapper } = createWrapper();
-  return render(<Wrapper><ToastProvider><Section plugin="chatbot" params={{ id }} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
+  return render(
+    <Wrapper>
+      <ToastProvider>
+        <ChatbotDeck plugin="chatbot" rest={route === '' ? [] : route.split('/')} />
+      </ToastProvider>
+    </Wrapper>,
+  );
 }
+
+/** Every destination is in the document TWICE — the column and the phone's strip are both rendered, and
+ *  which one a reader sees is the deck's CSS decision. A test therefore asks for all of them. */
+const destinations = (label: string) => screen.getAllByRole('button', { name: label });
 
 /** Wait until the page's own copy has arrived. The plugin's strings come from a listing query, so the
  *  first paint renders every label empty and React then REUSES those nodes with text — a control queried
@@ -291,25 +302,50 @@ const openWindow = async (label: string): Promise<HTMLElement> => {
   return top();
 };
 
-describe('what this plugin contributes to Settings', () => {
-  it('has one component per section the manifest declares, and no others', () => {
-    // The host resolves a section's component by the id its listing advertised. An id declared with no
-    // component renders the host's "section unavailable" notice; a component under an id nobody declares
-    // is never mounted at all. Neither fails at runtime, so it is checked here.
-    expect(Object.keys(CHATBOT_SECTIONS)).toEqual(manifest.web.settings.map((section) => section.id));
-  });
-
-  it('draws no frame of its own: the header, the navigation and the document are the host\'s', async () => {
+describe('the chatbot modal deck', () => {
+  it('offers every section the bundle declares, in both of the deck\'s shapes', async () => {
     renderSection('bots');
     await settled();
-    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
-    // The workspace tab around this panel names the section, so nothing here repeats it as a heading, and
-    // the way between sections belongs to the host rather than to this bundle.
-    expect(screen.queryByRole('heading', { name: manifest.web.settings[0]!.label })).not.toBeInTheDocument();
-    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
-    // …and a section renders ITS OWN content and nothing of its siblings'.
-    expect(screen.queryByRole('combobox', { name: strings.pickerLabel! })).not.toBeInTheDocument();
-    expect(screen.queryByText(strings.sharedRequirementsTitle!)).not.toBeInTheDocument();
+    // The frame is the host's, not a second one written here.
+    expect(screen.getByTestId('chatbot-deck')).toBeInTheDocument();
+    expect(screen.getByTestId('chatbot-navigation-sidebar')).toBeInTheDocument();
+    expect(screen.getByTestId('chatbot-navigation-tabs')).toBeInTheDocument();
+    // Four destinations, each of them drawn once in the column and once on the strip.
+    for (const section of CHATBOT_SECTIONS) {
+      expect(destinations(section.label(strings))).toHaveLength(2);
+    }
+  });
+
+  it('marks the section the address names, in the column and on the strip alike', async () => {
+    renderSection('statistics');
+    await screen.findByRole('combobox', { name: strings.pickerLabel! });
+    expect(destinations(strings.sectionStatistics!).every((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
+    expect(destinations(strings.sectionBots!).some((button) => button.getAttribute('aria-current') === 'page')).toBe(false);
+    // The content pane is named after what is in it, so a screen reader lands somewhere named.
+    expect(screen.getByRole('region', { name: strings.sectionStatistics! })).toBeInTheDocument();
+  });
+
+  it('renders the section its address names and nothing of its siblings', async () => {
+    renderSection('shared');
+    expect(await screen.findByText(strings.sharedRequirementsTitle!)).toBeInTheDocument();
+    // The register belongs to another address: its search and its creation action are not on this one.
+    expect(screen.queryByRole('button', { name: strings.newBot! })).not.toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: strings.botsSearch! })).not.toBeInTheDocument();
+  });
+
+  it('activates a section by asking the host for that section\'s own address', async () => {
+    renderSection('bots');
+    await settled();
+    resetPluginNavigations();
+
+    // Clicking the column's record is the reader's move; inside the overlay the host turns that address
+    // into the modal's own history step, so a section is deep-linkable without the modal closing.
+    fireEvent.click(destinations(strings.sectionConversations!)[0]!);
+    expect(pluginNavigations).toEqual(['/p/chatbot/conversations']);
+
+    // …and the register keeps the bare address the navigation entry itself opens.
+    fireEvent.click(destinations(strings.sectionBots!)[1]!);
+    expect(pluginNavigations).toEqual(['/p/chatbot/conversations', '/p/chatbot']);
   });
 });
 

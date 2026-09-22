@@ -52,33 +52,15 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 12,
+    "requiresApiVersion": 19,
     "adminOnly": true,
     "label": "Chatbots",
-    "settings": [
+    "presentation": "overlay",
+    "nav": [
       {
-        "id": "bots",
         "label": "Chatbots",
-        "icon": "Bot",
-        "placement": "pluginDetail"
-      },
-      {
-        "id": "conversations",
-        "label": "Conversations",
         "icon": "MessagesSquare",
-        "placement": "pluginDetail"
-      },
-      {
-        "id": "statistics",
-        "label": "Statistics",
-        "icon": "Activity",
-        "placement": "pluginDetail"
-      },
-      {
-        "id": "shared",
-        "label": "Shared settings",
-        "icon": "SlidersHorizontal",
-        "placement": "pluginDetail"
+        "route": ""
       }
     ],
     "strings": {
@@ -299,7 +281,13 @@
       "sharedLoadError": "The plugin configuration could not be read.",
       "sharedRequirementsTitle": "What every chatbot needs",
       "toolsRequiredLabel": "Required tools",
-      "toolsRequiredHint": "Every chatbot account must be allowed to reach these, or its turns answer a visitor and can touch nothing on their page. Grants are given per account on the Users screen."
+      "toolsRequiredHint": "Every chatbot account must be allowed to reach these, or its turns answer a visitor and can touch nothing on their page. Grants are given per account on the Users screen.",
+      "sectionsLabel": "Chatbot sections",
+      "sectionsEmpty": "No sections",
+      "sectionBots": "Chatbots",
+      "sectionConversations": "Conversations",
+      "sectionStatistics": "Statistics",
+      "sectionShared": "Shared settings"
     }
   }
 }

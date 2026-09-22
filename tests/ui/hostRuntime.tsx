@@ -84,6 +84,9 @@ export function ensurePluginUiRuntime(): void {
       ChoiceField: C.ChoiceField, ProviderLogo: C.ProviderLogo,
       // API 17's canonical month/date grid — real in core, ahead of this repo's pinned elowen.
       Calendar: C.Calendar,
+      // The deck the host publishes at API 19: the frame a plugin with peer sections composes, instead of
+      // writing a second navigation, column and strip of its own.
+      SectionDeck: C.SectionDeck, DeckNavigation: C.DeckNavigation,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,
       // The host's own editor for a plugin's instance configuration, so a bundle that has instance-wide
       // settings hands them to this form instead of shipping a second one.
@@ -142,9 +145,17 @@ export function ensurePluginUiRuntime(): void {
       elowenClient, ElowenApiError,
     },
     api,
-    navigate: (href: string) => { window.location.assign(href); },
+    // The host's SPA navigation. Inside a page overlay it rewrites the modal's own history entry rather
+    // than leaving the document, so a fixture that actually left the page would model the wrong thing:
+    // this records the address the bundle asked for, which is the whole of what a bundle can observe.
+    navigate: (href: string) => { pluginNavigations.push(href); },
   };
   host.__elowenRegisterPluginUi = (plugin, registration) => { registrations.set(plugin, registration); };
 }
+
+/** Every address a bundle asked the host to go to, in order. Cleared by `resetPluginNavigations`. */
+export const pluginNavigations: string[] = [];
+
+export function resetPluginNavigations(): void { pluginNavigations.length = 0; }
 
 /** What a bundle registered through `__elowenRegisterPluginUi` — the production entry point's own path. */

@@ -12,11 +12,8 @@
   },
   "web": {
     "label": "Chatboti",
-    "settings": {
-      "bots": "Chatboti",
-      "conversations": "Konverzace",
-      "statistics": "Statistiky",
-      "shared": "Společné nastavení"
+    "nav": {
+      "": "Chatboti"
     },
     "strings": {
       "botsSearch": "Hledat podle názvu, účtu nebo veřejného ID…",
@@ -236,7 +233,13 @@
       "sharedLoadError": "Nastavení pluginu se nepodařilo načíst.",
       "sharedRequirementsTitle": "Co potřebuje každý chatbot",
       "toolsRequiredLabel": "Požadované nástroje",
-      "toolsRequiredHint": "Každý účet chatbota k nim musí mít přístup, jinak jeho tahy návštěvníkovi odpovědí, ale na jeho stránce nic neudělají. Oprávnění se udělují po účtech na obrazovce Uživatelé."
+      "toolsRequiredHint": "Každý účet chatbota k nim musí mít přístup, jinak jeho tahy návštěvníkovi odpovědí, ale na jeho stránce nic neudělají. Oprávnění se udělují po účtech na obrazovce Uživatelé.",
+      "sectionsLabel": "Sekce chatbotů",
+      "sectionsEmpty": "Žádné sekce",
+      "sectionBots": "Chatboti",
+      "sectionConversations": "Konverzace",
+      "sectionStatistics": "Statistiky",
+      "sectionShared": "Společné nastavení"
     }
   }
 }

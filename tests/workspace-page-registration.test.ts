@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 
 /** cronjob and skills each ship ONE settings section and no nav, which is exactly the shape the
  *  host serves at the bare `/p/<plugin>` route (`sole` in web/app/p/[plugin]/[[...rest]]/page.tsx). These
@@ -34,8 +35,9 @@ interface Registration {
 
 interface ManifestWeb {
   requiresApiVersion?: number;
-  nav?: unknown;
+  nav?: { label: string; icon?: string; route?: string }[];
   adminOnly?: boolean;
+  presentation?: 'page' | 'overlay';
   settings?: { id: string; placement?: 'page' | 'pluginDetail' }[];
 }
 
@@ -83,28 +85,45 @@ describe('single-surface plugin workspace registration', () => {
     expectSoleSection('skills', 'skills', 'plugin');
   });
 
-  /** Chatbots is the other shape a settings plugin can take: SEVERAL sections, all of them offered inside
-   *  Settings → Plugins → Chatbots and none of them in the main navigation. The host resolves each one by
-   *  the id its listing advertised, so the manifest's ids and the bundle's keys are one contract that
-   *  nothing checks at runtime: a declared id with no component renders the host's "section unavailable"
-   *  notice, and a component under an undeclared id is never mounted at all. */
-  it('registers Chatbots as four Settings → Plugins sections and no page', async () => {
+  /** Chatbots is the other shape a plugin can take: ONE entry in the primary navigation, presented in the
+   *  host's shared reading modal, with peer sections switching inside it.
+   *
+   *  Three declarations have to agree for that to work, and none of them fails loudly when it does not.
+   *  `web.presentation: "overlay"` is what makes `/p/chatbot` open in the modal at all — without it the
+   *  same bundle renders as an ordinary page and the deck it composes is simply the wrong furniture for
+   *  that surface. The routes the bundle registers are the addresses the deck's own navigation sends the
+   *  reader to, so a section in the column with no page behind it lands on "page missing". And the two
+   *  `requiresApiVersion` numbers gate different things — the manifest's gates the LOAD, the
+   *  registration's gates the MOUNT — so a manifest asking for less than the bundle needs admits a host
+   *  that cannot render it. */
+  it('registers Chatbots as one overlay navigation entry with a page per section', async () => {
     await import('../plugins/chatbot/web-src/index');
     const call = register.mock.calls.find(([name]) => name === 'chatbot');
     expect(call, 'chatbot\'s bundle registered no plugin UI').toBeDefined();
     const registration = call![1] as Registration;
     const web = manifestWeb('chatbot');
 
-    // Out of the main navigation entirely: these are sections of Settings, not a world of their own.
-    expect(web.nav).toBeUndefined();
-    expect(Object.keys(registration.pages ?? {})).toEqual([]);
-    // Every section is placed in the plugin's detail workspace, and every id has its component.
-    expect(web.settings?.map((section) => section.id)).toEqual(['bots', 'conversations', 'statistics', 'shared']);
-    expect(web.settings?.every((section) => section.placement === 'pluginDetail')).toBe(true);
-    expect(Object.keys(registration.settings ?? {})).toEqual(web.settings?.map((section) => section.id));
-    // `ownsPageFrame` names sections that draw their OWN page frame. These draw none: the frame, the
-    // section navigation and the document are the host's, which is what makes them read as Settings.
+    // One entry in the main navigation, at the plugin's own bare address, and nothing in Settings.
+    expect(web.nav?.map((entry) => entry.route ?? '')).toEqual(['']);
+    expect(web.settings).toBeUndefined();
+    expect(Object.keys(registration.settings ?? {})).toEqual([]);
+    // …presented in the host's modal rather than as a page of its own.
+    expect(web.presentation).toBe('overlay');
+
+    // Every section the deck offers is a route of its own, and the register keeps the bare address the
+    // navigation entry opens.
+    expect(Object.keys(registration.pages ?? {})).toEqual(CHATBOT_SECTIONS.map((section) => section.route));
+    expect(CHATBOT_SECTIONS[0]!.route).toBe('');
+    // All four addresses resolve to the SAME component: that is what keeps the deck — its column, its
+    // strip, its scroll position — mounted while only the content pane changes.
+    const mounted = new Set(Object.values(registration.pages ?? {}));
+    expect(mounted.size).toBe(1);
+
+    // `ownsPageFrame` names SETTINGS sections that draw their own page frame. There are no settings
+    // sections here, so naming anything would name an id that matches nothing.
     expect(registration.ownsPageFrame).toBeUndefined();
+    // API 19 is what publishes `SectionDeck` and `DeckNavigation`, and both gates must ask for it.
+    expect(web.requiresApiVersion).toBe(19);
     expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
     expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
     // It stays admin-only, and that flag is enforced by the SERVER rather than by the surface it is

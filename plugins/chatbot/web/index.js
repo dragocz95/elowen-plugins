@@ -52,8 +52,8 @@ function runtime() {
   if (!value) throw new Error("ElowenUiRuntime is not installed");
   return value;
 }
-function registerChatbotUi(settings) {
-  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 12, settings });
+function registerChatbotUi(pages) {
+  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 19, pages });
 }
 async function apiJson(path, init) {
   return await runtime().api(path, init);
@@ -70,9 +70,6 @@ var chatbotApi = {
    *  what the account can reach rather than keeping an opinion of its own about it. */
   accountTools: (userId) => `/users/${userId}/tools`
 };
-
-// plugins/chatbot/web-src/BotsSection.tsx
-var import_react10 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -332,6 +329,19 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/sliders-horizontal.js
+var SlidersHorizontal = createLucideIcon("SlidersHorizontal", [
+  ["line", { x1: "21", x2: "14", y1: "4", y2: "4", key: "obuewd" }],
+  ["line", { x1: "10", x2: "3", y1: "4", y2: "4", key: "1q6298" }],
+  ["line", { x1: "21", x2: "12", y1: "12", y2: "12", key: "1iu8h1" }],
+  ["line", { x1: "8", x2: "3", y1: "12", y2: "12", key: "ntss68" }],
+  ["line", { x1: "21", x2: "16", y1: "20", y2: "20", key: "14d8ph" }],
+  ["line", { x1: "12", x2: "3", y1: "20", y2: "20", key: "m0wm8r" }],
+  ["line", { x1: "14", x2: "14", y1: "2", y2: "6", key: "14e1ph" }],
+  ["line", { x1: "8", x2: "8", y1: "10", y2: "14", key: "1i6ji0" }],
+  ["line", { x1: "16", x2: "16", y1: "18", y2: "22", key: "1lctlv" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
@@ -351,6 +361,9 @@ var Wrench = createLucideIcon("Wrench", [
     }
   ]
 ]);
+
+// plugins/chatbot/web-src/BotsSection.tsx
+var import_react10 = __toESM(require_react(), 1);
 
 // plugins/chatbot/web-src/BotDetail.tsx
 var import_react8 = __toESM(require_react(), 1);
@@ -20755,12 +20768,58 @@ function SharedSettings({ plugin }) {
 
 // plugins/chatbot/web-src/sections.tsx
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var CHATBOT_SECTIONS = {
-  bots: ({ plugin }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BotsSection, { plugin }),
-  conversations: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConversationsSection, {}),
-  statistics: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(StatsSection, {}),
-  shared: ({ plugin }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedSettings, { plugin })
-};
+var CHATBOT_SECTIONS = [
+  { id: "bots", route: "", label: (s) => s.sectionBots, icon: Bot, render: (plugin) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BotsSection, { plugin }) },
+  { id: "conversations", route: "conversations", label: (s) => s.sectionConversations, icon: MessagesSquare, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConversationsSection, {}) },
+  { id: "statistics", route: "statistics", label: (s) => s.sectionStatistics, icon: Activity, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(StatsSection, {}) },
+  { id: "shared", route: "shared", label: (s) => s.sectionShared, icon: SlidersHorizontal, render: (plugin) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedSettings, { plugin }) }
+];
+function sectionForRoute(route) {
+  return CHATBOT_SECTIONS.find((section) => section.route === route) ?? CHATBOT_SECTIONS[0];
+}
+function sectionHref(plugin, route) {
+  return route === "" ? `/p/${plugin}` : `/p/${plugin}/${route}`;
+}
+
+// plugins/chatbot/web-src/ChatbotDeck.tsx
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function ChatbotDeck({ plugin, rest }) {
+  const { components: C, hooks, navigate } = runtime();
+  const s = hooks.usePluginStrings("chatbot");
+  const active = sectionForRoute(rest.join("/"));
+  const groups = [{
+    id: "chatbot",
+    items: CHATBOT_SECTIONS.map((section) => ({
+      id: section.id,
+      label: section.label(s),
+      icon: section.icon,
+      current: section.id === active.id,
+      // Each section is its own address inside the modal. Inside an overlay the runtime's navigate keeps
+      // the page underneath mounted and rewrites the modal's own history entry, so a section is
+      // deep-linkable and shareable without the modal ever closing.
+      onActivate: () => navigate(sectionHref(plugin, section.route))
+    }))
+  }];
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+    C.SectionDeck,
+    {
+      testId: "chatbot-deck",
+      contentLabel: active.label(s),
+      navigation: (layout, className) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        C.DeckNavigation,
+        {
+          label: s.sectionsLabel,
+          groups,
+          layout,
+          testId: "chatbot-navigation",
+          emptyLabel: s.sectionsEmpty,
+          className
+        }
+      ),
+      children: active.render(plugin)
+    }
+  );
+}
 
 // plugins/chatbot/web-src/index.tsx
-registerChatbotUi(CHATBOT_SECTIONS);
+registerChatbotUi(Object.fromEntries(CHATBOT_SECTIONS.map((section) => [section.route, ChatbotDeck])));

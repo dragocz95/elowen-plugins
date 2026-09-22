@@ -750,6 +750,101 @@ export function WorkspaceMetric({ label, value, icon: Icon }: { label: string; v
   );
 }
 
+/** THE DECK'S SECTION NAVIGATION (API 19), ported from web/components/ui/SectionDeck.tsx.
+ *
+ *  Two shapes for the two viewports, and BOTH are in the document: which one a reader sees is a CSS
+ *  decision the deck makes, not a decision this component makes, so a test finds every destination twice
+ *  and that is faithful rather than a defect to paper over. What a bundle can observe is what is kept
+ *  here: each record is a button named by its label, the one on screen carries `aria-current="page"`, and
+ *  clicking it calls the bundle's own `onActivate`.
+ *
+ *  The sidebar's row takes its accessible name through `aria-labelledby`, as the real one does: the
+ *  button is an invisible overlay over the row, so the name cannot come from its own content. */
+export function DeckNavigation({ label, groups, layout, testId, search, emptyLabel, className = '' }: {
+  label: string;
+  groups: { id: string; caption?: string; items: { id: string; label: string; icon: LucideIcon; current?: boolean; onActivate: () => void }[] }[];
+  layout: 'sidebar' | 'tabs';
+  testId: string;
+  search?: { value: string; onChange: (value: string) => void; label: string };
+  emptyLabel: string;
+  className?: string;
+}) {
+  const items = groups.flatMap((group) => group.items);
+  if (layout === 'tabs') {
+    return (
+      <nav aria-label={label} data-testid={`${testId}-tabs`} className={`section-deck-strip flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap pb-2 ${className}`}>
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={item.current ? 'page' : undefined}
+              onClick={item.onActivate}
+              className="section-deck-strip__tab flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
+            >
+              <Icon size={14} aria-hidden />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    );
+  }
+  return (
+    <div className={`flex min-h-0 flex-1 flex-col ${className}`}>
+      {search ? (
+        <label className="relative block shrink-0 p-3">
+          <span className="sr-only">{search.label}</span>
+          <input type="search" value={search.value} onChange={(event) => search.onChange(event.target.value)} placeholder={search.label} />
+        </label>
+      ) : null}
+      <nav aria-label={label} data-testid={`${testId}-sidebar`} className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <div className="flex flex-col gap-0.5">
+          {groups.filter((group) => group.items.length > 0).map((group, index) => (
+            <div key={group.id} className={index > 0 ? 'mt-3' : undefined}>
+              {group.caption ? <p className="px-2 pb-1 text-xs text-muted-foreground">{group.caption}</p> : null}
+              {group.items.map((item) => <DeckNavRow key={item.id} {...item} />)}
+            </div>
+          ))}
+          {items.length === 0 ? <p className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyLabel}</p> : null}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+function DeckNavRow({ label, icon: Icon, current = false, onActivate }: { label: string; icon: LucideIcon; current?: boolean; onActivate: () => void }) {
+  const labelId = useId();
+  return (
+    <div className={`relative flex h-8 items-center gap-2.5 rounded-lg px-2 ${current ? 'bg-accent' : ''}`}>
+      <button type="button" aria-labelledby={labelId} aria-current={current ? 'page' : undefined} onClick={onActivate} className="absolute inset-0 rounded-lg" />
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center opacity-50" aria-hidden><Icon size={16} /></span>
+      <span id={labelId} className="min-w-0 truncate text-sm font-medium text-foreground">{label}</span>
+    </div>
+  );
+}
+
+/** THE DECK'S FRAME (API 19), ported from web/components/ui/SectionDeck.tsx: the secondary column beside
+ *  the content, the phone's single line above it, and the one content pane that scrolls. The navigation
+ *  is asked for TWICE, once per layout, which is why every destination is in the document twice. */
+export function SectionDeck({ testId, contentLabel, navigation, children }: {
+  testId: string;
+  contentLabel: string;
+  navigation: (layout: 'sidebar' | 'tabs', className?: string) => ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="hidden min-h-0 flex-col border-border md:flex md:border-r">{navigation('sidebar')}</aside>
+      <section role="region" aria-label={contentLabel} className="flex min-h-0 min-w-0 flex-col overflow-y-auto p-3 md:px-6 md:pb-4 md:pt-3">
+        {navigation('tabs', 'md:hidden')}
+        {children}
+      </section>
+    </div>
+  );
+}
+
 /** The detail drawer: portaled to <body>, `role="dialog"` and named by the entry it edits. The editor
  *  form lives inside it, which is why the tests scope their form queries to `findByRole('dialog')`. */
 export function WorkspaceDetailRail({ label, description, closeLabel, onClose, children }: {

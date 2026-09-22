@@ -52,6 +52,24 @@ export interface AccountToolRow {
  *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
 type HostDictionary = Record<string, Record<string, string>>;
 
+/** The published deck vocabulary (API 19). One record of the section navigation, the group it sits in,
+ *  and which of the two shapes the navigation is being asked for. */
+type DeckNavigationLayout = 'sidebar' | 'tabs';
+
+interface DeckNavItem {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  current?: boolean;
+  onActivate(): void;
+}
+
+export interface DeckNavGroup {
+  id: string;
+  caption?: string;
+  items: DeckNavItem[];
+}
+
 /** One field of a plugin's own instance configuration, as the manifest declares it and the host's
  *  config form renders it. Only the shape this bundle passes through is named here: the form reads the
  *  whole record itself. */
@@ -221,6 +239,30 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
+  /** THE DECK'S FRAME, published by the host at API 19: the secondary column beside the content where
+   *  there is width for one, the phone's single line of tabs above it, and the one content pane that
+   *  scrolls. It is the same frame Settings and Account wear, which is the whole point of taking it from
+   *  the host instead of drawing a second one here.
+   *
+   *  It fills the height the host's modal body gives it, so nothing around it may add another scroller or
+   *  refuse to shrink. */
+  SectionDeck: ComponentType<{
+    testId: string;
+    contentLabel: string;
+    navigation(layout: DeckNavigationLayout, className?: string): ReactNode;
+    children?: ReactNode;
+  }>;
+  /** The deck's section navigation, in the two shapes the two viewports have room for. `SectionDeck`
+   *  asks for it twice — once per layout — and hides the one the viewport has no room for. */
+  DeckNavigation: ComponentType<{
+    label: string;
+    groups: DeckNavGroup[];
+    layout: DeckNavigationLayout;
+    testId: string;
+    search?: { value: string; onChange(value: string): void; label: string };
+    emptyLabel: string;
+    className?: string;
+  }>;
   /** The document surface a set of settings cards sits on. */
   SettingsDocument: ComponentType<{ children?: ReactNode; className?: string }>;
   /** The host's own editor for a plugin's instance configuration: one row per manifest field, a slider
@@ -344,9 +386,9 @@ export interface ChatbotRuntime {
   navigate(href: string): void;
 }
 
-/** One settings section of this plugin, with the props the host mounts it with. Reached inside
- *  Settings → Plugins → Chatbots, so `surface` is `deck` and the panel around it is the host's. */
-export type ChatbotSettingsSection = ComponentType<{
+/** One page of this plugin, with the props the host mounts it with. The manifest presents this plugin in
+ *  the host's reading modal, so `surface` is `deck` and `rest` is the address INSIDE that modal. */
+export type ChatbotPageComponent = ComponentType<{
   plugin: string;
   params: Record<string, string>;
   rest: string[];
@@ -360,7 +402,7 @@ interface HostWindow {
   ElowenUiRuntime?: unknown;
   __elowenRegisterPluginUi?(plugin: string, registration: {
     requiresApiVersion: number;
-    settings: Record<string, ChatbotSettingsSection>;
+    pages: Record<string, ChatbotPageComponent>;
   }): void;
 }
 
@@ -370,21 +412,23 @@ export function runtime(): ChatbotRuntime {
   return value;
 }
 
-/** The chatbot admin surface is FOUR settings sections and no page at all.
+/** The chatbot admin surface is ONE entry in the primary navigation, presented in the host's own reading
+ *  modal, with four sections switching inside it.
  *
- *  Every section is declared in the manifest with `placement: "pluginDetail"`, so the host offers them
- *  inside Settings → Plugins → Chatbots and draws the section navigation, the panel and the settings
- *  document around each one. The ids here must be the manifest's ids: the host looks a section's
- *  component up by the id the listing advertised, and an id that matches nothing renders the
- *  "section unavailable" notice instead.
+ *  The manifest asks for that with `web.presentation: "overlay"`. The host then keeps the page underneath
+ *  mounted, opens `/p/chatbot` in the shared modal frame Settings and Account use, owns the outer title,
+ *  and mounts the page with `surface="deck"`. Every section is a route of its own inside that address, so
+ *  a section is deep-linkable and the modal's own history step is the way back.
  *
- *  `ownsPageFrame` is deliberately absent. It names sections that draw their OWN page frame, and these
- *  draw none: the frame is the host's, which is what makes them read as Settings.
+ *  All four routes resolve to the SAME component on purpose: React then keeps the deck — its column, its
+ *  strip and its scroll position — mounted across a section change, and only the content pane is
+ *  replaced. Four distinct page components would rebuild the frame on every click.
  *
- *  The version must equal the manifest's `web.requiresApiVersion`; the host gates the load on the
- *  manifest's copy and the mount on this one. */
-export function registerChatbotUi(settings: Record<string, ChatbotSettingsSection>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, settings });
+ *  API 19 is what publishes `SectionDeck` and `DeckNavigation`; the manifest's `web.requiresApiVersion`
+ *  and the number below must agree, because the host gates the load on the manifest's copy and the mount
+ *  on this one. */
+export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 19, pages });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
