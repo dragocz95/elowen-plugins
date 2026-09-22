@@ -830,6 +830,13 @@ describe('the look a panel is given', () => {
     getMessages(): { role?: string; text?: string }[];
   };
   const look = (appearance = DEFAULT_APPEARANCE): ChatbotLook => ({ name: 'Městský úřad', appearance });
+  /** The colour the conversation actually SITS ON.
+   *
+   *  Deliberately read from the panel's own stylesheet rather than from the message element's `chatStyle`:
+   *  deep-chat reads that property when it first renders and keeps it, so an assertion on it passes for a
+   *  ground the visitor never sees. That is exactly how a white template with a black conversation shipped. */
+  const groundOf = (instance: ChatPanel): string | undefined =>
+    /\.messages \{[^}]*background: (#[0-9a-f]{6})/i.exec(instance.host.shadowRoot!.querySelector('style')!.textContent ?? '')?.[1];
 
   it('reconfigures an empty message element in place, so a look that arrives while the visitor is typing keeps their draft', () => {
     const instance = panelWith(look());
@@ -842,7 +849,8 @@ describe('the look a panel is given', () => {
 
     const after = chatOf(instance);
     expect(after).toBe(before);
-    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
+    expect(groundOf(instance)).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
+    expect(after.chatStyle.backgroundColor).toBe('transparent');
     expect(after.names.ai.text).toBe('Podatelna');
     expect(instance.host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
     instance.destroy();
@@ -858,7 +866,7 @@ describe('the look a panel is given', () => {
     const after = chatOf(instance);
     expect(after).not.toBe(before);
     expect(after.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
-    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
+    expect(groundOf(instance)).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
     instance.destroy();
   });
 });
