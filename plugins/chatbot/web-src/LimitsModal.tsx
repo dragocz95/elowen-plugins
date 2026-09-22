@@ -4,7 +4,7 @@ import {
   Timer, Trash2, Users, type LucideIcon,
 } from 'lucide-react';
 import { LIMIT_FIELDS, specOf, type LimitField, type LimitValues } from '../src/limits';
-import { money } from './format';
+import { integer, money } from './format';
 import { runtime } from './runtime';
 
 /** THE LIMITS WINDOW: one row per number, each a slider between the two ends its own specification names.
@@ -78,12 +78,14 @@ export function LimitsModal({ draft, disabled, onChange, onClose }: {
   const { locale, t } = hooks.useTranslation();
   const [advanced, setAdvanced] = useState(false);
 
-  /** What the row prints on the right: the number in the unit the reader thinks in. Only the cost is stored
-   *  in a different unit from the one it is read in, and it is the only one that says a currency. */
+  /** What the row prints on the right: the number in the unit the reader thinks in, grouped the way their
+   *  locale groups thousands. Only the cost is stored in a different unit from the one it is read in, and it
+   *  is the only one naming a currency. The host answers an unknown string key with an EMPTY string rather
+   *  than with nothing, so a unit is judged by being non-empty; `=== undefined` prints a trailing space. */
   const valueText = (field: LimitField, value: number): string => {
     if (field === 'dailyCostMicrousd') return money(value / 1_000_000, locale);
     const unit = s[`limitUnit_${field}`];
-    return unit === undefined ? String(value) : `${value} ${unit}`;
+    return unit ? `${integer(value, locale)} ${unit}` : integer(value, locale);
   };
 
   const rows = (fields: readonly LimitField[]) => fields.map((field) => {
@@ -121,7 +123,9 @@ export function LimitsModal({ draft, disabled, onChange, onClose }: {
   return (
     <C.Modal
       title={s.limitsTitle}
-      description={s.limitsHint}
+      // No description here on purpose: the host prints a modal's description on ONE line and clips what
+      // does not fit, which at 320 px is about fifteen characters. What a number means belongs to its own
+      // help mark, and the card that opens this window still carries the sentence about the profile.
       icon={Gauge}
       size="md"
       presentation="center"
