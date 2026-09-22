@@ -92,7 +92,9 @@ test('core feeds both seams the same URL, so identical rules cannot answer diffe
     'and the plugin context must expose the same one');
 });
 
-test('an HTTPS deployment yields the lowercased sites. base in both derivations', () => {
+test('an HTTPS deployment yields the canonical sites. base in both derivations', () => {
   assert.equal(derivedHostnameBase('https://BUILD.CORESYNTH.IO/app'), 'sites.build.coresynth.io');
   assert.equal(coreHostnameBase('https://BUILD.CORESYNTH.IO/app'), 'sites.build.coresynth.io');
+  assert.equal(derivedHostnameBase('https://EXAMPLE.COM./'), 'sites.example.com');
+  assert.equal(coreHostnameBase('https://EXAMPLE.COM./'), 'sites.example.com');
 });

@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { Visibility } from './store.js';
 
 export interface SitesConfig {
@@ -58,12 +59,24 @@ const asOrigin = (value: unknown): string | null => {
  *  Nothing here is privileged: the hostname is public by construction and deterministic from a URL every
  *  plugin already holds. `tests/sites-hostname-parity.test.mjs` pins this function against core's own, so
  *  the two derivations cannot drift into naming different hostnames for the same instance. */
+const DEPLOYMENT_HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const validDeploymentHostname = (hostname: string): boolean => {
+  if (hostname.length < 4 || hostname.length > 253 || isIP(hostname) !== 0) return false;
+  if (hostname === 'localhost' || hostname.endsWith('.local')
+    || hostname.endsWith('.in-addr.arpa') || hostname.endsWith('.ip6.arpa')) return false;
+  const labels = hostname.split('.');
+  return labels.length >= 2
+    && !/^\d+$/.test(labels.at(-1) ?? '')
+    && labels.every((label) => label.length <= 63 && DEPLOYMENT_HOST_LABEL.test(label));
+};
+
 export function derivedHostnameBase(publicWebUrl: string | null): string | null {
   if (!publicWebUrl) return null;
   try {
     const url = new URL(publicWebUrl);
-    if (url.protocol !== 'https:' || !url.hostname.includes('.') || url.hostname === 'localhost') return null;
-    return `sites.${url.hostname.toLowerCase()}`;
+    const appHost = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (url.protocol !== 'https:' || !validDeploymentHostname(appHost)) return null;
+    return `sites.${appHost}`;
   } catch {
     return null;
   }
