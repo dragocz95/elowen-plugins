@@ -40,8 +40,8 @@ vi.mock('deep-chat', () => {
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     submitUserMessage(content: { text?: string }): void { this._messages.push({ role: 'user', text: content.text }); }
     focusInput(): void { /* no focus in jsdom */ }
-    /** Counted rather than ignored: a restored transcript has to open at its END, and the panel proves that
-     *  by asking the element to scroll there. jsdom has no layout, so the call itself is the evidence. */
+    /** Unit tests cover the visibility gate; the browser regression measures actual scroll geometry. */
+    get clientHeight(): number { return this.closest('section')?.hidden ? 0 : 400; }
     scrollToBottom(): void { this.scrolledToBottom += 1; }
     scrolledToBottom = 0;
     private readonly _messages: { role?: string; text?: string }[] = [];
@@ -973,7 +973,13 @@ describe('a transcript restored after the page was loaded again', () => {
     ]);
 
     expect(chat.getMessages()).toHaveLength(3);
+    expect(chat.scrolledToBottom).toBe(before);
+    instance.open();
     expect(chat.scrolledToBottom).toBeGreaterThan(before);
+    const settled = chat.scrolledToBottom;
+    instance.close();
+    instance.open();
+    expect(chat.scrolledToBottom).toBe(settled);
     instance.destroy();
   });
 
@@ -989,7 +995,9 @@ describe('a transcript restored after the page was loaded again', () => {
 
     const chat = chatOf(instance);
     expect(chat.getMessages()).toHaveLength(2);
-    expect(chat.scrolledToBottom).toBeGreaterThan(0);
+    expect(chat.scrolledToBottom).toBe(0);
+    instance.open();
+    expect(chat.scrolledToBottom).toBe(1);
     instance.destroy();
   });
 });

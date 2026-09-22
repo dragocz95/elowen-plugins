@@ -730,6 +730,11 @@ describe('the statistics section', () => {
     expect(rangeTrigger).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
     expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('figure')).toHaveLength(1);
+    const legend = screen.getByRole('figure').querySelector('figcaption')!;
+    expect(legend.textContent).toContain(strings.chartTurns);
+    expect(legend.textContent).toContain(strings.spendTitle);
+    expect(legend.textContent).not.toContain(strings.chartErrors);
     expect(asked.stats).toEqual([bot.chatbotUserId]);
 
     // The spend is ONE line, from the instance's rollup for this account, over the same window.
@@ -923,11 +928,11 @@ describe('the pure helpers the drawer reports with', () => {
   });
 
   it('draws every day of the window, including the ones nobody wrote on', () => {
-    const points = chartPoints([{ day: '2026-09-20', turns: 4, done: 4, errors: 0 }], '2026-09-19', '2026-09-21');
+    const points = chartPoints([{ day: '2026-09-20', turns: 4, done: 4, errors: 0 }], [{ day: '2026-09-20', usage: { turns: 4, tokens: 500, costUsd: 1.25, costedTurns: 4 } }], '2026-09-19', '2026-09-21');
     expect(points).toEqual([
-      { label: '2026-09-19', turns: 0, done: 0, errors: 0 },
-      { label: '2026-09-20', turns: 4, done: 4, errors: 0 },
-      { label: '2026-09-21', turns: 0, done: 0, errors: 0 },
+      { label: '2026-09-19', turns: 0, done: 0, errors: 0, cost: null },
+      { label: '2026-09-20', turns: 4, done: 4, errors: 0, cost: 1.25 },
+      { label: '2026-09-21', turns: 0, done: 0, errors: 0, cost: null },
     ]);
   });
 });

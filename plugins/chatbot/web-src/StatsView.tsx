@@ -10,7 +10,7 @@ import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 const STATS_MAX_DAYS = 366;
 const PAGE_SIZE = 20;
 const DAY_MS = 86_400_000;
-const SERIES_COLOURS = { turns: 'var(--color-chart-1)', errors: 'var(--color-chart-2)' } as const;
+const SERIES_COLOURS = { turns: 'var(--color-chart-1)', cost: 'var(--color-chart-3)' } as const;
 
 const dayStart = (timestamp: number): number => {
   const date = new Date(timestamp);
@@ -32,19 +32,21 @@ export function statsWindow(range: DateRange, now: number, bounds: { fromMs: num
   return { from: dayKey(fromMs), to: dayKey(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
 }
 
-export function chartPoints(days: readonly ChatbotStatsDayView[], from: string, to: string): {
+export function chartPoints(days: readonly ChatbotStatsDayView[], spend: ChatbotStatsAnswer['spend'], from: string, to: string): {
   label: string;
   turns: number;
   done: number;
   errors: number;
+  cost: number | null;
 }[] {
   const byDay = new Map(days.map((day) => [day.day, day]));
-  const points: { label: string; turns: number; done: number; errors: number }[] = [];
+  const costs = new Map(spend.map(({ day, usage }) => [day, knownCost(usage)]));
+  const points: { label: string; turns: number; done: number; errors: number; cost: number | null }[] = [];
   const end = Date.parse(`${to}T00:00:00.000Z`);
   for (let at = Date.parse(`${from}T00:00:00.000Z`); at <= end; at += DAY_MS) {
     const day = dayKey(at);
     const row = byDay.get(day);
-    points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0 });
+    points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0, cost: costs.get(day) ?? null });
   }
   return points;
 }
@@ -109,15 +111,14 @@ export function StatsSection() {
       cost: sum.cost === null || cost === null ? null : sum.cost + cost,
     };
   }, { turns: 0, tokens: 0, cost: 0 });
-  const costPoints = answer === null ? [] : answer.spend.map(({ day, usage }) => ({ label: day, cost: knownCost(usage) }));
-  const unknownCost = costPoints.some((point) => point.cost === null);
-  const points = answer === null ? [] : chartPoints(answer.days, answer.from, answer.to);
+  const points = answer === null ? [] : chartPoints(answer.days, answer.spend, answer.from, answer.to);
+  const unknownCost = points.some((point) => point.cost === null);
   const pageCount = Math.max(1, Math.ceil(points.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pageCount - 1);
   const rows = points.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const series = [
-    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
-    { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
   ];
 
   const rangeLabels: Record<DateRange['preset'], string> = {
@@ -168,6 +169,7 @@ export function StatsSection() {
             : (
               <>
                 <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
+                {unknownCost ? <p className="text-xs text-muted-foreground">{s.costUnknownHint}</p> : null}
                 <div className="mt-4 flex flex-col gap-3">
                   <h3 className="text-sm font-semibold">{s.statsTableTitle}</h3>
                   <C.DataTable ariaLabel={s.statsTableTitle} columns="minmax(8rem,1fr) 7rem 7rem 7rem" compactColumns="minmax(0,1fr) 5rem 5rem" mobileColumns="minmax(0,1fr) 3rem 3.5rem">
@@ -198,17 +200,6 @@ export function StatsSection() {
                 </div>
               </>
             )}
-        </div>
-      </C.SettingsGroup>
-
-      <C.SettingsGroup title={s.costChartTitle} description={s.costChartHint} icon={Coins}>
-        <div className="settings-group__panel">
-          {loadError !== null ? <p className="text-xs text-destructive">{s.spendLoadError}</p>
-            : answer === null ? <C.LoadingState variant="block" />
-              : <>
-                <C.TimeSeriesChart data={costPoints} series={[{ key: 'cost', label: s.spendTitle, colour: 'var(--color-chart-3)', variant: 'bar', format: (value) => money(value, locale) }]} height={200} ariaLabel={s.costChartTitle} emptyText={s.spendEmptyTitle} />
-                {unknownCost ? <p className="mt-2 text-xs text-muted-foreground">{s.costUnknownHint}</p> : null}
-              </>}
         </div>
       </C.SettingsGroup>
 
