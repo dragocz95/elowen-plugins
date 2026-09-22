@@ -55,6 +55,16 @@ const errorCode = (error: unknown): { code: string; params: Record<string, strin
   };
 };
 
+/** What a refused request reads as. A refusal the server named with a code is what the reader can be
+ *  told in their own language; anything else is the host's message for the transport itself. One
+ *  function, so every action in this panel reports a failure the same way. */
+const failureMessage = (strings: Record<string, string>, error: unknown): string => {
+  const coded = errorCode(error);
+  return coded
+    ? replaceParams(strings, coded.code, coded.params)
+    : runtime().utils.apiErrorMessage(error);
+};
+
 type StatusBadge = {
   label: string;
   tone: 'muted' | 'warning' | 'danger' | 'success';
@@ -325,10 +335,7 @@ export function SiteDomains({ siteId }: { siteId: string }) {
       refresh();
     },
     onError: (error: unknown) => {
-      const coded = errorCode(error);
-      const message = coded
-        ? replaceParams(strings, coded.code, coded.params)
-        : utils.apiErrorMessage(error);
+      const message = failureMessage(strings, error);
       setDialogError(message);
       toast(message, 'error');
     },
@@ -345,8 +352,12 @@ export function SiteDomains({ siteId }: { siteId: string }) {
       refresh();
     },
     onError: (error: unknown, input: { manual: boolean }) => {
-      const message = utils.apiErrorMessage(error);
+      const message = failureMessage(strings, error);
       setDialogError(message);
+      // A refused check settles the register exactly like an accepted one: the server answered, and its
+      // answer may be that the domain is gone. Without this the cached list survives, so a domain the
+      // reader has just removed keeps being checked, and its row keeps being drawn, every twenty seconds.
+      refresh();
       // A check nobody asked for reports in the dialog it happened in. Toasting every automatic attempt
       // would turn one unreachable resolver into a notification every twenty seconds.
       if (input.manual) toast(message, 'error');
@@ -362,7 +373,7 @@ export function SiteDomains({ siteId }: { siteId: string }) {
       toast(strings.saved);
       refresh();
     },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
+    onError: (error: unknown) => toast(failureMessage(strings, error), 'error'),
   });
 
   const remove = hooks.useMutation<{ removed: boolean; domain?: SiteDomainView }, unknown, SiteDomainView>({
@@ -379,7 +390,7 @@ export function SiteDomains({ siteId }: { siteId: string }) {
       }
       refresh();
     },
-    onError: (error: unknown) => toast(utils.apiErrorMessage(error), 'error'),
+    onError: (error: unknown) => toast(failureMessage(strings, error), 'error'),
   });
 
   const open = (url: string) => window.open(url, '_blank', 'noopener,noreferrer');
