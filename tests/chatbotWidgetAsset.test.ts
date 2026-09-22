@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { WIDGET_CACHE_CONTROL, matchesEtag, widgetAsset, widgetAssetHeaders } from '../plugins/chatbot/src/widgetAsset.js';
-import { WIDGET_ASSET_NAME, WIDGET_PROTOCOL_VERSION } from '../plugins/chatbot/src/publicContract.js';
+import { WIDGET_ASSET_NAME, PUBLIC_SCHEMA_VERSION } from '../plugins/chatbot/src/publicContract.js';
 import { createChatbotHost, publicRequest, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
 
 /** The script a customer pastes into their website, and the two things that must hold about it: it is
@@ -13,7 +13,7 @@ import { createChatbotHost, publicRequest, registerBot, type ChatbotHost } from 
  *  model provider on its own. */
 
 const pluginRoot = fileURLToPath(new URL('../plugins/chatbot', import.meta.url));
-const assetPath = join(pluginRoot, 'embed', 'widget.v1.js');
+const assetPath = join(pluginRoot, 'embed', 'widget.v2.js');
 
 let host: ChatbotHost;
 beforeEach(() => {
@@ -75,7 +75,7 @@ describe('the served widget', () => {
 
   it('serves the version of the protocol its own name claims', () => {
     expect(WIDGET_ASSET_NAME).toBe('widget.js');
-    expect(WIDGET_PROTOCOL_VERSION).toBe(1);
+    expect(PUBLIC_SCHEMA_VERSION).toBe(2);
     const source = readFileSync(assetPath, 'utf8');
     // The bundle is the widget, not a stub: it carries the global the site uses and the mount it talks to.
     expect(source).toContain('ElowenChatbot');
@@ -86,7 +86,7 @@ describe('the served widget', () => {
     // A widget runs on a stranger's page. The page-action half it uses is the DETERMINISTIC one
     // (`@page-agent/page-controller`); the same project's model-driven packages are what must never be
     // pulled in, so the import list of the widget's own sources is asserted rather than trusted.
-    const allowed = new Set(['deep-chat', '@page-agent/page-controller']);
+    const allowed = new Set(['deep-chat', '@page-agent/page-controller', 'ivya/aria']);
     const files = readdirSync(join(pluginRoot, 'embed-src')).filter((name) => name.endsWith('.ts'));
     expect(files.length).toBeGreaterThan(4);
     for (const file of files) {

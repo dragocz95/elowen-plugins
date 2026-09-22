@@ -42,7 +42,7 @@ const bot = {
   status: 'enabled' as const,
   origins: [SITE],
   maySubmitForms: true,
-  embedSnippet: `<script src="https://elowen.example.com/hooks/chatbot/v1/widget.js" data-chatbot="cbt_0123456789abcdef01234567" async></script>`,
+  embedSnippet: `<script src="https://elowen.example.com/hooks/chatbot/v2/widget.js" data-chatbot="cbt_0123456789abcdef01234567" async></script>`,
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
   projects: [{ id: 4, slug: 'ured' }],

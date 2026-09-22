@@ -7,7 +7,7 @@
  *
  *  The three properties this file exists to keep:
  *
- *  - the page is described when the visitor WRITES, never before and never between messages;
+ *  - page structure is captured only for an explicit snapshot action;
  *  - an answer survives a lost connection: the stream resumes from the last sequence number that was
  *    rendered, so a reconnect shows the missing part and never a doubled one;
  *  - nothing is done to the page that the server did not approve for THIS turn's snapshot, and a submit
@@ -16,6 +16,7 @@
 import {
   EVENTS_AFTER_QUERY,
   PUBLIC_PATHS,
+  PUBLIC_SCHEMA_VERSION,
   VISITOR_TEXT_MAX_BYTES,
   VISITOR_AUTHORIZATION_SCHEME,
   WIDGET_MAX_ACTIONS_PER_TURN,
@@ -66,6 +67,9 @@ export interface ChatView {
 export interface PageBridge {
   /** Describe the page now and keep the handles the ids refer to. */
   capture(): CapturedPage;
+  metadata(): { url: string; title: string };
+  takeHandoff(): string | null;
+  navigate(url: string): void;
   /** Whether the handles of this snapshot are still the ones the bridge holds. */
   holds(snapshotId: string): boolean;
   /** A short, human label for one target, for the confirmation the visitor reads. */
@@ -81,7 +85,7 @@ export interface CapturedPage {
 }
 
 export interface SessionDeps {
-  /** The public surface, without a trailing slash: `https://host/hooks/chatbot/v1`. */
+  /** The public surface, without a trailing slash: `https://host/hooks/chatbot/v2`. */
   baseUrl: string;
   publicId: string;
   view: ChatView;
@@ -112,27 +116,33 @@ export class ChatSession {
   private readonly performed = new Map<string, number>();
   private aborter: AbortController | null = null;
   private destroyed = false;
-  /** Set once the deployment answers 404/405 for an action report: the page-action transport is part of
-   *  this contract but not of every deployment that serves the widget, and a widget that kept retrying
-   *  would fill a console with refusals nobody can act on. */
-  private actionReportsUnsupported = false;
+  /** Replay earlier text but only actions still pending in the durable conversation. */
+  private readonly restoring = new Map<string, { through: number; pending: Set<string> }>();
+  private readonly handling = new Set<string>();
+  private handoff: string | null;
+  private handoffFailed = false;
+  private acquiringToken: Promise<string> | null = null;
 
   constructor(private readonly deps: SessionDeps) {
     this.strings = deps.strings;
     this.sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => { setTimeout(resolve, ms); }));
     this.token = this.readStoredToken();
+    this.handoff = deps.page.takeHandoff();
   }
 
   /** Whether this browser already holds a visitor token, which is the same question as "has this visitor
    *  engaged with the panel before". A page whose panel has never been opened answers NO, and that is what
    *  keeps such a page from reaching the hook at all. */
   hasStoredToken(): boolean {
-    return this.token !== null;
+    return this.token !== null || this.handoff !== null;
   }
 
   /** Pick the conversation up where the visitor left it, if this browser ever had one. Nothing is sent to
    *  the server when it did not: a page load with an untouched panel makes no request at all. */
   async start(): Promise<void> {
+    if (this.handoff !== null) {
+      try { await this.ensureToken(); } catch { this.deps.view.error(this.strings.errorUnavailable); return; }
+    }
     if (this.token === null) return;
     let conversation = await this.getConversation();
     // A token that has expired is not a lost conversation: it is rotated for the same visitor, and only a
@@ -146,13 +156,19 @@ export class ChatSession {
     for (const turn of conversation.turns) {
       if (typeof turn.message !== 'string') continue;
       messages.push({ role: 'user', text: readVisitorText(turn.message) });
-      if (typeof turn.reply === 'string' && turn.reply !== '') messages.push({ role: 'ai', text: turn.reply });
-      this.cursors.set(turn.turnId, turn.lastSeq);
+      if (turn.turnId === conversation.activeTurnId) {
+        this.cursors.set(turn.turnId, 0);
+        this.restoring.set(turn.turnId, { through: turn.lastSeq, pending: new Set(turn.pendingActions) });
+      } else {
+        if (typeof turn.reply === 'string' && turn.reply !== '') messages.push({ role: 'ai', text: turn.reply });
+        this.cursors.set(turn.turnId, turn.lastSeq);
+      }
     }
     if (messages.length > 0) this.deps.view.restore(messages);
     if (conversation.activeTurnId !== null) {
       // A turn was still running when the visitor reloaded: its answer is in the durable log, and the feed
       // picks it up from what was already rendered.
+      this.deps.view.beginAnswer();
       void this.follow(conversation.activeTurnId);
     }
   }
@@ -207,10 +223,8 @@ export class ChatSession {
       return;
     }
 
-    // The page is described HERE, in the submit handler, and nowhere else: the agent learns the page because
-    // the visitor wrote to it, and it keeps seeing nothing in between.
-    const page = this.deps.page.capture();
-    const composed = composeMessage(message, page.json);
+    // Only address and title accompany visitor text. Page structure requires an explicit snapshot action.
+    const composed = composeMessage(message, JSON.stringify(this.deps.page.metadata()));
 
     const clientTurnId = newClientTurnId();
     const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, composed.message));
@@ -224,7 +238,6 @@ export class ChatSession {
       this.deps.view.error(this.strings.errorTurn);
       return;
     }
-    this.snapshots.set(turnId, page);
     this.cursors.set(turnId, 0);
     await this.follow(turnId);
   }
@@ -317,7 +330,8 @@ export class ChatSession {
   private async handleLine(turnId: string, line: string): Promise<'continue' | 'ended'> {
     const frame = parseFrame(line);
     if (!frame) return 'continue';
-    if (frame.seq > (this.cursors.get(turnId) ?? 0)) this.cursors.set(turnId, frame.seq);
+    if (frame.seq <= (this.cursors.get(turnId) ?? 0)) return 'continue';
+    this.cursors.set(turnId, frame.seq);
     switch (frame.type) {
       case 'accepted':
         return 'continue';
@@ -341,7 +355,10 @@ export class ChatSession {
         // Deliberately NOT awaited. An action can wait on the visitor — a submit waits for their click — and a
         // stream reader parked on that would hold back every frame after it, including the end of the answer.
         // The action reports itself when it is done; the answer keeps arriving in the meantime.
-        void this.handleAction(turnId, frame.data);
+        const restored = this.restoring.get(turnId);
+        if (!restored || frame.seq > restored.through || restored.pending.has(String(frame.data.actionId))) {
+          void this.handleAction(turnId, frame.data);
+        }
         return 'continue';
       }
       case 'ping':
@@ -367,7 +384,21 @@ export class ChatSession {
 
   private async decideAndAct(turnId: string, data: Record<string, unknown>): Promise<void> {
     const frame = readActionFrame(data);
-    if (!frame) return;
+    if (!frame || this.handling.has(frame.actionId)) return;
+    this.handling.add(frame.actionId);
+    if (frame.kind === 'snapshot') {
+      const decision = decideAction({
+        request: { kind: frame.kind, targetId: frame.targetId, value: frame.value },
+        snapshotId: '', turnSnapshotId: '', targets: [],
+        performedActions: this.performed.get(turnId) ?? 0, maxActionsPerTurn: WIDGET_MAX_ACTIONS_PER_TURN,
+      });
+      if (!decision.ok) { await this.reportAction(turnId, frame.actionId, 'denied', decision.reason); return; }
+      const captured = this.deps.page.capture();
+      this.snapshots.set(turnId, captured);
+      this.performed.set(turnId, (this.performed.get(turnId) ?? 0) + 1);
+      await this.reportAction(turnId, frame.actionId, 'done', captured.json);
+      return;
+    }
     const snapshot = this.snapshots.get(turnId) ?? null;
     if (!snapshot || !this.deps.page.holds(frame.snapshotId) || snapshot.snapshotId !== frame.snapshotId) {
       await this.reportAction(turnId, frame.actionId, 'denied', 'stale_snapshot' satisfies ActionRefusal);
@@ -393,7 +424,9 @@ export class ChatSession {
     this.performed.set(turnId, (this.performed.get(turnId) ?? 0) + 1);
 
     const action = decision.action;
-    if (action.requiresConfirmation) {
+    if (action.kind === 'navigate') {
+      await this.navigate(turnId, frame);
+    } else if (action.requiresConfirmation) {
       await this.confirmedSubmit(turnId, frame, snapshot, action);
     } else {
       const report = await this.deps.page.perform(frame.snapshotId, action as PerformableAction);
@@ -437,16 +470,9 @@ export class ChatSession {
   }
 
   private async reportAction(turnId: string, actionId: string, outcome: ActionOutcome, detail?: string): Promise<void> {
-    if (this.actionReportsUnsupported) return;
-    const response = await this.request(
-      this.token,
-      'POST',
-      PUBLIC_PATHS.actionResult(turnId, actionId),
-      actionResultBody(outcome, detail),
-      undefined,
-      true,
-    );
-    if (response && (response.status === 404 || response.status === 405)) this.actionReportsUnsupported = true;
+    const response = await this.request(this.token, 'POST', PUBLIC_PATHS.actionResult(turnId, actionId),
+      actionResultBody(outcome, detail), undefined, true);
+    if (!response || !response.ok) this.deps.view.error(this.strings.actionFailed);
   }
 
   /** Returns whether the server recorded the visitor's answer. */
@@ -462,9 +488,45 @@ export class ChatSession {
     return response !== null && response.ok;
   }
 
+  private async navigate(turnId: string, frame: ActionFrame): Promise<void> {
+    const response = await this.request(this.token, 'POST', PUBLIC_PATHS.handoff,
+      { schemaVersion: PUBLIC_SCHEMA_VERSION, turnId, actionId: frame.actionId });
+    const body = response?.ok ? await readJson(response) : null;
+    if (typeof body?.url !== 'string') {
+      await this.reportAction(turnId, frame.actionId, 'error', 'navigation_failed');
+      this.deps.view.notice(this.strings.navigationFailed);
+      return;
+    }
+    this.deps.view.notice(this.strings.navigating);
+    const destination = new URL(body.url);
+    const requested = new URL(frame.value ?? '');
+    if (destination.origin !== requested.origin || destination.pathname !== requested.pathname || destination.search !== requested.search) {
+      await this.reportAction(turnId, frame.actionId, 'denied', 'navigation_not_allowed');
+      return;
+    }
+    this.snapshots.clear();
+    this.deps.page.navigate(destination.href);
+  }
+
   // ── token handling ─────────────────────────────────────────────────────────────────────────────────
 
-  private async ensureToken(): Promise<string> {
+  private ensureToken(): Promise<string> {
+    if (this.acquiringToken) return this.acquiringToken;
+    this.acquiringToken = this.acquireToken().finally(() => { this.acquiringToken = null; });
+    return this.acquiringToken;
+  }
+
+  private async acquireToken(): Promise<string> {
+    if (this.handoffFailed) throw new Error('Navigation handoff refused');
+    if (this.handoff !== null) {
+      const code = this.handoff;
+      this.handoff = null;
+      const response = await this.request(null, 'POST', PUBLIC_PATHS.handoff,
+        { schemaVersion: PUBLIC_SCHEMA_VERSION, bot: this.deps.publicId, code });
+      const body = response?.ok ? await readJson(response) : null;
+      if (typeof body?.token !== 'string') { this.handoffFailed = true; this.forgetToken(); this.deps.view.error(this.strings.navigationFailed); throw new Error('Navigation handoff refused'); }
+      this.rememberToken(body.token);
+    }
     if (this.token !== null) return this.token;
     const response = await this.request(null, 'POST', PUBLIC_PATHS.visitors, visitorRequestBody(this.deps.publicId));
     if (!response || !response.ok) throw new Error('token request refused');
@@ -513,6 +575,7 @@ export class ChatSession {
         message: record.message,
         reply: record.reply,
         lastSeq: typeof record.lastSeq === 'number' && record.lastSeq >= 0 ? record.lastSeq : 0,
+        pendingActions: Array.isArray(record.pendingActions) ? record.pendingActions.filter((id): id is string => typeof id === 'string') : [],
       });
     }
     return {
@@ -603,6 +666,7 @@ interface ConversationTurn {
   message: unknown;
   reply: unknown;
   lastSeq: number;
+  pendingActions: string[];
 }
 
 /** A body the caller then validates field by field. A response that is not JSON is not an answer. */

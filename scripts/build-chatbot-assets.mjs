@@ -1,5 +1,5 @@
 // Build the chatbot's embeddable widget: `plugins/chatbot/embed-src/index.ts` compiled into ONE browser
-// file, `plugins/chatbot/embed/widget.v1.js`, which the plugin's public hook serves as `v1/widget.js`.
+// file, `plugins/chatbot/embed/widget.v2.js`, which the plugin's public hook serves as `v2/widget.js`.
 //
 // It is a browser artifact and nothing else. It must NOT externalize React, the host UI runtime or anything
 // from `window.ElowenUiRuntime`: it runs on a third party's website where none of those exist, so every
@@ -17,7 +17,7 @@ import { build } from 'esbuild';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const entry = join(root, 'plugins', 'chatbot', 'embed-src', 'index.ts');
-const bundle = join(root, 'plugins', 'chatbot', 'embed', 'widget.v1.js');
+const bundle = join(root, 'plugins', 'chatbot', 'embed', 'widget.v2.js');
 
 /** The IIFE is the script the customer's `<script src>` loads, so the bundle defines no module system and
  *  leaves exactly one global behind (`window.ElowenChatbot`), which the widget itself owns and deletes on
@@ -32,10 +32,10 @@ await build({
   minify: true,
   legalComments: 'none',
   charset: 'utf8',
-  banner: { js: '/* Elowen chatbot widget v1 — https://elowen.dev */' },
+  banner: { js: '/* Elowen chatbot widget v2 — https://elowen.dev */' },
   nodePaths: [join(root, 'node_modules')],
 });
 
 const bytes = readFileSync(bundle);
 writeFileSync(bundle, `${readFileSync(bundle, 'utf8').trimEnd()}\n`);
-console.log(`[build-chatbot-assets] embed-src → embed/widget.v1.js (${Math.round(bytes.byteLength / 1024)} kB)`);
+console.log(`[build-chatbot-assets] embed-src → embed/widget.v2.js (${Math.round(bytes.byteLength / 1024)} kB)`);

@@ -101,7 +101,7 @@ async function submitTurn(host: ChatbotHost, token: string, message = 'ahoj'): P
   const answer = await host.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 1, clientTurnId: CLIENT_TURN_ID, message },
+    body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message },
   }));
   expect(answer.status).toBe(202);
   return (answer.body as Record<string, string>).turnId!;
@@ -161,7 +161,7 @@ describe('the visitor;s own conversation', () => {
     const answer = await conversation(host, token);
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       activeTurnId: null,
       truncated: false,
       turns: [{
@@ -251,7 +251,7 @@ describe('the turn event stream', () => {
     });
 
     const reader = new FrameReader(answer.body as ReadableStream<Uint8Array>);
-    expect(await reader.next()).toMatchObject({ schemaVersion: 1, turnId, seq: 1, type: 'accepted', data: {} });
+    expect(await reader.next()).toMatchObject({ schemaVersion: 2, turnId, seq: 1, type: 'accepted', data: {} });
     expect(await reader.next()).toMatchObject({ turnId, seq: 2, type: 'text_delta', data: { text: 'Dobrý den, s čím pomohu?' } });
     expect(await reader.next()).toMatchObject({ turnId, seq: 3, type: 'done', data: { text: 'Dobrý den, s čím pomohu?' } });
     // The terminal event ends the stream: a widget is never left holding a connection to a turn that will
@@ -278,7 +278,7 @@ describe('the turn event stream', () => {
     const reader = new FrameReader((await openStream(fast.host, fast.token, turnId)).body as ReadableStream<Uint8Array>);
     expect(await reader.next()).toMatchObject({ seq: 1, type: 'accepted' });
     // Nothing else is in the log yet, so this is the keep-alive: never stored, never an event of the turn.
-    expect(await reader.next()).toMatchObject({ schemaVersion: 1, type: 'ping' });
+    expect(await reader.next()).toMatchObject({ schemaVersion: 2, type: 'ping' });
     expect(fast.host.store.events(turnId).some((event) => event.type === 'ping')).toBe(false);
 
     turn.emit({ type: 'text', delta: 'Dobrý' });

@@ -9,6 +9,7 @@ import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './
 import { parseStoredAppearance } from './appearanceContract.js';
 import { utcDay } from './budget.js';
 import type { ChatbotStores } from './coreSeams.js';
+import { PUBLIC_MOUNT, WIDGET_ASSET_NAME } from './publicContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import type {
   ChatbotBotView,
@@ -67,7 +68,7 @@ export function percentileMs(samples: readonly number[], fraction: number): numb
 }
 
 const embedSnippetFor = (baseUrl: string | null, publicId: string): string | null =>
-  baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/v1/widget.js" data-chatbot="${publicId}" async></script>`;
+  baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
 
 export function createAdminApi(deps: AdminApiDeps) {
   const { store, stores, now } = deps;

@@ -36,6 +36,8 @@ export interface WidgetStrings {
   /** One page action that could not be carried out, without naming what the page contains. */
   actionFailed: string;
   actionStale: string;
+  navigating: string;
+  navigationFailed: string;
 }
 
 /** Substitutions are spelled out rather than hidden in a template so a translation cannot silently drop a
@@ -62,7 +64,9 @@ const CS: WidgetStrings = {
   confirmDeclined: 'Odeslání bylo zrušeno.',
   confirmUnavailable: 'Potvrzení se nepodařilo odeslat, proto se formulář neodeslal. Zkuste to prosím znovu.',
   actionFailed: 'Akci na stránce se nepodařilo provést.',
-  actionStale: 'Obsah stránky se mezitím změnil. Napište prosím zprávu znovu.',
+  actionStale: 'Původní stránka již není aktuální. Akce na ní nebyla provedena.',
+  navigating: 'Otevírám stránku. Konverzace bude pokračovat po načtení.',
+  navigationFailed: 'Stránku nebo konverzaci se nepodařilo obnovit. Otevřete prosím původní stránku.',
 };
 
 const SK: WidgetStrings = {
@@ -83,7 +87,9 @@ const SK: WidgetStrings = {
   confirmDeclined: 'Odoslanie bolo zrušené.',
   confirmUnavailable: 'Potvrdenie sa nepodarilo odoslať, preto sa formulár neodoslal. Skúste to prosím znova.',
   actionFailed: 'Akciu na stránke sa nepodarilo vykonať.',
-  actionStale: 'Obsah stránky sa medzitým zmenil. Napíšte prosím správu znova.',
+  actionStale: 'Pôvodná stránka už nie je aktuálna. Akcia na nej nebola vykonaná.',
+  navigating: 'Otváram stránku. Konverzácia bude pokračovať po načítaní.',
+  navigationFailed: 'Stránku alebo konverzáciu sa nepodarilo obnoviť. Otvorte prosím pôvodnú stránku.',
 };
 
 const EN: WidgetStrings = {
@@ -104,7 +110,9 @@ const EN: WidgetStrings = {
   confirmDeclined: 'Sending was cancelled.',
   confirmUnavailable: 'The confirmation could not be delivered, so the form was not sent. Please try again.',
   actionFailed: 'That action could not be performed on the page.',
-  actionStale: 'The page has changed since. Please send your message again.',
+  actionStale: 'The original page is no longer current. The action was not performed on it.',
+  navigating: 'Opening the page. The conversation will continue after loading.',
+  navigationFailed: 'The page or conversation could not be restored. Please open the original page.',
 };
 
 const BY_LOCALE: Record<WidgetLocale, WidgetStrings> = { cs: CS, sk: SK, en: EN };

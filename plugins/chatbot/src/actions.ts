@@ -72,6 +72,8 @@ const ACTION_VALUE_MAX_CHARS = 512;
 
 /** Kinds that target one element. `scroll` without a target scrolls the page itself. */
 const TARGET_REQUIRED: Record<ActionKind, boolean> = {
+  snapshot: false,
+  navigate: false,
   read: true,
   focus: true,
   click: true,
@@ -83,6 +85,8 @@ const TARGET_REQUIRED: Record<ActionKind, boolean> = {
 
 /** Kinds that carry a value, and the ones that must not. */
 const VALUE_REQUIRED: Record<ActionKind, boolean> = {
+  snapshot: false,
+  navigate: true,
   read: false,
   focus: false,
   click: false,
@@ -95,6 +99,8 @@ const VALUE_REQUIRED: Record<ActionKind, boolean> = {
 /** The capability an element must claim for a kind to be performed on it. `scroll` needs none: moving a
  *  page is not a privilege the element grants. */
 const CAPABILITY_FOR_KIND: Record<ActionKind, string | null> = {
+  snapshot: null,
+  navigate: null,
   read: 'read',
   focus: 'focus',
   click: 'click',
@@ -129,10 +135,11 @@ export function decideAction(input: ActionPolicyInput): ActionDecision {
   const { request } = input;
   if (!isActionKind(request.kind)) return { ok: false, reason: 'unknown_action' };
   const kind = request.kind;
+  if ((kind === 'snapshot' || kind === 'navigate') && request.targetId !== null) return { ok: false, reason: 'unknown_target' };
 
   // A target id is only meaningful inside the snapshot that issued it. A frame naming another snapshot
   // than the one this turn recorded is describing a page nobody agreed on.
-  if (input.snapshotId !== input.turnSnapshotId) return { ok: false, reason: 'stale_snapshot' };
+  if (kind !== 'snapshot' && input.snapshotId !== input.turnSnapshotId) return { ok: false, reason: 'stale_snapshot' };
 
   if (input.performedActions >= input.maxActionsPerTurn) return { ok: false, reason: 'action_budget_exhausted' };
 

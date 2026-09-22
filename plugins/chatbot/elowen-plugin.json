@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v1, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
+  "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v2, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
   "entry": "dist/index.js",
   "userGrantable": true,
   "capabilities": {
@@ -17,7 +17,7 @@
       "chatbot"
     ],
     "httpRoutes": [
-      "v1"
+      "v2"
     ],
     "apiRoutes": [
       "bots",
@@ -87,7 +87,7 @@
       "accountNotChatbot": "This account is not a chatbot account, so its turns would not be non-interactive.",
       "accountAdmin": "An administrator account cannot carry a chatbot.",
       "originsLabel": "Allowed domains",
-      "originsHint": "Every request must carry an Origin header matching one of these exactly. A visitor token issued for one domain never works on another. With no domain here, this chatbot answers nobody.",
+      "originsHint": "Every request must match an allowed origin. Explicit navigation is limited to these origins; a single-use handoff preserves the conversation on the destination. With no domain here, this chatbot answers nobody.",
       "originsPlaceholder": "https://www.example.cz",
       "originsAdd": "Add domain",
       "originsRemove": "Remove {value}",

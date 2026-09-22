@@ -1,7 +1,7 @@
 /** The script a customer pastes into their website.
  *
  *  ```html
- *  <script async src="https://elowen.example/hooks/chatbot/v1/widget.js" data-chatbot="cbt_…"></script>
+ *  <script async src="https://elowen.example/hooks/chatbot/v2/widget.js" data-chatbot="cbt_…"></script>
  *  ```
  *
  *  Everything it needs is on that one tag: the chatbot's public id, which is an identifier rather than a
@@ -13,12 +13,12 @@
  *  including it on a page that has no form, no heading and nothing interactive: a widget with nothing to
  *  describe still answers, it just cannot do anything to the page. */
 
-import { capturePageSnapshot, type PageTargetHandle } from './pageSnapshot.js';
+import { capturePageSnapshot, pageMetadata, type PageTargetHandle } from './pageSnapshot.js';
 import { performAction, submitForm, type ActionReport, type PerformableAction } from './pageActions.js';
 import { ChatPanel } from './chatPanel.js';
 import { ChatSession, type CapturedPage, type PageBridge } from './session.js';
 import { DEFAULT_APPEARANCE } from '../src/appearanceContract.js';
-import { WIDGET_PROTOCOL_VERSION } from '../src/publicContract.js';
+import { HANDOFF_CODE_PATTERN, HANDOFF_FRAGMENT_KEY, PUBLIC_SCHEMA_VERSION } from '../src/publicContract.js';
 import { detectLocale, widgetStrings } from './strings.js';
 
 /** The one name the widget adds to the page's global scope. */
@@ -37,25 +37,41 @@ declare global {
   }
 }
 
-/** How many of a conversation's page descriptions the bridge keeps element handles for. A later message
- *  captures a new one, and an action belonging to the turn before it must still find its element: a handful
- *  of turns back is enough for that, and holding every snapshot a long conversation ever took would be a
- *  leak with no upper bound. */
-const REMEMBERED_SNAPSHOTS = 4;
-
 /** The page, as the conversation sees it: described on demand, acted on through the handles of the snapshot
  *  the action was approved against. */
 class BrowserPage implements PageBridge {
   private readonly handles = new Map<string, PageTargetHandle[]>();
+  private snapshotUrl = '';
+  arrivedByNavigation = false;
+
+  metadata(): { url: string; title: string } { return pageMetadata(); }
+
+  takeHandoff(): string | null {
+    const hash = location.hash;
+    const prefix = HANDOFF_FRAGMENT_KEY + '=';
+    const position = hash.lastIndexOf('&' + prefix);
+    const offset = position >= 0 ? position + 1 : hash.startsWith('#' + prefix) ? 1 : -1;
+    if (offset < 0) return null;
+    const code = hash.slice(offset + prefix.length);
+    // Remove the secret before any request or further page action, preserving the site's original fragment.
+    history.replaceState(history.state, '', location.pathname + location.search + (offset === 1 ? '' : hash.slice(0, offset - 1)));
+    this.arrivedByNavigation = HANDOFF_CODE_PATTERN.test(code);
+    return this.arrivedByNavigation ? code : null;
+  }
+
+  navigate(url: string): void {
+    const target = new URL(url);
+    const sameDocument = target.origin === location.origin && target.pathname === location.pathname && target.search === location.search;
+    this.handles.clear();
+    location.assign(url);
+    if (sameDocument) location.reload();
+  }
 
   capture(): CapturedPage {
     const snapshot = capturePageSnapshot();
+    this.handles.clear();
     this.handles.set(snapshot.snapshotId, snapshot.targets);
-    while (this.handles.size > REMEMBERED_SNAPSHOTS) {
-      const oldest = this.handles.keys().next().value;
-      if (oldest === undefined) break;
-      this.handles.delete(oldest);
-    }
+    this.snapshotUrl = location.href;
     return {
       snapshotId: snapshot.snapshotId,
       json: snapshot.json,
@@ -64,7 +80,7 @@ class BrowserPage implements PageBridge {
   }
 
   holds(snapshotId: string): boolean {
-    return this.handles.has(snapshotId);
+    return this.snapshotUrl === location.href && this.handles.has(snapshotId);
   }
 
   describeTarget(snapshotId: string, targetId: string): string {
@@ -80,10 +96,12 @@ class BrowserPage implements PageBridge {
   }
 
   perform(snapshotId: string, action: PerformableAction): Promise<ActionReport> {
+    if (!this.holds(snapshotId)) return Promise.resolve({ outcome: 'error', detail: 'stale_snapshot' });
     return performAction(action, this.handles.get(snapshotId) ?? []);
   }
 
   submit(snapshotId: string, targetId: string): Promise<ActionReport> {
+    if (!this.holds(snapshotId)) return Promise.resolve({ outcome: 'error', detail: 'stale_snapshot' });
     const handle = this.handles.get(snapshotId)?.find((candidate) => candidate.id === targetId);
     if (!handle || !handle.element.isConnected) return Promise.resolve({ outcome: 'error', detail: 'target_gone' });
     return submitForm(handle.element);
@@ -177,9 +195,10 @@ export function mount(): ElowenChatbotApi | null {
   // look is read FIRST, because a panel that has to be built with it cannot restore a transcript into a
   // panel that would then be replaced under it.
   if (session.hasStoredToken()) void look().then(() => session.start());
+  if (page.arrivedByNavigation) panel.open();
 
   const api: ElowenChatbotApi = {
-    version: WIDGET_PROTOCOL_VERSION,
+    version: PUBLIC_SCHEMA_VERSION,
     open: () => panel?.open(),
     close: () => panel?.close(),
     destroy: () => {

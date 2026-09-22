@@ -286,7 +286,7 @@ export async function issueToken(host: ChatbotHost, input: { site?: string; publ
   const answer = await host.handler(postRequest({
     path: 'visitors',
     headers: { origin: input.site ?? CHATBOT_SITE },
-    body: { schemaVersion: 1, bot },
+    body: { schemaVersion: 2, bot },
   }));
   return { status: answer.status, body: answer.body as Record<string, any> };
 }
