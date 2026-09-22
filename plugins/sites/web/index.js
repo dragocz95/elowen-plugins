@@ -72,6 +72,8 @@ var avatarUser = (person) => person;
 var previewImageUrl = (siteId, version) => `/api/plugins/sites/api/site/${encodeURIComponent(siteId)}/preview?v=${version}`;
 var PREVIEW_POLL_MS = 4e3;
 var awaitingPreview = (sites) => sites.some((site) => site.preview.state === "pending");
+var DOMAIN_CHECK_POLL_MS = 2e4;
+var awaitingDomain = (domain) => domain.status !== "ready" && domain.removalState === "active";
 function relativeTime(iso) {
   if (!iso) return "";
   const then = Date.parse(iso);
@@ -215,6 +217,9 @@ var Boxes = createLucideIcon("Boxes", [
   ["path", { d: "m12 8 4.74-2.85", key: "3rx089" }],
   ["path", { d: "M12 13.5V8", key: "1io7kd" }]
 ]);
+
+// node_modules/lucide-react/dist/esm/icons/check.js
+var Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
 
 // node_modules/lucide-react/dist/esm/icons/circle-check.js
 var CircleCheck = createLucideIcon("CircleCheck", [
@@ -495,10 +500,6 @@ var STATUS_TONE = {
   draft: "muted",
   failed: "danger"
 };
-var KIND_STRING = {
-  static: "kindStatic",
-  proxy: "kindProxy"
-};
 var KIND_ICON = {
   static: FileCode2,
   proxy: Server
@@ -641,8 +642,7 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
             strings[VISIBILITY_STRING[site.visibility]]
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Badge, { tone: site.kind === "proxy" ? "accent" : "muted", children: strings[KIND_STRING[site.kind]] })
+          ] })
         ] }),
         hint ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: `min-w-0 text-[11px] leading-tight text-balance ${state === "failed" ? "text-destructive" : "text-warning"}`, children: hint }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-auto flex min-w-0 items-center gap-2", children: [
@@ -763,63 +763,126 @@ function RecordRows({ records, strings }) {
     record.type + ":" + record.name + ":" + record.value + ":" + index
   )) });
 }
-function SetupBody({ domain, strings }) {
+function StepRow({ icon: Icon2, title, badge, done, spin, text, help, last, muted, children }) {
   const { components } = runtime();
-  const { Badge, SettingsRow } = components;
-  const ownershipBadge = stepBadge(domain.ownership.state, strings);
-  const routingBadge = stepBadge(domain.routing.state, strings);
-  const certificateBadge = stepBadge(domain.certificate.state, strings);
-  const ownershipText = replaceParams(strings, domain.ownership.code, domain.ownership.params);
-  const routingText = replaceParams(strings, domain.routing.code, domain.routing.params);
-  const certificateText = replaceParams(strings, domain.certificate.code, domain.certificate.params);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: strings.domainSetupIntro }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-      SettingsRow,
-      {
-        label: strings.ownershipStep,
-        description: ownershipText,
-        icon: KeyRound,
-        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: ownershipBadge.tone, children: ownershipBadge.label }),
-        trailingLayout: "stack",
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings.ownershipHint }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: [domain.ownership.record], strings })
-        ]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-      SettingsRow,
-      {
-        label: strings.routingStep,
-        description: routingText,
-        icon: Route,
-        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: routingBadge.tone, children: routingBadge.label }),
-        trailingLayout: "stack",
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings[domain.routing.hint] }),
-          domain.delegatedRootWarning ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings.delegatedRootHint }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: domain.routing.recommended, strings }),
-          domain.routing.alternatives.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "mt-2", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: domain.routing.alternatives, strings }) }) : null
-        ]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-      SettingsRow,
-      {
-        label: strings.secureStep,
-        description: certificateText,
-        icon: ShieldCheck,
-        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: certificateBadge.tone, children: certificateBadge.label }),
-        trailingLayout: "stack"
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-xs leading-relaxed text-muted-foreground", children: strings.dnsPropagation }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-1 text-[11px] text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: domain.routing.checkedAt ? strings.lastChecked.replace("{time}", relativeTime(domain.routing.checkedAt)) : strings.notChecked }),
-      domain.routing.nextCheckAt ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: strings.nextCheck.replace("{time}", relativeTime(domain.routing.nextCheckAt)) }) : null,
-      domain.ownership.expiresAt ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: strings.reservationExpires.replace("{time}", relativeTime(domain.ownership.expiresAt)) }) : null
+  const { Badge, HelpTip } = components;
+  const Marker = done ? Check : Icon2;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col items-center", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "span",
+        {
+          className: "grid h-7 w-7 shrink-0 place-items-center rounded-full border " + (done ? "border-success/50 bg-success/10 text-success" : "border-border bg-muted/40 text-muted-foreground"),
+          children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Marker, { className: "h-3.5 w-3.5" + (spin ? " animate-spin" : "") })
+        }
+      ),
+      last ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "mt-1 w-px flex-1 bg-border" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "min-w-0 flex-1 " + (last ? "pb-0" : "pb-5"), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: muted ? "text-xs text-muted-foreground" : "text-sm font-medium text-foreground", children: title }),
+        badge ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: badge.tone, children: badge.label }) : null,
+        help ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(HelpTip, { children: help }) : null
+      ] }),
+      text === "" ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: text }),
+      children ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "mt-2", children }) : null
     ] })
+  ] });
+}
+function SetupBody({ domain, strings, secondsToNextCheck, checking }) {
+  const { components } = runtime();
+  const { HelpTip } = components;
+  const watching = awaitingDomain(domain);
+  const routingHelp = [strings[domain.routing.hint], domain.delegatedRootWarning ? strings.delegatedRootHint : ""].filter((line) => line !== "").join(" ");
+  const meta = [
+    checking || secondsToNextCheck === null ? strings.checking : strings.nextCheckIn.replace("{seconds}", String(secondsToNextCheck)),
+    domain.ownership.expiresAt ? strings.reservationExpires.replace("{time}", relativeTime(domain.ownership.expiresAt)) : ""
+  ].filter((line) => line !== "");
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 items-start gap-1.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "min-w-0 text-sm leading-relaxed text-muted-foreground", children: strings.domainSetupIntro }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(HelpTip, { align: "right", children: strings.dnsPropagation })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        StepRow,
+        {
+          icon: KeyRound,
+          title: strings.ownershipStep,
+          badge: stepBadge(domain.ownership.state, strings),
+          done: domain.ownership.state === "ready",
+          text: replaceParams(strings, domain.ownership.code, domain.ownership.params),
+          help: strings.ownershipHint,
+          children: domain.ownership.state === "ready" ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: [domain.ownership.record], strings })
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        StepRow,
+        {
+          icon: Route,
+          title: strings.routingStep,
+          badge: stepBadge(domain.routing.state, strings),
+          done: domain.routing.state === "ready",
+          text: replaceParams(strings, domain.routing.code, domain.routing.params),
+          help: routingHelp,
+          children: domain.routing.state === "ready" ? null : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            RecordRows,
+            {
+              records: [...domain.routing.recommended, ...domain.routing.alternatives],
+              strings
+            }
+          )
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        StepRow,
+        {
+          icon: ShieldCheck,
+          title: strings.secureStep,
+          badge: stepBadge(domain.certificate.state, strings),
+          done: domain.certificate.state === "ready",
+          text: replaceParams(strings, domain.certificate.code, domain.certificate.params),
+          last: !watching
+        }
+      ),
+      watching ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        StepRow,
+        {
+          icon: RefreshCw,
+          title: strings.domainAutoChecking,
+          done: false,
+          spin: true,
+          text: meta.join(" \xB7 "),
+          muted: true,
+          last: true
+        }
+      ) : null
+    ] })
+  ] });
+}
+function ConnectedBody({ domain, strings }) {
+  const { components, utils } = runtime();
+  const { Badge, IconButton } = components;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "success", children: strings.domainReady }),
+      domain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "accent", children: strings.primary }) : null
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "min-w-0 break-all font-mono text-xs text-foreground", children: domain.url }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-1", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Copy, label: strings.copyLink, onClick: () => utils.copyText(domain.url) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          IconButton,
+          {
+            icon: ExternalLink,
+            label: strings.openSite,
+            onClick: () => window.open(domain.url, "_blank", "noopener,noreferrer")
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-xs leading-relaxed text-muted-foreground", children: replaceParams(strings, domain.certificate.code, domain.certificate.params) })
   ] });
 }
 function SiteDomains({ siteId }) {
@@ -831,6 +894,7 @@ function SiteDomains({ siteId }) {
     DetailBlock,
     EmptyState,
     ErrorState,
+    HelpTip,
     IconButton,
     Input,
     LoadingState,
@@ -854,12 +918,23 @@ function SiteDomains({ siteId }) {
     void queryClient.invalidateQueries({ queryKey: ["sites", "detail", siteId] });
     void queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
   };
+  const storeDomain = (domain) => {
+    queryClient.setQueryData(siteDomainsKey(siteId), (previous) => {
+      if (!previous) return previous;
+      const known = previous.domains.some((entry) => entry.id === domain.id);
+      return {
+        ...previous,
+        domains: known ? previous.domains.map((entry) => entry.id === domain.id ? domain : entry) : [...previous.domains, domain]
+      };
+    });
+  };
   const add = hooks.useMutation({
     mutationFn: (value) => runtime().api(domainPath(siteId), jsonBody("POST", { hostname: value })),
     onSuccess: (result) => {
       setDialogError(null);
       setHostname("");
-      setDialog({ mode: "setup", domain: result.domain });
+      storeDomain(result.domain);
+      setDialog({ mode: "setup", domainId: result.domain.id });
       refresh();
     },
     onError: (error) => {
@@ -870,19 +945,19 @@ function SiteDomains({ siteId }) {
     }
   });
   const check = hooks.useMutation({
-    mutationFn: (domain) => runtime().api(
-      domainPath(siteId, "/" + encodeURIComponent(domain.id) + "/check"),
+    mutationFn: (input) => runtime().api(
+      domainPath(siteId, "/" + encodeURIComponent(input.id) + "/check"),
       { method: "POST" }
     ),
     onSuccess: (result) => {
       setDialogError(null);
-      setDialog({ mode: "setup", domain: result.domain });
+      storeDomain(result.domain);
       refresh();
     },
-    onError: (error) => {
+    onError: (error, input) => {
       const message = utils.apiErrorMessage(error);
       setDialogError(message);
-      toast(message, "error");
+      if (input.manual) toast(message, "error");
     }
   });
   const primary = hooks.useMutation({
@@ -890,8 +965,7 @@ function SiteDomains({ siteId }) {
       domainPath(siteId, "/" + encodeURIComponent(domain.id) + "/primary"),
       { method: "POST" }
     ),
-    onSuccess: (result) => {
-      if (dialog?.mode === "setup") setDialog({ mode: "setup", domain: result.domain });
+    onSuccess: () => {
       toast(strings.saved);
       refresh();
     },
@@ -907,7 +981,7 @@ function SiteDomains({ siteId }) {
       if (result.removed) {
         if (dialog?.mode === "setup") setDialog(null);
       } else if (result.domain) {
-        setDialog({ mode: "setup", domain: result.domain });
+        storeDomain(result.domain);
       }
       refresh();
     },
@@ -915,43 +989,63 @@ function SiteDomains({ siteId }) {
   });
   const open = (url) => window.open(url, "_blank", "noopener,noreferrer");
   const data = query.data;
+  const setupId = dialog?.mode === "setup" ? dialog.domainId : null;
+  const setupDomain = setupId === null ? null : data?.domains.find((entry) => entry.id === setupId) ?? null;
+  const watching = setupDomain !== null && awaitingDomain(setupDomain);
+  const [nextCheckAt, setNextCheckAt] = (0, import_react4.useState)(null);
+  const [now, setNow] = (0, import_react4.useState)(() => Date.now());
+  const checkRef = (0, import_react4.useRef)(check);
+  checkRef.current = check;
+  (0, import_react4.useEffect)(() => {
+    if (!watching || setupId === null) {
+      setNextCheckAt(null);
+      return void 0;
+    }
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    const timer = window.setInterval(() => setNow(Date.now()), 1e3);
+    return () => window.clearInterval(timer);
+  }, [watching, setupId]);
+  (0, import_react4.useEffect)(() => {
+    if (!watching || setupId === null || nextCheckAt === null || now < nextCheckAt) return;
+    if (checkRef.current.isPending) return;
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    checkRef.current.mutate({ id: setupId, manual: false });
+  }, [now, nextCheckAt, watching, setupId]);
+  const secondsToNextCheck = nextCheckAt === null ? null : Math.max(0, Math.ceil((nextCheckAt - now) / 1e3));
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Link2, title: strings.addresses, children: [
       query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "block", height: "h-24" }) : null,
       query.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: strings.domainsLoadFailed, onRetry: () => query.refetch() }) : null,
       data ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", "data-site-domains": true, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-xs font-medium text-foreground", children: strings.primaryAddress }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "accent", children: data.effectiveUrl ?? strings.noAddress })
-          ] }),
-          data.generated ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "min-w-0", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "block text-xs font-medium text-foreground", children: strings.generatedAddress }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-muted-foreground", children: data.generated.displayHostname }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: strings.generatedAddressHint })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-1", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                IconButton,
-                {
-                  icon: Copy,
-                  label: strings.copyLink,
-                  onClick: () => utils.copyText(data.generated.url)
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                IconButton,
-                {
-                  icon: ExternalLink,
-                  label: strings.openSite,
-                  onClick: () => open(data.generated.url)
-                }
-              )
-            ] })
-          ] }) : null
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex h-9 items-center gap-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-xs font-semibold text-foreground", children: strings.generatedAddress }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(HelpTip, { children: strings.generatedAddressHint })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center justify-between gap-2", children: [
+        data.generated ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-3 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start sm:justify-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: data.generated.displayHostname }),
+            data.generated.effective ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "accent", children: strings.primary }) : null
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-1", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              IconButton,
+              {
+                icon: Copy,
+                label: strings.copyLink,
+                onClick: () => utils.copyText(data.generated.url)
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              IconButton,
+              {
+                icon: ExternalLink,
+                label: strings.openSite,
+                onClick: () => open(data.generated.url)
+              }
+            )
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-xs text-muted-foreground", children: strings.noAddress }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex h-9 items-center justify-between gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-xs font-semibold text-foreground", children: strings.customDomains }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
             Button,
@@ -981,7 +1075,7 @@ function SiteDomains({ siteId }) {
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: domain.status === "removing" ? strings.domainRemoving : replaceParams(strings, domain.statusCode, domain.statusParams) })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex max-w-full flex-wrap items-center gap-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-1", children: [
                   domain.canOpen ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
                       IconButton,
@@ -1016,7 +1110,7 @@ function SiteDomains({ siteId }) {
                       variant: "ghost",
                       onClick: () => {
                         setDialogError(null);
-                        setDialog({ mode: "setup", domain });
+                        setDialog({ mode: "setup", domainId: domain.id });
                       },
                       children: strings.continueSetup
                     }
@@ -1084,21 +1178,26 @@ function SiteDomains({ siteId }) {
         ]
       }
     ) : null,
-    dialog?.mode === "setup" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    setupDomain ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
       Modal,
       {
-        title: strings.domainSetupTitle.replace("{hostname}", dialog.domain.displayHostname),
+        title: (setupDomain.status === "ready" ? strings.domainConnectedTitle : strings.domainSetupTitle).replace("{hostname}", setupDomain.displayHostname),
         icon: Earth,
-        size: "lg",
-        onClose: () => {
-          if (!check.isPending) setDialog(null);
-        },
-        closeDisabled: check.isPending,
+        size: "md",
+        onClose: () => setDialog(null),
         "aria-busy": check.isPending ? true : void 0,
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalBody, { gap: 4, children: [
             dialogError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: dialogError }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(SetupBody, { domain: dialog.domain, strings })
+            setupDomain.status === "ready" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ConnectedBody, { domain: setupDomain, strings }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              SetupBody,
+              {
+                domain: setupDomain,
+                strings,
+                secondsToNextCheck,
+                checking: check.isPending
+              }
+            )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -1106,29 +1205,37 @@ function SiteDomains({ siteId }) {
               {
                 variant: "ghost-danger",
                 icon: Trash2,
-                onClick: () => setRemoveDomain(dialog.domain),
+                onClick: () => setRemoveDomain(setupDomain),
                 children: strings.removeDomain
               }
             ),
-            dialog.domain.status === "ready" && !dialog.domain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            setupDomain.status === "ready" && !setupDomain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               Button,
               {
                 variant: "ghost",
                 icon: Star,
                 disabled: primary.isPending,
-                onClick: () => primary.mutate(dialog.domain),
+                onClick: () => primary.mutate(setupDomain),
                 children: strings.makePrimary
               }
             ) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              Button,
-              {
-                variant: "accent",
-                disabled: check.isPending || dialog.domain.removalState === "removing",
-                onClick: () => check.mutate(dialog.domain),
-                children: check.isPending ? strings.checking : strings.checkAgain
-              }
-            )
+            watching ? (
+              // The button neither changes its label nor greys out while an automatic check runs: that
+              // happens every few seconds on its own, and a control that blinks with it looks broken.
+              // Pressing it brings the next check forward instead of adding a second one.
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                Button,
+                {
+                  variant: "accent",
+                  onClick: () => {
+                    if (check.isPending) return;
+                    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+                    check.mutate({ id: setupDomain.id, manual: true });
+                  },
+                  children: strings.checkAgain
+                }
+              )
+            ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", onClick: () => setDialog(null), children: strings.close })
           ] })
         ]
       }
@@ -1419,8 +1526,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Metric,
         {
-          icon: History,
-          label: site.kind === "proxy" ? strings.kindProxy : strings.releases,
+          icon: site.kind === "proxy" ? Server : History,
+          label: site.kind === "proxy" ? strings.port : strings.releases,
           value: site.kind === "proxy" ? site.target || "\u2014" : String(fileReleases.length)
         }
       )
@@ -1548,9 +1655,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
 }
 function Metric({ icon: Icon2, label, value, title }) {
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true }),
-      label
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex min-w-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true, className: "shrink-0" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate", children: label })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate font-mono text-xs text-foreground", children: value })
   ] });

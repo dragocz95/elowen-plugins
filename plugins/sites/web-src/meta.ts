@@ -59,13 +59,7 @@ export const STATUS_TONE: Record<DisplayStatus, 'success' | 'warning' | 'muted' 
   failed: 'danger',
 };
 
-/** Which of the two publication shapes a card is looking at. It used to be a column of its own; on a card
- *  it is one badge in the state band, so the same fact is stated once. */
-export const KIND_STRING: Record<PublicationKind, string> = {
-  static: 'kindStatic',
-  proxy: 'kindProxy',
-};
-
+/** Which of the two publication shapes a card is looking at, said as the icon beside its address. */
 export const KIND_ICON: Record<PublicationKind, LucideIcon> = {
   static: FileCode2,
   proxy: Server,
