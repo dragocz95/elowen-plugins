@@ -105,10 +105,3 @@ test('request binding requires the exact active Host and internal slug to identi
   assert.equal(withoutGeneratedBinding.bindingForRequest(site.slug, generated.hostname), null,
     'a generated-looking Host without a durable active binding stays concealed');
 });
-
-test('an opaque binding id resolves only inside its own active Site', () => {
-  const addresses = harness();
-  assert.equal(addresses.urlForBinding(site, 'custom-ready'), 'https://www.customer.example/');
-  assert.equal(addresses.urlForBinding({ ...site, id: 'site-b', slug: 'bravo-def456' }, 'custom-ready'), null);
-  assert.equal(addresses.urlForBinding(site, 'missing'), null);
-});

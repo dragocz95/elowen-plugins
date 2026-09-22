@@ -82,9 +82,11 @@ test('migration v20 upgrades the exact v19 shape and preserves generated URL and
   const upgraded = makeDb({ from: v19 });
   const store = new SitesStore(upgraded, { hostnameBase: BASE });
 
-  assert.equal(upgraded.appliedVersion(), 22);
+  assert.equal(upgraded.appliedVersion(), 23);
   const siteColumns = upgraded.prepare("PRAGMA table_info('p_sites_sites')").all().map((column) => column.name);
   assert.ok(siteColumns.includes('primary_custom_hostname_id'));
+  const hostnameColumns = upgraded.prepare("PRAGMA table_info('p_sites_hostnames')").all().map((column) => column.name);
+  assert.ok(!hostnameColumns.includes('ownership_observed_json'));
   assert.ok(!siteColumns.includes('certificate_requested_at'));
   assert.ok(!siteColumns.includes('certificate_error'));
 
@@ -134,7 +136,7 @@ test('a hostless v19 upgrade starts and reconciles generated rows when a base la
 
   const upgraded = makeDb({ from: v19 });
   const hostless = new SitesStore(upgraded);
-  assert.equal(upgraded.appliedVersion(), 22);
+  assert.equal(upgraded.appliedVersion(), 23);
   assert.equal(hostless.generatedHostname('hostless'), null);
 
   const configured = new SitesStore(makeDb({ from: upgraded }), { hostnameBase: BASE });
@@ -160,6 +162,25 @@ test('claims are globally case-insensitive and the ten-hostname limit is enforce
   assert.throws(() => store.claimCustomHostname('site-1', parseSiteHostname('host-11.customer.example')),
     (error) => error instanceof HostnameClaimError && error.code === 'hostname_limit');
   assert.equal(store.customHostnames('site-1').length, 10);
+});
+
+test('a custom hostname pending removal no longer consumes a site slot', () => {
+  const store = new SitesStore(makeDb(), storeOptions());
+  store.insertSite(site('site-1'));
+
+  const first = store.claimCustomHostname('site-1', parseSiteHostname('host-1.customer.example'));
+  for (let index = 2; index <= 10; index += 1) {
+    store.claimCustomHostname('site-1', parseSiteHostname(`host-${index}.customer.example`));
+  }
+  store.requestHostnameRemoval(first.id);
+
+  store.claimCustomHostname('site-1', parseSiteHostname('replacement.customer.example'));
+
+  assert.equal(
+    store.customHostnames('site-1').filter((row) => row.removalRequestedAt === null).length,
+    10,
+  );
+  assert.notEqual(store.hostnameById(first.id).removalRequestedAt, null);
 });
 
 test('an unverified reservation expires after 24 hours while a verified claim does not', () => {

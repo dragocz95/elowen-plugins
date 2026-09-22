@@ -108,10 +108,6 @@ export class SiteGatewayManager {
     return this.status?.bindings ?? [];
   }
 
-  issuedHostnames(): readonly string[] {
-    return this.bindingStatuses().filter((binding) => binding.present).map((binding) => binding.hostname);
-  }
-
   hasCertificate(hostname: string): boolean {
     return this.bindingStatuses().some((binding) => binding.hostname === hostname && binding.present);
   }

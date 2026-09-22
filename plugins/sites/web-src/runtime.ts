@@ -18,7 +18,7 @@ export type PublicationKind = 'static' | 'proxy';
  *  picture at all. */
 type SiteDomainStatus =
   | 'awaiting_ownership' | 'awaiting_routing' | 'misdirected' | 'issuing' | 'ready'
-  | 'authority_refused' | 'rate_limited' | 'renewal_blocked' | 'expired' | 'removing';
+  | 'authority_refused' | 'renewal_blocked' | 'expired' | 'removing';
 
 export interface SiteDomainRecordView {
   type: 'TXT' | 'A' | 'AAAA' | 'CNAME' | 'ALIAS/ANAME';

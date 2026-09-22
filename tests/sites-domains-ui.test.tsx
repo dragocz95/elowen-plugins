@@ -57,11 +57,10 @@ const domain = (status: string, code: string, overrides: Record<string, unknown>
   statusParams: code === 'dns_misdirected'
     ? { hostname: status + '.customer.example', observed: '203.0.113.9' }
     : code === 'authority_refused' ? { detail: 'CAA refused issuance' }
-      : code === 'rate_limited' ? { time: '2026-09-22T07:00:00.000Z' }
-        : code === 'renewal_dns_misdirected'
-          ? { hostname: status + '.customer.example', observed: '203.0.113.9', date: '2026-10-22T06:00:00.000Z' }
-          : code === 'certificate_expired' ? { date: '2026-09-21T06:00:00.000Z' }
-            : code === 'dns_missing' ? { hostname: status + '.customer.example' } : {},
+      : code === 'renewal_dns_misdirected'
+        ? { hostname: status + '.customer.example', observed: '203.0.113.9', date: '2026-10-22T06:00:00.000Z' }
+        : code === 'certificate_expired' ? { date: '2026-09-21T06:00:00.000Z' }
+          : code === 'dns_missing' ? { hostname: status + '.customer.example' } : {},
   isPrimary: status === 'ready',
   canOpen: status === 'ready' || status === 'renewal_blocked',
   removalState: status === 'removing' ? 'removing' : 'active',
@@ -96,13 +95,12 @@ const domain = (status: string, code: string, overrides: Record<string, unknown>
     state: status === 'ready' ? 'ready'
       : status === 'issuing' ? 'issuing'
         : status === 'authority_refused' ? 'authority_refused'
-          : status === 'rate_limited' ? 'rate_limited'
-            : status === 'renewal_blocked' ? 'renewal_blocked'
-              : status === 'expired' ? 'expired' : 'none',
+          : status === 'renewal_blocked' ? 'renewal_blocked'
+            : status === 'expired' ? 'expired' : 'none',
     code,
     params: {},
     requestedAt: status === 'issuing' ? '2026-09-22T06:05:00.000Z' : null,
-    retryAt: status === 'rate_limited' ? '2026-09-22T07:00:00.000Z' : null,
+    retryAt: null,
     notAfter: ['ready', 'renewal_blocked', 'expired'].includes(status) ? '2026-10-22T06:00:00.000Z' : null,
   },
   ...overrides,
@@ -216,7 +214,6 @@ describe('custom domains in Site detail', () => {
       domain('issuing', 'certificate_issuing'),
       domain('ready', 'certificate_ready'),
       domain('authority_refused', 'authority_refused'),
-      domain('rate_limited', 'rate_limited'),
       domain('renewal_blocked', 'renewal_dns_misdirected'),
       domain('expired', 'certificate_expired'),
       domain('removing', 'certificate_waiting'),
@@ -229,7 +226,6 @@ describe('custom domains in Site detail', () => {
     expect(screen.getByText('Requesting the certificate. This may take a few minutes.')).toBeVisible();
     expect(screen.getByText(/HTTPS is ready/)).toBeVisible();
     expect(screen.getByText(/CAA refused issuance/)).toBeVisible();
-    expect(screen.getByText(/temporarily rate-limited/)).toBeVisible();
     expect(screen.getByText(/Renewal is paused.*203\.0\.113\.9/)).toBeVisible();
     expect(screen.getByText(/certificate expired/i)).toBeVisible();
     expect(screen.getAllByText('Removing').length).toBeGreaterThan(0);

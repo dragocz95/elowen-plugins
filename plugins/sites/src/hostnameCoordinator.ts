@@ -26,6 +26,7 @@ const dateAfter = (now: number, delay: number): string => new Date(now + delay).
 export class SiteHostnameCoordinator {
   private readonly ownershipResolver: OwnershipDnsResolver;
   private readonly probe: GatewayCertificateProbe;
+  private readonly customChecks = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: CoordinatorDeps) {
     const resolver = new Resolver({ timeout: 5_000, tries: 2 });
@@ -98,7 +99,23 @@ export class SiteHostnameCoordinator {
     }
   }
 
-  async checkCustom(record: SiteHostnameRecord, renew = false): Promise<void> {
+  checkCustom(record: SiteHostnameRecord, renew = false): Promise<void> {
+    const running = this.customChecks.get(record.id);
+    if (running) return running;
+    const check = this.runCustomCheck(record, renew);
+    this.customChecks.set(record.id, check);
+    check.then(
+      () => {
+        if (this.customChecks.get(record.id) === check) this.customChecks.delete(record.id);
+      },
+      () => {
+        if (this.customChecks.get(record.id) === check) this.customChecks.delete(record.id);
+      },
+    );
+    return check;
+  }
+
+  private async runCustomCheck(record: SiteHostnameRecord, renew: boolean): Promise<void> {
     if (record.kind !== 'custom' || record.removalRequestedAt !== null || !record.ownershipToken) return;
     const [ownership, traffic] = await Promise.all([
       record.ownershipVerifiedAt === null
@@ -112,7 +129,6 @@ export class SiteHostnameCoordinator {
       this.deps.store.recordHostnameOwnership(
         record.id,
         ownership.state,
-        ownership.observedValues,
         'detail' in ownership ? ownership.detail ?? null : null,
       );
     }

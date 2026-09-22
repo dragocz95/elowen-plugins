@@ -130,6 +130,4 @@ test('knowing the hostname buys a runner no certificate, and reaches no privileg
     /No published-sites gateway broker/,
   );
   assert.deepEqual(harness.warnings, []);
-  assert.deepEqual([...harness.manager.issuedHostnames()], [],
-    'a runner never reconciles, so it holds no issued set and must not invent one');
 });
