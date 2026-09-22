@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.6.11 - 2026-09-22
+
+- A job's last start now shows just its date under the "Last started" label. The line repeated the label and printed a raw `{t}` placeholder, and the Czech label was not Czech.
+
 ## stats 0.2.7 - 2026-09-22
 
 - Administrators can switch Statistics to the whole instance; the page reads both scopes through the host usage hooks, so a usage reset refreshes it.

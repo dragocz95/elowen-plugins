@@ -1906,7 +1906,7 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
       ) }),
       /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex min-w-0 flex-col gap-1", "data-testid": "cron-last-run", children: [
         /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-sm font-medium text-foreground", children: s.lastStarted }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-xs text-muted-foreground", children: job.lastRun ? `${s.lastRunAt} ${utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)).toLocaleString(locale || void 0) : ""}` : "\u2014" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "text-xs text-muted-foreground", children: job.lastRun && utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)).toLocaleString(locale || void 0) : "\u2014" }),
         job.lastResult ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: "whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground", children: job.lastResult }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3", children: [

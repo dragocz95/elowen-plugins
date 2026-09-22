@@ -425,6 +425,23 @@ describe('automation week calendar', () => {
     expect(screen.getByTestId('cron-day-cards')).toBeInTheDocument();
   });
 
+  it('shows when a job last started as a plain date under its label', async () => {
+    const lastRun = '2026-09-15T05:30:01.000Z';
+    use(http.get('/api/plugins/cronjob/api/week', () => {
+      const body = weekBody();
+      return HttpResponse.json({
+        ...body,
+        jobs: body.jobs.map((job) => (job.id === recurring.id ? { ...job, lastRun } : job)),
+      });
+    }));
+    window.history.replaceState({}, '', `/p/cronjob?job=${recurring.id}`);
+    renderPage();
+    const block = await screen.findByTestId('cron-last-run');
+    expect(within(block).getByText(strings.lastStarted!)).toBeInTheDocument();
+    expect(within(block).getByText(new Date(lastRun).toLocaleString('en'))).toBeInTheDocument();
+    expect(block.textContent).not.toContain('{');
+  });
+
   it('keeps job deep links and uses one indistinguishable unavailable state', async () => {
     window.history.replaceState({}, '', '/p/cronjob?job=missing');
     renderPage();

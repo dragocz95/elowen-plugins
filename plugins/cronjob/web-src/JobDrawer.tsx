@@ -329,7 +329,7 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
             a completed run, and lastResult itself remains unclassified text. */}
         <div className="flex min-w-0 flex-col gap-1" data-testid="cron-last-run">
           <span className="text-sm font-medium text-foreground">{s.lastStarted}</span>
-          <span className="text-xs text-muted-foreground">{job.lastRun ? `${s.lastRunAt} ${utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)!).toLocaleString(locale || undefined) : ''}` : '—'}</span>
+          <span className="text-xs text-muted-foreground">{job.lastRun && utils.parseTs(job.lastRun) != null ? new Date(utils.parseTs(job.lastRun)!).toLocaleString(locale || undefined) : '—'}</span>
           {job.lastResult ? (
             <p className="whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">{job.lastResult}</p>
           ) : null}

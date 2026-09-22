@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
@@ -194,7 +194,6 @@
       "pillDefault": "(default)",
       "model": "Model",
       "modelDefault": "default",
-      "lastRun": "ran {t} ago",
       "lastResult": "Last result",
       "header": "Header with the job name",
       "saveError": "Saving the job failed",
@@ -277,7 +276,6 @@
       "nextRunUnknown": "The next run is not known right now.",
       "runningSince": "Running since {t}",
       "lastStarted": "Last started",
-      "lastRunAt": "last started {t}",
       "badgeOneShot": "One-shot",
       "badgeRecurring": "Recurring",
       "badgeGuardedHint": "A check command runs first; the AI turn may be skipped.",
