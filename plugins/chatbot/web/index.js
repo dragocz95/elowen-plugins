@@ -203,6 +203,12 @@ var ClipboardCopy = createLucideIcon("ClipboardCopy", [
   ["path", { d: "m15 10-4 4 4 4", key: "5dvupr" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/clock.js
+var Clock = createLucideIcon("Clock", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["polyline", { points: "12 6 12 12 16 14", key: "68esgv" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/code-xml.js
 var CodeXml = createLucideIcon("CodeXml", [
   ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
@@ -229,6 +235,46 @@ var Globe = createLucideIcon("Globe", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", key: "13o1zl" }],
   ["path", { d: "M2 12h20", key: "9i4pu4" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/hourglass.js
+var Hourglass = createLucideIcon("Hourglass", [
+  ["path", { d: "M5 22h14", key: "ehvnwv" }],
+  ["path", { d: "M5 2h14", key: "pdyrp9" }],
+  [
+    "path",
+    {
+      d: "M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22",
+      key: "1d314k"
+    }
+  ],
+  [
+    "path",
+    { d: "M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2", key: "1vvvr6" }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/layers.js
+var Layers = createLucideIcon("Layers", [
+  [
+    "path",
+    {
+      d: "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+      key: "8b97xw"
+    }
+  ],
+  ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", key: "dd6zsq" }],
+  ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65", key: "ep9fru" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/list-ordered.js
+var ListOrdered = createLucideIcon("ListOrdered", [
+  ["path", { d: "M10 12h11", key: "6m4ad9" }],
+  ["path", { d: "M10 18h11", key: "11hvi2" }],
+  ["path", { d: "M10 6h11", key: "c7qv1k" }],
+  ["path", { d: "M4 10h2", key: "16xx2s" }],
+  ["path", { d: "M4 6h1v4", key: "cnovpq" }],
+  ["path", { d: "M6 18H4c0-1 2-2 2-3s-1-1.5-2-1", key: "m9a95d" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/messages-square.js
@@ -346,6 +392,13 @@ var SlidersHorizontal = createLucideIcon("SlidersHorizontal", [
   ["line", { x1: "16", x2: "16", y1: "18", y2: "22", key: "1lctlv" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/timer.js
+var Timer = createLucideIcon("Timer", [
+  ["line", { x1: "10", x2: "14", y1: "2", y2: "2", key: "14vaq8" }],
+  ["line", { x1: "12", x2: "15", y1: "14", y2: "11", key: "17fdiu" }],
+  ["circle", { cx: "12", cy: "14", r: "8", key: "1e1u0o" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
 var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
@@ -353,6 +406,14 @@ var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
   ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/users.js
+var Users = createLucideIcon("Users", [
+  ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
+  ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
+  ["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87", key: "kshegd" }],
+  ["path", { d: "M16 3.13a4 4 0 0 1 0 7.75", key: "1da9ce" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/wrench.js
@@ -424,30 +485,96 @@ var PAGE_FAILURE_DETAILS = [
 var MANDATORY_LIMITS = {
   // Bounds an address trying to talk to one chatbot. The window is a minute, so even 1000 is far past any
   // real visitor; the ceiling exists so a typo cannot produce a number the counter cannot hold.
-  rateIpPerMinute: { column: "rate_ip_per_minute", min: 1, max: 1e5, default: 30 },
+  rateIpPerMinute: {
+    column: "rate_ip_per_minute",
+    min: 1,
+    max: 1e5,
+    default: 30,
+    slider: { min: 5, max: 300, step: 5 }
+  },
   // Bounds every visitor of one chatbot together, whatever address they come from.
-  rateChatbotPerMinute: { column: "rate_chatbot_per_minute", min: 1, max: 1e5, default: 60 },
+  rateChatbotPerMinute: {
+    column: "rate_chatbot_per_minute",
+    min: 1,
+    max: 1e5,
+    default: 60,
+    slider: { min: 10, max: 600, step: 10 }
+  },
   // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
   // whole day's budget in a minute.
-  rateConversationPerMinute: { column: "rate_conversation_per_minute", min: 1, max: 1e4, default: 10 },
+  rateConversationPerMinute: {
+    column: "rate_conversation_per_minute",
+    min: 1,
+    max: 1e4,
+    default: 10,
+    slider: { min: 1, max: 60, step: 1 }
+  },
   // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
-  dailyTurnLimit: { column: "daily_turn_limit", min: 1, max: 1e7, default: 200 },
+  dailyTurnLimit: {
+    column: "daily_turn_limit",
+    min: 1,
+    max: 1e7,
+    default: 200,
+    slider: { min: 10, max: 1e4, step: 10 }
+  },
   // How many of this chatbot's turns may run at the same time.
-  maxConcurrentTurns: { column: "max_concurrent_turns", min: 1, max: 64, default: 2 },
+  maxConcurrentTurns: {
+    column: "max_concurrent_turns",
+    min: 1,
+    max: 64,
+    default: 2,
+    slider: { min: 1, max: 32, step: 1 }
+  },
   // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
-  maxQueueDepth: { column: "max_queue_depth", min: 1, max: 1e4, default: 4 },
-  // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound: a
-  // visitor who has waited that long has left the page.
-  queueTimeoutSeconds: { column: "queue_timeout_seconds", min: 1, max: 3600, default: 60 },
+  maxQueueDepth: {
+    column: "max_queue_depth",
+    min: 1,
+    max: 1e4,
+    default: 4,
+    slider: { min: 1, max: 100, step: 1 }
+  },
+  // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound; the
+  // slider stops at ten minutes, because a visitor who has waited that long has left the page.
+  queueTimeoutSeconds: {
+    column: "queue_timeout_seconds",
+    min: 1,
+    max: 3600,
+    default: 60,
+    slider: { min: 5, max: 600, step: 5 }
+  },
   // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
   // budget would be one number too many, and the server must never approve an action the widget refuses.
-  maxActionsPerTurn: { column: "max_actions_per_turn", min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 8 },
+  maxActionsPerTurn: {
+    column: "max_actions_per_turn",
+    min: 1,
+    max: WIDGET_MAX_ACTIONS_PER_TURN,
+    default: 8,
+    slider: { min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, step: 1 }
+  },
   // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.
-  retentionDays: { column: "retention_days", min: 1, max: 3650, default: 30 }
+  retentionDays: {
+    column: "retention_days",
+    min: 1,
+    max: 3650,
+    default: 30,
+    slider: { min: 1, max: 365, step: 1 }
+  }
 };
 var OPTIONAL_LIMITS = {
-  dailyTokenLimit: { column: "daily_token_limit", min: 1, max: Number.MAX_SAFE_INTEGER, default: 1e6 },
-  dailyCostMicrousd: { column: "daily_cost_microusd", min: 1, max: Number.MAX_SAFE_INTEGER, default: 1e7 }
+  dailyTokenLimit: {
+    column: "daily_token_limit",
+    min: 1,
+    max: Number.MAX_SAFE_INTEGER,
+    default: 1e6,
+    slider: { min: 1e5, max: 5e7, step: 1e5 }
+  },
+  dailyCostMicrousd: {
+    column: "daily_cost_microusd",
+    min: 1,
+    max: Number.MAX_SAFE_INTEGER,
+    default: 1e7,
+    slider: { min: 1e6, max: 1e8, step: 1e6 }
+  }
 };
 var LIMITS = { ...MANDATORY_LIMITS, ...OPTIONAL_LIMITS };
 var DEFAULT_LIMITS = Object.fromEntries(
@@ -455,9 +582,6 @@ var DEFAULT_LIMITS = Object.fromEntries(
 );
 var LIMIT_FIELDS = Object.keys(LIMITS);
 var MANDATORY_FIELDS = Object.keys(MANDATORY_LIMITS);
-function isUsableLimit(value, spec) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= spec.min && value <= spec.max;
-}
 function specOf(field) {
   return LIMITS[field];
 }
@@ -562,28 +686,12 @@ var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 function limitDraftOf(limits) {
   const draft = {};
-  for (const field of LIMIT_FIELDS) {
-    const value = limits[field] ?? specOf(field).default;
-    draft[field] = String(value);
-  }
+  for (const field of LIMIT_FIELDS) draft[field] = limits[field] ?? specOf(field).default;
   return draft;
 }
-function readLimitDraft(draft) {
-  const limits = {};
-  const invalid = [];
-  const missing = [];
-  for (const field of LIMIT_FIELDS) {
-    const raw = draft[field].trim();
-    if (raw === "") {
-      limits[field] = null;
-      if (field in MANDATORY_LIMITS) missing.push(field);
-      continue;
-    }
-    const value = Number(raw);
-    if (!isUsableLimit(value, specOf(field))) invalid.push(field);
-    limits[field] = isUsableLimit(value, specOf(field)) ? value : null;
-  }
-  return { limits, invalid, missing };
+function sliderRange(field, value) {
+  const { slider } = specOf(field);
+  return { ...slider, min: Math.min(slider.min, value), max: Math.max(slider.max, value) };
 }
 var PRIMARY_FIELDS = ["dailyTurnLimit", "dailyCostMicrousd", "retentionDays"];
 var ADVANCED_FIELDS = [
@@ -596,46 +704,58 @@ var ADVANCED_FIELDS = [
   "queueTimeoutSeconds",
   "maxActionsPerTurn"
 ];
-var displayValue = (field, raw) => field === "dailyCostMicrousd" && raw !== "" && Number.isFinite(Number(raw)) ? String(Number(raw) / 1e6) : raw;
-var storedValue = (field, raw) => {
-  if (field !== "dailyCostMicrousd" || raw.trim() === "") return raw;
-  const dollars = Number(raw);
-  return Number.isFinite(dollars) ? String(Math.round(dollars * 1e6)) : raw;
+var ICONS = {
+  dailyTurnLimit: Activity,
+  dailyCostMicrousd: Coins,
+  retentionDays: Trash2,
+  rateIpPerMinute: Users,
+  rateChatbotPerMinute: Gauge,
+  rateConversationPerMinute: Timer,
+  dailyTokenLimit: Layers,
+  maxConcurrentTurns: ListOrdered,
+  maxQueueDepth: Hourglass,
+  queueTimeoutSeconds: Clock,
+  maxActionsPerTurn: MousePointerClick
 };
-var displayBound = (field, value) => String(field === "dailyCostMicrousd" ? value / 1e6 : value);
 function LimitsModal({ draft, disabled, onChange, onClose }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("chatbot");
-  const { t } = hooks.useTranslation();
+  const { locale, t } = hooks.useTranslation();
   const [advanced, setAdvanced] = (0, import_react4.useState)(false);
-  const read = readLimitDraft(draft);
-  const missingText = read.missing.map((field) => s[`limit_${field}`]).join(", ");
-  const set = (field, value) => onChange({ ...draft, [field]: value });
+  const valueText = (field, value) => {
+    if (field === "dailyCostMicrousd") return money(value / 1e6, locale);
+    const unit = s[`limitUnit_${field}`];
+    return unit === void 0 ? String(value) : `${value} ${unit}`;
+  };
   const rows = (fields) => fields.map((field) => {
+    const range = sliderRange(field, draft[field]);
     const label = s[`limit_${field}`];
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-      C.SettingsRow,
-      {
-        label,
-        description: s[`limitHint_${field}`],
-        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          C.Input,
-          {
-            type: "number",
-            inputMode: "numeric",
-            "aria-label": label,
-            disabled,
-            className: "w-28 text-right font-mono",
-            min: field === "dailyCostMicrousd" ? specOf(field).min / 1e6 : specOf(field).min,
-            max: field === "dailyCostMicrousd" ? specOf(field).max / 1e6 : specOf(field).max,
-            step: field === "dailyCostMicrousd" ? 0.01 : 1,
-            value: displayValue(field, draft[field]),
-            onChange: (event) => set(field, storedValue(field, event.target.value))
-          }
-        )
-      },
-      field
-    );
+    const Icon2 = ICONS[field];
+    const text = valueText(field, draft[field]);
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "py-3.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-2.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon2, { size: 18, "aria-hidden": true }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-foreground", children: [
+          label,
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.HelpTip, { children: s[`limitHint_${field}`] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "shrink-0 font-mono text-sm tabular-nums text-primary", children: text })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        C.Slider,
+        {
+          className: "mt-3",
+          value: draft[field],
+          min: range.min,
+          max: range.max,
+          step: range.step,
+          disabled,
+          "aria-label": label,
+          "aria-valuetext": text,
+          onChange: (next) => onChange({ ...draft, [field]: next })
+        }
+      )
+    ] }, field);
   });
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     C.Modal,
@@ -649,8 +769,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
       onClose,
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(C.ModalBody, { children: [
-          read.missing.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-3 text-xs text-destructive", role: "alert", children: s.limitsMissing.replace("{fields}", missingText) }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.SettingsGroup, { density: "compact", children: rows(PRIMARY_FIELDS) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex flex-col divide-y divide-border", children: rows(PRIMARY_FIELDS) }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
             C.Button,
             {
@@ -661,8 +780,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
               children: s.limitsAdvanced
             }
           ),
-          advanced ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.SettingsGroup, { density: "compact", children: rows(ADVANCED_FIELDS) }) : null,
-          read.invalid.map((field) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-2 text-xs text-destructive", role: "alert", children: `${s[`limit_${field}`]}: ${s.limitsRange.replace("{min}", displayBound(field, specOf(field).min)).replace("{max}", displayBound(field, specOf(field).max))}` }, field))
+          advanced ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex flex-col divide-y divide-border", children: rows(ADVANCED_FIELDS) }) : null
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.ModalFooter, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.Button, { variant: "accent", onClick: onClose, children: t.common.done }) })
       ]
@@ -19887,13 +20005,9 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
     setLimits(limitDraftOf(bot.limits));
     setMaySubmitForms(bot.maySubmitForms);
   }, [bot.updatedAt, bot.origins, bot.limits, bot.maySubmitForms]);
-  const read = readLimitDraft(limits);
   const originalLimits = limitDraftOf(bot.limits);
   const dirty = origins.join("\n") !== bot.origins.join("\n") || LIMIT_FIELDS.some((field) => limits[field] !== originalLimits[field]) || maySubmitForms !== bot.maySubmitForms;
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
-  const invalid = read.invalid.length > 0;
-  const enableBlocked = invalid || read.missing.length > 0;
-  const saveBlocked = invalid || bot.status === "enabled" && read.missing.length > 0;
   const save = async (action) => {
     setPending(true);
     setError(null);
@@ -19903,7 +20017,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
         expectedUpdatedAt: bot.updatedAt,
         displayName: bot.displayName,
         origins,
-        limits: read.limits,
+        limits,
         maySubmitForms,
         ...action === null ? {} : { action }
       }));
@@ -19973,7 +20087,6 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
             C.SettingsRow,
             {
               label: s.limitsEdit,
-              status: enableBlocked ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Badge, { tone: "warning", children: s.statusAttention }) : null,
               actions: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.IconButton, { icon: ChevronRight, label: s.limitsEdit, disabled: pending, onClick: () => setOpened("limits") })
             }
           ) }),
@@ -19996,8 +20109,8 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
           error !== null ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: error }) : null
         ] }) }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(C.ModalFooter, { children: [
-          bot.status === "enabled" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: Power, disabled: pending, onClick: () => setConfirming("disable"), children: s.disableAction }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", icon: Power, disabled: pending || dirty || enableBlocked, onClick: () => setConfirming("enable"), children: s.enableAction }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "accent", icon: dirty ? Save : Check, disabled: pending || !dirty || saveBlocked, onClick: () => void save(null), children: pending ? s.saveSaving : s.saveAction })
+          bot.status === "enabled" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "ghost", icon: Power, disabled: pending, onClick: () => setConfirming("disable"), children: s.disableAction }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", icon: Power, disabled: pending || dirty, onClick: () => setConfirming("enable"), children: s.enableAction }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "accent", icon: dirty ? Save : Check, disabled: pending || !dirty, onClick: () => void save(null), children: pending ? s.saveSaving : s.saveAction })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           C.ConfirmDialog,

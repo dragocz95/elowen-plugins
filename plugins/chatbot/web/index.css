@@ -47,11 +47,11 @@
   .mt-2 {
     margin-top: calc(var(--spacing, 0.25rem) * 2);
   }
+  .mt-3 {
+    margin-top: calc(var(--spacing, 0.25rem) * 3);
+  }
   .mt-4 {
     margin-top: calc(var(--spacing, 0.25rem) * 4);
-  }
-  .mb-3 {
-    margin-bottom: calc(var(--spacing, 0.25rem) * 3);
   }
   .ml-1 {
     margin-left: var(--spacing, 0.25rem);
@@ -86,11 +86,11 @@
   .h-\[38rem\] {
     height: 38rem;
   }
+  .w-7 {
+    width: calc(var(--spacing, 0.25rem) * 7);
+  }
   .w-10 {
     width: calc(var(--spacing, 0.25rem) * 10);
-  }
-  .w-28 {
-    width: calc(var(--spacing, 0.25rem) * 28);
   }
   .w-full {
     width: 100%;
@@ -100,6 +100,9 @@
   }
   .min-w-0 {
     min-width: 0px;
+  }
+  .flex-1 {
+    flex: 1;
   }
   .shrink-0 {
     flex-shrink: 0;
@@ -131,11 +134,17 @@
   .justify-between {
     justify-content: space-between;
   }
+  .justify-center {
+    justify-content: center;
+  }
   .gap-1\.5 {
     gap: calc(var(--spacing, 0.25rem) * 1.5);
   }
   .gap-2 {
     gap: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .gap-2\.5 {
+    gap: calc(var(--spacing, 0.25rem) * 2.5);
   }
   .gap-3 {
     gap: calc(var(--spacing, 0.25rem) * 3);
@@ -148,6 +157,16 @@
   }
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
+  }
+  :where(.divide-y > :not(:last-child)) {
+    --tw-divide-y-reverse: 0;
+    border-bottom-style: var(--tw-border-style);
+    border-top-style: var(--tw-border-style);
+    border-top-width: calc(1px * var(--tw-divide-y-reverse));
+    border-bottom-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
+  }
+  :where(.divide-border > :not(:last-child)) {
+    border-color: var(--color-border, #242424);
   }
   .truncate {
     overflow: hidden;
@@ -203,6 +222,9 @@
   .py-2 {
     padding-block: calc(var(--spacing, 0.25rem) * 2);
   }
+  .py-3\.5 {
+    padding-block: calc(var(--spacing, 0.25rem) * 3.5);
+  }
   .text-right {
     text-align: right;
   }
@@ -253,6 +275,9 @@
   }
   .text-muted-foreground {
     color: var(--color-muted-foreground, #9d948e);
+  }
+  .text-primary {
+    color: var(--color-primary, #ff5236);
   }
   .text-subtle-foreground {
     color: var(--color-subtle-foreground, #827974);
@@ -341,6 +366,11 @@
 @property --tw-skew-y {
   syntax: "*";
   inherits: false;
+}
+@property --tw-divide-y-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
 }
 @property --tw-border-style {
   syntax: "*";
@@ -510,6 +540,7 @@
       --tw-rotate-z: initial;
       --tw-skew-x: initial;
       --tw-skew-y: initial;
+      --tw-divide-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;
