@@ -806,6 +806,31 @@ describe('the confirmation a visitor answers', () => {
     instance.destroy();
   });
 
+  it.each([true, false])('keeps one answer outside a submission, including before render: mounted=%s', (mounted) => {
+    const instance = new ChatPanel({
+      strings,
+      look: { name: 'Městský úřad', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined,
+      onStop: () => undefined,
+    });
+    if (mounted) document.body.append(instance.host);
+    instance.appendVisitor('Postup');
+    instance.beginAnswer();
+    instance.streamAnswer('První část. ');
+    instance.streamAnswer('Druhá část.');
+    if (!mounted) document.body.append(instance.host);
+    instance.finishAnswer('První část. Druhá část. Hotovo.');
+    const chat = instance.host.shadowRoot!.querySelector('deep-chat') as unknown as { getMessages(): unknown[] };
+    expect(chat.getMessages()).toEqual([
+      { role: 'user', text: 'Postup' },
+      { role: 'ai', text: 'První část. Druhá část. Hotovo.' },
+    ]);
+    instance.beginAnswer();
+    instance.finishAnswer('Další odpověď.');
+    expect(chat.getMessages()).toHaveLength(3);
+    instance.destroy();
+  });
+
   it('shows the panel and takes focus when a confirmation is asked for', async () => {
     const { panel: instance } = panel();
     expect(instance.isOpen()).toBe(false);
