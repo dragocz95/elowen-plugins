@@ -18,7 +18,7 @@
 import 'deep-chat';
 import type { DeepChat } from 'deep-chat';
 import {
-  APPEARANCE_RAMPS,
+  appearanceRamp,
   APPEARANCE_SHADOWS,
   appearanceFontStack,
   appearanceInk,
@@ -99,7 +99,7 @@ function introUtilities(
   appearance: ChatbotAppearance,
   onQuickButton: (text: string) => void,
 ): Record<string, { events?: Record<string, (event: { target: EventTarget | null }) => void>; styles?: Record<string, Record<string, string>> }> {
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   return {
     'cb-quick': {
       styles: { default: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', justifyContent: 'center' } },
@@ -148,7 +148,7 @@ function chatConfig(input: {
 }): Record<string, unknown> {
   const { look, strings } = input;
   const appearance = look.appearance;
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === 'circle' ? '50%' : '8px';
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
   return {
@@ -172,7 +172,7 @@ function chatConfig(input: {
         text: { color: ramp.foreground },
         container: {
           backgroundColor: ramp.field,
-          border: 'none',
+          border: `1px solid ${ramp.border}`,
           padding: '10px 12px',
           borderRadius: `${Math.round(appearance.radius / 2)}px`,
         },
@@ -247,7 +247,7 @@ function styleText(appearance: ChatbotAppearance): string {
   const GUTTER_PX = appearance.launcher.offset;
   const inset = appearanceViewportInset(appearance);
   const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === 'dark' ? 'lighter' : 'darker');
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
   const corner: Record<typeof appearance.position, string> = {
@@ -276,14 +276,14 @@ function styleText(appearance: ChatbotAppearance): string {
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
-  border: 1px solid ${appearance.colors.launcher}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
   min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
   box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
 }
 .launcher svg { width: ${appearance.launcher.size - 2}px; height: ${appearance.launcher.size - 2}px; padding: ${Math.round(appearance.launcher.size * .28)}px; flex: 0 0 auto; }
 .launcher-label { padding-right: 18px; overflow-wrap: anywhere; }
-.launcher:hover { background: ${launcherHover}; border-color: ${launcherHover}; }
+.launcher:hover { background: ${launcherHover}; }
 .launcher:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
 .panel {
   display: flex; flex-direction: column;
@@ -294,19 +294,19 @@ function styleText(appearance: ChatbotAppearance): string {
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.raised};
+  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.header}; color: ${ramp.headerInk};
 }
 .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
 .header-avatar[hidden], .subtitle[hidden] { display: none; }
-.subtitle { margin: 3px 0 0; color: ${ramp.muted}; font-size: .85em; overflow-wrap: anywhere; }
-.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.foreground}; }
+.subtitle { margin: 3px 0 0; color: ${ramp.headerInk}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.headerInk}; }
 .close {
-  border: 1px solid transparent; background: transparent; color: ${ramp.muted};
+  border: 1px solid transparent; background: transparent; color: ${ramp.headerInk};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
 }
-.close:hover { color: ${ramp.foreground}; border-color: ${ramp.border}; }
-.close:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 1px; }
+.close:hover { border-color: ${ramp.headerInk}; }
+.close:focus-visible { outline: 2px solid ${ramp.headerInk}; outline-offset: 1px; }
 .status { margin: 0; padding: 10px 16px; border-bottom: 1px solid ${ramp.border}; background: ${appearance.colors.panel}; color: ${ramp.muted}; font-size: 13px; line-height: 1.45; }
 .status[hidden] { display: none; }
 .status-error { color: ${ramp.ember}; }

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
-import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, DEFAULT_STORED_APPEARANCE, APPEARANCE_TEMPLATES, appearanceIconSvg, type StoredAppearance } from '../plugins/chatbot/src/appearanceContract';
+import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, DEFAULT_STORED_APPEARANCE, APPEARANCE_TEMPLATES, appearanceRamp, appearanceIconSvg, type StoredAppearance } from '../plugins/chatbot/src/appearanceContract';
 import type { LimitValues } from '../plugins/chatbot/src/limits';
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
@@ -243,6 +243,29 @@ describe('the appearance editor', () => {
     expect(within(dialog).queryByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorPanel!) })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'clean', overrides: {} }));
+  });
+
+  it('previews, saves and resets an independent Indigo header', async () => {
+    const dialog = await openEditor();
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceTemplate_indigo! }));
+    fireEvent.click(within(screen.getAllByRole('dialog').at(-1)!).getByRole('button', { name: strings.appearanceTemplateApply! }));
+    const header = within(dialog).getByLabelText(strings.appearanceColorHeader!);
+    const templateRamp = appearanceRamp(APPEARANCE_TEMPLATES.indigo);
+    expect(header).toHaveValue(templateRamp.header);
+    const preview = previewPanel(dialog);
+    expect(preview.style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
+    expect(preview.chat.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.indigo.colors.panel);
+    expect(preview.host.shadowRoot!.querySelector('.header-avatar')).toHaveAttribute('hidden');
+    expect(preview.host.shadowRoot!.querySelector('.subtitle')).toHaveAttribute('hidden');
+    fireEvent.change(header, { target: { value: '#442255' } });
+    expect(previewPanel(dialog).style.textContent).toContain('background: #442255');
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: { colors: { header: '#442255' } } }));
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorHeader!) }));
+    expect(header).toHaveValue(templateRamp.header);
+    expect(previewPanel(dialog).style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: {} }));
   });
 
   it('resets a single override without resetting the other choices', async () => {

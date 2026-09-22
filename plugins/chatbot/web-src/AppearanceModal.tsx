@@ -6,7 +6,7 @@ import {
   APPEARANCE_INTRO_MAX_CHARS, APPEARANCE_AVATAR_URL_MAX_CHARS, APPEARANCE_SUBTITLE_MAX_CHARS,
   APPEARANCE_PLACEHOLDER_MAX_CHARS, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS,
   APPEARANCE_QUICK_BUTTONS_MAX, APPEARANCE_QUICK_BUTTON_MAX_CHARS,
-  APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, APPEARANCE_RAMPS,
+  APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, appearanceRamp,
   appearanceIcon, appearanceInk, isAppearanceOverridden, parseAppearanceSelection,
   resetAppearanceOverride, resolveAppearance, selectAppearanceTemplate, setAppearanceOverride,
   type AppearanceIconId, type AppearanceOverridePath, type AppearanceTemplateId, type StoredAppearance,
@@ -23,13 +23,13 @@ function Icon({ id }: { id: AppearanceIconId }) {
 /** Small visual swatches use the contract's actual fills, geometry and glyphs. */
 function TemplateSwatch({ template }: { template: AppearanceTemplateId }) {
   const a = APPEARANCE_TEMPLATES[template];
-  const ramp = APPEARANCE_RAMPS[a.mode];
+  const ramp = appearanceRamp(a);
   return <span aria-hidden className="flex h-28 w-full flex-col gap-2 p-2" style={{ background: a.colors.panel, borderRadius: a.radius / 2, border: `1px solid ${ramp.border}` }}>
-    <span className="h-2 w-1/2 rounded" style={{ background: ramp.muted }} />
+    <span className="flex w-full rounded p-1.5" style={{ background: ramp.header }}><span className="h-2 w-1/2 rounded" style={{ background: ramp.headerInk }} /></span>
     <span className="h-4 w-3/4 self-start" style={{ background: a.colors.botBubble, borderRadius: a.radius / 3 }} />
     <span className="h-4 w-1/2 self-end" style={{ background: a.colors.visitorBubble, borderRadius: a.radius / 3 }} />
     <span className="mt-auto flex justify-end gap-2">
-      <span className="flex h-6 w-6 items-center justify-center rounded-full" style={{ background: a.colors.launcher, color: appearanceInk(a.colors.launcher) }}><Icon id={a.launcher.icon} /></span>
+      <span className="flex h-6 w-6 items-center justify-center rounded-full" style={{ background: a.colors.launcher, color: appearanceInk(a.colors.launcher), border: `1px solid ${ramp.launcherBorder}` }}><Icon id={a.launcher.icon} /></span>
       <span className="flex h-6 w-6 items-center justify-center" style={{ background: a.colors.sendButton, color: a.colors.sendIcon, borderRadius: a.send.shape === 'circle' ? '50%' : 4 }}><Icon id={a.send.icon} /></span>
     </span>
   </span>;
@@ -76,7 +76,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
   const icons = APPEARANCE_ICONS.map(icon => ({ value: icon.id, label: s[`appearanceIcon_${icon.id}`], icon: <Icon id={icon.id} /> }));
   const iconPicker = (path: 'send.icon' | 'launcher.icon', label: string, value: AppearanceIconId) => select(path, label, value, icons);
   const color = (key: keyof typeof appearance.colors, label: string) => field(`colors.${key}`, label,
-    <input id={`${id}-colors.${key}`} type="color" aria-label={label} value={appearance.colors[key]} disabled={pending} onChange={event => patch(`colors.${key}`, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />);
+    <input id={`${id}-colors.${key}`} type="color" aria-label={label} value={appearance.colors[key] ?? appearanceRamp(appearance).header} disabled={pending} onChange={event => patch(`colors.${key}`, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />);
   const scalar = (path: AppearanceOverridePath, key: keyof typeof APPEARANCE_BOUNDS, label: string, value: number) => {
     const text = s.appearancePixels.replace('{value}', String(value));
     return <div className="py-2">
@@ -155,6 +155,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                 {scalar('launcher.offset', 'launcherOffset', s.appearanceLauncherOffset, appearance.launcher.offset)}
               </>)}
               {section(s.appearanceHeaderGroup, <UserRound size={18} />, <>
+                {color('header', s.appearanceColorHeader)}
                 <C.Field label={s.appearanceNameLabel} hint={s.appearanceNameHint}><C.Input aria-label={s.appearanceNameLabel} value={name} maxLength={DISPLAY_NAME_MAX_CHARS} disabled={pending} onChange={event => setName(event.target.value)} /></C.Field>
                 {textField('header.subtitle', s.appearanceSubtitle, appearance.header.subtitle, APPEARANCE_SUBTITLE_MAX_CHARS)}
                 {toggle('header.showAvatar', s.appearanceShowAvatar, appearance.header.showAvatar)}
