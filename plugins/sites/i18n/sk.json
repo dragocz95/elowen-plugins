@@ -176,6 +176,7 @@
       "claim_expired": "Platnosť tejto neoverenej rezervácie domény skončila. Pridajte doménu znova a získate novú hodnotu TXT.",
       "lastPublish": "Posledné zverejnenie",
       "releases": "Verzie",
+      "port": "Port",
       "releaseSummary": "{files} súborov · {size}",
       "noReleases": "Zatiaľ nebola zverejnená žiadna verzia.",
       "rollback": "Obnoviť túto verziu",

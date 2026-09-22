@@ -291,9 +291,8 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         {/* A proxy publication owns neither releases nor snapshots, so the slot counts nothing and names
             the thing it does have instead: the forwarder port inside the Project environment. */}
         <Metric
-          icon={History}
-          label={site.kind === 'proxy' ? strings.kindProxy
-            : strings.releases}
+          icon={site.kind === 'proxy' ? Server : History}
+          label={site.kind === 'proxy' ? strings.port : strings.releases}
           value={site.kind === 'proxy' ? (site.target || '—') : String(fileReleases.length)}
         />
       </div>
@@ -462,8 +461,11 @@ function Metric({ icon: Icon, label, value, title }: {
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 px-2 py-3" title={title}>
-      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <Icon size={11} aria-hidden />{label}
+      {/* The label keeps to one line: three of these sit side by side, and a label that wraps pushes its
+          own value a line below the other two. */}
+      <span className="inline-flex min-w-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <Icon size={11} aria-hidden className="shrink-0" />
+        <span className="truncate">{label}</span>
       </span>
       <span className="truncate font-mono text-xs text-foreground">{value}</span>
     </div>

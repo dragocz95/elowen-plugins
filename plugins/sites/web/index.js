@@ -1526,8 +1526,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Metric,
         {
-          icon: History,
-          label: site.kind === "proxy" ? strings.kindProxy : strings.releases,
+          icon: site.kind === "proxy" ? Server : History,
+          label: site.kind === "proxy" ? strings.port : strings.releases,
           value: site.kind === "proxy" ? site.target || "\u2014" : String(fileReleases.length)
         }
       )
@@ -1655,9 +1655,9 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
 }
 function Metric({ icon: Icon2, label, value, title }) {
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true }),
-      label
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex min-w-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true, className: "shrink-0" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate", children: label })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate font-mono text-xs text-foreground", children: value })
   ] });

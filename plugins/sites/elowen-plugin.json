@@ -289,6 +289,7 @@
       "claim_expired": "This unverified domain reservation expired. Add the domain again to get a new TXT value.",
       "lastPublish": "Last publish",
       "releases": "Releases",
+      "port": "Port",
       "releaseSummary": "{files} files · {size}",
       "noReleases": "No release has been published yet.",
       "rollback": "Restore this release",

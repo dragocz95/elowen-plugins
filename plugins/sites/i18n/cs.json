@@ -176,6 +176,7 @@
       "claim_expired": "Platnost této neověřené rezervace domény skončila. Přidejte doménu znovu a získáte novou hodnotu TXT.",
       "lastPublish": "Poslední zveřejnění",
       "releases": "Verze",
+      "port": "Port",
       "releaseSummary": "{files} souborů · {size}",
       "noReleases": "Zatím nebyla zveřejněna žádná verze.",
       "rollback": "Obnovit tuto verzi",
