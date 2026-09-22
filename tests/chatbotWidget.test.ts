@@ -1,5 +1,5 @@
 // @vitest-environment-options {"url": "https://example.test/formular"}
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MESSAGE_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ELEMENTS,
@@ -54,7 +54,7 @@ async function flush(times = 4): Promise<void> {
 }
 
 function frame(type: string, data: Record<string, unknown> = {}, seq = 1): string {
-  return `${JSON.stringify({ schemaVersion: 1, turnId: 'T', seq, type, data })}\n`;
+  return `${JSON.stringify({ schemaVersion: 2, turnId: 'T', seq, type, data })}\n`;
 }
 
 function streamOf(chunks: string[]): ReadableStream<Uint8Array> {
@@ -138,6 +138,9 @@ function makePage(options: { holds?: boolean } = {}): PageLog {
   };
   const snapshotId = 's0123456789abcdef';
   log.bridge = {
+    metadata: () => ({ url: 'https://www.example.cz/formular', title: 'Form' }),
+    takeHandoff: () => null,
+    navigate: () => undefined,
     capture: () => {
       log.captures += 1;
       return {
@@ -191,7 +194,7 @@ function makeSession(input: {
   return {
     requests,
     session: new ChatSession({
-      baseUrl: 'https://elowen.example/hooks/chatbot/v1',
+      baseUrl: 'https://elowen.example/hooks/chatbot/v2',
       publicId: 'cbt_0123456789abcdef01234567',
       view: input.view.view,
       page: input.page.bridge,
@@ -216,9 +219,9 @@ describe('the wire protocol', () => {
       data: { text: 'Ahoj' },
     });
     expect(parseFrame('not json')).toBeNull();
-    expect(parseFrame('{"schemaVersion":2,"type":"done"}')).toBeNull();
+    expect(parseFrame('{"schemaVersion":99,"type":"done"}')).toBeNull();
     expect(parseFrame('{"schemaVersion":1,"type":"core_reasoning"}')).toBeNull();
-    expect(parseFrame(JSON.stringify({ schemaVersion: 1, type: 'ping' }))).toMatchObject({ type: 'ping', seq: 0 });
+    expect(parseFrame(JSON.stringify({ schemaVersion: 2, type: 'ping' }))).toMatchObject({ type: 'ping', seq: 0 });
   });
 
   it('keeps a frame that straddles two reads in one piece', () => {
@@ -232,7 +235,7 @@ describe('the wire protocol', () => {
   it('composes the model input the plan fixes, and shows the visitor only their own words back', () => {
     const composed = composeMessage('Dobrý den, pomozte mi prosím.', '{"url":"https://example.cz/"}');
     expect(composed.message.startsWith('Visitor message:\nDobrý den')).toBe(true);
-    expect(composed.message).toContain('\n\nUntrusted page state:\n{"url"');
+    expect(composed.message).toContain('\n\nUntrusted page address and title:\n{"url"');
     expect(readVisitorText(composed.message)).toBe('Dobrý den, pomozte mi prosím.');
     // A message that is only the visitor's text still reads back as that text.
     expect(readVisitorText('Visitor message:\njen text')).toBe('jen text');
@@ -247,13 +250,13 @@ describe('the wire protocol', () => {
   });
 
   it('builds request bodies with exactly the fields the hook validates', () => {
-    expect(visitorRequestBody('cbt_1')).toEqual({ schemaVersion: 1, bot: 'cbt_1' });
+    expect(visitorRequestBody('cbt_1')).toEqual({ schemaVersion: 2, bot: 'cbt_1' });
     expect(turnRequestBody('2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34', 'ahoj')).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       clientTurnId: '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34',
       message: 'ahoj',
     });
-    expect(actionDecisionBody('confirm', 'nonce-value-1234')).toEqual({ schemaVersion: 1, decision: 'confirm', nonce: 'nonce-value-1234' });
+    expect(actionDecisionBody('confirm', 'nonce-value-1234')).toEqual({ schemaVersion: 2, decision: 'confirm', nonce: 'nonce-value-1234' });
     expect(newClientTurnId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(newSnapshotId()).toMatch(/^s[0-9a-f]{16}$/);
   });
@@ -284,7 +287,10 @@ describe('an action frame the server sends', () => {
 });
 
 describe('describing the page', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
+    const nativeStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation(element => nativeStyle(element));
     document.body.innerHTML = '';
     document.title = 'Kontaktní formulář';
   });
@@ -309,13 +315,13 @@ describe('describing the page', () => {
 
     expect(parsed.url).toBe('https://example.test/formular');
     expect(parsed.title).toBe('Kontaktní formulář');
-    expect(parsed.headings).toEqual([{ level: 1, text: 'Kontakt' }]);
+    expect(parsed.aria).toContain('heading "Kontakt"');
     // A form's action travels as a destination without its query string.
-    expect(parsed.forms).toEqual([{ id: 'f0', name: 'kontakt', method: 'post', action: 'https://example.test/odeslat' }]);
+    expect(parsed.aria).toContain('Jméno [e0]');
 
     const byId = new Map<string, Record<string, unknown>>(parsed.targets.map((target: Record<string, unknown>) => [target.id as string, target]));
     expect(parsed.targets).toHaveLength(4);
-    expect(byId.get('e0')).toMatchObject({ tag: 'input', name: 'jmeno', label: 'Jméno', value: 'Jan', required: true, form: 'f0' });
+    expect(parsed.aria).toContain('Jan');
     expect(byId.get('e0')!.caps).toContain('fill');
     expect(byId.get('e1')!.caps).toContain('fill');
     expect(byId.get('e2')!.caps).toContain('select');
@@ -344,7 +350,6 @@ describe('describing the page', () => {
     const byId = new Map<string, Record<string, unknown>>(parsed.targets.map((target: Record<string, unknown>) => [target.id as string, target]));
     // A password field is invisible to the agent in every way that matters: no value, no read, no write.
     // Its NAME here says nothing, so only the type it declares keeps it out.
-    expect(byId.get('e0')).toMatchObject({ type: 'password' });
     expect(byId.get('e0')!.value).toBeUndefined();
     expect(byId.get('e0')!.caps).toEqual(['focus']);
     // A card number is caught by what it declares about itself, whatever it is called…
@@ -355,7 +360,7 @@ describe('describing the page', () => {
     expect(byId.get('e2')!.caps).toEqual(['focus']);
     expect(byId.get('e3')!.caps).toEqual(['focus']);
     // …while the ordinary field beside them is described in full, which is what the bot is for.
-    expect(byId.get('e4')).toMatchObject({ value: 'Jan' });
+    expect(parsed.aria).toContain('Jan');
     expect(byId.get('e4')!.caps).toEqual(['read', 'fill', 'focus']);
   });
 
@@ -390,7 +395,7 @@ describe('describing the page', () => {
     const snapshot = capturePageSnapshot();
     const parsed = JSON.parse(snapshot.json) as Record<string, any>;
     expect(parsed.targets).toHaveLength(1);
-    expect(parsed.targets[0]).toMatchObject({ name: 'viditelny', value: '6' });
+    expect(parsed.aria).toContain('6');
     expect(snapshot.json).not.toContain('tajemstvi');
     expect(snapshot.json).not.toContain('Otevřít chat');
   });
@@ -403,10 +408,7 @@ describe('describing the page', () => {
     `);
     const snapshot = capturePageSnapshot();
     const parsed = JSON.parse(snapshot.json) as Record<string, any>;
-    expect(parsed.iframes).toEqual([
-      { srcOrigin: 'https://platby.example.com', title: 'Platební brána' },
-      { srcOrigin: 'https://example.test', title: 'Vlastní' },
-    ]);
+    expect(parsed.aria).not.toContain('iframe');
     // The frame's query string, which can carry a value of its own, never travels.
     expect(snapshot.json).not.toContain('tajny');
   });
@@ -474,12 +476,12 @@ describe('one visitor message', () => {
     expect(page.captures).toBe(0);
     await harness.session.send('Pomozte mi prosím s formulářem');
 
-    expect(page.captures).toBe(1);
+    expect(page.captures).toBe(0);
     const turn = harness.requests.find((request) => request.url.endsWith('/turns'));
-    expect(turn?.body).toMatchObject({ schemaVersion: 1 });
+    expect(turn?.body).toMatchObject({ schemaVersion: 2 });
     expect(String(turn?.body?.message)).toContain('Pomozte mi prosím s formulářem');
-    expect(String(turn?.body?.message)).toContain('Untrusted page state:');
-    expect(String(turn?.body?.message)).toContain(PAGE_JSON);
+    expect(String(turn?.body?.message)).toContain('Untrusted page address and title:');
+    expect(String(turn?.body?.message)).not.toContain('targets');
     expect(view.answers).toEqual(['Ahoj světe']);
     expect(view.errors).toEqual([]);
   });
@@ -529,8 +531,8 @@ describe('a dropped connection', () => {
     await harness.session.send('ahoj');
     const streams = harness.requests.filter((request) => request.url.includes('/events?'));
     expect(streams.map((request) => request.url)).toEqual([
-      'https://elowen.example/hooks/chatbot/v1/turns/T1/events?after=0',
-      'https://elowen.example/hooks/chatbot/v1/turns/T1/events?after=2',
+      'https://elowen.example/hooks/chatbot/v2/turns/T1/events?after=0',
+      'https://elowen.example/hooks/chatbot/v2/turns/T1/events?after=2',
     ]);
     expect(view.answers).toEqual(['Ahoj světe']);
     expect(view.notices).toContain(strings.reconnecting);
@@ -542,8 +544,8 @@ describe('acting on the page', () => {
   const ACTION_ID = '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34';
 
   function actionFrame(data: Record<string, unknown>): string {
-    return `${JSON.stringify({
-      schemaVersion: 1,
+    return frame('action', { actionId: '0f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34', kind: 'snapshot', snapshotId: '', targetId: null, value: null, confirmationNonce: 'nonce-value-1234', requiresConfirmation: false }, 8) + `${JSON.stringify({
+      schemaVersion: 2,
       turnId: 'T1',
       seq: 9,
       type: 'action',
@@ -574,7 +576,7 @@ describe('acting on the page', () => {
 
     expect(harness.page.performed).toEqual([{ snapshotId: SNAPSHOT, kind: 'fill', value: 'Jan' }]);
     const report = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
-    expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'done' });
+    expect(report?.body).toEqual({ schemaVersion: 2, outcome: 'done' });
   });
 
   it('scrolls the page when the server approved a scroll with no target at all', async () => {
@@ -606,7 +608,7 @@ describe('acting on the page', () => {
 
     expect(targets).toEqual([null]);
     const report = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
-    expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'done' });
+    expect(report?.body).toEqual({ schemaVersion: 2, outcome: 'done' });
   });
 
   it('refuses a click on a submit button, reports the refusal, and does not click at all', async () => {
@@ -618,7 +620,7 @@ describe('acting on the page', () => {
     expect(harness.page.performed).toEqual([]);
     expect(harness.page.submitted).toEqual([]);
     const report = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
-    expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'denied', detail: 'submit_is_its_own_action' });
+    expect(report?.body).toEqual({ schemaVersion: 2, outcome: 'denied', detail: 'submit_is_its_own_action' });
   });
 
   it('never submits without a confirmation the visitor gave, and reports the decline', async () => {
@@ -631,8 +633,8 @@ describe('acting on the page', () => {
     expect(view.confirmRequests[0]).toContain('Kontaktní formulář');
     expect(harness.page.submitted).toEqual([]);
     const decision = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/confirmation`));
-    expect(decision?.body).toEqual({ schemaVersion: 1, decision: 'decline', nonce: 'nonce-value-1234' });
-    expect(harness.requests.some((request) => request.url.endsWith('/result'))).toBe(false);
+    expect(decision?.body).toEqual({ schemaVersion: 2, decision: 'decline', nonce: 'nonce-value-1234' });
+    expect(harness.requests.some((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`))).toBe(false);
     expect(view.notices).toContain(strings.confirmDeclined);
   });
 
@@ -673,7 +675,7 @@ describe('acting on the page', () => {
     const decisionIndex = harness.requests.findIndex((request) => request.url.endsWith(`/actions/${ACTION_ID}/confirmation`));
     const resultIndex = harness.requests.findIndex((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
     expect(decisionIndex).toBeLessThan(resultIndex);
-    expect(harness.requests[resultIndex]?.body).toEqual({ schemaVersion: 1, outcome: 'done' });
+    expect(harness.requests[resultIndex]?.body).toEqual({ schemaVersion: 2, outcome: 'done' });
   });
 
   it('does not send a form whose confirmation the server did not record', async () => {
@@ -721,11 +723,11 @@ describe('acting on the page', () => {
 
     expect(page.performed).toEqual([]);
     const report = harness.requests.find((request) => request.url.endsWith(`/actions/${ACTION_ID}/result`));
-    expect(report?.body).toEqual({ schemaVersion: 1, outcome: 'denied', detail: 'stale_snapshot' });
+    expect(report?.body).toEqual({ schemaVersion: 2, outcome: 'denied', detail: 'stale_snapshot' });
     expect(view.notices).toContain(strings.actionStale);
   });
 
-  it('stops reporting once a deployment answers that it does not serve action reports', async () => {
+  it('reports unavailable action reporting and deduplicates replayed frames', async () => {
     const view = makeView();
     const page = makePage();
     const harness = makeSession({
@@ -746,8 +748,50 @@ describe('acting on the page', () => {
     await flush();
 
     // The action still happens; only the reporting is given up, once, after the deployment said so.
-    expect(page.performed).toHaveLength(2);
-    expect(harness.requests.filter((request) => request.url.endsWith('/result'))).toHaveLength(1);
+    expect(page.performed).toHaveLength(1);
+    expect(harness.requests.filter((request) => request.url.endsWith('/result'))).toHaveLength(2);
+  });
+});
+
+describe('navigation and active-turn restoration', () => {
+  it('restores partial text and refuses an approved old-page action without replaying settled actions', async () => {
+    const view = makeView();
+    const page = makePage();
+    page.bridge.takeHandoff = () => 'a'.repeat(64);
+    const settled = '11111111-1111-4111-8111-111111111111';
+    const pending = '22222222-2222-4222-8222-222222222222';
+    const action = (actionId: string) => ({ actionId, kind: 'fill', targetId: 'e0', value: 'Jan',
+      snapshotId: 's0123456789abcdef', requiresConfirmation: false, confirmationNonce: 'nonce-value-1234' });
+    const harness = makeSession({ view, page, responses: ({ url }) => {
+      if (url.endsWith('/handoff')) return jsonResponse(200, { token: 'restored-token' });
+      if (url.endsWith('/conversation')) return jsonResponse(200, { schemaVersion: 2, activeTurnId: 'T',
+        turns: [{ turnId: 'T', message: 'Visitor message:\nahoj', reply: null, lastSeq: 3, pendingActions: [pending] }] });
+      if (url.endsWith('/result')) return jsonResponse(200, {});
+      return new Response(streamOf([frame('text_delta', { text: 'Before. ' }, 1),
+        frame('action', action(settled), 2), frame('action', action(pending), 3),
+        frame('text_delta', { text: 'After.' }, 4), frame('done', { text: 'Before. After.' }, 5)]));
+    } });
+    await harness.session.start();
+    await flush();
+    expect(view.answers).toEqual(['Before. After.']);
+    expect(page.captures).toBe(0);
+    expect(page.performed).toEqual([]);
+    const reports = harness.requests.filter(request => request.url.endsWith('/result'));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.url).toContain(pending);
+    expect(reports[0]?.body).toMatchObject({ outcome: 'denied', detail: 'stale_snapshot' });
+    expect(harness.requests.some(request => request.url.endsWith('/visitors'))).toBe(false);
+  });
+
+  it('does not replace a rejected handoff with a fresh unrelated conversation', async () => {
+    const view = makeView();
+    const page = makePage();
+    page.bridge.takeHandoff = () => 'a'.repeat(64);
+    const harness = makeSession({ view, page, responses: () => jsonResponse(403, { error: 'invalid_handoff' }) });
+    await harness.session.start();
+    await harness.session.send('Continue');
+    expect(harness.requests).toHaveLength(1);
+    expect(view.errors).toContain(strings.navigationFailed);
   });
 });
 

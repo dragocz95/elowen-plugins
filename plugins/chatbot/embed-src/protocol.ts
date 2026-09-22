@@ -10,7 +10,7 @@ import {
   ACTION_KINDS,
   ACTION_OUTCOMES,
   MESSAGE_MAX_BYTES,
-  PAGE_STATE_LABEL,
+  PAGE_CONTEXT_LABEL,
   PUBLIC_FRAME_TYPES,
   PUBLIC_SCHEMA_VERSION,
   SNAPSHOT_ID_PATTERN,
@@ -77,7 +77,7 @@ export function readLines(buffer: string): { lines: string[]; rest: string } {
  *  page contents would be one more surface to bound. The block is labelled for what it is — data from an
  *  unauthenticated page — so the model reads it as evidence about a page rather than as instructions. */
 export function composeMessage(visitorText: string, pageStateJson: string): { message: string; pageStateIncluded: boolean } {
-  const composed = `${VISITOR_MESSAGE_LABEL}\n${visitorText}\n\n${PAGE_STATE_LABEL}\n${pageStateJson}`;
+  const composed = `${VISITOR_MESSAGE_LABEL}\n${visitorText}\n\n${PAGE_CONTEXT_LABEL}\n${pageStateJson}`;
   if (byteLength(composed) <= MESSAGE_MAX_BYTES) return { message: composed, pageStateIncluded: true };
   // Both halves respect their own caps before they get here, so this is a belt rather than a path: rather
   // than cut JSON in half and hand the model something unparsable, the page state is dropped and the
@@ -91,7 +91,7 @@ export function readVisitorText(composed: string): string {
   const withoutLabel = composed.startsWith(`${VISITOR_MESSAGE_LABEL}\n`)
     ? composed.slice(VISITOR_MESSAGE_LABEL.length + 1)
     : composed;
-  const marker = `\n\n${PAGE_STATE_LABEL}\n`;
+  const marker = `\n\n${PAGE_CONTEXT_LABEL}\n`;
   const cut = withoutLabel.indexOf(marker);
   return cut === -1 ? withoutLabel : withoutLabel.slice(0, cut);
 }
@@ -117,7 +117,7 @@ export function actionResultBody(outcome: ActionOutcome, detail?: string): Recor
   if (!(ACTION_OUTCOMES as readonly string[]).includes(outcome)) throw new Error(`unknown action outcome ${outcome}`);
   return detail === undefined
     ? { schemaVersion: PUBLIC_SCHEMA_VERSION, outcome }
-    : { schemaVersion: PUBLIC_SCHEMA_VERSION, outcome, detail: detail.slice(0, 200) };
+    : { schemaVersion: PUBLIC_SCHEMA_VERSION, outcome, detail };
 }
 
 /** The visitor's answer to a confirmation, carrying the nonce the server issued with the action. The nonce
@@ -152,7 +152,7 @@ export function readActionFrame(data: Record<string, unknown>): ActionFrame | nu
   const { actionId, kind, targetId, value, snapshotId, confirmationNonce } = data;
   if (typeof actionId !== 'string' || !CANONICAL_UUID.test(actionId)) return null;
   if (typeof kind !== 'string' || !(ACTION_KINDS as readonly string[]).includes(kind)) return null;
-  if (typeof snapshotId !== 'string' || !SNAPSHOT_ID_PATTERN.test(snapshotId)) return null;
+  if (typeof snapshotId !== 'string' || (kind !== 'snapshot' && !SNAPSHOT_ID_PATTERN.test(snapshotId))) return null;
   if (typeof confirmationNonce !== 'string' || confirmationNonce.length < 8 || confirmationNonce.length > 128) return null;
   if (typeof data.requiresConfirmation !== 'boolean') return null;
   const requiresConfirmation = requiresVisitorConfirmation(kind as ActionKind);

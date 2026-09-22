@@ -18,7 +18,7 @@
 //
 // What the scenario asserts:
 //
-//   1. nothing at all is sent before the visitor writes, and the page state then travels with the message;
+//   1. nothing at all is sent before the visitor writes, and an explicit snapshot action returns page structure;
 //   2. the answer streams into the panel as it arrives and ends with the whole of it;
 //   3. a stream cut mid-answer is resumed from the last frame the visitor saw, with no doubled text;
 //   4. read, fill, select, click and scroll all reach the page, each approved by the tool first;
@@ -65,9 +65,9 @@ const CHROME = process.env.E2E_BROWSER_PATH ?? '/usr/bin/google-chrome';
 const PUBLIC_ID = 'cbt_0123456789abcdef01234567';
 const CHATBOT_ACCOUNT = 12;
 const PROJECT_ID = 4;
-const WIDGET_PATH = '/hooks/chatbot/v1/widget.js';
-const MOUNT_PREFIX = '/hooks/chatbot/v1/';
-const PAGE_STATE_LABEL = 'Untrusted page state:\n';
+const WIDGET_PATH = '/hooks/chatbot/v2/widget.js';
+const MOUNT_PREFIX = '/hooks/chatbot/v2/';
+const PAGE_CONTEXT_LABEL = 'Untrusted page address and title:\n';
 const VISITOR_MESSAGE_LABEL = 'Visitor message:\n';
 const VISITOR_TEXT = 'Pomozte mi prosím vyplnit formulář.';
 const ANSWER_PARTS = ['Dobrý den, ', 'vyplním to s vámi. ', 'E-mail jsem doplnil, odešlete prosím žádost.'];
@@ -319,10 +319,10 @@ function recordedTurn() {
   return newest === undefined ? null : store.turn(newest.turn_id);
 }
 
-/** The page state as the widget composed it — what the MODEL sees in the visitor's message. */
-function readRawPageState(message) {
-  assert(typeof message === 'string' && message.includes(PAGE_STATE_LABEL), 'the visitor message carried no page state');
-  return JSON.parse(message.slice(message.indexOf(PAGE_STATE_LABEL) + PAGE_STATE_LABEL.length));
+/** The same settled snapshot result the tool returned to the model. */
+function readRawPageState() {
+  const row = store.latestPageAction(recordedTurn().turn_id);
+  return row?.status === 'done' && row.action === 'snapshot' ? JSON.parse(JSON.parse(row.result_json).detail) : null;
 }
 
 /** The model of this scenario: an answer that streams, and the page actions a real one would ask for.
@@ -337,10 +337,12 @@ async function modelTurn({ src, observer }) {
     observer?.onEvent({ type: 'text', delta: QUICK_ANSWER });
     return QUICK_ANSWER;
   }
-  const asSeenByTheModel = readRawPageState(turn.message);
-  // …and the same message as the PLUGIN reads it, because that is what every action below is decided
-  // against. The two must agree on the snapshot and on the targets, or nothing else here means anything.
-  const page = readRecordedPageState(turn.message);
+  assert(turn.message.includes(PAGE_CONTEXT_LABEL), 'the visitor message carried no metadata');
+  assert(!turn.message.includes('"targets"'), 'the visitor message carried a snapshot');
+  const snapshot = await registeredTool.execute('call-snapshot', { action: 'snapshot' });
+  assert(snapshot.details?.status === 'done', 'the requested snapshot did not complete');
+  const asSeenByTheModel = JSON.parse(snapshot.details.detail);
+  const page = readRecordedPageState(snapshot.details.detail);
   assert(page.ok, `the plugin could not read the page state its own widget composed: ${page.ok ? '' : page.error}`);
 
   const target = (what, predicate) => {
@@ -349,12 +351,13 @@ async function modelTurn({ src, observer }) {
     assert(page.value.targets.some((candidate) => candidate.id === found.id), `the plugin did not read ${what} as a target`);
     return found.id;
   };
-  const jmeno = target('jméno field', (candidate) => candidate.name === 'jmeno');
-  const email = target('e-mail field', (candidate) => candidate.name === 'email');
-  const obec = target('obec select', (candidate) => candidate.name === 'obec');
-  const card = target('card field', (candidate) => candidate.name === 'cislo_karty');
-  const submit = target('submit button', (candidate) => candidate.tag === 'button' && candidate.type === 'submit');
-  const souhlas = target('consent checkbox', (candidate) => candidate.name === 'souhlas');
+  const named = (label) => (candidate) => asSeenByTheModel.aria.includes(label + ' [' + candidate.id + ']');
+  const jmeno = target('jméno field', named('Jméno a příjmení'));
+  const email = target('e-mail field', named('E-mail'));
+  const obec = target('obec select', named('Obec'));
+  const card = target('card field', named('Číslo platební karty'));
+  const submit = target('submit button', (candidate) => candidate.caps.includes('request_submit'));
+  const souhlas = target('consent checkbox', named('Souhlasím se zpracováním údajů'));
   assert(asSeenByTheModel.targets.length === 7, `the sample form was described as ${asSeenByTheModel.targets.length} targets`);
   assert(submit !== undefined && card !== jmeno, 'the sample form was not described the way the visitor sees it');
   assert(
@@ -596,15 +599,17 @@ try {
   const turn = await poll('the visitor message to reach the plugin', () => recordedTurn());
   hook.turnId = turn.turn_id;
   const composed = turn.message;
-  const pageState = readRawPageState(composed);
+  const pageState = await poll('the on-demand snapshot result', () => readRawPageState());
   assert(composed.startsWith(`${VISITOR_MESSAGE_LABEL}${VISITOR_TEXT}`), `the visitor's own words were not first in the message: ${composed.slice(0, 90)}`);
-  assert(composed.includes('Jan Novák'), 'the page state did not carry the value the visitor typed into the page');
+  assert(!composed.includes('Jan Novák'), 'a field value travelled with the visitor message');
+  assert(pageState.aria.includes('Jan Novák'), 'the snapshot did not carry the field value');
   assert(!composed.includes(SECRET_PASSWORD), 'the password the visitor typed travelled to the server');
   assert(!composed.includes(SECRET_CARD), 'the card number the visitor typed travelled to the server');
-  assert(pageState.headings.some((heading) => heading.text === 'Kontaktní formulář'), 'the page state carried no heading');
-  assert(pageState.forms.length === 1 && pageState.forms[0].action === `${siteOrigin}/odeslat`, `the form was not described by origin and path: ${JSON.stringify(pageState.forms)}`);
+  assert(pageState.aria.includes('heading "Kontaktní formulář"'), 'the snapshot carried no heading');
+  assert(!JSON.stringify(pageState).includes(SECRET_PASSWORD), 'the snapshot disclosed the password');
+  assert(!JSON.stringify(pageState).includes(SECRET_CARD), 'the snapshot disclosed the card');
   assert(!pageState.url.includes('zdroj=web'), 'the page state carried the page query string');
-  pass('the first message carries the page state, without the password or the card number');
+  pass('the first message carries metadata only, and the snapshot tool result omits sensitive values');
 
   // ── flow 2: the answer streams into the panel as it arrives ───────────────────────────────────────────
   await poll('the first part of the answer to arrive', async () => answerText(await observe()).includes(ANSWER_PARTS[0]));
@@ -661,7 +666,7 @@ try {
   // What "a submit can never be an ordinary click" means on the wire: NO click the plugin approved targets
   // the element that sends the form. The one click row on it is the scenario's own frame, written as a
   // compromised server would; the only other click this run asked for is the ordinary consent box.
-  const submitTarget = pageState.targets.find((candidate) => candidate.tag === 'button' && candidate.type === 'submit');
+  const submitTarget = pageState.targets.find((candidate) => candidate.caps.includes('request_submit'));
   assert(submitTarget, 'the sample form described no submit button');
   const clickRows = db.prepare('SELECT id, target_id FROM p_chatbot_actions WHERE action = ?').all('click');
   const scenarioRow = clickRows.find((row) => row.id === hook.hostileActionId);
@@ -737,11 +742,11 @@ try {
   });
   const restoredVisitor = restored.find((message) => message.role === 'user');
   assert(restoredVisitor?.text === VISITOR_TEXT, `the restored transcript did not show the visitor's own words: ${JSON.stringify(restoredVisitor)}`);
-  assert(!JSON.stringify(restored).includes('Untrusted page state'), 'the restored transcript carried the page state into the conversation');
+  assert(!JSON.stringify(restored).includes(PAGE_CONTEXT_LABEL), 'the restored transcript carried the page state into the conversation');
   assert(restored.some((message) => message.role === 'ai' && message.text === ANSWER), 'the restored transcript lost the answer');
   // Drawing the transcript must not ASK for anything. Re-submitting the visitor's own restored message would
   // be a second turn of the same words — the same question asked of the model again, on every reload.
-  const submittedTurns = hook.requests.filter((entry) => entry.method === 'POST' && entry.path === '/hooks/chatbot/v1/turns');
+  const submittedTurns = hook.requests.filter((entry) => entry.method === 'POST' && entry.path === '/hooks/chatbot/v2/turns');
   assert(submittedTurns.length === 1, `the visitor's message was submitted ${submittedTurns.length} times: ${JSON.stringify(submittedTurns)}`);
   assert(
     db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_turns WHERE turn_id != ?').get('').count === 1,

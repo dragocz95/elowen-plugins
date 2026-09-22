@@ -266,7 +266,7 @@ describe('the appearance a visitor\'s widget reads', () => {
     const answer = await host.handler(postRequest({
       path: 'visitors',
       headers: { origin: CHATBOT_SITE },
-      body: { schemaVersion: 1, bot: host.store.listBots()[0]!.public_id },
+      body: { schemaVersion: 2, bot: host.store.listBots()[0]!.public_id },
     }));
     expect(answer.status).toBe(200);
     const body = answer.body as { token: string; visitorId: string };
@@ -293,7 +293,7 @@ describe('the appearance a visitor\'s widget reads', () => {
     const answer = await host.handler(withToken((await liveVisitor()).token));
     expect(answer.status).toBe(200);
     const body = answer.body as { schemaVersion: number; name: string; appearance: ChatbotAppearance };
-    expect(body.schemaVersion).toBe(1);
+    expect(body.schemaVersion).toBe(2);
     expect(body.name).toBe('Městský úřad');
     expect(body.appearance.mode).toBe('light');
     expect(body.appearance).not.toHaveProperty('template');

@@ -1,5 +1,5 @@
 {
-  "description": "Chatboti pro weby třetích stran. Každý chatbot je neinteraktivní elowenovský účet druhu chatbot vázaný na právě jeden spravovaný projekt a návštěvníci k němu mluví z webu zákazníka. Widget posílá zprávy na veřejný hook /hooks/chatbot/v1, plugin vydá serverem podepsaný token návštěvníka a každá přijatá zpráva spustí skutečný tah Elowen, jehož vlastníkem je účet tohoto chatbota, přes hostitelský relay. Plugin sám model nikdy nevolá.",
+  "description": "Chatboti pro weby třetích stran. Každý chatbot je neinteraktivní elowenovský účet druhu chatbot vázaný na právě jeden spravovaný projekt a návštěvníci k němu mluví z webu zákazníka. Widget posílá zprávy na veřejný hook /hooks/chatbot/v2, plugin vydá serverem podepsaný token návštěvníka a každá přijatá zpráva spustí skutečný tah Elowen, jehož vlastníkem je účet tohoto chatbota, přes hostitelský relay. Plugin sám model nikdy nevolá.",
   "fields": {
     "sec_visitors": {
       "label": "Relace návštěvníka",
@@ -39,7 +39,7 @@
       "accountNotChatbot": "Tento účet není účet chatbota, takže jeho tahy by nebyly neinteraktivní.",
       "accountAdmin": "Chatbota nemůže provozovat administrátorský účet.",
       "originsLabel": "Povolené domény",
-      "originsHint": "Každý požadavek musí nést hlavičku Origin, která přesně odpovídá jedné z těchto domén. Token návštěvníka vydaný pro jednu doménu nefunguje na jiné. Bez domény tento chatbot nikomu neodpovídá.",
+      "originsHint": "Každý požadavek musí pocházet z povolené domény. Chatbot může přejít pouze na konkrétní adresu na těchto doménách. Jednorázové předání zachová konverzaci i na cílové stránce. Bez domény tento chatbot nikomu neodpovídá.",
       "originsPlaceholder": "https://www.example.cz",
       "originsAdd": "Přidat doménu",
       "originsRemove": "Odebrat {value}",

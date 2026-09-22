@@ -246,6 +246,17 @@ const MIGRATIONS = [
       db.exec('ALTER TABLE p_chatbot_bots DROP COLUMN daily_token_limit;');
     },
   },
+  {
+    version: 7,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`CREATE TABLE p_chatbot_handoffs (
+        code_hash TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL UNIQUE REFERENCES p_chatbot_actions(id) ON DELETE CASCADE,
+        origin TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );`);
+    },
+  },
 ];
 
 /** The numeric limits a chatbot carries. New rows receive the profile from `limits.ts`; nullable columns

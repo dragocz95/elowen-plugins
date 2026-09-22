@@ -263,7 +263,7 @@ describe('the sweeps around retention', () => {
     expect(await host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }))).toMatchObject({ status: 202 });
     host.db.prepare(`INSERT INTO p_chatbot_rate_windows (scope, scope_key, window_started_at, count, expires_at)
                      VALUES ('ip', '12:203.0.113.9', ?, 4, ?)`)
@@ -282,7 +282,7 @@ describe('the conversation clock', () => {
     const accepted = await host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }));
     const turnId = (accepted.body as { turnId: string }).turnId;
     await settledTurn(host, turnId);

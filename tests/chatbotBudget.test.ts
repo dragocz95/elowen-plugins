@@ -65,7 +65,7 @@ function spend(input: {
 const submit = (token: string, clientTurnId: string) => host.handler(postRequest({
   path: 'turns',
   headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-  body: { schemaVersion: 1, clientTurnId, message: 'ahoj' },
+  body: { schemaVersion: 2, clientTurnId, message: 'ahoj' },
 }));
 
 const day = () => host.store.budgetDay(12, DAY);

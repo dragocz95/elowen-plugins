@@ -15,7 +15,7 @@
 import { clickElement, inputTextElement, scrollIntoViewIfNeeded, scrollVertically, selectOptionElement } from '@page-agent/page-controller';
 import type { ApprovedAction } from '../src/actions.js';
 import type { PageFailureDetail } from '../src/publicContract.js';
-import type { PageTargetHandle } from './pageSnapshot.js';
+import { isSensitiveField, wouldSubmit, type PageTargetHandle } from './pageSnapshot.js';
 
 /** What a browser applied. `detail` is a stable code the plugin knows, or the value a `read` asked for. */
 export interface ActionReport {
@@ -48,6 +48,10 @@ export async function performAction(action: PerformableAction, targets: readonly
   // element that left the page in the meantime is reported as gone rather than replaced by a lookalike.
   if (!handle || !handle.element.isConnected) return { outcome: 'error', detail: TARGET_GONE };
   const element = handle.element;
+  // Re-check live controls: a page can change a type, name or form owner since the snapshot.
+  if (isSensitiveField(element) && action.kind !== 'focus') return { outcome: 'error', detail: 'capability_not_granted' };
+  if (action.kind === 'click' && wouldSubmit(element)) return { outcome: 'error', detail: 'submit_is_its_own_action' };
+  if (action.kind === 'click' && element.closest('a[href]')) return { outcome: 'error', detail: 'navigation_not_allowed' };
 
   try {
     switch (action.kind) {

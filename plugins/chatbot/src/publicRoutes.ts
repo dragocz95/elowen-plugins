@@ -1,16 +1,16 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import type { ActionReportOutcome, PageActionService } from './actionService.js';
 import type { BotRow } from './db.js';
 import type { ChatbotAdapter } from './adapter.js';
 import type { TurnEventBroker } from './broker.js';
 import type { ChatbotClientOrigin, ChatbotHookRequest, ChatbotPublicResponse, ChatbotStores } from './coreSeams.js';
-import { eventPayload, type AdmissionOutcome, type ChatbotStore } from './store.js';
+import { actionRequestPayload, eventPayload, type AdmissionOutcome, type ChatbotStore } from './store.js';
 import type { TurnEventRow, TurnRow } from './db.js';
 import type { ChatbotTurnQueue } from './queue.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
 import { parseStoredAppearance, resolveAppearance, type ChatbotAppearance } from './appearanceContract.js';
-import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
+import { HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
@@ -312,6 +312,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
         clientTurnId: turn.client_turn_id,
         status: turn.status,
         lastSeq: seqs.get(turn.turn_id) ?? 0,
+        pendingActions: store.pendingActions(turn.turn_id).map(action => action.id),
         message: turn.message,
         reply: replies.get(turn.turn_id) ?? null,
         errorCode: turn.error_code,
@@ -400,10 +401,10 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (!isCanonicalUuid(actionId)) return reply(404, { error: 'not_found' }, corsHeaders(origin));
 
     if (kind === 'result') {
-      const parsed = validateActionResult(body.value);
+      const parsed = validateActionResult(body.value, store.action(actionId)?.action);
       if (!parsed.ok) return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
       return actionReportReply(
-        actions.reportResult({ turn, actionId, outcome: parsed.value.outcome, detail: parsed.value.detail }),
+        actions.reportResult({ turn, actionId, outcome: parsed.value.outcome, detail: parsed.value.detail, origin }),
         origin,
       );
     }
@@ -434,6 +435,60 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return served ? reply(204, undefined, corsHeaders(origin)) : reply(403, { error: 'origin_not_allowed' });
   };
 
+
+  /** A navigation ticket contains no conversation token. It is single-use, expires quickly, and can only
+   * be redeemed by the target origin for this bot while the approved navigation remains pending. */
+  const handleHandoff = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
+    const headers = { ...corsHeaders(origin), 'cache-control': 'no-store' };
+    const bad = () => reply(400, { error: 'invalid_request' }, headers);
+    const notJson = requireJsonBody(req, origin);
+    if (notJson) return notJson;
+    const body = await readJson(req);
+    if (!body.ok || !body.value || typeof body.value !== 'object' || Array.isArray(body.value)) return bad();
+    const value = body.value as Record<string, unknown>;
+    if (value.schemaVersion !== PUBLIC_SCHEMA_VERSION) return bad();
+    if ('code' in value) {
+      if (Object.keys(value).some(key => !['schemaVersion', 'bot', 'code'].includes(key))
+        || typeof value.code !== 'string' || !HANDOFF_CODE_PATTERN.test(value.code)
+        || typeof value.bot !== 'string') return bad();
+      const bot = store.botByPublicId(value.bot);
+      const refused = admitBot(bot);
+      if (refused) return refused;
+      if (!checkAllowedOrigin(origin, store.originsOf(bot!.chatbot_user_id)).ok) return reply(403, { error: 'origin_not_allowed' });
+      const blocked = blockedReply(bot!);
+      if (blocked) return blocked;
+      const actionId = store.consumeHandoff(hashToken(value.code), origin, iso(), bot!.chatbot_user_id);
+      if (!actionId) return reply(403, { error: 'invalid_handoff' }, headers);
+      const action = store.action(actionId)!;
+      const turn = store.turn(action.turn_id)!;
+      const issued = issueVisitorToken(bot!, turn.visitor_id);
+      const result = actions.reportResult({ turn, actionId, outcome: 'done', detail: null, origin });
+      if (!result.ok) return reply(409, { error: 'action_closed' }, headers);
+      return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, token: issued.token, turnId: turn.turn_id }, headers);
+    }
+    if (Object.keys(value).some(key => !['schemaVersion', 'turnId', 'actionId'].includes(key))
+      || typeof value.turnId !== 'string' || !isCanonicalUuid(value.turnId)
+      || typeof value.actionId !== 'string' || !isCanonicalUuid(value.actionId)) return bad();
+    const admitted = presentedToken(req);
+    if ('status' in admitted) return admitted;
+    if (!checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id)).ok) return reply(403, { error: 'origin_not_allowed' });
+    const turn = store.turn(value.turnId);
+    const action = store.action(value.actionId);
+    if (!turn || turn.visitor_id !== admitted.visitorId || turn.chatbot_user_id !== admitted.bot.chatbot_user_id
+      || !action || action.turn_id !== turn.turn_id || action.action !== 'navigate' || action.status !== 'pending'
+      || action.expires_at <= iso()) return reply(404, { error: 'not_found' }, headers);
+    const request = actionRequestPayload(action);
+    let url: URL;
+    try { url = new URL(request.value ?? ''); } catch { return bad(); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+      || !checkAllowedOrigin(url.origin, store.originsOf(admitted.bot.chatbot_user_id)).ok) return reply(403, { error: 'origin_not_allowed' }, headers);
+    const code = randomBytes(32).toString('hex');
+    store.createHandoff({ hash: hashToken(code), actionId: action.id, origin: url.origin,
+      expiresAt: new Date(Math.min(now().getTime() + HANDOFF_TTL_MS, Date.parse(action.expires_at))).toISOString(), now: iso() });
+    url.hash += (url.hash ? '&' : '') + HANDOFF_FRAGMENT_KEY + '=' + code;
+    return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, url: url.href }, headers);
+  };
+
   return async function handlePublicRequest(req: ChatbotHookRequest): Promise<Reply> {
     const segments = req.path.replace(/^\/+|\/+$/g, '').split('/').filter((segment) => segment !== '');
     const path = segments.join('/');
@@ -460,6 +515,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     // website outside every allowlist that its request may proceed.
     if (req.method === 'OPTIONS') return handlePreflight(req, origin);
 
+    if (req.method === 'POST' && path === PUBLIC_PATHS.handoff) return handleHandoff(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.visitors) return handleTokenIssuance(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.refresh) return handleRefresh(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.turns) return handleTurn(req, origin, requestOrigin);
@@ -527,6 +583,7 @@ function actionReportReply(outcome: ActionReportOutcome, origin: string): Reply 
   // Every answer a widget can trigger carries the CORS grant, including this one: a cross-origin reply without
   // it is unreadable in a browser, so a widget would never LEARN that the action it reported is unknown to
   // this deployment — it would keep reporting, and the 404 would look like a network fault forever.
+  if (outcome.reason === 'invalid_result') return reply(400, { error: 'invalid_request' }, corsHeaders(origin));
   if (outcome.reason === 'not_found') return reply(404, { error: 'not_found' }, corsHeaders(origin));
   if (outcome.reason === 'expired') return reply(409, { error: 'action_expired' }, corsHeaders(origin));
   if (outcome.reason === 'invalid_nonce') return reply(403, { error: 'invalid_nonce' }, corsHeaders(origin));

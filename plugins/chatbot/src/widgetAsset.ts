@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { PUBLIC_SCHEMA_VERSION } from './publicContract.js';
 
 /** The widget script a customer pastes into their own website.
  *
- *  The asset is read from the plugin's OWN directory (`plugins/chatbot/embed/widget.v1.js`, committed by
+ *  The asset is read from the plugin's OWN directory (`plugins/chatbot/embed/widget.v2.js`, committed by
  *  the repository's build and drift-checked there), resolved against this module's URL rather than any
  *  configurable path: a deployment that could point the plugin at a different file could serve a customer
  *  a bundle nobody reviewed. The daemon imports the plugin entry with a cache-busting query, so a plugin
  *  reload gives this module a fresh read; within one process the bytes and their hash are read once.
  *
- *  The served name is `v1/widget.js` while the file is `widget.v1.js`: the URL the customer pasted stays
+ *  The served name is `v2/widget.js` while the file is `widget.v2.js`: the URL the customer pasted stays
  *  stable across compatible fixes, and the file name carries the protocol version the bytes speak. A
  *  breaking change ships as a `v2` mount and a new snippet, never as two shapes in one handler. */
 
@@ -32,7 +33,7 @@ export const WIDGET_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 
 /** The URL the repository's build writes the bundle to, resolved against the compiled module. From
  *  `dist/widgetAsset.js` and from `src/widgetAsset.ts` alike this lands on the plugin's `embed/`. */
-const WIDGET_ASSET_URL = new URL('../embed/widget.v1.js', import.meta.url);
+const WIDGET_ASSET_URL = new URL(`../embed/widget.v${PUBLIC_SCHEMA_VERSION}.js`, import.meta.url);
 
 let cached: WidgetAsset | null = null;
 

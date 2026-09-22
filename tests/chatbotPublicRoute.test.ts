@@ -31,7 +31,7 @@ function submit(current: ChatbotHost, token: string, body: Record<string, unknow
   return current.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj', ...body },
+    body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', ...body },
   }));
 }
 
@@ -53,7 +53,7 @@ describe('admitting a public request', () => {
     const untrusted = await current.handler(postRequest({
       path: 'visitors',
       headers: { origin: SITE },
-      body: { schemaVersion: 1, bot },
+      body: { schemaVersion: 2, bot },
       origin: { value: '1.2.3.4', kind: 'ip', trusted: false },
     }));
     expect(untrusted).toMatchObject({ status: 403, body: { error: 'trusted_origin_required' } });
@@ -61,7 +61,7 @@ describe('admitting a public request', () => {
     const loopback = await current.handler(postRequest({
       path: 'visitors',
       headers: { origin: SITE },
-      body: { schemaVersion: 1, bot },
+      body: { schemaVersion: 2, bot },
       origin: { value: 'local', kind: 'local', trusted: true },
     }));
     expect(loopback).toMatchObject({ status: 403, body: { error: 'trusted_origin_required' } });
@@ -71,7 +71,7 @@ describe('admitting a public request', () => {
     const answer = await current.handler(postRequest({
       path: 'visitors',
       headers: { origin: SITE },
-      body: { schemaVersion: 1, bot: current.store.listBots()[0]!.public_id },
+      body: { schemaVersion: 2, bot: current.store.listBots()[0]!.public_id },
       origin: null,
     }));
     expect(answer).toMatchObject({ status: 403, body: { error: 'trusted_origin_required' } });
@@ -79,9 +79,9 @@ describe('admitting a public request', () => {
 
   it('refuses a website that is not on the chatbot;s allowlist, or that sends no Origin at all', async () => {
     const bot = current.store.listBots()[0]!.public_id;
-    expect(await current.handler(postRequest({ path: 'visitors', headers: { origin: 'https://evil.cz' }, body: { schemaVersion: 1, bot } })))
+    expect(await current.handler(postRequest({ path: 'visitors', headers: { origin: 'https://evil.cz' }, body: { schemaVersion: 2, bot } })))
       .toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
-    expect(await current.handler(postRequest({ path: 'visitors', headers: {}, body: { schemaVersion: 1, bot } })))
+    expect(await current.handler(postRequest({ path: 'visitors', headers: {}, body: { schemaVersion: 2, bot } })))
       .toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
   });
 
@@ -93,7 +93,7 @@ describe('admitting a public request', () => {
       method: 'POST',
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}`, 'content-type': 'text/plain' },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }));
     expect(answer).toMatchObject({ status: 415, body: { error: 'unsupported_media_type' } });
     expect(current.store.queuedTurns(10)).toHaveLength(0);
@@ -123,9 +123,9 @@ describe('the visitor token is the only visitor authority', () => {
     expect(issued.body.token).toMatch(/^v1\./);
     expect(issued.body.bot.publicId).toBe(current.store.listBots()[0]!.public_id);
 
-    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE }, body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' } })))
+    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' } })))
       .toMatchObject({ status: 401, body: { error: 'token_required' } });
-    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE, authorization: 'ChatbotVisitor nonsense' }, body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' } })))
+    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE, authorization: 'ChatbotVisitor nonsense' }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' } })))
       .toMatchObject({ status: 401, body: { error: 'invalid_token' } });
   });
 
@@ -143,7 +143,7 @@ describe('the visitor token is the only visitor authority', () => {
     expect(await current.handler(postRequest({
       path: 'turns',
       headers: { origin: 'https://evil.cz', authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }))).toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
   });
 
@@ -244,7 +244,7 @@ describe('the message path', () => {
     await second.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${secondToken.body.token}` },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }));
     for (let attempt = 0; attempt < 200 && (current.calls.length < 1 || second.calls.length < 1); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(current.calls[0]!.src.access?.actAsUserId).toBe(12);
@@ -302,7 +302,7 @@ describe('the message path', () => {
     const post = () => live.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 1, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
     }));
     expect(await post()).toMatchObject({ status: 503, body: { error: 'bot_unavailable' } });
     expect(live.store.turnByClientId(12, issued.body.visitorId as string, UUID)).toBeNull();
@@ -349,7 +349,7 @@ describe('the public path rejects what it does not implement', () => {
     const bot = current.store.listBots()[0]!.public_id;
     expect(await current.handler(publicRequest({ method: 'GET', path: 'nothing/here', headers: { origin: SITE } })))
       .toMatchObject({ status: 404, body: { error: 'not_found' } });
-    expect(await current.handler(postRequest({ path: 'visitors', headers: { origin: SITE }, body: { schemaVersion: 1, bot, page: {} } })))
+    expect(await current.handler(postRequest({ path: 'visitors', headers: { origin: SITE }, body: { schemaVersion: 2, bot, page: {} } })))
       .toMatchObject({ status: 400, body: { error: 'invalid_request' } });
   });
 });
