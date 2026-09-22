@@ -198,18 +198,18 @@ export const elowenClient = {
 
   getConfig: () => req<Record<string, unknown>>('/config'),
   updateConfig: (patch: Record<string, unknown>) => req<Record<string, unknown>>('/config', json(patch, 'PUT')),
-  usageByModel: (projectId?: number, window?: { fromMs: number; toMs: number }) => {
+  usageByModel: (window?: { fromMs: number; toMs: number }, scope: 'personal' | 'instance' = 'personal') => {
     const params = new URLSearchParams();
-    if (projectId != null) params.set('project_id', String(projectId));
     if (window && Number.isFinite(window.fromMs)) params.set('from', new Date(window.fromMs).toISOString());
     if (window && Number.isFinite(window.toMs)) params.set('to', new Date(window.toMs).toISOString());
+    if (scope === 'instance') params.set('scope', 'instance');
     const qs = params.toString();
     return req<ModelUsage[]>(`/usage/by-model${qs ? `?${qs}` : ''}`);
   },
-  usageByDay: (projectId?: number, days = 7) => {
+  usageByDay: (days = 7, scope: 'personal' | 'instance' = 'personal') => {
     const params = new URLSearchParams();
-    if (projectId != null) params.set('project_id', String(projectId));
     params.set('days', String(days));
+    if (scope === 'instance') params.set('scope', 'instance');
     return req<unknown[]>(`/usage/by-day?${params.toString()}`);
   },
   /** ADMIN-ONLY on the daemon. Mirrors web/lib/elowenClient.ts so a plugin bundle exercised here hits

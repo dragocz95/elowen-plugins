@@ -262,6 +262,30 @@ describe('StatsView', () => {
     await waitFor(() => expect(resetCalls).toBe(1));
     expect(await screen.findByText(strings.resetDone)).toBeTruthy();
   });
+
+  it('reads usage again after a reset, so the page never shows the spend it just cleared', async () => {
+    let modelReads = 0;
+    let dayReads = 0;
+    server.use(
+      http.get('*/api/usage/by-model', () => { modelReads++; return HttpResponse.json(models); }),
+      http.get('*/api/usage/by-day', () => { dayReads++; return HttpResponse.json(days); }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><StatsView /></ToastProvider></Wrapper>);
+    fireEvent.click(await screen.findByRole('button', { name: strings.reset }));
+    const dialog = await screen.findByRole('dialog', { name: strings.resetTitle });
+    fireEvent.change(
+      within(dialog).getByLabelText(strings.resetConfirmHint.replace('{word}', strings.resetConfirmWord)),
+      { target: { value: strings.resetConfirmWord } },
+    );
+    const [modelsBefore, daysBefore] = [modelReads, dayReads];
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.resetConfirm }));
+    await waitFor(() => expect(resetCalls).toBe(1));
+    await waitFor(() => {
+      expect(modelReads).toBeGreaterThan(modelsBefore);
+      expect(dayReads).toBeGreaterThan(daysBefore);
+    });
+  });
 });
 
 describe('stats UI registration', () => {

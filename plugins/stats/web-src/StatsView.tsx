@@ -6,7 +6,7 @@ import { ResetUsageModal } from './ResetUsageModal';
 import { OriginDrawer } from './OriginDrawer';
 import { integer } from './format';
 import { runtime, type PageFilterField } from './runtime';
-import type { DayUsage, ModelUsage, TokenUsage } from './types';
+import type { DayUsage, ModelUsage, TokenUsage, UsageScope } from './types';
 
 /** Rows per page until the reader chooses another step in the pager's own select. */
 const DEFAULT_PAGE_SIZE = 20;
@@ -18,38 +18,10 @@ const {
   LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, Segmented, SelectMenu, WorkspaceDetailRail,
   WorkspaceMetric, WorkspaceShell,
 } = runtime().components;
-const { useMe, usePersistentState, usePluginStrings, useQuery, useTranslation } = runtime().hooks;
+const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslation, useUsageByDay } = runtime().hooks;
 const { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
-const { api } = runtime();
 
 type UsageFilter = 'all' | 'costed' | 'cached';
-type UsageScope = 'personal' | 'instance';
-
-const usagePath = (path: string, scope: UsageScope, values: Record<string, string>): string => {
-  const params = new URLSearchParams(values);
-  if (scope === 'instance') params.set('scope', 'instance');
-  const query = params.toString();
-  return query ? `${path}?${query}` : path;
-};
-
-const useScopedModelUsage = (scope: UsageScope, window: { fromMs: number; toMs: number }) =>
-  useQuery<ModelUsage[]>({
-    queryKey: ['stats', 'usage-by-model', scope,
-      Number.isFinite(window.fromMs) ? window.fromMs : null,
-      Number.isFinite(window.toMs) ? window.toMs : null],
-    queryFn: () => api<ModelUsage[]>(usagePath('/usage/by-model', scope, {
-      ...(Number.isFinite(window.fromMs) ? { from: new Date(window.fromMs).toISOString() } : {}),
-      ...(Number.isFinite(window.toMs) ? { to: new Date(window.toMs).toISOString() } : {}),
-    })),
-    refetchInterval: 30_000,
-  });
-
-const useScopedUsageByDay = (scope: UsageScope, days: number) =>
-  useQuery<DayUsage[]>({
-    queryKey: ['stats', 'usage-by-day', scope, days],
-    queryFn: () => api<DayUsage[]>(usagePath('/usage/by-day', scope, { days: String(days) })),
-    refetchInterval: 60_000,
-  });
 
 /** The page owns whether an opaque filter control is narrowing results; the host owns its panel and chip. */
 const pageFilterField = (
@@ -150,8 +122,8 @@ export function StatsView() {
   const me = useMe();
   const [requestedScope, setRequestedScope] = useState<UsageScope>('personal');
   const scope = me.data?.user?.is_admin === true ? requestedScope : 'personal';
-  const usage = useScopedModelUsage(scope, window);
-  const daily = useScopedUsageByDay(scope, trendDays);
+  const usage = useModelUsage(window, scope);
+  const daily = useUsageByDay(trendDays, scope);
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UsageFilter>('all');

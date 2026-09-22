@@ -14,6 +14,8 @@ export interface TokenUsage {
 
 export interface ModelUsage { exec: string; usage: TokenUsage }
 export interface DayUsage { day: string; tokens: number; cost: number | null }
+/** Whose spend the usage reads report; `instance` is admin-only on the server. */
+export type UsageScope = 'personal' | 'instance';
 /** POST /usage/reset. `chatCleared` is 1 when the metadata transaction ran, never a row count; a
  *  daemon that predates the split answers with neither counter. */
 export interface ResetUsageResult { ok: boolean; chatCleared?: number; originsCleared?: number }
