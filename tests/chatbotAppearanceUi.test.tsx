@@ -104,6 +104,12 @@ setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'chatbot', url: '/plugins/chatbot/web/index.js', apiVersion: 12, nav: [], settings: [], strings }])),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'filip', is_admin: true } })),
   http.get('/api/brain/models', () => HttpResponse.json([])),
+  // The drawer also states which model its account answers on, read live from core's own directory and
+  // configuration. The editor under test never touches either, so this fixture answers both.
+  http.get('/api/users', () => HttpResponse.json([
+    { id: bot.chatbotUserId, username: 'ured-bot', granted_plugins: [], allowed_tools: [], default_exec: 'elowen:anthropic/claude-sonnet-4' },
+  ])),
+  http.get('/api/config', () => HttpResponse.json({ defaults: { exec: 'anthropic/claude-haiku-4' }, revision: 3 })),
   http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody())),
   http.put('/api/plugins/chatbot/api/appearance', async ({ request }) => {
     const body = await request.json() as Record<string, unknown>;

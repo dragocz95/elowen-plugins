@@ -4,6 +4,8 @@ import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json'
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
+import { accountModelOf, instanceDefaultOf } from '../plugins/chatbot/web-src/accountModel';
+import { AUTH_TRANSITION_EVENT } from '../plugins/chatbot/web-src/accountSwitch';
 import { limitDraftOf, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
@@ -30,6 +32,11 @@ ensurePluginUiRuntime();
 const strings = (manifest as { web: { strings: Record<string, string> } }).web.strings;
 const SITE = 'https://www.example.cz';
 const REQUIRED_TOOL = 'ChatbotPageAction';
+
+/** The model the fixture chatbot's own account answers on, and the instance default the other two inherit.
+ *  Deliberately nothing like each other, so a row that showed one where the other belongs cannot pass. */
+const OWN_MODEL = 'elowen:anthropic/claude-sonnet-4';
+const INSTANCE_DEFAULT = 'anthropic/claude-haiku-4';
 
 /** The limits the server reports for the fixture chatbot: every field, null where the owner has not decided.
  *  Written the way the API reports it, so the form is exercised against the shape it really receives. */
@@ -102,7 +109,8 @@ const asked: {
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
-} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [] };
+  impersonate: number[];
+} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -198,9 +206,23 @@ setDefaults(
     { name: REQUIRED_TOOL, label: 'Act on the visitor page', icon: null, plugin: 'chatbot', group: 'plugin', state: 'allowed', toggleable: true },
     { name: 'MemorySearch', label: 'Search memory', icon: null, plugin: null, group: 'memory', state: 'inherited', toggleable: false },
   ].map((tool) => Number(params.id) === bot.chatbotUserId ? tool : { ...tool, state: 'unavailable', toggleable: false }))),
+  // Core's own account directory, as the daemon answers it — every account, with the model that account
+  // answers on. One chatbot has a model of its own, the other two have none and inherit the instance
+  // default, which is the pair of cases the model row has to tell apart.
   http.get('/api/users', () => HttpResponse.json([
-    { id: 15, username: 'novy-bot', granted_plugins: ['stats'], allowed_tools: ['MemorySearch'] },
+    { id: bot.chatbotUserId, username: 'ured-bot', granted_plugins: ['chatbot'], allowed_tools: [REQUIRED_TOOL], default_exec: OWN_MODEL },
+    { id: broken.chatbotUserId, username: 'skola-bot', granted_plugins: [], allowed_tools: [], default_exec: '' },
+    { id: second.chatbotUserId, username: 'gymnazium-bot', granted_plugins: ['chatbot'], allowed_tools: [REQUIRED_TOOL], default_exec: '' },
+    { id: 15, username: 'novy-bot', granted_plugins: ['stats'], allowed_tools: ['MemorySearch'], default_exec: '' },
   ])),
+  // The instance configuration, read for the model an account with none of its own inherits.
+  http.get('/api/config', () => HttpResponse.json({ defaults: { exec: INSTANCE_DEFAULT }, revision: 3 })),
+  // The host's own switch-to-account route, which is what the model row's action calls.
+  http.post('/api/auth/impersonate', async ({ request }) => {
+    const body = await request.json() as { userId?: number };
+    asked.impersonate.push(Number(body.userId));
+    return HttpResponse.json({ ok: true });
+  }),
   http.post('/api/users', () => HttpResponse.json({ id: 15, username: 'novy-bot' }, { status: 201 })),
   http.post('/api/users/:id/projects', () => HttpResponse.json({ ok: true })),
   http.patch('/api/users/:id', async ({ request }) => {
@@ -241,6 +263,7 @@ afterEach(() => {
   asked.userPatch = [];
   asked.botPatch = [];
   asked.configPatch = [];
+  asked.impersonate = [];
 });
 afterAll(() => close());
 
@@ -468,6 +491,84 @@ describe('the chatbots section', () => {
     // What it does carry is this chatbot's own configuration.
     expect(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! })).toBeInTheDocument();
     expect(within(drawer).getByRole('button', { name: strings.limitsEdit! })).toBeInTheDocument();
+  });
+
+  it('states the account\'s own model, which is the one visitors\' answers come from', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    expect(within(drawer).getByText(strings.detailModel!)).toBeInTheDocument();
+    // Read from core's own account directory, not from the plugin's row: the model this account answers on.
+    expect(await within(drawer).findByText(OWN_MODEL)).toBeInTheDocument();
+    // An account with a model of its own inherits nothing, so nothing is marked as inherited.
+    expect(within(drawer).queryByText(strings.detailModelInherited!)).not.toBeInTheDocument();
+    // …and the instance default is not stated under it either.
+    expect(within(drawer).queryByText(INSTANCE_DEFAULT)).not.toBeInTheDocument();
+    // The row reports; it does not edit. The model is not a control on this surface, and the only way to
+    // change it is the account that owns it.
+    expect(within(drawer).queryByRole('combobox', { name: strings.detailModel! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('textbox', { name: strings.detailModel! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('switch', { name: strings.detailModel! })).not.toBeInTheDocument();
+  });
+
+  it('marks the instance default as inherited when the account has no model of its own', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Gymnázium');
+    const drawer = await openBot('Gymnázium');
+
+    expect(within(drawer).getByText(strings.detailModel!)).toBeInTheDocument();
+    // The account chose nothing, so the row says which model answers instead AND that it is not this
+    // account's own choice.
+    expect(await within(drawer).findByText(INSTANCE_DEFAULT)).toBeInTheDocument();
+    expect(within(drawer).getByText(strings.detailModelInherited!)).toBeInTheDocument();
+    // The other chatbot's own model is nowhere near this drawer.
+    expect(within(drawer).queryByText(OWN_MODEL)).not.toBeInTheDocument();
+  });
+
+  it('hands the administrator to the account whose model it states, through the host\'s own switch', async () => {
+    const phases: string[] = [];
+    const watch = (event: Event) => { phases.push((event as CustomEvent<{ phase: string }>).detail.phase); };
+    window.addEventListener(AUTH_TRANSITION_EVENT, watch);
+    try {
+      renderSection('bots');
+      await settled();
+      await screen.findByText('Gymnázium');
+      const drawer = await openBot('Gymnázium');
+
+      fireEvent.click(within(drawer).getByRole('button', { name: strings.detailModelChange! }));
+      // The account the row is about, entered through the host's own route — core decides who may enter it.
+      await waitFor(() => expect(asked.impersonate).toEqual([second.chatbotUserId]));
+      // …and announced the way every account-scoped surface expects: the previous account is torn down
+      // BEFORE the session changes, and the tab is told when the new identity is the one in the cookie.
+      expect(phases).toEqual(['start', 'commit']);
+    } finally {
+      window.removeEventListener(AUTH_TRANSITION_EVENT, watch);
+    }
+  });
+
+  it('reports a refused switch and keeps the account the reader was in', async () => {
+    const phases: string[] = [];
+    const watch = (event: Event) => { phases.push((event as CustomEvent<{ phase: string }>).detail.phase); };
+    window.addEventListener(AUTH_TRANSITION_EVENT, watch);
+    use(http.post('/api/auth/impersonate', () => HttpResponse.json({ error: 'forbidden' }, { status: 403 })));
+    try {
+      renderSection('bots');
+      await settled();
+      await screen.findByText('Městský úřad');
+      const drawer = await openBot('Městský úřad');
+
+      fireEvent.click(within(drawer).getByRole('button', { name: strings.detailModelChange! }));
+      // The server's own word for it, in the drawer's own error line, and the transition rolled back so a
+      // sibling tab is not left waiting for an identity that never arrived.
+      expect(await within(drawer).findByText('forbidden')).toBeInTheDocument();
+      expect(phases).toEqual(['start', 'rollback']);
+      expect(within(drawer).getByText(OWN_MODEL)).toBeInTheDocument();
+    } finally {
+      window.removeEventListener(AUTH_TRANSITION_EVENT, watch);
+    }
   });
 
   it('saves the whole row on an explicit submit, and disables it only after a confirmation', async () => {
@@ -884,6 +985,24 @@ describe('the allowed domains', () => {
 });
 
 describe('the pure helpers the drawer reports with', () => {
+  it('reads the account\'s own model from core, and states provenance rather than guessing it', () => {
+    // The account has a model of its own: that is the one visitors' answers come from.
+    expect(accountModelOf([{ id: 12, default_exec: OWN_MODEL }], 12)).toEqual({ kind: 'own', model: OWN_MODEL });
+    // Core stores an empty value to mean "this account chose nothing", which is a fact and not a gap.
+    expect(accountModelOf([{ id: 12, default_exec: '' }], 12)).toEqual({ kind: 'inherited' });
+    expect(accountModelOf([{ id: 12, default_exec: '   ' }], 12)).toEqual({ kind: 'inherited' });
+    // Nothing read yet, no such account, or a row carrying no readable value: the row states nothing,
+    // because "inherits the instance default" would be a claim about a fact nobody read.
+    expect(accountModelOf(undefined, 12)).toEqual({ kind: 'unknown' });
+    expect(accountModelOf([{ id: 13, default_exec: OWN_MODEL }], 12)).toEqual({ kind: 'unknown' });
+    expect(accountModelOf([{ id: 12, default_exec: 7 }], 12)).toEqual({ kind: 'unknown' });
+    // The instance default an empty account model resolves to, and its absence as its own answer.
+    expect(instanceDefaultOf({ defaults: { exec: INSTANCE_DEFAULT } })).toBe(INSTANCE_DEFAULT);
+    expect(instanceDefaultOf({ defaults: { exec: '  ' } })).toBeNull();
+    expect(instanceDefaultOf({ defaults: {} })).toBeNull();
+    expect(instanceDefaultOf(undefined)).toBeNull();
+  });
+
   it('turns blocker codes into the copy an administrator acts on', () => {
     expect(blockerText(['several_projects'], 3, { detailProjectSeveral: '{count} projects' })).toEqual(['3 projects']);
     expect(blockerText(['project_being_deleted'], 1, { detailProjectNone: 'none' })).toEqual(['none']);

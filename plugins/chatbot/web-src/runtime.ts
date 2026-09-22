@@ -84,6 +84,13 @@ interface QueryResult<T> {
   refetch(): unknown;
 }
 
+/** The instance's own configuration, narrowed to the one fact the model row reads out of it: the default
+ *  exec an account with no model of its own inherits. The form that edits the whole record is the host's,
+ *  and this bundle never writes it. */
+export interface InstanceConfig {
+  defaults?: { exec?: unknown };
+}
+
 interface ChatbotHooks {
   /** This plugin's own page copy: its manifest's English fallback, with the active locale's overrides. */
   usePluginStrings(plugin: string): Record<string, string>;
@@ -108,6 +115,9 @@ interface ChatbotHooks {
   useQueryClient(): {
     setQueryData<T>(queryKey: readonly unknown[], updater: (current: T | undefined) => T | undefined): void;
   };
+  /** The instance's configuration as the host reads it, so the model row and every host surface share one
+   *  answer and one invalidation path instead of this bundle fetching the same record again. */
+  useConfig(): QueryResult<InstanceConfig>;
   usePersistentState<T extends string>(
     key: string,
     initial: T,
@@ -456,4 +466,11 @@ export const chatbotApi = {
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports
    *  what the account can reach rather than keeping an opinion of its own about it. */
   accountTools: (userId: number): string => `/users/${userId}/tools`,
+  /** Core's own account directory, the same route the creation dialog reads the account's grants from. It
+   *  is where a chatbot account's OWN model lives (`default_exec`), which the plugin cannot see from its
+   *  server side and must never keep a copy of. */
+  accountDirectory: (): string => '/users',
+  /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
+   *  and the only way to a setting that belongs to the account rather than to the chatbot. */
+  impersonate: (): string => '/auth/impersonate',
 } as const;

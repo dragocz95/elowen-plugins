@@ -9,6 +9,8 @@ import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
 import { BudgetUsage } from './BudgetUsage';
 import { AppearanceModal } from './AppearanceModal';
+import { useAccountModel } from './accountModel';
+import { switchToAccount } from './accountSwitch';
 import type { ChatbotBotView } from './types';
 
 export function blockerText(blockers: string[], projectCount: number, s: Record<string, string>): string[] {
@@ -40,9 +42,13 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
   const [limits, setLimits] = useState<LimitDraft>(() => limitDraftOf(bot.limits));
   const [maySubmitForms, setMaySubmitForms] = useState(bot.maySubmitForms);
   const [pending, setPending] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<'enable' | 'disable' | 'discard' | null>(null);
   const [opened, setOpened] = useState<'limits' | 'appearance' | null>(null);
+  // The model is the ACCOUNT's, read live from core while this drawer is open; nothing about it is stored
+  // on the plugin's row. See `./accountModel`.
+  const { model, instanceDefault } = useAccountModel(bot.chatbotUserId);
 
   useEffect(() => {
     setOrigins(bot.origins);
@@ -88,6 +94,19 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     }
   };
 
+  /** Enter this chatbot's own account, which is where its model is changed. The host runs the switch and
+   *  takes the page over from there; a refusal is reported here like any other failed action. */
+  const switchAccount = async () => {
+    setError(null);
+    setSwitching(true);
+    try {
+      await switchToAccount(bot.chatbotUserId);
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason) || s.detailModelSwitchFailed);
+      setSwitching(false);
+    }
+  };
+
   const leave = () => { if (dirty) setConfirming('discard'); else onClose(); };
 
   return (
@@ -111,6 +130,27 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
             <C.SettingsRow label={s.detailAccount} status={bot.account === null ? '—' : `@${bot.account.username}`} />
             <C.SettingsRow label={s.detailProject} status={bot.projects.length === 1 ? bot.projects[0]!.slug : '—'} />
             <C.SettingsRow label={s.detailUpdated} status={formatDateTime(bot.updatedAt, locale)} />
+            {/* The model the visitor's answer comes from. It belongs to the ACCOUNT, so this row states it
+                and hands the reader to that account — the one place that can change it. */}
+            <C.SettingsRow
+              label={s.detailModel}
+              status={model.kind === 'own' ? (
+                <span className="truncate font-mono" title={model.model}>{model.model}</span>
+              ) : (
+                <span className="flex min-w-0 items-center gap-2">
+                  {model.kind === 'inherited' ? <C.Badge tone="muted">{s.detailModelInherited}</C.Badge> : null}
+                  <span className="truncate font-mono" title={instanceDefault ?? undefined}>{instanceDefault ?? '—'}</span>
+                </span>
+              )}
+              actions={(
+                <C.IconButton
+                  icon={ChevronRight}
+                  label={s.detailModelChange}
+                  disabled={pending || switching}
+                  onClick={() => void switchAccount()}
+                />
+              )}
+            />
           </C.SettingsGroup>
 
           <OriginsField origins={origins} insecure={bot.insecureOrigins} disabled={pending} onChange={setOrigins} />
