@@ -725,7 +725,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
   const valueText = (field, value) => {
     if (field === "dailyCostMicrousd") return money(value / 1e6, locale);
     const unit = s[`limitUnit_${field}`];
-    return unit === void 0 ? String(value) : `${value} ${unit}`;
+    return unit ? `${integer(value, locale)} ${unit}` : integer(value, locale);
   };
   const rows = (fields) => fields.map((field) => {
     const range = sliderRange(field, draft[field]);
@@ -761,7 +761,6 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
     C.Modal,
     {
       title: s.limitsTitle,
-      description: s.limitsHint,
       icon: Gauge,
       size: "md",
       presentation: "center",
