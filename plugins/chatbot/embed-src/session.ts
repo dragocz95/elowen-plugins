@@ -129,6 +129,9 @@ export class ChatSession {
     this.sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => { setTimeout(resolve, ms); }));
     this.token = this.readStoredToken();
     this.handoff = deps.page.takeHandoff();
+    // A framework or an early reload can restore the navigation fragment. A receipt is only useful
+    // alongside a token: without credentials, redemption is still the only possible way in.
+    if (this.token !== null && this.handoff === this.readHandoffReceipt()) this.handoff = null;
   }
 
   /** Whether this browser already holds a visitor token, which is the same question as "has this visitor
@@ -520,8 +523,16 @@ export class ChatSession {
       const response = await this.request(null, 'POST', PUBLIC_PATHS.handoff,
         { schemaVersion: PUBLIC_SCHEMA_VERSION, bot: this.deps.publicId, code });
       const body = response?.ok ? await readJson(response) : null;
-      if (typeof body?.token !== 'string') { this.handoffFailed = true; this.deps.view.error(this.strings.navigationFailed); throw new Error('Navigation handoff refused'); }
+      if (typeof body?.token !== 'string' || body.token === '') {
+        // Refusing a one-time code says nothing about the browser's stored visitor credential.
+        // Let the authenticated conversation endpoint validate it, without replacing that identity.
+        if (this.token !== null) return this.token;
+        this.handoffFailed = true;
+        this.deps.view.error(this.strings.navigationFailed);
+        throw new Error('Navigation handoff refused');
+      }
       this.rememberToken(body.token);
+      this.rememberHandoffReceipt(code);
     }
     if (this.token !== null) return this.token;
     const response = await this.request(null, 'POST', PUBLIC_PATHS.visitors, visitorRequestBody(this.deps.publicId));
@@ -624,6 +635,23 @@ export class ChatSession {
 
   private get storageKey(): string {
     return `elowen.chatbot.${this.deps.publicId}.token`;
+  }
+
+  private readHandoffReceipt(): string | null {
+    try {
+      return this.deps.storage?.getItem(`${this.storageKey}.handoff`) ?? null;
+    } catch {
+      return null; // Storage is optional; the server still enforces single use.
+    }
+  }
+
+  private rememberHandoffReceipt(code: string): void {
+    try {
+      // Only the latest successfully spent code is retained, never an unbounded navigation log.
+      this.deps.storage?.setItem(`${this.storageKey}.handoff`, code);
+    } catch {
+      // A browser that cannot persist a receipt can still resume with its stored token.
+    }
   }
 
   private readStoredToken(): string | null {

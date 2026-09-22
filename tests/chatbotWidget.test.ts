@@ -852,6 +852,42 @@ describe('acting on the page', () => {
 });
 
 describe('navigation and active-turn restoration', () => {
+  it.each([403, 503, 200])('restores the stored conversation after a refused or malformed handoff (%s)', async status => {
+    const storage = new Map<string, string>([['elowen.chatbot.cbt_0123456789abcdef01234567.token', 'original']]);
+    const view = makeView(), page = makePage();
+    page.bridge.takeHandoff = () => 'a'.repeat(64);
+    const harness = makeSession({ view, page, storage: {
+      getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value); },
+      removeItem: key => { storage.delete(key); },
+    }, responses: ({url}) => url.endsWith('/handoff')
+      ? jsonResponse(status, {error:'invalid_handoff'})
+      : jsonResponse(200, {turns:[{turnId:'T',message:'Hello',reply:'Still here',lastSeq:2,pendingActions:[]}],activeTurnId:null}) });
+    await harness.session.loadAppearance();
+    await harness.session.start();
+    expect(view.restored).toEqual([{role:'user',text:'Hello'},{role:'ai',text:'Still here'}]);
+    expect(view.errors).toEqual([]);
+    expect(harness.requests.some(r => r.url.endsWith('/visitors'))).toBe(false);
+  });
+
+  it('does not redeem a successful handoff again when the site restores its fragment', async () => {
+    const values = new Map<string, string>();
+    const storage = {getItem:(key:string) => values.get(key) ?? null,
+      setItem:(key:string,value:string) => { values.set(key,value); },
+      removeItem:(key:string) => { values.delete(key); }};
+    for (const reload of [false,true]) {
+      const view = makeView(), page = makePage();
+      page.bridge.takeHandoff = () => 'b'.repeat(64);
+      const harness = makeSession({view,page,storage,responses:({url}) => url.endsWith('/handoff')
+        ? jsonResponse(200,{token:'restored'})
+        : jsonResponse(200,{turns:[],activeTurnId:null})});
+      await harness.session.start();
+      expect(harness.requests.filter(r => r.url.endsWith('/handoff'))).toHaveLength(reload ? 0 : 1);
+      expect(view.errors).toEqual([]);
+      harness.session.destroy();
+    }
+  });
+
   it('restores partial text and refuses an approved old-page action without replaying settled actions', async () => {
     const view = makeView();
     const page = makePage();

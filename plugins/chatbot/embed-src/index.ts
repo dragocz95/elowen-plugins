@@ -54,7 +54,9 @@ class BrowserPage implements PageBridge {
     if (offset < 0) return null;
     const code = hash.slice(offset + prefix.length);
     // Remove the secret before any request or further page action, preserving the site's original fragment.
-    history.replaceState(history.state, '', location.pathname + location.search + (offset === 1 ? '' : hash.slice(0, offset - 1)));
+    // Do not replay a framework's private history state. Next.js treats its own marked state as an
+    // internal write and skips synchronizing the router URL, which can later restore the spent fragment.
+    history.replaceState(null, '', location.pathname + location.search + (offset === 1 ? '' : hash.slice(0, offset - 1)));
     this.arrivedByNavigation = HANDOFF_CODE_PATTERN.test(code);
     return this.arrivedByNavigation ? code : null;
   }
