@@ -4,6 +4,7 @@ import { ChatbotAdapter } from '../../plugins/chatbot/src/adapter.js';
 import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
 import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
+import type { AvatarFetch } from '../../plugins/chatbot/src/avatarProxy.js';
 import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
 import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
@@ -36,6 +37,11 @@ export const TRUSTED_REQUEST_ORIGIN = { value: '203.0.113.9', kind: 'ip' as cons
 
 export const CLIENT_TURN_ID = '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34';
 
+/** The bytes the fixture's image host serves: a PNG signature, which is all this route passes through
+ *  without reading. What the route decides about an answer is its media type and its size, never its
+ *  contents. */
+export const AVATAR_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
 export type ChatbotHookReply = Awaited<ReturnType<ReturnType<typeof createPublicRoute>>>;
 
 export interface RelayCall {
@@ -65,6 +71,9 @@ export interface ChatbotHost {
   handler: ReturnType<typeof createPublicRoute>;
   calls: RelayCall[];
   warnings: string[];
+  /** Every address the deployment was asked to fetch an avatar from, in order, so a test can see WHICH
+   *  address the route decided to reach rather than only what came back. */
+  avatarRequests: string[];
   /** The turn behaviour. A test that needs a LIVE turn replaces it and drives the observer by hand. */
   handleTurn: (input: TurnInput) => Promise<string | undefined>;
   /** Move the one clock this host reads. A rule about TIME — an action's own expiry, a token's lifetime — is
@@ -113,6 +122,9 @@ export function createChatbotHost(options: {
   /** The core's own answer to "may this account use this plugin right now" — the grant an administrator
    *  hands out. True by default, because a chatbot without it answers questions and can do nothing else. */
   mayUsePlugin?: (userId: number) => boolean;
+  /** What the deployment's image host serves for the address an owner configured. The default is a small
+   *  PNG, which is what the success path is about; a suite that is about a REFUSAL replaces it. */
+  avatar?: (source: string) => Promise<AvatarFetch>;
 } = {}): ChatbotHost {
   hostCount += 1;
   // One in-memory database per host, addressed the way the loader addresses it: the helper returns the
@@ -137,6 +149,7 @@ export function createChatbotHost(options: {
 
   const calls: RelayCall[] = [];
   const warnings: string[] = [];
+  const avatarRequests: string[] = [];
   const warn = (message: string): void => { warnings.push(message); };
   const adapter = new ChatbotAdapter(warn);
   adapter.listen(async () => undefined);
@@ -154,6 +167,7 @@ export function createChatbotHost(options: {
     stores,
     calls,
     warnings,
+    avatarRequests,
     handleTurn: scriptedTurn(SCRIPTED_REPLY),
     queue: undefined as unknown as ChatbotTurnQueue,
     actions: undefined as unknown as PageActionService,
@@ -209,6 +223,10 @@ export function createChatbotHost(options: {
     broker,
     actions: host.actions,
     pingIntervalMs: options.pingIntervalMs ?? STREAM_PING_INTERVAL_MS,
+    avatar: options.avatar ?? ((source) => {
+      avatarRequests.push(source);
+      return Promise.resolve({ ok: true, contentType: 'image/png', bytes: AVATAR_BYTES });
+    }),
     secret: () => CHATBOT_SECRET,
     tokenTtlSeconds: () => 30 * 86_400,
     now,

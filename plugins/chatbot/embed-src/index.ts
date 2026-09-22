@@ -180,6 +180,9 @@ export function mount(): ElowenChatbotApi | null {
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),
     onStop: () => session?.stopWatching(),
     onOpen: () => void look(),
+    // The owner's avatar travels over the visitor's own authorized connection rather than from the image
+    // host the customer's page would have to allow. Absent bytes are simply a panel without an avatar.
+    loadAvatar: async () => await session?.loadAvatar() ?? null,
   });
 
   session = new ChatSession({
