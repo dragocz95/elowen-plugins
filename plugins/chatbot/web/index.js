@@ -68,7 +68,10 @@ var chatbotApi = {
   stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports
    *  what the account can reach rather than keeping an opinion of its own about it. */
-  accountTools: (userId) => `/users/${userId}/tools`
+  accountTools: (userId) => `/users/${userId}/tools`,
+  /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
+   *  and the only way to a setting that belongs to the account rather than to the chatbot. */
+  impersonate: () => "/auth/impersonate"
 };
 
 // plugins/chatbot/web-src/ChatbotDeck.tsx
@@ -20728,8 +20731,38 @@ function AppearanceModal({ bot, onClose, onChanged }) {
   ] });
 }
 
+// plugins/chatbot/web-src/accountSwitch.ts
+var AUTH_TRANSITION_EVENT = "elowen:auth-transition";
+var AUTH_TRANSITION_STORAGE_KEY = "elowen:auth-transition";
+function publishTransition(id2, phase) {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTH_TRANSITION_EVENT, { detail: { id: id2, phase } }));
+    localStorage.setItem(AUTH_TRANSITION_STORAGE_KEY, JSON.stringify({ id: id2, phase, nonce: Math.random() }));
+    localStorage.removeItem(AUTH_TRANSITION_STORAGE_KEY);
+  } catch {
+  }
+}
+function transitionId() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+async function switchToAccount(userId) {
+  const id2 = transitionId();
+  publishTransition(id2, "start");
+  try {
+    await apiJson(chatbotApi.impersonate(), jsonRequest("POST", { userId }));
+  } catch (error) {
+    publishTransition(id2, "rollback");
+    throw error;
+  }
+  publishTransition(id2, "commit");
+}
+
 // plugins/chatbot/web-src/BotDetail.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+function modelSourceText(model, s) {
+  if (model.source === "preference") return s.detailModelSourcePreference;
+  return model.source === "instance" ? s.detailModelSourceInstance : s.detailModelSourceAllowed;
+}
 function blockerText(blockers, projectCount, s) {
   return blockers.map((blocker) => {
     if (blocker === "account_unknown") return s.accountUnknown;
@@ -20752,6 +20785,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
   const [limits, setLimits] = (0, import_react7.useState)(() => limitDraftOf(bot.limits));
   const [maySubmitForms, setMaySubmitForms] = (0, import_react7.useState)(bot.maySubmitForms);
   const [pending, setPending] = (0, import_react7.useState)(false);
+  const [switching, setSwitching] = (0, import_react7.useState)(false);
   const [error, setError] = (0, import_react7.useState)(null);
   const [confirming, setConfirming] = (0, import_react7.useState)(null);
   const [opened, setOpened] = (0, import_react7.useState)(null);
@@ -20793,6 +20827,16 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
       toast(s.embedCopyFailed, "error");
     }
   };
+  const switchAccount = async () => {
+    setError(null);
+    setSwitching(true);
+    try {
+      await switchToAccount(bot.chatbotUserId);
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason) || s.detailModelSwitchFailed);
+      setSwitching(false);
+    }
+  };
   const leave = () => {
     if (dirty) setConfirming("discard");
     else onClose();
@@ -20816,7 +20860,26 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailName, status: bot.displayName || s.botFallback }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailAccount, status: bot.account === null ? "\u2014" : `@${bot.account.username}` }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailProject, status: bot.projects.length === 1 ? bot.projects[0].slug : "\u2014" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailUpdated, status: formatDateTime(bot.updatedAt, locale) })
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailUpdated, status: formatDateTime(bot.updatedAt, locale) }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              C.SettingsRow,
+              {
+                label: s.detailModel,
+                status: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.Badge, { tone: bot.model?.source === "allowed" ? "accent" : "muted", children: bot.model === null ? s.detailModelUnnamed : modelSourceText(bot.model, s) }),
+                  bot.model === null ? null : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "truncate font-mono", title: bot.model.exec, children: bot.model.exec })
+                ] }),
+                actions: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                  C.IconButton,
+                  {
+                    icon: ChevronRight,
+                    label: s.detailModelChange,
+                    disabled: pending || switching,
+                    onClick: () => void switchAccount()
+                  }
+                )
+              }
+            )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(OriginsField, { origins, insecure: bot.insecureOrigins, disabled: pending, onChange: setOrigins }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(C.SettingsGroup, { title: s.appearanceTitle, icon: Palette, density: "compact", children: [

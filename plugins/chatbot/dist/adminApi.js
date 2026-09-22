@@ -37,8 +37,25 @@ export function percentileMs(samples, fraction) {
 // Keep this URL stable: widgetAssetHeaders requires ETag revalidation on every page load.
 // Per-load query strings would discard the cached body and defeat the cheap 304 path.
 const embedSnippetFor = (baseUrl, publicId) => baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
+/** The model this chatbot's visitors are answered by, from core's own composed answer for the account — the
+ *  same rules a spawn applies, so the row can never promise a model the turn would not really run. This
+ *  plugin has no model of its own to report and no route to write one: it asks, and states the answer.
+ *
+ *  A REFUSAL is a state of its own rather than a failure of this register. Core throws for an account that
+ *  may run no configured model at all, and one mis-granted account must not take the whole register down
+ *  with it: the refusal is reported as "core named no model" — which is exactly what is true — and core's
+ *  own message goes to the daemon log, where an operator can act on it. */
+function modelOf(stores, chatbotUserId, warn) {
+    try {
+        return stores.usersRead.effectiveChatExec(chatbotUserId);
+    }
+    catch (reason) {
+        warn(`chatbot: no model could be named for account ${chatbotUserId} (${reason instanceof Error ? reason.message : String(reason)})`);
+        return null;
+    }
+}
 export function createAdminApi(deps) {
-    const { store, stores, now } = deps;
+    const { store, stores, now, warn } = deps;
     const viewOf = (row) => {
         const { facts, blockers } = inspectAccount(stores, row.chatbot_user_id);
         const origins = store.originsOf(row.chatbot_user_id);
@@ -58,6 +75,7 @@ export function createAdminApi(deps) {
                 isAdmin: facts.account.isAdmin,
             },
             projects: facts.projects.map((project) => ({ id: project.id, slug: project.slug })),
+            model: modelOf(stores, row.chatbot_user_id, warn),
             blockers,
             insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
             limits: storedLimits(row),
