@@ -60,6 +60,11 @@ export interface ChatPanelOptions {
   /** The panel was opened — a click the visitor made, and therefore the first thing the widget may ask the
    *  server for. See `mount()`. */
   onOpen?: () => void;
+  /** The chatbot's avatar as bytes, fetched over the connection this widget already owns, because the
+   *  customer's page has no reason to allow the owner's image host. Absent on a panel that holds no visitor
+   *  credential — the administrator's preview — which has no route to ask and therefore shows the configured
+   *  address directly. */
+  loadAvatar?: () => Promise<Blob | null>;
 }
 
 /** Text that cannot become markup. The greeting and every quick button come from a configuration, and they
@@ -144,6 +149,9 @@ function introUtilities(
 function chatConfig(input: {
   look: ChatbotLook;
   strings: WidgetStrings;
+  /** The avatar the message list draws beside the chatbot's answers: the SAME resolved source the header
+   *  shows, or `null` when the look names no avatar or the panel has nothing to show. */
+  avatar: string | null;
   onQuickButton: (text: string) => void;
   onStop: () => void;
 }): Record<string, unknown> {
@@ -271,7 +279,7 @@ function chatConfig(input: {
       }),
     },
     htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: !appearance.header.showAvatar || appearance.avatarUrl === '' ? undefined : { ai: { src: appearance.avatarUrl } },
+    avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' } } : undefined,
   };
 }
@@ -397,6 +405,7 @@ export class ChatPanel implements ChatView {
   private readonly onVisitorMessage: (text: string) => void;
   private readonly onStop: () => void;
   private readonly onOpen: (() => void) | undefined;
+  private readonly loadAvatar: (() => Promise<Blob | null>) | undefined;
   private readonly style: HTMLStyleElement;
   private readonly panel: HTMLElement;
   private readonly title: HTMLElement;
@@ -428,6 +437,11 @@ export class ChatPanel implements ChatView {
   private signals: StreamSignals | null = null;
   private answerActive = false;
   private pendingConfirmation: ((confirmed: boolean) => void) | null = null;
+  /** The object URL the panel created for the avatar's bytes, and the ONLY URL it may release. `null` until
+   *  those bytes arrive, and again once they have been replaced or the panel has gone away. */
+  private avatarObjectUrl: string | null = null;
+  /** Whether the widget has gone away, so a late answer never creates a URL nobody would release. */
+  private destroyed = false;
 
   constructor(options: ChatPanelOptions) {
     this.strings = options.strings;
@@ -435,6 +449,7 @@ export class ChatPanel implements ChatView {
     this.onVisitorMessage = options.onVisitorMessage;
     this.onStop = options.onStop;
     this.onOpen = options.onOpen;
+    this.loadAvatar = options.loadAvatar;
 
     this.host = document.createElement('div');
     this.host.setAttribute('data-elowen-chatbot', 'root');
@@ -560,6 +575,10 @@ export class ChatPanel implements ChatView {
   applyAppearance(look: ChatbotLook): void {
     this.look = look;
     this.applyChrome();
+    // Asked for here and NOT waited for: the panel is drawn from the look alone, so a slow or dead image host
+    // cannot hold up a panel a visitor is trying to use. Until the bytes arrive the avatar stays hidden,
+    // which is exactly what it did before this route existed.
+    this.requestAvatar();
     if (this.signals !== null) {
       // An answer is streaming. Replacing the element would take the answer with it, and reconfiguring it
       // would rebuild the very list the stream is writing into, so the redraw waits for the frame that ends
@@ -677,6 +696,8 @@ export class ChatPanel implements ChatView {
   }
 
   destroy(): void {
+    this.destroyed = true;
+    this.releaseAvatarObjectUrl();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -690,7 +711,13 @@ export class ChatPanel implements ChatView {
    *  one reconfigured for a new look are configured identically, or the panel a visitor sees and the panel an
    *  administrator previews would be two different things. */
   private chatConfig(): Record<string, unknown> {
-    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text), onStop: () => this.stopAnswer() });
+    return chatConfig({
+      look: this.look,
+      strings: this.strings,
+      avatar: this.avatarSource(),
+      onQuickButton: (text) => this.sendQuick(text),
+      onStop: () => this.stopAnswer(),
+    });
   }
 
   /** One chat element, configured from the current look. `connect` is what makes this widget answer with its
@@ -826,9 +853,7 @@ export class ChatPanel implements ChatView {
     const { appearance } = this.look;
     this.subtitle.textContent = appearance.header.subtitle;
     this.subtitle.hidden = appearance.header.subtitle === '';
-    this.avatar.hidden = !appearance.header.showAvatar || appearance.avatarUrl === '';
-    if (this.avatar.hidden) this.avatar.removeAttribute('src');
-    else this.avatar.src = appearance.avatarUrl;
+    this.showAvatar(this.avatarSource());
     this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
     if (appearance.launcher.presenceDot) {
       const dot = document.createElement('span');
@@ -850,6 +875,87 @@ export class ChatPanel implements ChatView {
 
   private titleText(): string {
     return this.look.name === '' ? this.strings.title : this.look.name;
+  }
+
+  /** The address this look names, when it names one and the switch that shows it is on. `null` when the
+   *  avatar is off, and the ONE place both the fetch and the drawing read that decision. */
+  private configuredAvatar(): string | null {
+    const { appearance } = this.look;
+    if (!appearance.header.showAvatar || appearance.avatarUrl === '') return null;
+    return appearance.avatarUrl;
+  }
+
+  /** The src the look's avatar resolves to for THIS panel.
+   *
+   *  One function, because the header and the message list draw the same image: a second answer here is how
+   *  the two would come to disagree about what the owner configured. */
+  private avatarSource(): string | null {
+    const configured = this.configuredAvatar();
+    if (configured === null) return null;
+    // An image that carries its own bytes needs no network at all: it is drawn exactly as it stands.
+    if (configured.startsWith('data:')) return configured;
+    // A remote address is drawn from the bytes fetched over this widget's own connection — and while those
+    // are on their way, or if they never come, it is not drawn at all. Asking a customer's page to allow the
+    // owner's image host is the one thing this route exists to avoid.
+    if (this.loadAvatar !== undefined) return this.avatarObjectUrl;
+    // Nothing to ask with: the administrator's preview, which holds no visitor credential and therefore has
+    // no route to call, so the configured address is what it shows.
+    return configured;
+  }
+
+  /** Ask for the avatar's bytes, whenever the look names an address that has to travel. Once per applied
+   *  look: the widget applies one look per page, and a look that needs no image asks for nothing at all. */
+  private requestAvatar(): void {
+    const loader = this.loadAvatar;
+    const configured = this.configuredAvatar();
+    if (loader === undefined || this.destroyed) return;
+    if (configured === null || configured.startsWith('data:')) return;
+    loader().then(
+      (bytes) => { if (bytes !== null) this.showAvatarBytes(bytes); },
+      // A refused or failed fetch is a panel WITHOUT an avatar: never a broken image, and never a retry.
+      () => undefined,
+    );
+  }
+
+  /** The avatar's bytes, as the object URL an `<img>` can carry. */
+  private showAvatarBytes(bytes: Blob): void {
+    // A panel that has already gone away must not create a URL nobody would ever release.
+    if (this.destroyed) return;
+    this.releaseAvatarObjectUrl();
+    this.avatarObjectUrl = URL.createObjectURL(bytes);
+    this.applyAvatar();
+  }
+
+  /** Put the avatar wherever the look's own image goes, now that its bytes are here. The message element is
+   *  rebuilt through the panel's existing path, so the avatars beside the answers take the new source exactly
+   *  the way they take a new look. */
+  private applyAvatar(): void {
+    this.showAvatar(this.avatarSource());
+    if (this.signals !== null) {
+      // An answer is streaming: replacing or reconfiguring the message element would take it with it, so the
+      // rebuild waits for the frame that ends the answer, exactly as a look change does.
+      this.redrawPending = true;
+      return;
+    }
+    if (this.pristineChat()) this.reconfigureChat();
+    else this.redrawChat();
+  }
+
+  /** Show one source in the header avatar, releasing the object URL the panel created for the previous one.
+   *  `null` is a panel with no avatar, which is a panel that works. */
+  private showAvatar(src: string | null): void {
+    if (src !== this.avatarObjectUrl) this.releaseAvatarObjectUrl();
+    this.avatar.hidden = src === null;
+    if (src === null) this.avatar.removeAttribute('src');
+    else this.avatar.src = src;
+  }
+
+  /** Give back the one URL this panel owns. Called whenever it is replaced and when the widget goes away, so
+   *  the bytes of an image a panel no longer shows are never held on to. */
+  private releaseAvatarObjectUrl(): void {
+    if (this.avatarObjectUrl === null) return;
+    URL.revokeObjectURL(this.avatarObjectUrl);
+    this.avatarObjectUrl = null;
   }
 
   private setStatus(text: string, failed: boolean): void {

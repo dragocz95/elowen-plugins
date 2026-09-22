@@ -172,7 +172,7 @@ function makePage(options: { holds?: boolean } = {}): PageLog {
 }
 
 interface Harness {
-  requests: { method: string; url: string; body: Record<string, unknown> | null }[];
+  requests: { method: string; url: string; body: Record<string, unknown> | null; headers: Record<string, string> }[];
   session: ChatSession;
 }
 
@@ -192,7 +192,7 @@ function makeSession(input: {
     const key = `${method} ${String(url).split('?')[0]}`;
     const attempt = attempts.get(key) ?? 0;
     attempts.set(key, attempt + 1);
-    requests.push({ method, url: String(url), body });
+    requests.push({ method, url: String(url), body, headers: (init.headers ?? {}) as Record<string, string> });
     return input.responses({ method, url: String(url), attempt });
   }) as unknown as typeof fetch;
 
@@ -1206,5 +1206,193 @@ describe('a transcript restored after the page was loaded again', () => {
     instance.open();
     expect(chat.scrolledToBottom).toBe(1);
     instance.destroy();
+  });
+});
+
+describe('the avatar a customer\'s page is not asked to allow', () => {
+  /** jsdom implements neither object URL call, and what the panel does with them is most of what this block
+   *  is about, so they are recorded rather than emulated: what a real browser does with a `blob:` src is not
+   *  something this environment could observe anyway. */
+  function objectUrls(): { created: string[]; revoked: string[] } {
+    const log = { created: [] as string[], revoked: [] as string[] };
+    class StubbedUrl extends URL {}
+    StubbedUrl.createObjectURL = () => {
+      const url = `blob:https://example.test/${log.created.length + 1}`;
+      log.created.push(url);
+      return url;
+    };
+    StubbedUrl.revokeObjectURL = (url: string) => { log.revoked.push(url); };
+    vi.stubGlobal('URL', StubbedUrl);
+    return log;
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  const REMOTE = 'https://elowen.run/favicon.ico';
+  const DATA = 'data:image/png;base64,iVBORw0KGgo=';
+  const bytes = (): Blob => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+  const lookWithAvatar = (avatarUrl: string, showAvatar = true): ChatbotLook => ({
+    name: 'Městský úřad',
+    appearance: { ...DEFAULT_APPEARANCE, avatarUrl, header: { ...DEFAULT_APPEARANCE.header, showAvatar } },
+  });
+
+  /** A panel mounted the way the widget mounts one: the built-in look first, the chatbot's own look applied
+   *  when it arrives. That ordering is what makes the avatar a separate input rather than part of the look. */
+  function mounted(loader?: () => Promise<Blob | null>): ChatPanel {
+    const instance = new ChatPanel({
+      strings,
+      look: { name: '', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined,
+      onStop: () => undefined,
+      ...(loader === undefined ? {} : { loadAvatar: loader }),
+    });
+    document.body.append(instance.host);
+    return instance;
+  }
+  const avatarOf = (instance: ChatPanel): HTMLImageElement => instance.host.shadowRoot!.querySelector('img.header-avatar')!;
+  const messageAvatarOf = (instance: ChatPanel): string | undefined =>
+    (instance.host.shadowRoot!.querySelector('deep-chat') as unknown as { avatars?: { ai?: { src?: string } } }).avatars?.ai?.src;
+
+  it('asks the public surface for the avatar over the visitor\'s own authorized connection', async () => {
+    const harness = makeSession({
+      view: makeView(),
+      page: makePage(),
+      responses: ({ url }) => url.endsWith('/avatar')
+        ? new Response(new Uint8Array([9, 9]), { status: 200, headers: { 'content-type': 'image/png' } })
+        : jsonResponse(200, { token: 'token-1' }),
+    });
+    const blob = await harness.session.loadAvatar();
+    expect(blob).not.toBeNull();
+    expect(blob!.size).toBe(2);
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(new Uint8Array([9, 9]));
+
+    const asked = harness.requests.at(-1)!;
+    expect(asked.url).toBe('https://elowen.example/hooks/chatbot/v2/avatar');
+    expect(asked.method).toBe('GET');
+    expect(asked.headers.authorization).toBe('ChatbotVisitor token-1');
+    // The answer is an image, and the request says so rather than claiming a JSON body it will never read.
+    expect(asked.headers.accept).toBe('image/*');
+  });
+
+  it('answers null for a deployment with no avatar, and asks exactly once', async () => {
+    const harness = makeSession({
+      view: makeView(),
+      page: makePage(),
+      responses: ({ url }) => url.endsWith('/avatar') ? jsonResponse(404, { error: 'no_avatar' }) : jsonResponse(200, { token: 'token-1' }),
+    });
+    expect(await harness.session.loadAvatar()).toBeNull();
+    expect(harness.requests.filter((request) => request.url.endsWith('/avatar'))).toHaveLength(1);
+  });
+
+  it('shows the owner\'s image from bytes the widget fetched, in the header and beside the answers', async () => {
+    const urls = objectUrls();
+    let asked = 0;
+    const instance = mounted(() => { asked += 1; return Promise.resolve(bytes()); });
+    instance.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+
+    expect(asked).toBe(1);
+    expect(urls.created).toHaveLength(1);
+    // ONE resolved source for both places the look's own image goes, so the header and the answers cannot
+    // come to disagree about what the owner configured.
+    expect(avatarOf(instance).hidden).toBe(false);
+    expect(avatarOf(instance).getAttribute('src')).toBe(urls.created[0]);
+    expect(messageAvatarOf(instance)).toBe(urls.created[0]);
+    // Deliberately NOT the owner's address: that is the request a customer's `img-src` would have to allow.
+    expect(avatarOf(instance).getAttribute('src')).not.toBe(REMOTE);
+    instance.destroy();
+  });
+
+  it('releases the object URL it made when the look replaces it, and when the widget goes away', async () => {
+    const urls = objectUrls();
+    const instance = mounted(() => Promise.resolve(bytes()));
+    instance.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+    const [first] = urls.created;
+
+    // A look whose avatar carries its own bytes needs no URL of ours, so the one we made is given back.
+    instance.applyAppearance(lookWithAvatar(DATA));
+    expect(urls.revoked).toEqual([first]);
+    expect(avatarOf(instance).getAttribute('src')).toBe(DATA);
+
+    // And a panel that goes away holds nothing either.
+    instance.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+    const second = urls.created[1];
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    instance.destroy();
+    expect(urls.revoked).toEqual([first, second]);
+  });
+
+  it('uses an image that carries its own bytes exactly as it stands, and asks for nothing', async () => {
+    const urls = objectUrls();
+    let asked = 0;
+    const instance = mounted(() => { asked += 1; return Promise.resolve(bytes()); });
+    instance.applyAppearance(lookWithAvatar(DATA));
+    await flush();
+
+    expect(asked).toBe(0);
+    expect(urls.created).toEqual([]);
+    expect(avatarOf(instance).getAttribute('src')).toBe(DATA);
+    expect(messageAvatarOf(instance)).toBe(DATA);
+    instance.destroy();
+  });
+
+  it('shows the configured address directly when the panel has no way to ask for bytes', async () => {
+    // The administrator's preview: no visitor credential, therefore no route to ask. It draws what the owner
+    // typed, which is exactly what it previewed before the route existed.
+    const instance = mounted();
+    instance.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+    expect(avatarOf(instance).getAttribute('src')).toBe(REMOTE);
+    expect(messageAvatarOf(instance)).toBe(REMOTE);
+    instance.destroy();
+  });
+
+  it('keeps the avatar hidden, and asks for nothing, when the look turns it off', async () => {
+    let asked = 0;
+    const instance = mounted(() => { asked += 1; return Promise.resolve(bytes()); });
+    instance.applyAppearance(lookWithAvatar(REMOTE, false));
+    await flush();
+
+    expect(asked).toBe(0);
+    expect(avatarOf(instance).hidden).toBe(true);
+    expect(avatarOf(instance).hasAttribute('src')).toBe(false);
+    expect(messageAvatarOf(instance)).toBeUndefined();
+    instance.destroy();
+  });
+
+  it('leaves the avatar hidden, with no src at all, when the deployment has none to give', async () => {
+    const urls = objectUrls();
+    // Every refusal is the same to a visitor: a panel WITHOUT an avatar, never a broken image and never a
+    // retry. The second panel is the same story for a fetch that fails outright.
+    const empty = mounted(() => Promise.resolve(null));
+    empty.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+    const failing = mounted(() => Promise.reject(new Error('refused')));
+    failing.applyAppearance(lookWithAvatar(REMOTE));
+    await flush();
+
+    for (const instance of [empty, failing]) {
+      expect(avatarOf(instance).hidden).toBe(true);
+      expect(avatarOf(instance).hasAttribute('src')).toBe(false);
+      expect(messageAvatarOf(instance)).toBeUndefined();
+      instance.destroy();
+    }
+    expect(urls.created).toEqual([]);
+  });
+
+  it('creates no object URL for a panel that has already gone away', async () => {
+    const urls = objectUrls();
+    const pending: { resolve: (blob: Blob | null) => void } = { resolve: () => undefined };
+    const instance = mounted(() => new Promise<Blob | null>((resolve) => { pending.resolve = resolve; }));
+    instance.applyAppearance(lookWithAvatar(REMOTE));
+    instance.destroy();
+
+    // The bytes arrive after the widget was removed: nothing may hold them, because nothing would release
+    // them again.
+    pending.resolve(bytes());
+    await flush();
+    expect(urls.created).toEqual([]);
   });
 });

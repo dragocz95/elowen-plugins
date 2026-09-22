@@ -451,6 +451,10 @@ const publicRoute = createPublicRoute({
   broker,
   actions,
   pingIntervalMs: 15_000,
+  // Nothing leaves this scenario: the customer's page and the hook are the only two origins it talks to, and
+  // the look it configures carries its avatar as bytes rather than as an address. So this refusal is never
+  // reached — and if a later chapter names a remote avatar, the panel simply has none.
+  avatar: () => Promise.resolve({ ok: false, reason: 'unreachable' }),
   // The signing key of a throwaway instance. A real deployment keeps it in the instance secret bag, created
   // once, and never logs or returns it.
   secret: () => 'e2e-visitor-token-secret-0123456789',

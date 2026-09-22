@@ -10,6 +10,7 @@ import type { ChatbotTurnQueue } from './queue.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
 import { parseStoredAppearance, resolveAppearance, type ChatbotAppearance } from './appearanceContract.js';
+import { AVATAR_CACHE_CONTROL, type AvatarFetch } from './avatarProxy.js';
 import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
@@ -37,6 +38,9 @@ export interface PublicRouteDeps {
   actions: PageActionService;
   /** Ping interval of an idle stream, injected so a test can watch one without waiting 15 seconds. */
   pingIntervalMs: number;
+  /** One avatar's bytes, fetched through the host's validated public transport. A single function, so the
+   *  whole outbound policy — what may be connected to, what may be read — stays in one module. */
+  avatar: (source: string) => Promise<AvatarFetch>;
   secret: () => string;
   /** Visitor token lifetime, from the plugin's own configuration. */
   tokenTtlSeconds: () => number;
@@ -84,6 +88,17 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (blockers.length === 0) return null;
     warn(`chatbot ${bot.public_id} refused a request: ${blockers.join(', ')}`);
     return reply(503, { error: 'bot_unavailable' });
+  };
+
+  /** The bot's own look, or the reason its row cannot be read. Both public readers of it — the document the
+   *  widget draws and the avatar it shows — read it through here, so neither can grow its own idea of what a
+   *  stored row means. */
+  const readAppearance = (bot: BotRow): { ok: true; appearance: ChatbotAppearance } | { ok: false; error: unknown } => {
+    try {
+      return { ok: true, appearance: resolveAppearance(parseStoredAppearance(bot.appearance)) };
+    } catch (error) {
+      return { ok: false, error };
+    }
   };
 
   const issueVisitorToken = (bot: BotRow, visitorId: string | null): { token: string; expiresAt: string; visitorId: string } => {
@@ -264,19 +279,58 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     // refusal is logged. The grant travels with the refusal like every other answer a widget can trigger: a
     // cross-origin reply without it is unreadable in a browser, so this one would surface as a CORS error on
     // the customer's own page instead of as the refusal it is.
-    let appearance: ChatbotAppearance;
-    try {
-      appearance = resolveAppearance(parseStoredAppearance(admitted.bot.appearance));
-    } catch (error) {
-      warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${error instanceof Error ? error.message : String(error)}`);
+    const stored = readAppearance(admitted.bot);
+    if (!stored.ok) {
+      warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${stored.error instanceof Error ? stored.error.message : String(stored.error)}`);
       return reply(503, { error: 'appearance_invalid' }, corsHeaders(origin));
     }
-
     return reply(200, {
       schemaVersion: PUBLIC_SCHEMA_VERSION,
       name: admitted.bot.display_name,
-      appearance,
+      appearance: stored.appearance,
     }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
+  };
+
+  /** `GET v2/avatar`: this chatbot's avatar as BYTES, over the connection the widget's page already allows.
+   *
+   *  The panel cannot load the owner's image address itself: a customer's Content-Security-Policy decides
+   *  which image hosts their page may reach, and a widget that demanded a new entry for an arbitrary address
+   *  would be asking the customer to widen a security policy on our behalf. What their page already permits
+   *  is the widget's own origin on `connect-src`, so the bytes come from here and the panel renders them from
+   *  memory.
+   *
+   *  The admission is the appearance route's, exactly: the visitor's own token, the origin allowlist and the
+   *  account preflight. What a refusal answers is deliberately NOT an error the widget has to interpret — an
+   *  avatar is chrome, and a panel without one is a panel that works. */
+  const handleAvatar = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
+    const admitted = presentedToken(req);
+    if ('status' in admitted) return admitted;
+    const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
+    if (!allowed.ok) return reply(403, { error: 'origin_not_allowed' });
+    const blocked = blockedReply(admitted.bot);
+    if (blocked) return blocked;
+
+    const stored = readAppearance(admitted.bot);
+    const source = stored.ok ? stored.appearance.avatarUrl : '';
+    // Nothing configured, or an image that already carries its own bytes: the widget draws it directly, so
+    // this route has nothing to add and says so rather than inventing an answer. A row that cannot be read is
+    // the same answer — the panel keeps its own built-in look, and the appearance route is where the operator
+    // is told why (this one would only repeat it on the same page load).
+    if (source === '' || source.startsWith('data:')) return reply(404, { error: 'no_avatar' }, corsHeaders(origin));
+
+    const fetched = await deps.avatar(source);
+    if (!fetched.ok) {
+      warn(`chatbot ${admitted.bot.public_id} could not serve its avatar (${fetched.reason})`);
+      return reply(404, { error: 'no_avatar' }, corsHeaders(origin));
+    }
+    // The upstream's own media type travels on, so the browser and the panel both see what the owner's host
+    // actually served. The cache window is the one thing this route decides about the answer, and it is the
+    // avatar module's.
+    return reply(200, fetched.bytes, {
+      ...corsHeaders(origin),
+      'content-type': fetched.contentType,
+      'cache-control': AVATAR_CACHE_CONTROL,
+    });
   };
 
   /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
@@ -520,6 +574,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (req.method === 'POST' && path === PUBLIC_PATHS.refresh) return handleRefresh(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.turns) return handleTurn(req, origin, requestOrigin);
     if (req.method === 'GET' && path === PUBLIC_PATHS.appearance) return handleAppearance(req, origin);
+    if (req.method === 'GET' && path === PUBLIC_PATHS.avatar) return handleAvatar(req, origin);
     if (req.method === 'GET' && path === PUBLIC_PATHS.conversation) return handleConversation(req, origin);
     if (req.method === 'GET' && segments.length === 3
       && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.events) {
