@@ -1,5 +1,9 @@
 # Changelog
 
+## cronjob 0.6.13 - 2026-09-22
+
+- A scheduled job that is running normally is no longer reported as failed while it runs. The plugin is also loaded by the short-lived process that runs a sub-agent turn, and that process closed every in-flight run as interrupted the moment it started, so the history showed a failure for work that had succeeded. Reconciliation of interrupted runs and the pruning of old ones now happen only in the daemon, the one process a run can actually outlive.
+
 ## Translations - 2026-09-22
 
 browser 0.4.6, codebase 0.1.8, cronjob 0.6.12, discord 0.3.23, editor 0.5.1, github 0.1.22, image-edit 0.2.9, image-gen 0.2.7, lsp 0.3.1, msteams 0.8.3, onedrive 0.3.1, sites 0.14.10, skills 0.4.13, stats 0.2.8, telegram 0.2.19, todo 0.14.16, voice-bot 0.1.4, whatsapp 0.2.22

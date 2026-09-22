@@ -1,8 +1,8 @@
 {
   "name": "cronjob",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
+  "requiresCore": "0.28.52",
   "requiresSharedApi": 4,
   "description": "Scheduled prompts: recurring jobs (\"every 30m\", \"daily 07:30\") and one-shot wake-ups (\"in 20m\", \"at 18:30\"). Personal schedules run with their owner's permissions and report in their own conversation or back in the direct chat where they were created. Instance-wide jobs run with owner permissions and report to the notification channel; only the instance owner can manage them.",
   "entry": "index.mjs",
