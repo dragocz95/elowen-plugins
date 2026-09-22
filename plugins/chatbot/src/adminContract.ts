@@ -9,36 +9,6 @@
 import type { LimitValues, MandatoryLimitField } from './limits.js';
 import type { ChatbotAppearance } from './appearanceContract.js';
 
-/** How long one action rule's path prefix may be. */
-export const ACTION_PATH_PREFIX_MAX_CHARS = 200;
-
-/** The one reading of a rule's path prefix, shared by the page's editor and the server that enforces it.
- *
- *  A prefix is a path SEGMENT prefix (see `actionRules.covers`), so it starts at the root exactly once and
- *  never carries a query, a fragment, a space or an empty segment: every run of slashes collapses to one,
- *  and a trailing slash goes, except for the root itself. Returns null when the text cannot be a path.
- *
- *  This lives on the contract rather than twice over because the two readings must not be able to disagree:
- *  the editor's field opens with `/`, and a reader who types their path without clearing it would otherwise
- *  store a prefix that matches no request while looking like one that does. */
-export function normalizeActionPathPrefix(raw: string): string | null {
-  const value = raw.trim();
-  if (value === '' || !value.startsWith('/')) return null;
-  if (value.includes('?') || value.includes('#') || /\s/.test(value)) return null;
-  const collapsed = value.replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
-  return collapsed.length > ACTION_PATH_PREFIX_MAX_CHARS ? null : collapsed;
-}
-
-/** One action rule: this action, on this origin and path prefix, needs this confirmation and may happen at
- *  most this often in one turn. `pathPrefix` is a path SEGMENT prefix (see `actionRules.covers`). */
-export interface ChatbotActionRuleView {
-  origin: string;
-  pathPrefix: string;
-  action: string;
-  requiresConfirmation: boolean;
-  maxPerTurn: number;
-}
-
 /** The account a chatbot runs as, as the host reports it right now. A missing kind means a host whose user
  *  contract does not carry one, which is NOT the same as a chatbot. Private to this contract: it is the
  *  shape of one field of {@link ChatbotBotView}, not a name a caller has any reason to hold. */
@@ -58,10 +28,9 @@ export interface ChatbotBotView {
   chatbotUserId: number;
   publicId: string;
   displayName: string;
-  prompt: string;
   status: 'draft' | 'enabled' | 'disabled';
   origins: string[];
-  actionRules: ChatbotActionRuleView[];
+  maySubmitForms: boolean;
   /** What the customer pastes into their site. Null when the deployment has no canonical public URL. */
   embedSnippet: string | null;
   updatedAt: string;

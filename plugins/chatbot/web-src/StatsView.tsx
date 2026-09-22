@@ -1,89 +1,90 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Activity, Coins } from 'lucide-react';
-import { apiJson, chatbotApi, runtime } from './runtime';
+import { apiJson, chatbotApi, runtime, type DateRange, type PageFilterField } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
 import { formatDay, integer, money } from './format';
 import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
-/** THE STATISTICS SECTION: what one chatbot actually did over a window of days — the chatbot, the window,
- *  the chart, the spend. Nothing else.
- *
- *  It used to be a chart plus thirteen counters in three cards, and the counters were the problem: turns,
- *  answered and failed are what the chart already draws, day by day; "waiting now" and "running now" are
- *  instantaneous facts about a queue, which a window of days cannot report and which belong to a
- *  monitoring surface rather than to a configuration one; and the six extra spend rows restated one
- *  number six ways. What is left is the two things a reader opens this for — how much traffic there was,
- *  and what it cost.
- *
- *  The two numbers here are deliberately NOT the same counter: the chart is the plugin's own admission
- *  count, read from its own rows; the spend is the ACCOUNT's, read from core's `usage_by_origin` rollup,
- *  which is the only source of origin-attributed spend in this codebase. Nothing here counts tokens or
- *  cost by scanning messages, and the rollup only starts on the day it began tracking — which the row
- *  states rather than hides. */
-
-const WINDOW_DAYS = [7, 30, 90] as const;
-/** How far into the instance's spend rows to look for this account's. The route orders by tokens, so a
- *  chatbot that spent nothing simply is not in the answer — which the view says instead of showing zeros. */
 const USAGE_ROW_LIMIT = 500;
-
-/** Public chart tokens every compatible host emits and a skin overrides as one palette. */
+const STATS_MAX_DAYS = 366;
+const PAGE_SIZE = 20;
+const DAY_MS = 86_400_000;
 const SERIES_COLOURS = { turns: 'var(--color-chart-1)', errors: 'var(--color-chart-2)' } as const;
 
-/** The window a selection of days means, as both the route and the usage read want it: inclusive UTC days
- *  plus the millisecond bounds of that same range. One definition, so the two requests cannot describe
- *  different windows. */
-export function statsWindow(days: number, now: Date): { from: string; to: string; fromMs: number; toMs: number } {
-  const to = now.toISOString().slice(0, 10);
-  const toMs = Date.parse(`${to}T00:00:00.000Z`);
-  const fromMs = toMs - (days - 1) * 86_400_000;
-  return {
-    from: new Date(fromMs).toISOString().slice(0, 10),
-    to,
-    fromMs,
-    toMs: toMs + 86_399_999,
-  };
+const dayStart = (timestamp: number): number => {
+  const date = new Date(timestamp);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+};
+const dayKey = (timestamp: number): string => new Date(timestamp).toISOString().slice(0, 10);
+
+export function statsWindow(range: DateRange, now: number, bounds: { fromMs: number; toMs: number }): {
+  from: string;
+  to: string;
+  fromMs: number;
+  toMs: number;
+} {
+  const today = dayStart(now);
+  const toMs = Math.min(Number.isFinite(bounds.toMs) ? dayStart(bounds.toMs) : today, today);
+  const earliest = toMs - (STATS_MAX_DAYS - 1) * DAY_MS;
+  const requestedFrom = Number.isFinite(bounds.fromMs) ? dayStart(bounds.fromMs) : earliest;
+  const fromMs = Math.min(toMs, Math.max(requestedFrom, earliest));
+  return { from: dayKey(fromMs), to: dayKey(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
 }
 
-/** The chart's points: EVERY day of the window, with the days nobody wrote on drawn as zero.
- *
- *  A chart of only the days that saw traffic is a chart that hides the quiet ones, which is exactly what a
- *  reader looks at it for. The range is bounded by the route's own window, so this cannot grow unbounded. */
-export function chartPoints(days: readonly ChatbotStatsDayView[], from: string, to: string): { label: string; turns: number; errors: number }[] {
+export function chartPoints(days: readonly ChatbotStatsDayView[], from: string, to: string): {
+  label: string;
+  turns: number;
+  done: number;
+  errors: number;
+}[] {
   const byDay = new Map(days.map((day) => [day.day, day]));
-  const points: { label: string; turns: number; errors: number }[] = [];
+  const points: { label: string; turns: number; done: number; errors: number }[] = [];
   const end = Date.parse(`${to}T00:00:00.000Z`);
-  for (let at = Date.parse(`${from}T00:00:00.000Z`); at <= end; at += 86_400_000) {
-    const day = new Date(at).toISOString().slice(0, 10);
+  for (let at = Date.parse(`${from}T00:00:00.000Z`); at <= end; at += DAY_MS) {
+    const day = dayKey(at);
     const row = byDay.get(day);
-    points.push({ label: day, turns: row?.turns ?? 0, errors: row?.errors ?? 0 });
+    points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0 });
   }
   return points;
 }
 
+const pageFilterField = (
+  base: { id: string; label: string; control: ReactNode; hint?: string },
+  active: boolean,
+  activeLabel: string,
+  onReset: () => void,
+): PageFilterField => active ? { ...base, active: true, activeLabel, onReset } : { ...base, active: false };
+
 export function StatsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
-  const { locale } = hooks.useTranslation();
+  const { locale, t } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
-  // The section's own heading, worn by whichever card its state renders: the reader is told what this is
-  // before being told what is missing or what it counted.
-  const heading = { title: s.sectionStatistics, description: s.sectionStatisticsHint, icon: Activity };
   const [selected, setSelected] = useState<number | null>(null);
-  const [days, setDays] = useState<string>('30');
+  const [rangeRaw, setRangeRaw] = hooks.usePersistentState(
+    'elowen.chatbot.stats.range',
+    utils.serializeRange(utils.DEFAULT_RANGE),
+    utils.isStoredRange,
+  );
+  const { range, now } = useMemo(() => ({
+    range: utils.parseRange(rangeRaw) ?? utils.DEFAULT_RANGE,
+    now: Date.now(),
+  }), [rangeRaw, utils]);
+  const hostBounds = useMemo(() => utils.rangeBounds(range, now), [now, range, utils]);
+  const window = useMemo(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
-  const window = useMemo(() => statsWindow(Number(days), new Date()), [days]);
-  // The first chatbot until the reader picks another, and back to a real one if the picked chatbot left
-  // the register.
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
 
   useEffect(() => {
     setAnswer(null);
     setLoadError(null);
+    setPage(0);
   }, [chatbotUserId, window.from, window.to]);
 
   const load = useCallback(() => {
@@ -100,17 +101,43 @@ export function StatsSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const usage = hooks.useUsageByOrigin('pair', { fromMs: window.fromMs, toMs: window.toMs }, { limit: USAGE_ROW_LIMIT, enabled: chatbotUserId !== null });
+  const usage = hooks.useUsageByOrigin(
+    'pair',
+    { fromMs: window.fromMs, toMs: window.toMs },
+    { limit: USAGE_ROW_LIMIT, enabled: chatbotUserId !== null },
+  );
   const spend = chatbotUserId === null ? null : (usage.data?.rows ?? []).find((row) => row.userId === chatbotUserId) ?? null;
-
   const points = answer === null ? [] : chartPoints(answer.days, answer.from, answer.to);
+  const pageCount = Math.max(1, Math.ceil(points.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const rows = points.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const series = [
     { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
   ];
 
-  // The register is this section's own precondition: there is nothing to count until it arrives, and
-  // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
+  const rangeLabels: Record<DateRange['preset'], string> = {
+    today: t.common.rangeToday,
+    '7d': t.common.rangeLast7,
+    '30d': t.common.rangeLast30,
+    '90d': t.common.rangeLast90,
+    all: t.common.rangeAll,
+    custom: t.common.rangeCustom,
+  };
+  const rangeLabel = range.preset === 'custom'
+    ? `${range.from ?? '…'} – ${range.to ?? '…'}`
+    : rangeLabels[range.preset];
+  const changeRange = (next: DateRange) => setRangeRaw(utils.serializeRange(next));
+  const filters: PageFilterField[] = [
+    pageFilterField(
+      { id: 'range', label: t.common.rangeLabel, control: <C.DateRangeFilter value={range} onChange={changeRange} /> },
+      utils.serializeRange(range) !== utils.serializeRange(utils.DEFAULT_RANGE),
+      `${t.common.rangeLabel}: ${rangeLabel}`,
+      () => changeRange(utils.DEFAULT_RANGE),
+    ),
+  ];
+  const heading = { title: s.sectionStatistics, description: s.sectionStatisticsHint, icon: Activity };
+
   if (register.loadError !== null) {
     return <C.SettingsGroup {...heading}><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
   }
@@ -126,30 +153,46 @@ export function StatsSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Which chatbot, and over how many days. Three windows, all of them visible: a dropdown would make
-          the reader open a list to discover what the other two are. `nowrap` keeps that promise where the
-          row is too narrow for all three: the track scrolls with the host's own fade instead of the last
-          window being clipped on a phone. */}
       <C.SettingsGroup
         {...heading}
-        actions={(
-          <>
-            <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />
-            <C.Segmented
-              size="sm"
-              nowrap
-              aria-label={s.statsWindowLabel}
-              value={days}
-              onChange={setDays}
-              options={WINDOW_DAYS.map((value) => ({ value: String(value), label: s.statsWindowDays.replace('{count}', String(value)) }))}
-            />
-          </>
-        )}
+        actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}
       >
+        <C.PageFilters fields={filters} />
         {loadError !== null ? <C.ErrorState message={`${s.statsLoadError} — ${loadError}`} onRetry={load} />
           : answer === null ? <C.LoadingState variant="block" />
-            : answer.totals.turns === 0 ? <C.EmptyState title={s.statsEmptyTitle} description={s.statsEmptyDescription} icon={Activity} />
-              : <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />}
+            : (
+              <>
+                <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
+                <div className="mt-4 flex flex-col gap-3">
+                  <h3 className="text-sm font-semibold">{s.statsTableTitle}</h3>
+                  <C.DataTable ariaLabel={s.statsTableTitle} columns="minmax(8rem,1fr) 7rem 7rem 7rem" compactColumns="minmax(0,1fr) 5rem 5rem">
+                    <C.DataTableRow header>
+                      <C.DataTableCell header>{s.statsColumnDay}</C.DataTableCell>
+                      <C.DataTableCell header className="text-right">{s.chartTurns}</C.DataTableCell>
+                      <C.DataTableCell header priority="wide" className="text-right">{s.statsColumnDone}</C.DataTableCell>
+                      <C.DataTableCell header className="text-right">{s.chartErrors}</C.DataTableCell>
+                    </C.DataTableRow>
+                    <div role="rowgroup">
+                      {rows.map((row) => (
+                        <C.DataTableRow key={row.label} interactive={false}>
+                          <C.DataTableCell>{formatDay(row.label, locale)}</C.DataTableCell>
+                          <C.DataTableCell className="text-right font-mono tabular-nums">{integer(row.turns, locale)}</C.DataTableCell>
+                          <C.DataTableCell priority="wide" className="text-right font-mono tabular-nums">{integer(row.done, locale)}</C.DataTableCell>
+                          <C.DataTableCell className="text-right font-mono tabular-nums">{integer(row.errors, locale)}</C.DataTableCell>
+                        </C.DataTableRow>
+                      ))}
+                    </div>
+                  </C.DataTable>
+                  <C.Pager
+                    page={clampedPage}
+                    pageSize={PAGE_SIZE}
+                    total={points.length}
+                    onPageChange={setPage}
+                    ariaLabel={s.statsTableTitle}
+                  />
+                </div>
+              </>
+            )}
       </C.SettingsGroup>
 
       <C.SettingsGroup density="compact">

@@ -21,7 +21,6 @@ export function visitorSource(input: {
   chatbotUserId: number;
   visitorId: string;
   displayName: string;
-  instructions: string;
 }): ChatbotSessionSource {
   return {
     platform: CHATBOT_PLATFORM,
@@ -38,7 +37,6 @@ export function visitorSource(input: {
       // anonymous sender: an administrator flag here would widen a website's reach for free.
       admin: false,
       actAsUserId: input.chatbotUserId,
-      prompt: input.instructions || undefined,
       // Every visitor writes into the SAME account, so an agent that remembers one visitor's details can
       // put them in the next visitor's prompt. Core already turns automatic memory off for a chatbot
       // account; this denies the tools themselves for the whole turn.

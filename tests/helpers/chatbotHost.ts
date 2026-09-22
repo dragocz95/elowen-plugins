@@ -5,10 +5,10 @@ import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
 import { TurnEventBroker } from '../../plugins/chatbot/src/broker.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS, type PublicRouteDeps } from '../../plugins/chatbot/src/publicRoutes.js';
 import { ChatbotTurnQueue } from '../../plugins/chatbot/src/queue.js';
-import { ChatbotStore, type ActionRuleInput } from '../../plugins/chatbot/src/store.js';
+import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
-import type { LimitValues } from '../../plugins/chatbot/src/limits.js';
+import { DEFAULT_LIMITS, type LimitValues } from '../../plugins/chatbot/src/limits.js';
 import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
 
 /** The fake host every chatbot suite drives the public path against.
@@ -29,22 +29,7 @@ export const CHATBOT_SITE = 'https://www.example.cz';
  *  These numbers belong to the fixture, not to the plugin — the plugin has no defaults at all, and that is the
  *  property the limit tests exist to prove. A suite that is ABOUT a limit passes its own value through
  *  `registerBot`/`setLimits` instead of editing this, so the value a test exercises is visible in the test. */
-export const TEST_LIMITS: LimitValues = {
-  // A visitor's own conversation may send ten messages a minute; one address thirty; the chatbot sixty.
-  rateConversationPerMinute: 10,
-  rateIpPerMinute: 30,
-  rateChatbotPerMinute: 60,
-  dailyTurnLimit: 200,
-  // No spending ceiling: an absent one is a decision, and the cost tests set one where it matters.
-  dailyTokenLimit: null,
-  dailyCostMicrousd: null,
-  maxConcurrentTurns: 2,
-  maxQueueDepth: 4,
-  queueTimeoutSeconds: 60,
-  // Above the seven kinds one turn can perform below, so the per-kind suite is not also a budget suite.
-  maxActionsPerTurn: 8,
-  retentionDays: 30,
-};
+export const TEST_LIMITS: LimitValues = { ...DEFAULT_LIMITS };
 
 /** The origin the HOST resolved, which is a separate fact from the browser's Origin header. */
 export const TRUSTED_REQUEST_ORIGIN = { value: '203.0.113.9', kind: 'ip' as const, trusted: true };
@@ -174,16 +159,13 @@ export function createChatbotHost(options: {
     actions: undefined as unknown as PageActionService,
     handler: undefined as unknown as ReturnType<typeof createPublicRoute>,
     setNow: (ms: number) => { clockMs = ms; },
-    // `updateBot` writes a bot's WHOLE editable state, so this helper hands back the policy the bot already
-    // carries rather than an empty one: a suite that moves a number must not silently clear its rules.
     setLimits: (chatbotUserId: number, limits: Partial<LimitValues>) => store.updateBot({
       chatbotUserId,
       expectedUpdatedAt: store.botByUserId(chatbotUserId)!.updated_at,
       displayName: store.botByUserId(chatbotUserId)!.display_name,
-      prompt: store.botByUserId(chatbotUserId)!.prompt,
       origins: store.originsOf(chatbotUserId),
       limits: { ...TEST_LIMITS, ...limits },
-      actionRules: store.actionRuleInputsOf(chatbotUserId),
+      maySubmitForms: store.botByUserId(chatbotUserId)!.may_submit_forms === 1,
       now: now().toISOString(),
     }),
     queueDeadlines: new Map(),
@@ -285,16 +267,15 @@ export function registerBot(host: ChatbotHost, input: {
   status?: 'draft' | 'enabled';
   origins?: string[];
   limits?: Partial<LimitValues>;
-  actionRules?: ActionRuleInput[];
+  maySubmitForms?: boolean;
 } = {}): void {
   const row = host.store.createBot({
     chatbotUserId: input.chatbotUserId ?? 12,
     publicId: input.publicId ?? newPublicId(),
     displayName: 'Městský úřad',
-    prompt: 'Pomáhej s formuláři.',
     origins: input.origins ?? [CHATBOT_SITE],
     limits: input.limits ?? TEST_LIMITS,
-    actionRules: input.actionRules ?? [],
+    maySubmitForms: input.maySubmitForms,
     now: NOW_ISO,
   });
   if ((input.status ?? 'enabled') === 'enabled') host.store.setBotStatus({ chatbotUserId: row.chatbot_user_id, status: 'enabled', now: row.updated_at });

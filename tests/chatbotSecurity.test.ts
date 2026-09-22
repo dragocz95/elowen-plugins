@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createAdminApi } from '../plugins/chatbot/src/adminApi.js';
-import { MANDATORY_LIMITS, OPTIONAL_LIMITS, readBotLimits } from '../plugins/chatbot/src/limits.js';
+import { DEFAULT_LIMITS, MANDATORY_LIMITS, OPTIONAL_LIMITS, readBotLimits } from '../plugins/chatbot/src/limits.js';
 import { windowAt } from '../plugins/chatbot/src/rateLimit.js';
 import { utcDay } from '../plugins/chatbot/src/budget.js';
 import {
@@ -50,6 +50,7 @@ describe('a chatbot that cannot serve is refused before anything is spent', () =
   it('refuses an enabled chatbot whose limits nobody has decided', async () => {
     const bare = createChatbotHost();
     registerBot(bare, { limits: {} });
+    bare.db.prepare('UPDATE p_chatbot_bots SET daily_turn_limit = NULL WHERE chatbot_user_id = 12').run();
     await bare.adapter.connect();
     // The public id is handed out, because a token is not a turn; the TURN is what needs numbers to run under.
     const issued = await issueToken(bare);
@@ -62,6 +63,7 @@ describe('a chatbot that cannot serve is refused before anything is spent', () =
   it('serves the same chatbot once its numbers are there', async () => {
     const bare = createChatbotHost();
     registerBot(bare, { limits: {} });
+    bare.db.prepare('UPDATE p_chatbot_bots SET daily_turn_limit = NULL WHERE chatbot_user_id = 12').run();
     await bare.adapter.connect();
     const issued = await issueToken(bare);
     bare.setLimits(12, {});
@@ -339,8 +341,8 @@ describe('the sensitive-data mode', () => {
       chatbotUserId: 12,
       expectedUpdatedAt: host.store.botByUserId(12)!.updated_at,
       displayName: 'Městský úřad',
-      prompt: '',
       origins: [SITE],
+      maySubmitForms: true,
       limits: TEST_LIMITS,
       sensitiveMode: true,
     });
@@ -349,23 +351,20 @@ describe('the sensitive-data mode', () => {
     expect(host.store.botByUserId(12)!.sensitive_mode).toBe(0);
   });
 
-  it('needs every mandatory number before a chatbot may be enabled', async () => {
+  it('can enable a newly registered chatbot without filling numeric limits first', async () => {
     const draft = createChatbotHost();
     registerBot(draft, { status: 'draft', limits: {} });
     const answer = await api(draft).update(admin, {
       chatbotUserId: 12,
       expectedUpdatedAt: draft.store.botByUserId(12)!.updated_at,
       displayName: 'Městský úřad',
-      prompt: '',
       origins: [SITE],
-      limits: { rateIpPerMinute: 10 },
+      maySubmitForms: true,
+      limits: {},
       action: 'enable',
     });
-    expect(answer).toMatchObject({ status: 400, body: { error: 'not_ready' } });
-    const missing = (answer.body as { detail: string[] }).detail;
-    expect(missing).toContain('dailyTurnLimit');
-    expect(missing).not.toContain('rateIpPerMinute');
-    expect(draft.store.botByUserId(12)!.status).toBe('draft');
+    expect(answer).toMatchObject({ status: 200, body: { bot: { missingLimits: [] } } });
+    expect(draft.store.botByUserId(12)!.status).toBe('enabled');
   });
 
   it('refuses a limit the server would not believe, instead of clamping it', async () => {
@@ -373,8 +372,8 @@ describe('the sensitive-data mode', () => {
       chatbotUserId: 12,
       expectedUpdatedAt: host.store.botByUserId(12)!.updated_at,
       displayName: 'Městský úřad',
-      prompt: '',
       origins: [SITE],
+      maySubmitForms: true,
       limits: { ...TEST_LIMITS, maxActionsPerTurn: 500 },
     });
     expect(answer).toMatchObject({ status: 400, body: { error: 'invalid_request' } });
@@ -386,8 +385,8 @@ describe('the sensitive-data mode', () => {
       chatbotUserId: 12,
       expectedUpdatedAt: host.store.botByUserId(12)!.updated_at,
       displayName: 'Městský úřad',
-      prompt: '',
       origins: [SITE],
+      maySubmitForms: true,
       limits: { ...TEST_LIMITS, retentionDays: null },
     });
     expect(answer).toMatchObject({ status: 400, body: { error: 'not_ready', detail: ['retentionDays'] } });
@@ -420,12 +419,12 @@ describe('the limits themselves', () => {
     expect(readBotLimits(blank)).toBeNull();
   });
 
-  it('is written down as a draft, so a chatbot is never born with numbers nobody chose', () => {
+  it('writes the complete default profile when a chatbot is created', () => {
     const draft = createChatbotHost();
     registerBot(draft, { status: 'draft', limits: {} });
     const row = draft.store.botByUserId(12)!;
-    for (const field of Object.keys(MANDATORY_LIMITS) as (keyof typeof MANDATORY_LIMITS)[]) {
-      expect(row[MANDATORY_LIMITS[field].column], field).toBeNull();
+    for (const [field, spec] of Object.entries({ ...MANDATORY_LIMITS, ...OPTIONAL_LIMITS })) {
+      expect(row[spec.column], field).toBe(DEFAULT_LIMITS[field as keyof typeof DEFAULT_LIMITS]);
     }
   });
 });

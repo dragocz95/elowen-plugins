@@ -153,7 +153,7 @@ describe('turns admitted today', () => {
 describe('what the chatbot spent', () => {
   it('refuses the turn once the day has used its tokens', async () => {
     host.setLimits(12, { dailyTokenLimit: 1_000 });
-    spend({ turns: 3, tokens: 999 });
+    spend({ turns: 3, tokens: 999, costUsd: 0 });
     const issued = await issueToken(host);
     const token = issued.body.token as string;
     const accepted = await submit(token, UUID);
@@ -161,7 +161,7 @@ describe('what the chatbot spent', () => {
     await settledTurn(host, (accepted.body as { turnId: string }).turnId);
 
     // Core's rollup catches up with the turns that just ran: the ceiling is now reached.
-    spend({ turns: 4, tokens: 1_000 });
+    spend({ turns: 4, tokens: 1_000, costUsd: 0 });
     expect(await submit(token, '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c55'))
       .toMatchObject({ status: 429, body: { error: 'budget_exhausted' } });
   });

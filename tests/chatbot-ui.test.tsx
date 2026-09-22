@@ -4,11 +4,10 @@ import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json'
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
-import { limitDraftOf, readLimitDraft, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
+import { limitDraftOf, readLimitDraft } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
-import { LIMIT_FIELDS, MANDATORY_LIMITS, OPTIONAL_LIMITS, specOf, type LimitValues } from '../plugins/chatbot/src/limits';
-import { actionRuleKey, draftRuleRefusal } from '../plugins/chatbot/web-src/SecuritySettings';
+import { DEFAULT_LIMITS, LIMIT_FIELDS, MANDATORY_LIMITS, type LimitValues } from '../plugins/chatbot/src/limits';
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
@@ -34,28 +33,15 @@ const REQUIRED_TOOL = 'ChatbotPageAction';
 
 /** The limits the server reports for the fixture chatbot: every field, null where the owner has not decided.
  *  Written the way the API reports it, so the form is exercised against the shape it really receives. */
-const LIMITS: LimitValues = {
-  rateIpPerMinute: 30,
-  rateChatbotPerMinute: 60,
-  rateConversationPerMinute: 10,
-  dailyTurnLimit: 200,
-  dailyTokenLimit: null,
-  dailyCostMicrousd: null,
-  maxConcurrentTurns: 2,
-  maxQueueDepth: 4,
-  queueTimeoutSeconds: 60,
-  maxActionsPerTurn: 8,
-  retentionDays: 30,
-};
+const LIMITS: LimitValues = { ...DEFAULT_LIMITS };
 
 const bot = {
   chatbotUserId: 12,
   publicId: 'cbt_0123456789abcdef01234567',
   displayName: 'Městský úřad',
-  prompt: 'Pomáhej s formuláři.',
   status: 'enabled' as const,
   origins: [SITE],
-  actionRules: [] as { origin: string; pathPrefix: string; action: string; requiresConfirmation: boolean; maxPerTurn: number }[],
+  maySubmitForms: true,
   embedSnippet: `<script src="https://elowen.example.com/hooks/chatbot/v1/widget.js" data-chatbot="cbt_0123456789abcdef01234567" async></script>`,
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
@@ -148,19 +134,17 @@ setDefaults(
   http.patch('/api/plugins/chatbot/api/bots', async ({ request }) => {
     const body = await request.json() as Record<string, unknown>;
     asked.botPatch.push(body);
-    const rules = Array.isArray(body.actionRules) ? body.actionRules as typeof bot.actionRules : bot.actionRules;
     return HttpResponse.json({
       bot: {
         ...bot,
         chatbotUserId: Number(body.chatbotUserId),
         displayName: String(body.displayName ?? ''),
-        prompt: String(body.prompt ?? ''),
         origins: Array.isArray(body.origins) ? body.origins as string[] : bot.origins,
         limits: (body.limits ?? bot.limits) as LimitValues,
         missingLimits: LIMIT_FIELDS.filter((field) => field in MANDATORY_LIMITS && (body.limits as LimitValues)[field] === null),
-        actionRules: rules,
+        maySubmitForms: typeof body.maySubmitForms === 'boolean' ? body.maySubmitForms : bot.maySubmitForms,
         status: body.action === 'disable' ? 'disabled' : body.action === 'enable' ? 'enabled' : bot.status,
-        updatedAt: `2026-09-21T17:0${rules.length}:00.000Z`,
+        updatedAt: '2026-09-21T17:00:00.000Z',
       },
     });
   }),
@@ -381,7 +365,7 @@ describe('the chatbot modal deck', () => {
     // The match IS the register's own row action: the reader who searched for a chatbot lands in its
     // drawer, which is the only thing this plugin can do with one.
     fireEvent.click(screen.getByRole('button', { name: 'Gymnázium' }));
-    expect(within(await screen.findByRole('dialog')).getByPlaceholderText(strings.promptPlaceholder!)).toBeInTheDocument();
+    expect(within(await screen.findByRole('dialog')).getByText(strings.detailName!)).toBeInTheDocument();
     expect(within(top()).getByRole('heading', { name: 'Gymnázium' })).toBeInTheDocument();
   });
 
@@ -432,7 +416,6 @@ describe('what a chatbot is found by', () => {
 
 describe('the heading each section wears', () => {
   it.each([
-    ['bots', 'sectionBots', 'sectionBotsHint'],
     ['conversations', 'sectionConversations', 'sectionConversationsHint'],
     ['statistics', 'sectionStatistics', 'sectionStatisticsHint'],
     ['shared', 'sectionShared', 'sectionSharedHint'],
@@ -452,6 +435,8 @@ describe('the chatbots section', () => {
     expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
     expect(screen.getByText('Škola')).toBeInTheDocument();
     expect(screen.getAllByText(strings.statusAttention!).length).toBeGreaterThan(0);
+    expect(screen.getByRole('list').querySelectorAll('[role="listitem"]')).toHaveLength(3);
+    expect(screen.queryByRole('heading', { name: strings.sectionBots! })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('searchbox', { name: strings.botsSearch! }), { target: { value: 'Škola' } });
     await waitFor(() => expect(screen.queryByText('Městský úřad')).not.toBeInTheDocument());
@@ -469,22 +454,6 @@ describe('the chatbots section', () => {
     expect(within(drawer).getByText(strings.accountNotChatbot!)).toBeInTheDocument();
   });
 
-  it('warns that a needed tool is missing instead of listing the account\'s whole tool set', async () => {
-    renderSection('bots');
-    await settled();
-    await screen.findByText('Městský úřad');
-    // The working chatbot reaches the tool its turns need, so nothing is said about tools at all — the
-    // grants belong to the Users screen and a read-only copy of them here would only repeat it.
-    const good = await openBot('Městský úřad');
-    await waitFor(() => expect(within(good).queryByText(strings.toolsMissing!, { exact: false })).not.toBeInTheDocument());
-    fireEvent.click(within(good).getByRole('button', { name: 'Close' }));
-
-    // The other account cannot reach it, and that is the one fact this surface owes the reader: a chatbot
-    // without it answers visitors and can touch nothing on their page.
-    const bad = await openBot('Gymnázium');
-    expect(await within(bad).findByText(strings.toolsMissing!.replace('{names}', REQUIRED_TOOL))).toBeInTheDocument();
-  });
-
   it('keeps what a chatbot DID out of its drawer', async () => {
     renderSection('bots');
     await settled();
@@ -495,7 +464,7 @@ describe('the chatbots section', () => {
     expect(within(drawer).queryByText(strings.columnVisitor!)).not.toBeInTheDocument();
     expect(within(drawer).queryByText(strings.spendTitle!)).not.toBeInTheDocument();
     // What it does carry is this chatbot's own configuration.
-    expect(within(drawer).getByPlaceholderText(strings.promptPlaceholder!)).toBeInTheDocument();
+    expect(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! })).toBeInTheDocument();
     expect(within(drawer).getByRole('button', { name: strings.limitsEdit! })).toBeInTheDocument();
   });
 
@@ -505,14 +474,13 @@ describe('the chatbots section', () => {
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
 
-    const prompt = within(drawer).getByPlaceholderText(strings.promptPlaceholder!) as HTMLTextAreaElement;
+    const submitToggle = within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! });
     const save = within(drawer).getByRole('button', { name: strings.saveAction! }) as HTMLButtonElement;
-    // Nothing to save until something changed: the button reflects the form's own dirty state.
     expect(save.disabled).toBe(true);
-    fireEvent.change(prompt, { target: { value: 'Nové pokyny.' } });
+    fireEvent.click(submitToggle);
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
-    await waitFor(() => expect((within(top()).getByPlaceholderText(strings.promptPlaceholder!) as HTMLTextAreaElement).value).toBe('Nové pokyny.'));
+    await waitFor(() => expect(asked.botPatch[0]).toMatchObject({ maySubmitForms: false }));
 
     fireEvent.click(within(top()).getByRole('button', { name: strings.disableAction! }));
     const confirm = top();
@@ -526,7 +494,7 @@ describe('the chatbots section', () => {
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
-    fireEvent.change(within(drawer).getByPlaceholderText(strings.promptPlaceholder!), { target: { value: 'Rozepsáno.' } });
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
 
     // The drawer is still there, with the question over it: a stray click may not cost typed instructions.
@@ -559,9 +527,6 @@ describe('the chatbots section', () => {
     // the heading waits behind the `?` the host draws for it, which is where this app keeps long-form copy.
     expect(within(drawer).getByTitle(strings.limitsHint!)).toBeInTheDocument();
     expect(within(drawer).queryByText(strings.limitsHint!)).not.toBeInTheDocument();
-    expect(within(drawer).getByTitle(strings.promptHint!)).toBeInTheDocument();
-    expect(within(drawer).queryByText(strings.promptHint!)).not.toBeInTheDocument();
-
     // The value itself stays on the surface: what the reader opened the drawer for costs no click.
     expect(within(drawer).getByText(strings.detailAccount!)).toBeInTheDocument();
     expect(within(drawer).getByText('@ured-bot')).toBeInTheDocument();
@@ -636,33 +601,27 @@ describe('one chatbot\'s limits', () => {
     return await openWindow(strings.limitsEdit!);
   };
 
-  it('sets every limit with a slider and a box that are one value', async () => {
+  it('shows three main numbers and keeps the remaining eight behind Advanced', async () => {
     const limits = await openLimits('Městský úřad');
 
-    const box = within(limits).getByRole('textbox', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
-    const slider = within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
-    expect(box.value).toBe('30');
-    expect(slider.value).toBe('30');
-    // The slider's range is the SERVER's floor and a reach this bundle chooses, never past what the
-    // server accepts.
-    expect(Number(slider.min)).toBe(MANDATORY_LIMITS.rateIpPerMinute.min);
-    expect(Number(slider.max)).toBeLessThanOrEqual(MANDATORY_LIMITS.rateIpPerMinute.max);
+    expect(within(limits).getByRole('spinbutton', { name: strings.limit_dailyTurnLimit! })).toHaveValue(200);
+    expect(within(limits).getByRole('spinbutton', { name: strings.limit_dailyCostMicrousd! }))
+      .toHaveValue(DEFAULT_LIMITS.dailyCostMicrousd / 1_000_000);
+    expect(within(limits).getByRole('spinbutton', { name: strings.limit_retentionDays! })).toHaveValue(30);
+    expect(within(limits).queryByRole('spinbutton', { name: strings.limit_rateIpPerMinute! })).not.toBeInTheDocument();
 
-    // One setter behind both: moving the slider writes the box, and typing writes the slider.
-    fireEvent.change(slider, { target: { value: '45' } });
-    expect((within(top()).getByRole('textbox', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement).value).toBe('45');
-    fireEvent.change(within(top()).getByRole('textbox', { name: strings.limit_rateIpPerMinute! }), { target: { value: '60' } });
-    expect((within(top()).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement).value).toBe('60');
-
-    // An optional ceiling nobody set is an EMPTY box, never a zero the owner did not choose.
-    expect((within(top()).getByRole('textbox', { name: strings.limit_dailyCostMicrousd! }) as HTMLInputElement).value).toBe('');
+    fireEvent.click(within(limits).getByRole('button', { name: strings.limitsAdvanced! }));
+    const rate = within(limits).getByRole('spinbutton', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
+    expect(rate.value).toBe('30');
+    fireEvent.change(rate, { target: { value: '60' } });
+    expect(rate.value).toBe('60');
   });
 
   it('will not enable a chatbot whose numbers are not all decided, and names the ones missing', async () => {
     // The broken chatbot is the draft with no Project, so its blockers already keep it from being enabled.
     // What this checks is the LIMIT half: clearing a mandatory number disables the action and says which.
     const limits = await openLimits('Škola');
-    fireEvent.change(within(limits).getByRole('textbox', { name: strings.limit_dailyTurnLimit! }), { target: { value: '' } });
+    fireEvent.change(within(limits).getByRole('spinbutton', { name: strings.limit_dailyTurnLimit! }), { target: { value: '' } });
     expect(await within(top()).findByText(strings.limitsMissing!.replace('{fields}', strings.limit_dailyTurnLimit!))).toBeInTheDocument();
 
     fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
@@ -672,7 +631,8 @@ describe('one chatbot\'s limits', () => {
 
   it('reports a limit the server would refuse, without pretending it was stored', async () => {
     const limits = await openLimits('Městský úřad');
-    fireEvent.change(within(limits).getByRole('textbox', { name: strings.limit_maxActionsPerTurn! }), { target: { value: '0' } });
+    fireEvent.click(within(limits).getByRole('button', { name: strings.limitsAdvanced! }));
+    fireEvent.change(within(limits).getByRole('spinbutton', { name: strings.limit_maxActionsPerTurn! }), { target: { value: '0' } });
     expect(within(top()).getByText(`${strings.limit_maxActionsPerTurn}: ${strings.limitsRange!.replace('{min}', '1').replace('{max}', '20')}`)).toBeInTheDocument();
 
     fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
@@ -758,11 +718,11 @@ describe('the statistics section', () => {
   it('is a chatbot, a window, a chart and one line of spend', async () => {
     await openStats();
 
-    // Three windows, all of them visible: a list would hide two of the three choices.
-    expect(await screen.findByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '30') })).toBeChecked();
-    // And they stay reachable where the row is narrower than the three of them: the window switch is asked
-    // to scroll rather than clip, which is the only thing standing between a phone and a lost third choice.
-    expect(screen.getByRole('radiogroup', { name: strings.statsWindowLabel! })).toHaveAttribute('data-nowrap', 'true');
+    expect(await screen.findByRole('button', { name: 'Filters' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const filters = screen.getByRole('dialog', { name: 'Filters' });
+    const rangeTrigger = within(filters).getByRole('button', { name: /Last (7|30) days/ });
+    expect(rangeTrigger).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
     expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
     expect(asked.stats).toEqual([bot.chatbotUserId]);
@@ -774,7 +734,9 @@ describe('the statistics section', () => {
     expect(new Date(from!).getTime()).toBeLessThan(new Date(to!).getTime());
 
     // Another window is another read, over a range the reader chose.
-    fireEvent.click(screen.getByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '7') }));
+    fireEvent.click(rangeTrigger);
+    const range = screen.getByRole('dialog', { name: 'Date range' });
+    fireEvent.click(within(range).getByRole('button', { name: 'Today' }));
     await waitFor(() => expect(asked.stats).toHaveLength(2));
   });
 
@@ -788,7 +750,7 @@ describe('the statistics section', () => {
     expect(await screen.findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
   });
 
-  it('says there were no turns instead of drawing an empty chart', async () => {
+  it('renders zero-valued days in the same daily register', async () => {
     use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => HttpResponse.json({
       chatbotUserId: Number(url.searchParams.get('chatbotUserId')),
       from: url.searchParams.get('from'),
@@ -798,7 +760,8 @@ describe('the statistics section', () => {
       queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
     })));
     await openStats();
-    expect(await screen.findByText(strings.statsEmptyTitle!)).toBeInTheDocument();
+    expect(await screen.findByText(strings.statsTableTitle!)).toBeInTheDocument();
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
   });
 
   it('reports a failed counters read with the retry the host owns', async () => {
@@ -857,96 +820,6 @@ describe('the shared settings section', () => {
   });
 });
 
-describe('page-action rules', () => {
-  const openRules = async () => {
-    renderSection('bots');
-    await settled();
-    await screen.findByText('Městský úřad');
-    const drawer = await openBot('Městský úřad');
-    const rules = await openWindow(strings.securityTitle!);
-    return { drawer, rules };
-  };
-
-  it('says on the drawer that there is no rule, and keeps the author behind its own window', async () => {
-    renderSection('bots');
-    await settled();
-    await screen.findByText('Městský úřad');
-    const drawer = await openBot('Městský úřad');
-    expect(within(drawer).getByText(strings.rulesEmpty!)).toBeInTheDocument();
-    expect(within(drawer).queryByRole('combobox', { name: strings.ruleOriginLabel! })).not.toBeInTheDocument();
-    expect(within(drawer).queryByRole('button', { name: strings.ruleAdd! })).not.toBeInTheDocument();
-  });
-
-  it('keeps ONE help mark on the card, and states what a rule is in the window that writes one', async () => {
-    const { drawer, rules } = await openRules();
-    // The card's mark is the section's own reasoning; the concept a reader needs while authoring a rule
-    // belongs to the window that authors it, not to a second mark beside the first.
-    expect(within(drawer).getByTitle(strings.securityHint!)).toBeInTheDocument();
-    expect(within(drawer).queryByText(strings.securityHint!)).not.toBeInTheDocument();
-    expect(within(rules).getByText(strings.securityHelp!)).toBeInTheDocument();
-  });
-
-  it('adds a rule and sends the whole policy with the save', async () => {
-    const { drawer, rules } = await openRules();
-
-    fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    // The field opens holding "/", so this is what a reader typing their own path into it really sends.
-    fireEvent.change(within(rules).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '//kontakt' } });
-    fireEvent.click(within(rules).getByRole('button', { name: strings.ruleAdd! }));
-    await waitFor(() => expect(within(rules).getByText(`${SITE}/kontakt`)).toBeInTheDocument());
-    expect(within(rules).getByText(strings.ruleLimit!.replace('{count}', '1'))).toBeInTheDocument();
-
-    // Closed again, the summary names the place the rule governs, so the drawer still says what was set.
-    fireEvent.click(within(rules).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
-    expect(within(drawer).getByText(strings.rulesCount!.replace('{n}', '1'))).toBeInTheDocument();
-    expect(within(drawer).getByText(`${SITE}/kontakt`)).toBeInTheDocument();
-
-    fireEvent.click(within(drawer).getByRole('button', { name: strings.saveAction! }));
-    // The rule travels with the rest of the editable state, and it is the one the editor showed.
-    await waitFor(() => expect(asked.botPatch).toHaveLength(1));
-    expect(asked.botPatch[0]!.actionRules).toEqual([
-      { origin: SITE, pathPrefix: '/kontakt', action: 'read', requiresConfirmation: false, maxPerTurn: 1 },
-    ]);
-  });
-
-  it('refuses the same rule twice and a limit beyond the per-turn ceiling', async () => {
-    const { rules } = await openRules();
-    fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    fireEvent.click(within(rules).getByRole('button', { name: strings.ruleAdd! }));
-    await waitFor(() => expect(within(rules).getByText(`${SITE}/`)).toBeInTheDocument());
-
-    // The same domain, path and action are already listed.
-    expect(within(rules).getByText(strings.ruleDuplicate!)).toBeInTheDocument();
-    expect(within(rules).getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
-
-    fireEvent.change(within(rules).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: '/kontakt' } });
-    const limit = within(rules).getByRole('spinbutton');
-    fireEvent.change(limit, { target: { value: '21' } });
-    expect(within(rules).getByText(strings.ruleLimitInvalid!.replace('{max}', '20'))).toBeInTheDocument();
-    expect(within(rules).getByRole('button', { name: strings.ruleAdd! })).toBeDisabled();
-    fireEvent.change(limit, { target: { value: '3' } });
-    expect(within(rules).getByRole('button', { name: strings.ruleAdd! })).toBeEnabled();
-  });
-
-  it('offers the visitor\'s confirmation only where the protocol can carry one', async () => {
-    const { rules } = await openRules();
-    // `read` cannot be confirmed, so the control is not offered at all.
-    expect(within(rules).queryByText(strings.ruleConfirmationLabel!)).not.toBeInTheDocument();
-    fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleActionLabel! }), { target: { value: 'request_submit' } });
-    expect(within(rules).getByText(strings.ruleConfirmationLabel!)).toBeInTheDocument();
-  });
-
-  it('requires a domain, a path and a limit the server would accept before offering to add', async () => {
-    const { rules } = await openRules();
-    // Nothing is chosen yet, so the domain is asked for rather than silently defaulted.
-    expect(within(rules).getByText(strings.ruleOriginRequired!)).toBeInTheDocument();
-    fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
-    fireEvent.change(within(rules).getByLabelText(strings.rulePathLabel!, { selector: 'input' }), { target: { value: 'kontakt' } });
-    expect(within(rules).getByText(strings.rulePathInvalid!)).toBeInTheDocument();
-  });
-});
-
 describe('the allowed domains', () => {
   it('states them as a summary, and refuses one the server would reject', async () => {
     renderSection('bots');
@@ -998,9 +871,10 @@ describe('the pure helpers the drawer reports with', () => {
     expect(originHint(SITE, [])).toBeNull();
   });
 
-  it('reads an unset limit as an empty box and a stored one as its number', () => {
+  it('prefills an unset stored limit from the server default', () => {
     expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe('200');
-    expect(limitDraftOf({ ...LIMITS, dailyCostMicrousd: null }).dailyCostMicrousd).toBe('');
+    expect(limitDraftOf({ ...LIMITS, dailyCostMicrousd: null }).dailyCostMicrousd)
+      .toBe(String(DEFAULT_LIMITS.dailyCostMicrousd));
   });
 
   it('judges a box by the server\'s own bounds, and separates "not decided" from "not a number"', () => {
@@ -1019,62 +893,21 @@ describe('the pure helpers the drawer reports with', () => {
     expect(readLimitDraft({ ...draft, retentionDays: '1.5' }).invalid).toEqual(['retentionDays']);
   });
 
-  it('gives every limit a slider the server would accept, wide enough for the number already stored', () => {
-    // A slider is a presentation choice, so the reach it offers is this bundle's. What it may never do is
-    // offer a value the server would refuse, or refuse to show a value the server already holds: the
-    // maximum is the limit's own spec at most, and the stored number at least.
-    for (const field of LIMIT_FIELDS) {
-      const spec = specOf(field);
-      const range = sliderRange(field, null);
-      expect(range.min).toBe(spec.min);
-      expect(range.max).toBeLessThanOrEqual(spec.max);
-      expect(range.max).toBeGreaterThan(range.min);
-      expect(sliderRange(field, spec.max).max).toBe(spec.max);
-    }
-    // The cost ceiling is stored in millionths of a dollar and its spec reaches the largest safe integer,
-    // which is not a distance a hand can travel: the reach is what a reader can actually aim within.
-    expect(OPTIONAL_LIMITS.dailyCostMicrousd.max).toBe(Number.MAX_SAFE_INTEGER);
-    expect(sliderRange('dailyCostMicrousd', null).max).toBeLessThan(Number.MAX_SAFE_INTEGER);
-    // …and a stored number beyond that reach widens the slider to hold it rather than clamping it down.
-    expect(sliderRange('dailyCostMicrousd', 900_000_000).max).toBeGreaterThanOrEqual(900_000_000);
-  });
-
-  it('keys a rule by the place and the action the server keys it by', () => {
-    expect(actionRuleKey({ origin: SITE, pathPrefix: '/kontakt', action: 'fill' })).toBe(`${SITE}/kontakt fill`);
-  });
-
-  it('refuses a draft rule the server would refuse, and lets a good one through', () => {
-    const allowed = [SITE];
-    const existing = [{ origin: SITE, pathPrefix: '/', action: 'read', requiresConfirmation: false, maxPerTurn: 1 }];
-    expect(draftRuleRefusal({ origin: '', pathPrefix: '/', action: 'read', maxPerTurn: '1' }, [], existing)).toBe('no_origin');
-    expect(draftRuleRefusal({ origin: '', pathPrefix: '/', action: 'read', maxPerTurn: '1' }, allowed, existing)).toBe('pick_origin');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: 'kontakt', action: 'read', maxPerTurn: '1' }, allowed, existing)).toBe('bad_path');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/x?y', action: 'read', maxPerTurn: '1' }, allowed, existing)).toBe('bad_path');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/a', action: 'read', maxPerTurn: '0' }, allowed, existing)).toBe('bad_limit');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/a', action: 'read', maxPerTurn: '21' }, allowed, existing)).toBe('bad_limit');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/', action: 'read', maxPerTurn: '2' }, allowed, existing)).toBe('duplicate');
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '/a', action: 'click', maxPerTurn: '2' }, allowed, existing)).toBeNull();
-    // The field opens with a "/", so a reader typing their path over it sends "//kontakt": that is the same
-    // place as "/kontakt" and must be accepted as it, and refused as a duplicate of it.
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '//kontakt', action: 'read', maxPerTurn: '2' }, allowed, [])).toBeNull();
-    // ... and as the SAME place as the rule already written without the extra slash.
-    expect(draftRuleRefusal({ origin: SITE, pathPrefix: '//kontakt', action: 'read', maxPerTurn: '2' }, allowed, [{ origin: SITE, pathPrefix: '/kontakt', action: 'read', requiresConfirmation: false, maxPerTurn: 1 }])).toBe('duplicate');
-  });
-
-  it('reads the statistics window as the same range of UTC days for both requests', () => {
-    const window = statsWindow(7, new Date('2026-09-21T23:30:00.000Z'));
+  it('bounds the all preset to the 366-day window the chatbot route accepts', () => {
+    const now = Date.parse('2026-09-21T23:30:00.000Z');
+    const window = statsWindow({ preset: 'all' }, now, { fromMs: Number.NEGATIVE_INFINITY, toMs: Number.POSITIVE_INFINITY });
     expect(window.to).toBe('2026-09-21');
-    expect(window.from).toBe('2026-09-15');
-    expect(new Date(window.fromMs).toISOString()).toBe('2026-09-15T00:00:00.000Z');
+    expect(window.from).toBe('2025-09-21');
+    expect(new Date(window.fromMs).toISOString()).toBe('2025-09-21T00:00:00.000Z');
     expect(new Date(window.toMs).toISOString()).toBe('2026-09-21T23:59:59.999Z');
   });
 
   it('draws every day of the window, including the ones nobody wrote on', () => {
     const points = chartPoints([{ day: '2026-09-20', turns: 4, done: 4, errors: 0 }], '2026-09-19', '2026-09-21');
     expect(points).toEqual([
-      { label: '2026-09-19', turns: 0, errors: 0 },
-      { label: '2026-09-20', turns: 4, errors: 0 },
-      { label: '2026-09-21', turns: 0, errors: 0 },
+      { label: '2026-09-19', turns: 0, done: 0, errors: 0 },
+      { label: '2026-09-20', turns: 4, done: 4, errors: 0 },
+      { label: '2026-09-21', turns: 0, done: 0, errors: 0 },
     ]);
   });
 });

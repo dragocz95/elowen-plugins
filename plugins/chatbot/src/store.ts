@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { PluginDb, PluginDbStatement } from 'elowen/plugin-api';
 import type {
   ActionRow,
-  ActionRuleRow,
   BotRow,
   BudgetDayRow,
   ConversationRow,
@@ -13,7 +12,7 @@ import type {
   VisitorRow,
 } from './db.js';
 import { CHATBOT_PLATFORM } from './adapter.js';
-import { readBotLimits, type BotLimits, type LimitValues } from './limits.js';
+import { DEFAULT_LIMITS, readBotLimits, type BotLimits, type LimitValues } from './limits.js';
 import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay, type OriginUsage } from './budget.js';
 import {
   chatbotScopeKey,
@@ -45,15 +44,6 @@ export type AdmissionOutcome =
   /** This exact message is already a turn: the caller gets the SAME turn, never a second model call. */
   | { ok: false; reason: 'duplicate'; turn: TurnRow };
 
-/** One rule as an administrator wrote it: the store's own write contract, so the shape the admin payload
- *  is validated into and the shape this class writes are one declaration rather than two. */
-export interface ActionRuleInput {
-  origin: string;
-  pathPrefix: string;
-  action: string;
-  requiresConfirmation: boolean;
-  maxPerTurn: number;
-}
 
 /** One visitor's conversation as the admin register lists it. Metadata only: what was said is read one
  *  conversation at a time. */
@@ -106,48 +96,45 @@ export class ChatbotStore {
     return this.stmt('SELECT * FROM p_chatbot_bots ORDER BY display_name COLLATE NOCASE, chatbot_user_id').all() as BotRow[];
   }
 
-  /** Register a bot. `limits` is a DRAFT's: whatever the administrator has decided so far, with the rest left
-   *  unset. No default is applied here — a number this function made up would be a number nobody chose. */
+  /** Register a bot with the complete default limit profile. A caller may override a value explicitly. */
   createBot(input: {
     chatbotUserId: number;
     publicId: string;
     displayName: string;
-    prompt: string;
     origins: readonly string[];
     limits?: Partial<LimitValues>;
-    actionRules: readonly ActionRuleInput[];
+    maySubmitForms?: boolean;
     now: string;
   }): BotRow {
     return this.db.transaction(() => {
-      const limits = input.limits ?? {};
+      const limits = { ...DEFAULT_LIMITS, ...input.limits };
       this.stmt(`INSERT INTO p_chatbot_bots
-                   (chatbot_user_id, public_id, customer_user_id, display_name, prompt, status,
+                   (chatbot_user_id, public_id, customer_user_id, display_name, status, may_submit_forms,
                     rate_ip_per_minute, rate_chatbot_per_minute, rate_conversation_per_minute,
                     daily_turn_limit, daily_token_limit, daily_cost_microusd,
                     max_concurrent_turns, max_queue_depth, queue_timeout_seconds,
                     max_actions_per_turn, retention_days, created_at, updated_at)
-                 VALUES (?, ?, NULL, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                 VALUES (?, ?, NULL, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           input.chatbotUserId,
           input.publicId,
           input.displayName,
-          input.prompt,
-          limits.rateIpPerMinute ?? null,
-          limits.rateChatbotPerMinute ?? null,
-          limits.rateConversationPerMinute ?? null,
-          limits.dailyTurnLimit ?? null,
-          limits.dailyTokenLimit ?? null,
-          limits.dailyCostMicrousd ?? null,
-          limits.maxConcurrentTurns ?? null,
-          limits.maxQueueDepth ?? null,
-          limits.queueTimeoutSeconds ?? null,
-          limits.maxActionsPerTurn ?? null,
-          limits.retentionDays ?? null,
+          input.maySubmitForms === false ? 0 : 1,
+          limits.rateIpPerMinute,
+          limits.rateChatbotPerMinute,
+          limits.rateConversationPerMinute,
+          limits.dailyTurnLimit,
+          limits.dailyTokenLimit,
+          limits.dailyCostMicrousd,
+          limits.maxConcurrentTurns,
+          limits.maxQueueDepth,
+          limits.queueTimeoutSeconds,
+          limits.maxActionsPerTurn,
+          limits.retentionDays,
           input.now,
           input.now,
         );
       this.replaceOrigins(input.chatbotUserId, input.origins);
-      this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
       return this.botByUserId(input.chatbotUserId)!;
     });
   }
@@ -166,16 +153,15 @@ export class ChatbotStore {
     chatbotUserId: number;
     expectedUpdatedAt: string;
     displayName: string;
-    prompt: string;
     origins: readonly string[];
     limits: LimitValues;
-    actionRules: readonly ActionRuleInput[];
+    maySubmitForms: boolean;
     now: string;
   }): BotRow | null {
     return this.db.transaction(() => {
       const limits = input.limits;
       const result = this.stmt(`UPDATE p_chatbot_bots SET
-                                  display_name = ?, prompt = ?, updated_at = ?, sensitive_mode = 0,
+                                  display_name = ?, updated_at = ?, sensitive_mode = 0, may_submit_forms = ?,
                                   rate_ip_per_minute = ?, rate_chatbot_per_minute = ?, rate_conversation_per_minute = ?,
                                   daily_turn_limit = ?, daily_token_limit = ?, daily_cost_microusd = ?,
                                   max_concurrent_turns = ?, max_queue_depth = ?, queue_timeout_seconds = ?,
@@ -183,8 +169,8 @@ export class ChatbotStore {
                                 WHERE chatbot_user_id = ? AND updated_at = ?`)
         .run(
           input.displayName,
-          input.prompt,
           input.now,
+          input.maySubmitForms ? 1 : 0,
           limits.rateIpPerMinute,
           limits.rateChatbotPerMinute,
           limits.rateConversationPerMinute,
@@ -201,7 +187,6 @@ export class ChatbotStore {
         );
       if (result.changes === 0) return null;
       this.replaceOrigins(input.chatbotUserId, input.origins);
-      this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
       return this.botByUserId(input.chatbotUserId);
     });
   }
@@ -216,7 +201,7 @@ export class ChatbotStore {
    *  other edit of a bot: a stale write reports a conflict instead of replacing another administrator's.
    *
    *  It is deliberately its own statement rather than a wider `updateBot`: the appearance editor owns these
-   *  two fields and nothing else, so saving a colour can neither read nor write a prompt it never showed. */
+   *  two fields and nothing else, so saving a colour cannot touch unrelated bot configuration. */
   updateAppearance(input: {
     chatbotUserId: number;
     expectedUpdatedAt: string;
@@ -239,7 +224,6 @@ export class ChatbotStore {
       this.stmt('DELETE FROM p_chatbot_budget_days WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_tokens WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_visitors WHERE chatbot_user_id = ?').run(chatbotUserId);
-      this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_origins WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_bots WHERE chatbot_user_id = ?').run(chatbotUserId);
     });
@@ -775,7 +759,7 @@ export class ChatbotStore {
     return this.stmt('UPDATE p_chatbot_budget_days SET in_flight = 0, updated_at = ? WHERE in_flight > 0').run(now).changes;
   }
 
-  // ── page actions and the rules over them ───────────────────────────────────────────────────────────
+  // ── page actions ───────────────────────────────────────────────────────────────────────────────────
 
   /** The turn a visitor's action request belongs to: the one this visitor has RUNNING. A turn that is
    *  queued, done or failed is not it, and two running turns for one visitor cannot exist — the tool that
@@ -862,41 +846,6 @@ export class ChatbotStore {
     const changed = this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmation_required')")
       .run(now, actionId);
     return changed.changes > 0 ? this.action(actionId) : null;
-  }
-
-  /** Every rule this chatbot has. Read in one query and resolved in memory, because the resolution is a
-   *  decision about a path and belongs in code that can be read and tested, not in SQL. */
-  actionRulesOf(chatbotUserId: number): ActionRuleRow[] {
-    return this.stmt('SELECT * FROM p_chatbot_action_rules WHERE chatbot_user_id = ? ORDER BY path_prefix DESC')
-      .all(chatbotUserId) as ActionRuleRow[];
-  }
-
-  /** The same policy in the shape `updateBot` WRITES, for a caller that is replacing the whole list without
-   *  having an opinion about it: a write that carries no rules hands back what the row holds, so replacing
-   *  the list cannot drop a policy the writer never saw. This is the only reading of a stored rule back into
-   *  the write contract, so the two shapes cannot disagree about a field. */
-  actionRuleInputsOf(chatbotUserId: number): ActionRuleInput[] {
-    return this.actionRulesOf(chatbotUserId).map((row) => ({
-      origin: row.origin,
-      pathPrefix: row.path_prefix,
-      action: row.action,
-      requiresConfirmation: row.requires_confirmation === 1,
-      maxPerTurn: row.max_per_turn,
-    }));
-  }
-
-  /** Write this chatbot's rules as a WHOLE list, in the same transaction as the rest of a bot write: the
-   *  administrator's editor hands over a complete policy, and two partial writes would leave a rule behind
-   *  that nobody can see in the editor that is supposed to control it. */
-  private replaceActionRules(chatbotUserId: number, rules: readonly ActionRuleInput[], now: string): void {
-    this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
-    const insert = this.stmt(`INSERT INTO p_chatbot_action_rules
-                                (id, chatbot_user_id, origin, path_prefix, action, requires_confirmation, max_per_turn, created_at, updated_at)
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    for (const rule of rules) {
-      insert.run(randomUUID(), chatbotUserId, rule.origin, rule.pathPrefix, rule.action,
-        rule.requiresConfirmation ? 1 : 0, rule.maxPerTurn, now, now);
-    }
   }
 
   // ── what an administrator reads: conversations, their transcript, and the counters ────────────────

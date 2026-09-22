@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import { createAdminApi, percentileMs } from '../plugins/chatbot/src/adminApi.js';
-import { validateActionRules } from '../plugins/chatbot/src/validation.js';
+import { DEFAULT_LIMITS } from '../plugins/chatbot/src/limits.js';
 import { CHATBOT_SITE as SITE, NOW_MS, createChatbotHost, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
 
 /** The administrator's own surface: the conversations of ONE chatbot, what was said in one of them, the
@@ -251,88 +251,31 @@ describe('one chatbot\'s conversations', () => {
   });
 });
 
-describe('page-action rules travel with the bot and are stored as the server read them', () => {
-  const rule = { origin: SITE, pathPrefix: '/kontakt', action: 'fill', requiresConfirmation: false, maxPerTurn: 2 };
-
-  it('registers a draft with rules and reads them back', async () => {
+describe('chatbot registration defaults', () => {
+  it('creates a complete default limit profile and enables form submission', async () => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
-    const answer = await api.create(ADMIN, {
-      chatbotUserId: 12,
-      displayName: 'Úřad',
-      origins: [SITE],
-      // The path arrives with a trailing slash and the action with a confirmation it may not carry: both are
-      // normalised to what the policy resolver can actually match.
-      actionRules: [{ ...rule, pathPrefix: '/kontakt/' }, { origin: SITE, pathPrefix: '/', action: 'request_submit', requiresConfirmation: true, maxPerTurn: 1 }],
-    });
+    const answer = await api.create(ADMIN, { chatbotUserId: 12, displayName: 'Úřad', origins: [SITE] });
+
     expect(answer.status).toBe(200);
-    expect((answer.body as { bot: { actionRules: unknown[] } }).bot.actionRules).toEqual([
-      { origin: SITE, pathPrefix: '/kontakt', action: 'fill', requiresConfirmation: false, maxPerTurn: 2 },
-      { origin: SITE, pathPrefix: '/', action: 'request_submit', requiresConfirmation: true, maxPerTurn: 1 },
-    ]);
+    expect((answer.body as { bot: { limits: unknown; missingLimits: unknown[]; maySubmitForms: boolean } }).bot)
+      .toMatchObject({ limits: DEFAULT_LIMITS, missingLimits: [], maySubmitForms: true });
   });
 
-  it('replaces the whole policy on a patch, so a removed rule is really gone', async () => {
+  it('stores the form submission switch through the admin boundary', async () => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
-    const created = await api.create(ADMIN, { chatbotUserId: 12, origins: [SITE], actionRules: [rule] });
-    const updatedAt = (created.body as { bot: { updatedAt: string } }).bot.updatedAt;
+    const created = await api.create(ADMIN, { chatbotUserId: 12, origins: [SITE] });
+    const bot = (created.body as { bot: { updatedAt: string } }).bot;
 
-    const cleared = await api.update(ADMIN, { chatbotUserId: 12, expectedUpdatedAt: updatedAt, displayName: '', prompt: '', origins: [SITE], actionRules: [] });
-    expect(cleared.status).toBe(200);
-    expect((cleared.body as { bot: { actionRules: unknown[] } }).bot.actionRules).toEqual([]);
-    expect(host.store.actionRulesOf(12)).toEqual([]);
-  });
-
-  it('refuses a rule for a domain the chatbot does not answer on', async () => {
-    const host = twoChatbots();
-    const { api } = adminApiFor(host);
-    const answer = await api.create(ADMIN, { chatbotUserId: 12, origins: [SITE], actionRules: [{ ...rule, origin: 'https://jiny.cz' }] });
-    expect(answer).toMatchObject({ status: 400, body: { error: 'invalid_request' } });
-    expect(host.store.actionRulesOf(12)).toEqual([]);
-  });
-
-  it('refuses a stale write and leaves the stored policy alone', async () => {
-    const host = twoChatbots();
-    const { api } = adminApiFor(host);
-    await api.create(ADMIN, { chatbotUserId: 12, origins: [SITE], actionRules: [rule] });
-    const answer = await api.update(ADMIN, {
+    const updated = await api.update(ADMIN, {
       chatbotUserId: 12,
-      expectedUpdatedAt: '2020-01-01T00:00:00.000Z',
+      expectedUpdatedAt: bot.updatedAt,
       displayName: '',
-      prompt: '',
       origins: [SITE],
-      actionRules: [],
+      maySubmitForms: false,
     });
-    expect(answer).toMatchObject({ status: 409, body: { error: 'conflict' } });
-    expect(host.store.actionRulesOf(12)).toHaveLength(1);
-  });
-
-  it('refuses a rule list the policy could never act on', () => {
-    const good = { origin: SITE, pathPrefix: '/kontakt', action: 'fill', maxPerTurn: 2 };
-    expect(validateActionRules([good])).toMatchObject({ ok: true });
-    expect(validateActionRules([{ ...good, unknown: 1 }])).toMatchObject({ ok: false });
-    expect(validateActionRules([{ ...good, action: 'rm -rf' }])).toMatchObject({ ok: false });
-    expect(validateActionRules([{ ...good, pathPrefix: 'kontakt' }])).toMatchObject({ ok: false });
-    expect(validateActionRules([{ ...good, pathPrefix: '/a?b' }])).toMatchObject({ ok: false });
-    expect(validateActionRules([{ ...good, maxPerTurn: 0 }])).toMatchObject({ ok: false });
-    // A limit above the plugin's own per-turn ceiling would be a setting that silently does nothing.
-    expect(validateActionRules([{ ...good, maxPerTurn: 21 }])).toMatchObject({ ok: false });
-    // Only submitting a form can be confirmed: such a rule could never be satisfied.
-    expect(validateActionRules([{ ...good, action: 'click', requiresConfirmation: true }])).toMatchObject({ ok: false });
-    expect(validateActionRules([good, { ...good, pathPrefix: '/kontakt/' }])).toMatchObject({ ok: false });
-    expect(validateActionRules('nope')).toMatchObject({ ok: false });
-  });
-
-  it('reads a path the way the editor shows it, so a doubled slash still describes a real place', () => {
-    // The editor's field opens with a "/", and a reader who types their path over it sends "//kontakt".
-    // Stored verbatim that rule matches no request while looking exactly like one that does.
-    expect(validateActionRules([{ origin: SITE, pathPrefix: '//kontakt', action: 'fill', maxPerTurn: 2 }]))
-      .toEqual({ ok: true, value: [{ origin: SITE, pathPrefix: '/kontakt', action: 'fill', requiresConfirmation: false, maxPerTurn: 2 }] });
-    expect(validateActionRules([{ origin: SITE, pathPrefix: '/a//b/', action: 'click', maxPerTurn: 1 }]))
-      .toEqual({ ok: true, value: [{ origin: SITE, pathPrefix: '/a/b', action: 'click', requiresConfirmation: false, maxPerTurn: 1 }] });
-    // Which is also what makes the duplicate check catch the same place written both ways.
-    expect(validateActionRules([{ origin: SITE, pathPrefix: '/kontakt', action: 'fill', maxPerTurn: 2 }, { origin: SITE, pathPrefix: '//kontakt', action: 'fill', maxPerTurn: 2 }]))
-      .toMatchObject({ ok: false });
+    expect(updated).toMatchObject({ status: 200, body: { bot: { maySubmitForms: false } } });
+    expect(host.store.botByUserId(12)!.may_submit_forms).toBe(0);
   });
 });

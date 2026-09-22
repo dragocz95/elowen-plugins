@@ -35,18 +35,6 @@ interface UsageByOriginAnswer {
   trackingSince: string | null;
 }
 
-/** One tool of an account, as the host's own users panel derives it: what the account can actually reach
- *  right now, which plugin owns it, and whether an administrator may change it at all. */
-export interface AccountToolRow {
-  name: string;
-  label: string;
-  icon: string | null;
-  plugin: string | null;
-  group: string;
-  state: 'allowed' | 'inherited' | 'unavailable' | 'disabled';
-  toggleable: boolean;
-}
-
 /** The core translation catalog, narrowed the way every bundle that mounts a host affordance narrows it.
  *  Only host-generic sections are read here: `managePicker.manage` is the word on the button that opens a
  *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
@@ -148,6 +136,11 @@ interface ChatbotHooks {
   useQueryClient(): {
     setQueryData<T>(queryKey: readonly unknown[], updater: (current: T | undefined) => T | undefined): void;
   };
+  usePersistentState<T extends string>(
+    key: string,
+    initial: T,
+    allowed: readonly T[] | ((raw: string) => boolean),
+  ): [T, (value: T) => void];
   /** ADMIN-ONLY on the server: a non-admin caller is refused by design. `enabled` only keeps a request
    *  that is meant to fail from being fired; it is not the access control. */
   useUsageByOrigin(
@@ -158,6 +151,17 @@ interface ChatbotHooks {
 }
 
 type AnyComponent = ComponentType<any>;
+
+export interface DateRange {
+  preset: 'today' | '7d' | '30d' | '90d' | 'all' | 'custom';
+  from?: string;
+  to?: string;
+}
+
+export type PageFilterField =
+  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
+  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+
 
 /** Every component this bundle mounts, with the props it actually passes. The names are checked against
  *  the host's published set below, so a rename in core fails THIS build instead of reaching React as
@@ -188,6 +192,9 @@ interface ChatbotComponents {
     openLabel?: string;
     className?: string;
   }>;
+  DateRangeFilter: ComponentType<{ value: DateRange; onChange(range: DateRange): void; compact?: boolean }>;
+  EntityList: ComponentType<{ children?: ReactNode; className?: string }>;
+  EntityRow: ComponentType<{ children?: ReactNode; className?: string; selected?: boolean; busy?: boolean; interactive?: boolean }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   Field: ComponentType<{ label: string; htmlFor?: string; hint?: string; description?: string; error?: string; required?: boolean; children?: ReactNode }>;
@@ -224,6 +231,7 @@ interface ChatbotComponents {
   ModalFooter: ComponentType<{ children?: ReactNode; className?: string }>;
   /** The one pager of the app: it derives the page count and the range text itself, so this bundle ships
    *  none of that copy. */
+  PageFilters: ComponentType<{ fields: PageFilterField[] }>;
   Pager: ComponentType<{
     /** Zero-based. */
     page: number;
@@ -398,7 +406,14 @@ type PublishedNames = AssertPublished<keyof ChatbotComponents>;
 export interface ChatbotRuntime {
   components: Pick<ChatbotComponents, PublishedNames>;
   hooks: ChatbotHooks;
-  utils: { apiErrorMessage(error: unknown): string };
+  utils: {
+    apiErrorMessage(error: unknown): string;
+    DEFAULT_RANGE: DateRange;
+    isStoredRange(raw: string): boolean;
+    parseRange(raw: string): DateRange | null;
+    rangeBounds(range: DateRange, now: number): { fromMs: number; toMs: number };
+    serializeRange(range: DateRange): string;
+  };
   api(path: string, init?: RequestInit): Promise<unknown>;
   navigate(href: string): void;
 }

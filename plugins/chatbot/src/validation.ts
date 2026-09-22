@@ -1,18 +1,12 @@
-import { ACTION_PATH_PREFIX_MAX_CHARS, normalizeActionPathPrefix } from './adminContract.js';
 import { parseAppearance, type ChatbotAppearance } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
-import { isActionKind } from './actions.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf, type LimitValues } from './limits.js';
-import type { ActionRuleInput } from './store.js';
 import {
   ACTION_DECISIONS,
   ACTION_OUTCOMES,
-  CONFIRMATION_ACTION_KIND,
   MESSAGE_MAX_BYTES,
   PAGE_FAILURE_DETAILS,
   PUBLIC_SCHEMA_VERSION,
-  WIDGET_MAX_ACTIONS_PER_TURN,
-  requiresVisitorConfirmation,
   type ActionDecision,
   type ActionOutcome,
 } from './publicContract.js';
@@ -26,7 +20,6 @@ export type Validated<T> = { ok: true; value: T } | { ok: false; error: string }
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
 const DISPLAY_NAME_MAX_CHARS = 80;
-const PROMPT_MAX_CHARS = 8_000;
 const ORIGINS_MAX = 20;
 
 /** How much of a page's own explanation may be kept with an action. A `read` answers with the value it
@@ -186,112 +179,40 @@ export function validateOrigins(input: unknown): Validated<string[]> {
   return { ok: true, value: [...seen] };
 }
 
-/** One administrator rule over what a turn may do on a visitor's page. The shape is the STORE's write
- *  contract rather than a second declaration here: what this function returns is exactly what
- *  `ChatbotStore.replaceActionRules` writes, so the two cannot disagree about a field name. */
-export type ActionRulePayload = ActionRuleInput;
-
-/** How many rules one chatbot may carry. A rule is a statement about one origin, one path and one action,
- *  and a list beyond this is a policy nobody can read rather than a policy that is too small. */
-const ACTION_RULES_MAX = 100;
-
-/** The chatbot's page-action rules, normalised and checked as a WHOLE list.
- *
- *  Two rules may not describe the same place twice: the table's own UNIQUE constraint would refuse the
- *  second one at write time, and a request carrying a conflict has to be answered with the conflict rather
- *  than with whichever row happened to win. A confirmation is refused for any action that is not the
- *  submitting kind, because the widget's protocol can only carry a confirmation for that one — such a rule
- *  is a policy that can never be satisfied, and it must not be storable while looking like one. */
-export function validateActionRules(input: unknown): Validated<ActionRulePayload[]> {
-  if (!Array.isArray(input)) return { ok: false, error: '"actionRules" must be an array' };
-  if (input.length > ACTION_RULES_MAX) return { ok: false, error: `at most ${ACTION_RULES_MAX} action rules` };
-  const seen = new Set<string>();
-  const rules: ActionRulePayload[] = [];
-  for (const entry of input) {
-    const outer = strictObject(entry, ['origin', 'pathPrefix', 'action', 'requiresConfirmation', 'maxPerTurn'],
-      ['origin', 'pathPrefix', 'action', 'maxPerTurn']);
-    if (!outer.ok) return { ok: false, error: `action rule: ${outer.error}` };
-    const origin = readString(outer.value, 'origin', 255);
-    if (!origin.ok) return origin;
-    let normalized: string;
-    try {
-      normalized = normalizeOrigin(origin.value);
-    } catch (error) {
-      return { ok: false, error: `action rule origin "${origin.value}": ${error instanceof Error ? error.message : 'invalid domain'}` };
-    }
-    if (isWildcardOrigin(normalized)) return { ok: false, error: 'action rule: a wildcard domain is not allowed' };
-    const path = readString(outer.value, 'pathPrefix', ACTION_PATH_PREFIX_MAX_CHARS);
-    if (!path.ok) return path;
-    const pathPrefix = normalizeActionPathPrefix(path.value);
-    if (pathPrefix === null) return { ok: false, error: 'action rule: "pathPrefix" must be a path starting with "/"' };
-    const action = readString(outer.value, 'action', 32);
-    if (!action.ok) return action;
-    if (!isActionKind(action.value)) return { ok: false, error: `action rule: "${action.value}" is not an action this version performs` };
-    const requiresConfirmation = outer.value.requiresConfirmation ?? false;
-    if (typeof requiresConfirmation !== 'boolean') return { ok: false, error: 'action rule: "requiresConfirmation" must be a boolean' };
-    if (requiresConfirmation && !requiresVisitorConfirmation(action.value)) {
-      return { ok: false, error: `action rule: "${action.value}" cannot require a confirmation; only ${CONFIRMATION_ACTION_KIND} is answered with one` };
-    }
-    const maxPerTurn = outer.value.maxPerTurn;
-    if (typeof maxPerTurn !== 'number' || !Number.isSafeInteger(maxPerTurn) || maxPerTurn < 1) {
-      return { ok: false, error: 'action rule: "maxPerTurn" must be a positive integer' };
-    }
-    // A rule can only lower the per-turn ceiling the plugin itself enforces, so a larger number would be a
-    // setting that silently does nothing. Refusing it keeps the editor honest.
-    if (maxPerTurn > WIDGET_MAX_ACTIONS_PER_TURN) {
-      return { ok: false, error: `action rule: "maxPerTurn" may not exceed ${WIDGET_MAX_ACTIONS_PER_TURN}` };
-    }
-    const key = `${normalized}\n${pathPrefix}\n${action.value}`;
-    if (seen.has(key)) return { ok: false, error: `action rule: ${normalized}${pathPrefix} ${action.value} is listed twice` };
-    seen.add(key);
-    rules.push({ origin: normalized, pathPrefix, action: action.value, requiresConfirmation, maxPerTurn });
-  }
-  return { ok: true, value: rules };
-}
-
-/** Rules travel with the bot in both directions, so the editor reads back exactly what it wrote rather
- *  than a shape of its own. Present in `BotCreatePayload`/`BotPatchPayload` and validated once here. */
 export interface BotCreatePayload {
   chatbotUserId: number;
   displayName: string;
-  prompt: string;
   origins: string[];
-  /** A draft may be registered without any limit filled in; what is carried is validated, and the rest stays
-   *  unset until an administrator decides it. Enabling is where completeness is required. */
   limits: Partial<LimitValues>;
-  /** Whether this write ASKS for the sensitive-data mode, which this version refuses (see adminApi). */
   sensitiveMode: boolean;
-  actionRules: ActionRulePayload[];
+  maySubmitForms: boolean;
 }
 
 export function validateBotCreate(body: unknown): Validated<BotCreatePayload> {
-  const outer = strictObject(body, ['chatbotUserId', 'displayName', 'prompt', 'origins', 'limits', 'sensitiveMode', 'actionRules'],
+  const outer = strictObject(body, ['chatbotUserId', 'displayName', 'origins', 'limits', 'sensitiveMode', 'maySubmitForms'],
     ['chatbotUserId']);
   if (!outer.ok) return outer;
   const userId = outer.value.chatbotUserId;
   if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0) return { ok: false, error: '"chatbotUserId" must be a positive integer' };
   const displayName = readOptionalString(outer.value, 'displayName', DISPLAY_NAME_MAX_CHARS);
   if (!displayName.ok) return displayName;
-  const prompt = readOptionalString(outer.value, 'prompt', PROMPT_MAX_CHARS);
-  if (!prompt.ok) return prompt;
   const origins = validateOrigins(outer.value.origins ?? []);
   if (!origins.ok) return origins;
   const limits = validateLimits(outer.value.limits ?? {});
   if (!limits.ok) return limits;
   const sensitive = readSensitiveMode(outer.value);
   if (!sensitive.ok) return sensitive;
-  const actionRules = validateActionRules(outer.value.actionRules ?? []);
-  if (!actionRules.ok) return actionRules;
+  const maySubmitForms = readBoolean(outer.value, 'maySubmitForms', true);
+  if (!maySubmitForms.ok) return maySubmitForms;
   return {
     ok: true,
     value: {
       chatbotUserId: userId,
       displayName: displayName.value.trim(),
-      prompt: prompt.value,
       origins: origins.value,
       limits: limits.value,
       sensitiveMode: sensitive.value,
-      actionRules: actionRules.value,
+      maySubmitForms: maySubmitForms.value,
     },
   };
 }
@@ -300,32 +221,18 @@ export interface BotPatchPayload {
   chatbotUserId: number;
   expectedUpdatedAt: string;
   displayName: string;
-  prompt: string;
   origins: string[];
-  /** The limits this write carries. A field left out is not part of the write; a field carried as null is
-   *  the number the administrator has not decided. */
   limits: Partial<LimitValues>;
-  /** Whether this write ASKS for the sensitive-data mode, which this version refuses (see adminApi). */
   sensitiveMode: boolean;
-  /** The policy this write carries, or null when it carries none. Null is not an empty policy: it is a write
-   *  with no opinion about rules, and the admin route answers it with the rules the row already holds. */
-  actionRules: ActionRulePayload[] | null;
+  maySubmitForms: boolean;
   action: 'enable' | 'disable' | null;
 }
 
-/** The whole editable state is sent on every write. A partial patch would let two administrators each
- *  change one field and lose the other's, and the compare-and-set below could not tell them apart.
- *
- *  Two parts of that state are carried at their own granularity instead, because neither can be sent by a
- *  caller that is not editing it: the LIMITS, a chatbot's numbers are decided over time, so a write may
- *  carry them, carry none of them, or carry a null for one that is still open; and the ACTION RULES, which
- *  a caller editing only a chatbot's numbers has no opinion about. A part that is not carried is not part of
- *  the write — the admin route folds it over the stored row — while a rule list carried EMPTY is the
- *  statement that the policy is now empty. What a write may NOT do is leave a chatbot enabled without its
- *  numbers, judged from this payload folded over the stored row rather than from the payload alone. */
+/** The whole editable state is sent on every write. Limits may be partial because their modal can save the
+ *  same row without inventing values for fields it did not receive. */
 export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
-  const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins', 'limits', 'action', 'sensitiveMode', 'actionRules'],
-    ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'prompt', 'origins']);
+  const outer = strictObject(body, ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'origins', 'limits', 'action', 'sensitiveMode', 'maySubmitForms'],
+    ['chatbotUserId', 'expectedUpdatedAt', 'displayName', 'origins', 'maySubmitForms']);
   if (!outer.ok) return outer;
   const userId = outer.value.chatbotUserId;
   if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0) return { ok: false, error: '"chatbotUserId" must be a positive integer' };
@@ -333,19 +240,14 @@ export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
   if (!expected.ok) return expected;
   const displayName = readString(outer.value, 'displayName', DISPLAY_NAME_MAX_CHARS);
   if (!displayName.ok) return displayName;
-  const prompt = readString(outer.value, 'prompt', PROMPT_MAX_CHARS);
-  if (!prompt.ok) return prompt;
   const origins = validateOrigins(outer.value.origins);
   if (!origins.ok) return origins;
   const limits = validateLimits(outer.value.limits ?? {});
   if (!limits.ok) return limits;
   const sensitive = readSensitiveMode(outer.value);
   if (!sensitive.ok) return sensitive;
-  // Absent means "not part of this write"; the route then writes back the policy the row already holds.
-  const actionRules = outer.value.actionRules === undefined
-    ? { ok: true as const, value: null }
-    : validateActionRules(outer.value.actionRules);
-  if (!actionRules.ok) return actionRules;
+  const maySubmitForms = readBoolean(outer.value, 'maySubmitForms', true);
+  if (!maySubmitForms.ok) return maySubmitForms;
   const action = outer.value.action ?? null;
   if (action !== null && action !== 'enable' && action !== 'disable') return { ok: false, error: '"action" must be enable or disable' };
   return {
@@ -354,11 +256,10 @@ export function validateBotPatch(body: unknown): Validated<BotPatchPayload> {
       chatbotUserId: userId,
       expectedUpdatedAt: expected.value,
       displayName: displayName.value.trim(),
-      prompt: prompt.value,
       origins: origins.value,
       limits: limits.value,
       sensitiveMode: sensitive.value,
-      actionRules: actionRules.value,
+      maySubmitForms: maySubmitForms.value,
       action,
     },
   };
@@ -389,14 +290,17 @@ function validateLimits(input: unknown): Validated<Partial<LimitValues>> {
   return { ok: true, value: values };
 }
 
+function readBoolean(record: Record<string, unknown>, key: string, fallback: boolean): Validated<boolean> {
+  const value = record[key];
+  if (value === undefined || value === null) return { ok: true, value: fallback };
+  return typeof value === 'boolean' ? { ok: true, value } : { ok: false, error: `"${key}" must be true or false` };
+}
+
 /** Whether the payload asks for the sensitive-data mode. Only an EXPLICIT true counts as asking: the mode is
  *  a request an administrator makes, never a value that arrives by accident, and this plugin refuses the
  *  request itself until the model location and the retention policy are decided. */
 function readSensitiveMode(record: Record<string, unknown>): Validated<boolean> {
-  const value = record.sensitiveMode;
-  if (value === undefined || value === null) return { ok: true, value: false };
-  if (typeof value !== 'boolean') return { ok: false, error: '"sensitiveMode" must be true or false' };
-  return { ok: true, value };
+  return readBoolean(record, 'sensitiveMode', false);
 }
 
 export interface AppearanceWritePayload {

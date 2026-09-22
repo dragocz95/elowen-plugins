@@ -1,5 +1,5 @@
 import type { PluginApiAuth } from 'elowen/plugin-api';
-import type { ActionRuleRow, BotRow } from './db.js';
+import type { BotRow } from './db.js';
 import type { ChatbotStore } from './store.js';
 import { newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
@@ -10,7 +10,6 @@ import { parseStoredAppearance } from './appearanceContract.js';
 import type { ChatbotStores } from './coreSeams.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import type {
-  ChatbotActionRuleView,
   ChatbotBotView,
   ChatbotConversationsAnswer,
   ChatbotStatsAnswer,
@@ -70,24 +69,8 @@ export function percentileMs(samples: readonly number[], fraction: number): numb
   return sorted[index]!;
 }
 
-const ruleView = (row: ActionRuleRow): ChatbotActionRuleView => ({
-  origin: row.origin,
-  pathPrefix: row.path_prefix,
-  action: row.action,
-  requiresConfirmation: row.requires_confirmation === 1,
-  maxPerTurn: row.max_per_turn,
-});
-
 const embedSnippetFor = (baseUrl: string | null, publicId: string): string | null =>
   baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/v1/widget.js" data-chatbot="${publicId}" async></script>`;
-
-/** Domains a rule names that this chatbot does not answer on.
- *
- *  The policy checks the domain allowlist BEFORE it looks at any rule (`resolveActionRule`), so such a rule
- *  can never match anything: it is a policy that silently does nothing while reading like one that does.
- *  Both writes below refuse it rather than storing it. */
-const strayRuleOrigins = (rules: readonly { origin: string }[], origins: readonly string[]): string[] =>
-  [...new Set(rules.map((rule) => rule.origin).filter((origin) => !origins.includes(origin)))];
 
 export function createAdminApi(deps: AdminApiDeps) {
   const { store, stores, now } = deps;
@@ -99,10 +82,9 @@ export function createAdminApi(deps: AdminApiDeps) {
       chatbotUserId: row.chatbot_user_id,
       publicId: row.public_id,
       displayName: row.display_name,
-      prompt: row.prompt,
       status: row.status,
       origins,
-      actionRules: store.actionRulesOf(row.chatbot_user_id).map(ruleView),
+      maySubmitForms: row.may_submit_forms === 1,
       appearance: parseStoredAppearance(row.appearance),
       embedSnippet: embedSnippetFor(deps.publicBaseUrl(), row.public_id),
       updatedAt: row.updated_at,
@@ -202,8 +184,8 @@ export function createAdminApi(deps: AdminApiDeps) {
     },
 
     /** Register a draft for an existing chatbot account. `enabled` is never part of creation: a chatbot
-     *  reaches the public hook through an explicit, preflighted enable. The limits a draft carries are
-     *  whatever the administrator has already decided; the rest stay unset. */
+     *  reaches the public hook through an explicit, preflighted enable. Every omitted limit starts from the
+     *  owner-approved default profile; explicit values may still override it. */
     async create(auth: PluginApiAuth, body: unknown): Promise<Reply> {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
@@ -220,19 +202,15 @@ export function createAdminApi(deps: AdminApiDeps) {
       // as a blocker, so an administrator can register the chatbot first and bind the Project after.
       const disqualifying = blockers.filter((blocker) => blocker === 'account_unknown' || blocker === 'account_not_chatbot' || blocker === 'account_admin');
       if (disqualifying.length > 0) return { status: 400, body: { error: 'account_invalid', detail: disqualifying } };
-      const stray = strayRuleOrigins(parsed.value.actionRules, parsed.value.origins);
-      if (stray.length > 0) return { status: 400, body: { error: 'invalid_request', detail: `action rule for a domain this chatbot does not answer on: ${stray.join(', ')}` } };
-
       // A public id is an identifier, not a secret: it names the chatbot in the embed snippet. It is
       // generated server-side so nobody can choose one that reads as another site's chatbot.
       const row = store.createBot({
         chatbotUserId: parsed.value.chatbotUserId,
         publicId: newPublicId(),
         displayName: parsed.value.displayName,
-        prompt: parsed.value.prompt,
         origins: parsed.value.origins,
         limits: parsed.value.limits,
-        actionRules: parsed.value.actionRules,
+        maySubmitForms: parsed.value.maySubmitForms,
         now: now().toISOString(),
       });
       return { status: 200, body: { bot: viewOf(row) } };
@@ -251,19 +229,12 @@ export function createAdminApi(deps: AdminApiDeps) {
       if (parsed.value.expectedUpdatedAt !== current.updated_at) return { status: 409, body: { error: 'conflict' } };
       const limits = mergeLimits(current, parsed.value.limits);
       const incomplete: MandatoryLimitField[] = incompleteValues(limits);
-      // The policy this write leaves behind: what it carries, or the policy the row already holds when it
-      // carries none. The stray-domain check below judges THAT, because it is what a visitor would get.
-      const rules = parsed.value.actionRules ?? store.actionRuleInputsOf(current.chatbot_user_id);
 
       // A chatbot that is enabled, or is being enabled, has to come OUT of this write able to serve. A draft
-      // is deliberately free of all of it: a draft is what an administrator is still deciding, and that is
-      // where its numbers are chosen.
+      // may still carry an explicit missing value while an administrator is deciding a replacement.
       if (parsed.value.action === 'enable' || current.status === 'enabled') {
         if (incomplete.length > 0) return { status: 400, body: { error: 'not_ready', detail: incomplete } };
       }
-
-      const stray = strayRuleOrigins(rules, parsed.value.origins);
-      if (stray.length > 0) return { status: 400, body: { error: 'invalid_request', detail: `action rule for a domain this chatbot does not answer on: ${stray.join(', ')}` } };
 
       if (parsed.value.action === 'enable') {
         // Enable is the point at which this chatbot may answer the public internet, so the whole rule is
@@ -279,10 +250,9 @@ export function createAdminApi(deps: AdminApiDeps) {
         chatbotUserId: parsed.value.chatbotUserId,
         expectedUpdatedAt: parsed.value.expectedUpdatedAt,
         displayName: parsed.value.displayName,
-        prompt: parsed.value.prompt,
         origins: parsed.value.origins,
         limits,
-        actionRules: rules,
+        maySubmitForms: parsed.value.maySubmitForms,
         now: now().toISOString(),
       });
       // Lost between the read and the write: someone else committed first.
@@ -386,8 +356,8 @@ export function createAdminApi(deps: AdminApiDeps) {
     },
 
     /** Save the look, and the display name that goes with it, as a whole. Its own route rather than another
-     *  optional field of `PATCH bots`, so the appearance editor cannot touch the prompt or the domains it
-     *  never showed, and so a colour cannot be saved through a payload nobody validated as an appearance. */
+     *  optional field of `PATCH bots`, so the appearance editor cannot touch the domains it never showed,
+     *  and so a colour cannot be saved through a payload nobody validated as an appearance. */
     async updateAppearance(auth: PluginApiAuth, body: unknown): Promise<Reply> {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
