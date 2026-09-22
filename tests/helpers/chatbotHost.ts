@@ -10,7 +10,7 @@ import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
 import { DEFAULT_LIMITS, type LimitValues } from '../../plugins/chatbot/src/limits.js';
-import type { ChatbotAccountView, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
+import type { ChatbotAccountView, ChatbotEffectiveChatExec, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
 
 /** The fake host every chatbot suite drives the public path against.
  *
@@ -122,6 +122,11 @@ export function createChatbotHost(options: {
   /** The core's own answer to "may this account use this plugin right now" — the grant an administrator
    *  hands out. True by default, because a chatbot without it answers questions and can do nothing else. */
   mayUsePlugin?: (userId: number) => boolean;
+  /** Core's own composed answer to "which model does this account's turn really run on", and where that
+   *  answer came from. The default names no model, which is what an instance with nothing configured answers
+   *  — and what the plugin's own row must therefore state as nothing. A suite that is about the row replaces
+   *  this with the account's real case; one that is about a REFUSAL lets it throw, the way core does. */
+  effectiveChatExec?: (userId: number) => ChatbotEffectiveChatExec | null;
   /** What the deployment's image host serves for the address an owner configured. The default is a small
    *  PNG, which is what the success path is about; a suite that is about a REFUSAL replaces it. */
   avatar?: (source: string) => Promise<AvatarFetch>;
@@ -142,6 +147,7 @@ export function createChatbotHost(options: {
       isAdmin: (id: number) => accounts.find((account) => account.id === id)?.isAdmin === true,
       allowedExecs: () => [],
       mayUsePlugin: (id: number) => options.mayUsePlugin?.(id) ?? true,
+      effectiveChatExec: (id: number) => options.effectiveChatExec?.(id) ?? null,
     },
     projects: { get: (id: number) => projects.find((project) => project.id === id) ?? null, list: () => projects },
     userProjects: { canAccess: () => true, canManage: () => true },

@@ -21,7 +21,7 @@ import { apiJson, chatbotApi, jsonRequest } from './runtime';
 export const AUTH_TRANSITION_EVENT = 'elowen:auth-transition';
 const AUTH_TRANSITION_STORAGE_KEY = 'elowen:auth-transition';
 
-export type AuthTransitionPhase = 'start' | 'commit' | 'rollback';
+type AuthTransitionPhase = 'start' | 'commit' | 'rollback';
 
 /** Tell this tab and every sibling tab where the identity is in the exchange. The local event reaches the
  *  page itself and the storage value exists only to make the browser emit a cross-tab `storage` event; it

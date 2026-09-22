@@ -26,6 +26,20 @@ export interface ChatbotProjectView {
   slug: string;
 }
 
+/** Which model a chatbot's visitors are answered by, and what decided it. Both fields are CORE's own answer
+ *  for the account the chatbot runs as, read live for every listing: a model belongs to an account, so a copy
+ *  on the plugin's row would be a second answer to a question core owns, and it would be wrong the moment an
+ *  administrator changed the model in the account.
+ *
+ *  `source` is what makes the row honest rather than merely informative. `preference` is the account's own
+ *  stored pick, `instance` is the instance default it fell back to, and `allowed` is a model this account's
+ *  allow-list forced it onto because the default is not permitted to it. The last two are different facts —
+ *  an account answering from its allow-list has inherited nothing — so the page states them differently. */
+export interface ChatbotModelView {
+  exec: string;
+  source: 'preference' | 'instance' | 'allowed';
+}
+
 /** One chatbot: the plugin's own row, plus live facts about the account and the grants a turn needs. */
 export interface ChatbotBotView {
   chatbotUserId: number;
@@ -39,6 +53,10 @@ export interface ChatbotBotView {
   updatedAt: string;
   account: ChatbotAccountFactsView | null;
   projects: ChatbotProjectView[];
+  /** Which model answers this chatbot's visitors, or null when core names none: an account core does not
+   *  know, an instance with no provider configured, or an account permitted no configured model at all.
+   *  None of those is "the instance default", so the page states no model rather than a guess. */
+  model: ChatbotModelView | null;
   /** Why this chatbot cannot run a turn right now, in the server's own vocabulary. */
   blockers: string[];
   /** Allowed domains an ENABLED chatbot would refuse, so the page can say it before Enable does. */

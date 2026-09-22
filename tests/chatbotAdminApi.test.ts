@@ -20,14 +20,17 @@ const HOUR = 3_600_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
 
 function adminApiFor(host: ChatbotHost, clock: { ms: number } = { ms: NOW_MS }) {
+  const warnings: string[] = [];
   return {
     api: createAdminApi({
       store: host.store,
       stores: host.stores,
       publicBaseUrl: () => 'https://elowen.example.com',
       now: () => new Date(clock.ms),
+      warn: (message) => { warnings.push(message); },
     }),
     clock,
+    warnings,
   };
 }
 
@@ -114,6 +117,91 @@ describe('what the register offers to create a chatbot from', () => {
     registerBot(host, { chatbotUserId: 12 });
     const after = await api.list(ADMIN);
     expect((after.body as { candidates: { id: number }[] }).candidates.map((candidate) => candidate.id)).toEqual([13]);
+  });
+});
+
+/** The models core resolves for the fixture accounts. Unlike each other on purpose: a payload that carried
+ *  the wrong one, or that named a source other than the one core attributed, cannot pass. */
+const PICKED = 'elowen:anthropic/claude-sonnet-4';
+const INSTANCE = 'anthropic/claude-haiku-4';
+const FORCED = 'relay/kimi-k2';
+
+describe('the model a chatbot\'s visitors are answered by', () => {
+  it('carries core\'s own answer for the account, with the source core attributed it to', async () => {
+    // Every account with a different source: the account's own pick, the instance default it fell back to,
+    // and a model its allow-list forced it onto because the default is not permitted to it.
+    const answers: Record<number, { exec: string; source: 'preference' | 'instance' | 'allowed' }> = {
+      12: { exec: PICKED, source: 'preference' },
+      13: { exec: INSTANCE, source: 'instance' },
+      14: { exec: FORCED, source: 'allowed' },
+    };
+    const asked: number[] = [];
+    const host = createChatbotHost({
+      accounts: [
+        { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
+        { id: 13, username: 'skola-bot', name: 'Škola', avatar: '', isAdmin: false, type: 'chatbot' },
+        { id: 14, username: 'gymnazium-bot', name: 'Gymnázium', avatar: '', isAdmin: false, type: 'chatbot' },
+      ],
+      effectiveChatExec: (id) => { asked.push(id); return answers[id] ?? null; },
+    });
+    const { api } = adminApiFor(host);
+    for (const id of [12, 13, 14]) registerBot(host, { chatbotUserId: id, publicId: `cbt_${String(id).repeat(24)}` });
+
+    const answer = await api.list(ADMIN);
+    expect(answer.status).toBe(200);
+    const models = new Map((answer.body as { bots: { chatbotUserId: number; model: unknown }[] }).bots
+      .map((bot) => [bot.chatbotUserId, bot.model]));
+    expect(models.get(12)).toEqual({ exec: PICKED, source: 'preference' });
+    expect(models.get(13)).toEqual({ exec: INSTANCE, source: 'instance' });
+    expect(models.get(14)).toEqual({ exec: FORCED, source: 'allowed' });
+    // The answer comes from the host, not from anything this plugin stores: the row is read again on every
+    // listing, so a model changed in the account is what the next payload carries.
+    answers[12] = { exec: FORCED, source: 'allowed' };
+    const after = await api.list(ADMIN);
+    expect((after.body as { bots: { chatbotUserId: number; model: unknown }[] }).bots
+      .find((bot) => bot.chatbotUserId === 12)?.model).toEqual({ exec: FORCED, source: 'allowed' });
+    expect(asked).toEqual([12, 13, 14, 12, 13, 14]);
+  });
+
+  it('names no model for an account core cannot answer for', async () => {
+    // Core returns null for an account it does not know and for an instance with no provider configured.
+    // Neither is "the instance default", so the payload carries no model rather than a guess — and the
+    // plugin has nothing of its own to put there.
+    const host = twoChatbots();
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+
+    const answer = await api.list(ADMIN);
+    expect(answer.status).toBe(200);
+    const bots = (answer.body as { bots: { chatbotUserId: number; model: unknown }[] }).bots;
+    expect(bots.find((bot) => bot.chatbotUserId === 12)?.model).toBeNull();
+  });
+
+  it('keeps the register when core refuses one account\'s model read', async () => {
+    // Core THROWS for an account that may run no configured model at all. That is a refusal about ONE
+    // chatbot, and it must not take the register down with it: the rest of the rows still answer, and the
+    // refused one states no model while core's own reason goes to the log.
+    const host = createChatbotHost({
+      accounts: [
+        { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
+        { id: 13, username: 'skola-bot', name: 'Škola', avatar: '', isAdmin: false, type: 'chatbot' },
+      ],
+      effectiveChatExec: (id) => {
+        if (id === 13) throw new Error('no configured model is allowed for this account');
+        return { exec: PICKED, source: 'preference' };
+      },
+    });
+    const { api, warnings } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    registerBot(host, { chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}` });
+
+    const answer = await api.list(ADMIN);
+    expect(answer.status).toBe(200);
+    const models = new Map((answer.body as { bots: { chatbotUserId: number; model: unknown }[] }).bots
+      .map((bot) => [bot.chatbotUserId, bot.model]));
+    expect(models.get(12)).toEqual({ exec: PICKED, source: 'preference' });
+    expect(models.get(13)).toBeNull();
+    expect(warnings).toEqual([`chatbot: no model could be named for account 13 (no configured model is allowed for this account)`]);
   });
 });
 

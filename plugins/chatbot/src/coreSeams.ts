@@ -83,8 +83,27 @@ export interface ChatbotRelayControl {
  * second, optional restatement here would let the registry compile against a shape the runtime forbids. */
 export type ChatbotAccountView = PluginUserView & { type: 'human' | 'chatbot' };
 
+/** What a spawn would really run for one account, as CORE composes it: the exec that answers, and which of
+ *  the three places that answer came from. `preference` is the account's own stored chat pick, `instance` is
+ *  the instance default it fell back to, and `allowed` is a model this account's allow-list forced it onto
+ *  because the default is not permitted to it.
+ *
+ *  `usersRead.effectiveChatExec` is newer than the release this package pins, so it is restated here — the
+ *  local declaration of a host contract this module's header describes, and never a second protocol. It is
+ *  the answer a SPAWN applies, which is why this plugin reads it instead of composing a model of its own. */
+export interface ChatbotEffectiveChatExec {
+  exec: string;
+  source: 'preference' | 'instance' | 'allowed';
+}
+
 export interface ChatbotStores extends Omit<PluginHostStores, 'projects' | 'usersRead'>, ChatbotProjectStores {
-  usersRead: Omit<PluginHostStores['usersRead'], 'list'> & { list(): ChatbotAccountView[] };
+  usersRead: Omit<PluginHostStores['usersRead'], 'list'> & {
+    list(): ChatbotAccountView[];
+    /** Which model this account's turns resolve to RIGHT NOW, and where that answer came from. Null for an
+     *  account core does not know and for an instance with no provider configured; it THROWS when the account
+     *  may run no configured model at all, so a caller that must still answer reads it through a guard. */
+    effectiveChatExec(userId: number): ChatbotEffectiveChatExec | null;
+  };
 }
 
 /** The host surface this plugin uses, narrowed to what it calls. Every member exists on a core whose
