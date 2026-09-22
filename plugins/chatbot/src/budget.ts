@@ -15,7 +15,7 @@ import type { BotLimits } from './limits.js';
  *  partly priced is NOT a bucket worth less money, it is a bucket whose total is unknown. */
 export interface OriginUsage {
   turns: number;
-  tokens: number;
+  tokens: number | null;
   costUsd: number | null;
   costedTurns: number;
 }
@@ -23,9 +23,24 @@ export interface OriginUsage {
 /** A bucket that was never written: nothing was spent, which is a fact and not a guess. */
 export const NO_USAGE: OriginUsage = { turns: 0, tokens: 0, costUsd: null, costedTurns: 0 };
 
-type BudgetRefusal = 'budget_exhausted' | 'budget_unverifiable';
+type BudgetRefusal = 'budget_exhausted' | 'budget_unverifiable' | 'limits_missing';
 
-export type BudgetVerdict = { ok: true } | { ok: false; reason: BudgetRefusal };
+export type BudgetVerdict = { ok: true } | { ok: false; reason: BudgetRefusal; ceiling: 'turns' | 'cost' | null };
+
+export interface DailyBudget {
+  day: string;
+  admittedTurns: number;
+  usage: OriginUsage | null;
+  verdict: BudgetVerdict;
+}
+
+/** A partly priced day is unknown, not cheap. A day without usage really costs zero. */
+export function knownCost(usage: OriginUsage | null): number | null {
+  if (usage === null) return null;
+  if (usage.costedTurns < usage.turns) return null;
+  if (usage.costUsd === null) return usage.turns === 0 ? 0 : null;
+  return usage.costUsd;
+}
 
 /** Micro-USD for a cost core reported, rounded to the nearest whole one.
  *
@@ -44,26 +59,20 @@ export function microUsd(costUsd: number): number {
  *  ceiling AND its turn ceiling answers with the turn ceiling, which is the one an administrator can act on
  *  without knowing what anything cost. */
 export function decideBudget(input: {
-  limits: BotLimits;
+  limits: BotLimits | null;
   /** Turns this plugin admitted today, from `p_chatbot_budget_days`. */
   admittedTurns: number;
-  usage: OriginUsage;
+  usage: OriginUsage | null;
 }): BudgetVerdict {
   const { limits, admittedTurns, usage } = input;
-  // "Reaching" a ceiling is what refuses, not crossing it: a bot whose day allows 100 turns admits 100.
-  if (admittedTurns >= limits.dailyTurnLimit) return { ok: false, reason: 'budget_exhausted' };
-  if (limits.dailyTokenLimit !== null && usage.tokens >= limits.dailyTokenLimit) {
-    return { ok: false, reason: 'budget_exhausted' };
-  }
+  if (limits === null) return { ok: false, reason: 'limits_missing', ceiling: null };
+  if (usage === null) return { ok: false, reason: 'budget_unverifiable', ceiling: 'cost' };
+  // Reaching a ceiling refuses the next turn. Tokens remain informational, regardless of their volume.
+  if (admittedTurns >= limits.dailyTurnLimit) return { ok: false, reason: 'budget_exhausted', ceiling: 'turns' };
   if (limits.dailyCostMicrousd === null) return { ok: true };
-  // A spending ceiling can only be enforced against spending this plugin can read. A bucket whose turns were
-  // only partly priced must not be treated as the priced part: that would be reading an unknown total as a
-  // small one, which is exactly how a ceiling is passed without anybody noticing.
-  if (usage.costUsd === null) {
-    return usage.turns === 0 ? { ok: true } : { ok: false, reason: 'budget_unverifiable' };
-  }
-  if (usage.costedTurns < usage.turns) return { ok: false, reason: 'budget_unverifiable' };
-  if (microUsd(usage.costUsd) >= limits.dailyCostMicrousd) return { ok: false, reason: 'budget_exhausted' };
+  const cost = knownCost(usage);
+  if (cost === null) return { ok: false, reason: 'budget_unverifiable', ceiling: 'cost' };
+  if (microUsd(cost) >= limits.dailyCostMicrousd) return { ok: false, reason: 'budget_exhausted', ceiling: 'cost' };
   return { ok: true };
 }
 

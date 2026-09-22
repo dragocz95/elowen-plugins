@@ -4,7 +4,7 @@ import type { ChatbotStore } from './store.js';
 import { newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
-import { LIMIT_FIELDS, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
+import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
 import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './validation.js';
 import { parseStoredAppearance } from './appearanceContract.js';
 import type { ChatbotStores } from './coreSeams.js';
@@ -20,10 +20,8 @@ import type {
  *  and its Project assignment belong to the core admin API, and this route only registers a bot for an
  *  account that already exists as one.
  *
- *  Everything a reader sees here is either the plugin's own configuration or a COUNT over the plugin's own
- *  rows. Spend is the one thing this plugin cannot read: the only origin-attributed spend in this codebase
- *  is core's `usage_by_origin` rollup, and the admin page reads it from the core usage route for the chatbot
- *  account. No query here, and none on the page, ever counts spend by scanning messages. */
+ *  Configuration and admissions belong to this plugin. Spend is read from core's `usage_by_origin`
+ *  through the same store projection admission uses. No query computes spend by scanning messages. */
 
 export interface AdminApiDeps {
   store: ChatbotStore;
@@ -97,6 +95,7 @@ export function createAdminApi(deps: AdminApiDeps) {
       blockers,
       insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
       limits: storedLimits(row),
+      budget: store.dailyBudget(row.chatbot_user_id, readBotLimits(row), utf8Day(now())),
       missingLimits: missingLimits(row),
       sensitiveMode: row.sensitive_mode === 1,
     };
@@ -315,8 +314,7 @@ export function createAdminApi(deps: AdminApiDeps) {
       };
     },
 
-    /** This chatbot's own admission counters over a window of UTC days. No spend here: tokens and cost are
-     *  read from core's `usage_by_origin` rollup by the page, which is the only place that counter exists. */
+    /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */
     async stats(auth: PluginApiAuth, query: Record<string, string>): Promise<Reply> {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
@@ -345,6 +343,10 @@ export function createAdminApi(deps: AdminApiDeps) {
           from: fromDay,
           to: toDay,
           days: store.dailyTurns({ chatbotUserId, fromDay, toDay }),
+          spend: Array.from({ length: spanDays }, (_, index) => {
+            const day = utf8Day(new Date(Date.parse(`${fromDay}T00:00:00.000Z`) + index * 86_400_000));
+            return { day, usage: store.usageFor(chatbotUserId, day) };
+          }),
           totals: store.turnTotals({ chatbotUserId, fromDay, toDay }),
           queueWait: {
             samples: waits.length,

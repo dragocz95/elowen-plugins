@@ -19,7 +19,7 @@ const PAGE_SIZE = 25;
 /** The grid: the visitor, when it was last seen, how many turns, and what the last one did. */
 const COLUMNS = 'minmax(0,1.5fr) minmax(0,1fr) 4.5rem 7rem 1.25rem';
 const COMPACT_COLUMNS = 'minmax(0,1.5fr) 4.5rem 7rem 1.25rem';
-const MOBILE_COLUMNS = 'minmax(0,1fr) 4.5rem 1.25rem';
+const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
 
 export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
@@ -83,7 +83,7 @@ export function ConversationsSection() {
     : answer === null ? <C.LoadingState variant="list" />
       : answer.total === 0 ? <C.EmptyState title={s.conversationsEmptyTitle} description={s.conversationsEmptyDescription} icon={MessagesSquare} />
         : (
-          <>
+          <div className="settings-group__panel flex min-w-0 flex-col gap-3">
             <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COMPACT_COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
                 <C.DataTableCell header lines={1}>{s.columnVisitor}</C.DataTableCell>
@@ -112,7 +112,7 @@ export function ConversationsSection() {
               ))}
             </C.DataTable>
             <C.Pager page={page} pageSize={PAGE_SIZE} total={answer.total} onPageChange={setPage} ariaLabel={s.conversationsTab} />
-          </>
+          </div>
         );
 
   return (

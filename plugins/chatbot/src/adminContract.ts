@@ -7,6 +7,7 @@
  *  on this contract. What travels is an administrator's own configuration and aggregate counts. */
 
 import type { LimitValues, MandatoryLimitField } from './limits.js';
+import type { DailyBudget, OriginUsage } from './budget.js';
 import type { StoredAppearance } from './appearanceContract.js';
 
 export const DISPLAY_NAME_MAX_CHARS = 80;
@@ -44,6 +45,7 @@ export interface ChatbotBotView {
   insecureOrigins: string[];
   /** Every limit as stored, with an unset one as null. The form writes the whole set back on every save. */
   limits: LimitValues;
+  budget: DailyBudget;
   /** The mandatory numbers still unset. Non-empty means this chatbot cannot be enabled yet, and the page
    *  says which numbers are missing rather than offering a button the server would refuse. */
   missingLimits: MandatoryLimitField[];
@@ -123,16 +125,16 @@ export interface ChatbotStatsDayView {
 
 /** `GET api/stats?chatbotUserId=&from=&to=`.
  *
- *  These are the plugin's own admission counters. Token and cost totals are NOT here: the only
- *  origin-attributed spend in this codebase is core's `usage_by_origin`, which a plugin cannot read, so the
- *  page reads it from the admin usage route for the same window and the two meet on screen, each labelled
- *  for what it counts. */
+ *  Admission counters come from the plugin; tokens and money come from core's origin rollup,
+ *  scoped to this chatbot and the same UTC window. No spend is computed from messages. */
 export interface ChatbotStatsAnswer {
   chatbotUserId: number;
   /** Inclusive UTC days, `YYYY-MM-DD`. */
   from: string;
   to: string;
   days: ChatbotStatsDayView[];
+  /** Core origin rollup for every UTC day, including days with no admitted turns. */
+  spend: { day: string; usage: OriginUsage | null }[];
   totals: { turns: number; done: number; errors: number; queued: number; running: number };
   /** How long a turn waited between being admitted and starting, over the same window. `p50Seconds` and
    *  `p95Seconds` are null when no turn in the window ever started, which is not the same as zero. */

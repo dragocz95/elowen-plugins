@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS } from '../../plugins/chatbot/src/appearanceContract';
 
 /** Copy that ONLY a plugin's own views render lives in that plugin's manifest `web.strings`, and the
  *  bundle reads it through the runtime's `usePluginStrings(<plugin>)`. That record is untyped by
@@ -50,9 +51,19 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
     file: 'chatbot/web-src/LimitsModal.tsx',
     keys: [
       'limit_rateIpPerMinute', 'limit_rateChatbotPerMinute', 'limit_rateConversationPerMinute',
-      'limit_dailyTurnLimit', 'limit_dailyTokenLimit', 'limit_dailyCostMicrousd',
+      'limit_dailyTurnLimit', 'limit_dailyCostMicrousd',
       'limit_maxConcurrentTurns', 'limit_maxQueueDepth', 'limit_queueTimeoutSeconds',
       'limit_maxActionsPerTurn', 'limit_retentionDays',
+    ],
+  },
+  {
+    file: 'chatbot/web-src/AppearanceModal.tsx',
+    keys: [
+      ...APPEARANCE_ICONS.map(({ id }) => `appearanceIcon_${id}`),
+      ...APPEARANCE_TEMPLATE_IDS.map(id => `appearanceTemplate_${id}`),
+      ...Object.keys(APPEARANCE_BOUNDS).map(key => `appearanceHint_${key}`),
+      ...Object.keys(APPEARANCE_FONT_STACKS).map(key => `appearanceFont_${key}`),
+      ...Object.keys(APPEARANCE_SHADOWS).map(key => `appearanceShadow_${key}`),
     ],
   },
   // A turn's own state is read as `s[`turnStatus_${status}`]`. The statuses are the plugin's own turn table
@@ -60,15 +71,6 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
   {
     file: 'chatbot/web-src/ConversationsView.tsx',
     keys: ['turnStatus_queued', 'turnStatus_running', 'turnStatus_done', 'turnStatus_error'],
-  },
-  // The rule editor labels an action as `s[`action_${kind}`]`. The kinds are `ACTION_KINDS` in
-  // `plugins/chatbot/src/publicContract.ts`, the one list the server, the widget and this editor act on.
-  {
-    file: 'chatbot/web-src/SecuritySettings.tsx',
-    keys: [
-      'action_read', 'action_focus', 'action_click', 'action_fill',
-      'action_select', 'action_scroll', 'action_request_submit',
-    ],
   },
   {
     file: 'cronjob/web-src/fields.tsx',

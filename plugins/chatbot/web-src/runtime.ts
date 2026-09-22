@@ -6,35 +6,6 @@ import type { AssertPublished } from 'elowen-plugin-ui-kit';
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
  *  reaches into the host application, so `react` here is a TYPE only. */
 
-/** One row of the instance's origin-attributed spend, as the host's admin usage route answers it. This is
- *  core's `usage_by_origin` rollup, the ONLY source of origin-attributed spend in this codebase: the
- *  chatbot page reads the chatbot ACCOUNT's own row for a window and never counts tokens or cost by
- *  scanning messages. `cost` null means no turn in the bucket reported a price — "unknown", never zero.
- *  Private to this file: it is the shape of one row of {@link UsageByOriginAnswer}. */
-interface UsageOriginRow {
-  userId: number | null;
-  username: string | null;
-  origin: string | null;
-  originKind: 'ip' | 'local' | 'internal' | 'platform' | 'redacted' | null;
-  trusted: boolean;
-  origins: number;
-  turns: number;
-  tokens: number;
-  cost: number | null;
-  costedTurns: number;
-  firstAt: number;
-  lastAt: number;
-}
-
-/** `GET /usage/by-origin`. `trackingSince` is the first day the rollup holds: everything spent before it
- *  has no recorded origin and never will, so a view that starts at deployment must say so. Private to this
- *  file: it is the return shape this runtime declares for `useUsageByOrigin`. */
-interface UsageByOriginAnswer {
-  rows: UsageOriginRow[];
-  group: 'user' | 'origin' | 'pair';
-  trackingSince: string | null;
-}
-
 /** The core translation catalog, narrowed the way every bundle that mounts a host affordance narrows it.
  *  Only host-generic sections are read here: `managePicker.manage` is the word on the button that opens a
  *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
@@ -132,6 +103,7 @@ interface ChatbotHooks {
   useQuery<T>(options: {
     queryKey: readonly unknown[];
     queryFn(): Promise<T>;
+    refetchInterval?: number;
   }): { data?: T; isLoading: boolean; isError: boolean; error: unknown; refetch(): unknown };
   useQueryClient(): {
     setQueryData<T>(queryKey: readonly unknown[], updater: (current: T | undefined) => T | undefined): void;
@@ -141,13 +113,7 @@ interface ChatbotHooks {
     initial: T,
     allowed: readonly T[] | ((raw: string) => boolean),
   ): [T, (value: T) => void];
-  /** ADMIN-ONLY on the server: a non-admin caller is refused by design. `enabled` only keeps a request
-   *  that is meant to fail from being fired; it is not the access control. */
-  useUsageByOrigin(
-    group?: 'user' | 'origin' | 'pair',
-    window?: { fromMs: number; toMs: number },
-    opts?: { enabled?: boolean; limit?: number },
-  ): { data?: UsageByOriginAnswer; isLoading: boolean; isError: boolean };
+
 }
 
 type AnyComponent = ComponentType<any>;
@@ -362,6 +328,7 @@ interface ChatbotComponents {
   }>;
   /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the app and
    *  loads lazily there, so this bundle never carries a charting library. */
+  Progress: ComponentType<{ value: number; indicatorClassName?: string; 'aria-label': string; 'aria-valuetext'?: string }>;
   TimeSeriesChart: ComponentType<{
     data: { label: string; [key: string]: string | number | null }[];
     series: { key: string; label: string; colour: string; variant?: 'bar' | 'line'; axis?: 'left' | 'right'; format: (value: number) => string }[];

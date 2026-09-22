@@ -402,8 +402,8 @@ describe('the limits themselves', () => {
     // A value outside the bounds it was validated against reads as UNSET, never as itself: a hand-edited row
     // must not hand the enforcement code a number the admin API would have refused.
     expect(readBotLimits({ ...row, daily_turn_limit: 0 })).toBeNull();
-    expect(readBotLimits({ ...row, daily_token_limit: -1 })).toBeNull();
-    expect(readBotLimits({ ...row, daily_token_limit: null })).not.toBeNull();
+    expect(readBotLimits({ ...row, daily_cost_microusd: -1 })).toBeNull();
+    expect(readBotLimits({ ...row, daily_cost_microusd: null })).not.toBeNull();
   });
 
   it('names every field it requires, and no field it does not', () => {

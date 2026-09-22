@@ -101,7 +101,6 @@ const SCENARIO_LIMITS = {
   rateChatbotPerMinute: 120,
   rateConversationPerMinute: 60,
   dailyTurnLimit: 500,
-  dailyTokenLimit: null,
   dailyCostMicrousd: null,
   maxConcurrentTurns: 4,
   maxQueueDepth: 8,

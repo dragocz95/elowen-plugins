@@ -52,7 +52,6 @@ const LIMITS: LimitValues = {
   rateChatbotPerMinute: 60,
   rateConversationPerMinute: 10,
   dailyTurnLimit: 200,
-  dailyTokenLimit: null,
   dailyCostMicrousd: null,
   maxConcurrentTurns: 2,
   maxQueueDepth: 4,
@@ -80,6 +79,7 @@ const bot: ChatbotBotView = {
   blockers: [],
   insecureOrigins: [],
   limits: LIMITS,
+  budget: { day: '2026-09-21', admittedTurns: 0, usage: { turns: 0, tokens: 0, costUsd: null, costedTurns: 0 }, verdict: { ok: true } },
   missingLimits: [],
   sensitiveMode: false,
 };

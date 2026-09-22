@@ -4,6 +4,7 @@ import { runtime } from './runtime';
 import { BotDetail, statusText } from './BotDetail';
 import { CreateBotDialog } from './CreateBotDialog';
 import { matchingBots } from './search';
+import { BudgetUsage } from './BudgetUsage';
 import { useChatbots } from './useChatbots';
 
 export function BotsSection({ plugin, openBotId, onOpenBot }: {
@@ -43,6 +44,7 @@ export function BotsSection({ plugin, openBotId, onOpenBot }: {
                       />
                     </span>
                   </div>
+                  <BudgetUsage bot={bot} compact />
                 </C.EntityRow>
               ))}
             </C.EntityList>
