@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import {
   APPEARANCE_BOUNDS,
+  APPEARANCE_ICONS,
   APPEARANCE_TEMPLATES,
   APPEARANCE_TEMPLATE_IDS,
   APPEARANCE_SCHEMA_VERSION,
@@ -9,6 +10,7 @@ import {
   DEFAULT_STORED_APPEARANCE,
   parseAppearanceSelection,
   resolveAppearance,
+  appearanceIconSvg,
   selectAppearanceTemplate,
   setAppearanceOverride,
   resetAppearanceOverride,
@@ -145,6 +147,67 @@ describe('linked appearance templates', () => {
       expect(parseAppearanceSelection(stored).ok).toBe(false);
       expect(parseAppearance(resolveAppearance(stored)).ok).toBe(false);
     }
+  });
+
+  it('keeps the presence dot off until an owner asks for it, and refuses any other value', () => {
+    // Off in every template, with one sensible colour standing by: a dot is decoration the owner opts into,
+    // not something an existing chatbot's page suddenly grows.
+    for (const template of APPEARANCE_TEMPLATE_IDS) {
+      expect(APPEARANCE_TEMPLATES[template].launcher.presenceDot).toBe(false);
+      expect(APPEARANCE_TEMPLATES[template].launcher.presenceDotColor).toMatch(/^#[0-9a-f]{6}$/);
+    }
+    const on = setAppearanceOverride(storedOf(), 'launcher.presenceDot', true);
+    const coloured = setAppearanceOverride(on, 'launcher.presenceDotColor', '#3FB950');
+    const parsed = parseAppearanceSelection(coloured);
+    if (!parsed.ok) throw new Error(`a dot override must parse: ${parsed.error}`);
+    expect(parsed.value).toEqual(storedOf({ launcher: { presenceDot: true, presenceDotColor: '#3fb950' } }));
+    expect(resolveAppearance(parsed.value).launcher).toEqual({ ...APPEARANCE_TEMPLATES.elowen.launcher, presenceDot: true, presenceDotColor: '#3fb950' });
+
+    // A value that is nothing of the sort is a rejection on both boundaries, never a quiet default.
+    for (const value of ['true', 'yes', 1, null]) {
+      expect(parseAppearanceSelection(setAppearanceOverride(storedOf(), 'launcher.presenceDot', value)).ok).toBe(false);
+    }
+    for (const value of ['green', '#123', '#1234567', 'rgb(0 255 0)', 42, null, true]) {
+      expect(parseAppearanceSelection(setAppearanceOverride(storedOf(), 'launcher.presenceDotColor', value)).ok).toBe(false);
+    }
+    expect(parseAppearanceSelection({ ...storedOf(), overrides: { launcher: { presence: true } } }).ok).toBe(false);
+    expect(parseAppearanceSelection({ ...storedOf(), overrides: { launcher: { presenceDot: true, presence: '#22c55e' } } }).ok).toBe(false);
+
+    // The public look is COMPLETE: a widget reading it can never find the field missing and guess.
+    const resolved = resolveAppearance(coloured);
+    expect(parseAppearance(resolved).ok).toBe(true);
+    const { presenceDot: _dot, ...withoutDot } = resolved.launcher;
+    const { presenceDotColor: _colour, ...withoutColour } = resolved.launcher;
+    expect(parseAppearance({ ...resolved, launcher: withoutDot }).ok).toBe(false);
+    expect(parseAppearance({ ...resolved, launcher: withoutColour }).ok).toBe(false);
+  });
+
+  it('reads a row written before the dot existed through the same partial-over-template merge', () => {
+    // What the previous version stored: the same shape it stores now, holding only what the owner pinned. The
+    // stored format did not change, so nothing is migrated and no "old shape" branch exists — the field the
+    // row does not carry comes from the template, exactly as every other unset field does.
+    const legacy = JSON.stringify({ schemaVersion: 2, template: 'mono', overrides: { launcher: { size: 64, label: 'Napište nám' } } });
+    const stored = parseStoredAppearance(legacy);
+    expect(stored).toEqual({ ...selectAppearanceTemplate('mono'), overrides: { launcher: { size: 64, label: 'Napište nám' } } });
+    expect(stored.overrides.launcher).toEqual({ size: 64, label: 'Napište nám' });
+    const appearance = resolveAppearance(stored);
+    expect(appearance.launcher).toEqual({ ...APPEARANCE_TEMPLATES.mono.launcher, size: 64, label: 'Napište nám' });
+    expect(appearance.launcher.presenceDot).toBe(false);
+    expect(parseAppearance(appearance).ok).toBe(true);
+  });
+
+  it('offers every launcher icon to quick buttons too', () => {
+    // One catalog feeds both pickers, so an icon added for the launcher is a quick-button icon by
+    // construction: the parser accepts it and the shape of the entry is the same single path.
+    for (const icon of APPEARANCE_ICONS) {
+      expect(icon.path).not.toBe('');
+      const stored = storedOf({ launcher: { icon: icon.id }, quickButtons: [{ text: `Ask ${icon.id}`, icon: icon.id }] });
+      expect(parseAppearanceSelection(stored)).toEqual({ ok: true, value: stored });
+      expect(parseAppearance(resolveAppearance(stored)).ok).toBe(true);
+      expect(appearanceIconSvg(icon.id)).toContain(icon.path);
+    }
+    // A friendly face sits alongside the speech bubble, so a launcher can read as a person.
+    expect(APPEARANCE_ICONS.map((icon) => icon.id)).toEqual(expect.arrayContaining(['speech-bubble', 'smile', 'heart', 'thumb-up']));
   });
 
   it('validates text, avatar URLs, booleans, font families, shapes and shadows', () => {
@@ -302,6 +365,23 @@ describe('the appearance a visitor\'s widget reads', () => {
     // It is a read of state on a visitor's behalf, so nothing between the two ends may keep a copy.
     expect(answer.headers?.['cache-control']).toBe('no-store');
     expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
+  });
+
+  it('serves the presence dot an owner turned on, and nothing where nobody turned one on', async () => {
+    registerBot(host);
+    const bot = host.store.listBots()[0]!;
+    host.store.updateAppearance({
+      chatbotUserId: bot.chatbot_user_id,
+      expectedUpdatedAt: bot.updated_at,
+      displayName: 'Městský úřad',
+      appearance: JSON.stringify(storedOf({ launcher: { presenceDot: true, presenceDotColor: '#123456' } })),
+      now: '2026-09-21T12:00:00.000Z',
+    });
+    const answer = await host.handler(withToken((await liveVisitor()).token));
+    expect(answer.status).toBe(200);
+    // The dot the visitor's widget draws is the one the owner saved, ringed in that launcher's own colour.
+    expect((answer.body as { appearance: ChatbotAppearance }).appearance.launcher)
+      .toEqual({ ...APPEARANCE_TEMPLATES.elowen.launcher, presenceDot: true, presenceDotColor: '#123456' });
   });
 
   it('answers the widget\'s own built-in look for a chatbot nobody has configured yet', async () => {

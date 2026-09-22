@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
-import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, DEFAULT_STORED_APPEARANCE, APPEARANCE_TEMPLATES, appearanceRamp, appearanceIconSvg, type StoredAppearance } from '../plugins/chatbot/src/appearanceContract';
+import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, DEFAULT_STORED_APPEARANCE, APPEARANCE_TEMPLATES, appearanceRamp, appearanceIcon, appearanceIconSvg, type StoredAppearance } from '../plugins/chatbot/src/appearanceContract';
 import type { LimitValues } from '../plugins/chatbot/src/limits';
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
@@ -432,5 +432,43 @@ describe('the appearance editor', () => {
     fireEvent.change(field, { target: { value: 'Dotaz 1' } });
     expect(within(dialog).getByText(strings.appearanceQuickDuplicate!)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: strings.appearanceQuickAdd! })).toBeDisabled();
+  });
+
+  it('offers a friendly launcher icon and a decorative presence dot, and carries both into the preview', async () => {
+    const dialog = await openEditor();
+    const launcher = () => previewPanel(dialog).host.shadowRoot!.querySelector('.launcher')!;
+    const css = () => previewPanel(dialog).style.textContent ?? '';
+
+    // A face is offered beside the speech bubble, and the same catalog feeds quick buttons: an icon added for
+    // the launcher is a quick-button icon by construction, so it is listed wherever icons are chosen.
+    const icons = within(dialog).getByRole('combobox', { name: strings.appearanceLauncherIcon! });
+    for (const icon of ['smile', 'heart', 'thumb-up'] as const) {
+      expect(within(icons).getByRole('option', { name: strings[`appearanceIcon_${icon}`]! })).toBeInTheDocument();
+    }
+    fireEvent.change(icons, { target: { value: 'smile' } });
+    expect(launcher().querySelector('path')!.getAttribute('d')).toBe(appearanceIcon('smile').path);
+
+    // The dot is off until the owner asks for it, and the settings name it as the ornament it is rather than
+    // as a claim about anybody being available.
+    const dot = () => launcher().querySelector('.launcher-dot');
+    const toggle = within(dialog).getByRole('switch', { name: strings.appearancePresenceLabel! });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(dot()).toBeNull();
+    expect(css()).not.toContain('.launcher-dot');
+    expect(within(dialog).getByTitle(strings.appearancePresenceHint!)).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(dot()).not.toBeNull();
+    expect(dot()!.getAttribute('aria-hidden')).toBe('true');
+    expect(css()).toContain(`background: ${DEFAULT_APPEARANCE.launcher.presenceDotColor}`);
+    // Ringed in the launcher's own colour, so the mark stays visible on whatever page it lands on.
+    expect(css()).toContain(`solid ${DEFAULT_APPEARANCE.colors.launcher}`);
+
+    fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorPresence!), { target: { value: '#abcdef' } });
+    expect(css()).toContain('background: #abcdef');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.launcher)
+      .toEqual({ icon: 'smile', presenceDot: true, presenceDotColor: '#abcdef' }));
   });
 });
