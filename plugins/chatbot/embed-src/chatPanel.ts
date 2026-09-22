@@ -360,6 +360,7 @@ export class ChatPanel implements ChatView {
    *  panel replay a conversation instead of losing it. */
   private ready = false;
   private scrollPending = false;
+  private drawScrollFrame: number | null = null;
   private readonly layoutObserver = new ResizeObserver(() => this.flushScroll());
   private readonly queued: { role: string; text: string }[] = [];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
@@ -472,6 +473,9 @@ export class ChatPanel implements ChatView {
       if (event.isTrusted) this.answerConfirmation(true);
     });
     confirmNo.addEventListener('click', () => this.answerConfirmation(false));
+    for (const event of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+      this.messages.addEventListener(event, () => this.cancelDrawScroll(), { passive: true });
+    }
     this.host.addEventListener('keydown', (event) => {
       if ((event as KeyboardEvent).key === 'Escape' && !this.panel.hidden) this.toggle(false);
     });
@@ -579,6 +583,7 @@ export class ChatPanel implements ChatView {
     for (const message of messages) this.draw(message);
     // A restored transcript opens where the visitor left off, which is its END: a reload that lands on the
     // first message hides the answer the visitor came back for. `addMessage` only follows a LIVE message.
+    this.cancelDrawScroll();
     this.scrollToLatest();
   }
 
@@ -590,7 +595,7 @@ export class ChatPanel implements ChatView {
   }
 
   private flushScroll(): void {
-    if (!this.scrollPending || !this.ready || this.chat.clientHeight === 0) return;
+    if (!this.scrollPending || this.drawScrollFrame !== null || !this.ready || this.chat.clientHeight === 0) return;
     this.chat.scrollToBottom();
     this.scrollPending = false;
   }
@@ -613,6 +618,7 @@ export class ChatPanel implements ChatView {
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
+    this.cancelDrawScroll();
     this.host.remove();
   }
 
@@ -666,6 +672,7 @@ export class ChatPanel implements ChatView {
         .filter((message) => message.text !== '')
       : [];
     this.layoutObserver.disconnect();
+    this.cancelDrawScroll();
     this.chat.remove();
     this.ready = false;
     this.answerIndex = null;
@@ -689,7 +696,33 @@ export class ChatPanel implements ChatView {
       this.queued.push(message);
       return;
     }
+    const follow = this.atLatest();
     this.chat.addMessage(message);
+    if (follow) {
+      this.scrollPending = true;
+      // addMessage schedules its own scroll to the START of the new bubble. Finish at the END only after
+      // that render has passed through layout. A visitor interaction cancels this pending follow.
+      if (this.drawScrollFrame !== null) cancelAnimationFrame(this.drawScrollFrame);
+      this.drawScrollFrame = requestAnimationFrame(() => {
+        this.drawScrollFrame = requestAnimationFrame(() => {
+          this.drawScrollFrame = null;
+          this.flushScroll();
+        });
+      });
+    }
+  }
+
+  private cancelDrawScroll(): void {
+    if (this.drawScrollFrame === null) return;
+    cancelAnimationFrame(this.drawScrollFrame);
+    this.drawScrollFrame = null;
+    this.scrollPending = false;
+  }
+
+  /** Read BEFORE changing content: growing an answer is not a visitor scrolling away. */
+  private atLatest(): boolean {
+    const list = this.chat.shadowRoot?.querySelector<HTMLElement>('#messages');
+    return this.scrollPending || !!list && list.clientHeight > 0 && list.scrollHeight - list.clientHeight - list.scrollTop <= 1;
   }
 
   /** A quick button is the visitor's own message: it is drawn in the transcript and then handed to the
@@ -780,8 +813,11 @@ export class ChatPanel implements ChatView {
       this.answerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       return;
     }
-    if (this.ready) this.chat.updateMessage({ text }, this.answerIndex);
-    else this.queued[this.answerIndex] = message;
+    if (this.ready) {
+      const follow = this.atLatest();
+      this.chat.updateMessage({ text }, this.answerIndex);
+      if (follow) this.scrollToLatest();
+    } else this.queued[this.answerIndex] = message;
   }
 }
 

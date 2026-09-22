@@ -48,7 +48,7 @@ const server = createServer((req, res) => {
       import { DEFAULT_APPEARANCE } from '${appearanceModule}';
       import { widgetStrings } from '${stringsModule}';
       const messages = JSON.parse(localStorage.getItem('transcript') || '[]');
-      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(){},onStop(){}});
+      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(){panel.beginAnswer();window.submissions=(window.submissions||0)+1;},onStop(){}});
       document.body.append(panel.host);
       panel.restore(messages);
       window.ready = true;
@@ -118,6 +118,62 @@ try {
       const list = panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages');
       return Math.abs(list.scrollHeight - list.clientHeight - list.scrollTop) <= 1;
     });
+    // Exercise the same submit/stream signals as a visitor typing, including a second turn.
+    for (const turn of [1, 2]) {
+      await page.evaluate(turn => {
+        panel.host.shadowRoot.querySelector('deep-chat').submitUserMessage({text:'Question ' + turn});
+      }, turn);
+      await page.waitForFunction(turn => window.submissions === turn, {}, turn);
+      for (let delta = 0; delta < 3; delta++) {
+        await page.evaluate(() => panel.streamAnswer('A streamed sentence. '.repeat(30)));
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const atBottom = await page.evaluate(() => {
+          const list = panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages');
+          return Math.abs(list.scrollHeight - list.clientHeight - list.scrollTop) <= 1;
+        });
+        assert(atBottom, 'Submitted stream must follow each delta');
+      }
+      await page.evaluate(() => { panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages').scrollTop = 100; });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.evaluate(() => panel.streamAnswer('More while reading history.'.repeat(40)));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages').scrollTop), 100);
+      await page.evaluate(() => panel.finishAnswer('Final submitted response.'.repeat(220)));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages').scrollTop), 100);
+      await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').scrollToBottom());
+    }
+    // A resumed answer has no submit signals: updating its growing bubble must still follow.
+    const listMetrics = () => {
+      const list = panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages');
+      return { scrollTop:list.scrollTop,scrollHeight:list.scrollHeight,clientHeight:list.clientHeight };
+    };
+    await page.evaluate(() => { panel.beginAnswer(); panel.streamAnswer('Start'); });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => panel.streamAnswer(' More resumed content.'.repeat(180)));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const resumed = await page.evaluate(listMetrics);
+    assert(Math.abs(resumed.scrollHeight - resumed.clientHeight - resumed.scrollTop) <= 1, 'Resumed stream must follow growing content');
+    await page.evaluate(() => { panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#messages').scrollTop = 100; });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => panel.streamAnswer(' More while reading history.'.repeat(40)));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal((await page.evaluate(listMetrics)).scrollTop, 100, 'Resumed stream must preserve manual scroll-up');
+    await page.evaluate(() => panel.finishAnswer('Final resumed answer.'.repeat(220)));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal((await page.evaluate(listMetrics)).scrollTop, 100, 'Final overwrite must preserve manual scroll-up');
+    // Scrolling back to the bottom resumes following the next answer.
+    await page.evaluate(() => {
+      panel.host.shadowRoot.querySelector('deep-chat').scrollToBottom();
+      panel.beginAnswer();
+      panel.finishAnswer('A single long final response. '.repeat(150));
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const final = await page.evaluate(listMetrics);
+    assert(Math.abs(final.scrollHeight - final.clientHeight - final.scrollTop) <= 1, 'A new long answer must finish at bottom');
+    console.log(JSON.stringify({width,resumed,final}));
+    await page.screenshot({ path: '/tmp/chatbot-stream-' + width + '.png' });
+    assert.deepEqual(errors, []);
     await page.close();
   }
 } finally {
