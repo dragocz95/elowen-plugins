@@ -9,6 +9,12 @@ import { ACTION_OUTCOMES } from './publicContract.js';
  *  this plugin relays under. Read from the name rather than spelled out again, because a second spelling is a
  *  budget that silently counts nothing. */
 const USAGE_ORIGIN = `platform:${CHATBOT_PLATFORM}`;
+/** A conversation may only be taken apart while nothing is being written into it. Shared by retention and by
+ *  an operator's own erase, because "deletable" is one rule and not two. */
+const NO_LIVE_TURN = `NOT EXISTS (
+  SELECT 1 FROM p_chatbot_turns t
+   WHERE t.chatbot_user_id = c.chatbot_user_id AND t.visitor_id = c.visitor_id
+     AND t.status IN ('queued', 'running'))`;
 /** Every plugin-owned read and write in one place, so the public path and the admin surface cannot
  *  disagree about what a row means. */
 export class ChatbotStore {
@@ -494,13 +500,23 @@ export class ChatbotStore {
     retentionCandidates(input) {
         return this.stmt(`SELECT c.* FROM p_chatbot_conversations c
                        WHERE c.delete_after <= ?
-                         AND NOT EXISTS (
-                           SELECT 1 FROM p_chatbot_turns t
-                            WHERE t.chatbot_user_id = c.chatbot_user_id AND t.visitor_id = c.visitor_id
-                              AND t.status IN ('queued', 'running'))
+                         AND ${NO_LIVE_TURN}
                        ORDER BY c.delete_after, c.id
                        LIMIT ?`)
             .all(input.now, input.limit);
+    }
+    /** The next conversations of ONE chatbot an operator asked to erase, whatever their due date.
+     *
+     *  The same "no turn waiting or running" rule as retention: a conversation whose answer is still being
+     *  written is not one this plugin can take apart underneath it. Bounded like a retention pass, and for the
+     *  same reason. */
+    erasableConversations(input) {
+        return this.stmt(`SELECT c.* FROM p_chatbot_conversations c
+                       WHERE c.chatbot_user_id = ?
+                         AND ${NO_LIVE_TURN}
+                       ORDER BY c.id
+                       LIMIT ?`)
+            .all(input.chatbotUserId, input.limit);
     }
     /** Delete one conversation and everything the plugin holds about it, in ONE transaction.
      *

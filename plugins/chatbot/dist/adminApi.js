@@ -252,6 +252,22 @@ export function createAdminApi(deps) {
             const total = store.conversationCount(chatbotUserId);
             return { status: 200, body: { conversations, total, limit, offset } };
         },
+        /** Erase this chatbot's conversations, here and in core. One bounded batch per call, so the answer says
+         *  what is left: `remaining` above zero means the caller repeats. A conversation whose answer is still
+         *  being written is reported as `kept` and survives, exactly as retention leaves it. */
+        async eraseConversations(auth, query) {
+            const refusal = requireAdmin(auth);
+            if (refusal)
+                return refusal;
+            const chatbotUserId = readChatbotUserId(query.chatbotUserId);
+            if (chatbotUserId === null)
+                return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
+            const bot = requireBot(chatbotUserId);
+            if (isRefusal(bot))
+                return bot;
+            const { deleted, kept } = await deps.erase({ chatbotUserId, limit: CONVERSATIONS_MAX_LIMIT });
+            return { status: 200, body: { deleted, kept, remaining: store.conversationCount(chatbotUserId) } };
+        },
         /** One conversation, as an administrator may read it: the visitor's own words and the answer the
          *  plugin published. Tool calls and reasoning are core transcript and are not part of this contract —
          *  they are never read here, so they can never leak through this route. */

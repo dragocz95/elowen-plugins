@@ -67,6 +67,27 @@ async function runPass(deps) {
     }
     return result;
 }
+/** Erase one chatbot's conversations on an operator's word, through the same two steps a retention pass
+ *  uses: core's own delete first, this plugin's rows second, and nothing removed here that core did not
+ *  confirm gone there. Bounded per call like a pass; the caller repeats until nothing is left.
+ *
+ *  A conversation with a turn still running is left alone and reported as kept, exactly as retention leaves
+ *  it: an answer being written is not a transcript this plugin may take apart underneath it. */
+export async function eraseConversations(deps, input) {
+    let deleted = 0;
+    let kept = 0;
+    for (const conversation of deps.store.erasableConversations(input)) {
+        if (await deleteOne(deps, conversation))
+            deleted += 1;
+        else
+            kept += 1;
+    }
+    if (deleted > 0 || kept > 0) {
+        deps.info(`chatbot ${input.chatbotUserId}: erased ${deleted} conversation(s) on request`
+            + `${kept > 0 ? `, kept ${kept} awaiting core` : ''}`);
+    }
+    return { deleted, kept };
+}
 /** Delete one conversation in core and then here. `false` means "keep everything and try again later". */
 async function deleteOne(deps, conversation) {
     if (conversation.session_id !== null) {
