@@ -26,8 +26,3 @@ export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; 
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */
 export const AHEAD_OF_RELEASE_DICTIONARY: string[] = [];
-
-/** The plugin UI API version targeted by the stand-in. The todo card requires it: it draws its rows
- *  through `utils.todoPreviewItems`, which the in-development core publishes under API 18, so a host
- *  stamped lower refuses the bundle and keeps rendering its own card. */
-export const AHEAD_OF_RELEASE_API_VERSION = 18;

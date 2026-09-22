@@ -14,7 +14,7 @@ import * as C from './hostComponents';
 import * as H from './hostHooks';
 import { api, apiErrorMessage, ElowenApiError, elowenClient } from './hostClient';
 import * as U from './hostUtils';
-import { AHEAD_OF_RELEASE_API_VERSION as PLUGIN_UI_API_VERSION } from './hostAheadOfRelease';
+import { PLUGIN_UI_API_VERSION } from 'elowen-plugin-ui-kit';
 
 /** The host's own constant, mirrored. `tests/hostRuntimeParity.test.ts` is what keeps this file and the
  *  maps below from drifting away from the runtime a bundle actually finds in production. */
