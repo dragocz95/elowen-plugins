@@ -1,335 +1,202 @@
-/** The appearance editor: how a chatbot's panel looks, with a live preview beside the controls.
- *
- *  It is built around one value — a `ChatbotAppearance` — which is the SAME shape the server stores and the
- *  widget draws from (appearanceContract.ts). Every control edits that value and nothing else, and the
- *  preview renders it as it changes; nothing here keeps a second copy of a colour or invents a style of its
- *  own. Saving sends the whole value, so what is stored is exactly what was being previewed.
- *
- *  The name is edited here too, because a customer configuring how their chatbot looks is configuring the
- *  name it is introduced by. It is the chatbot's ONE name — the same `display_name` the register shows — so
- *  this editor writes that column and stores no second copy of it in the appearance document. */
-
-import { useEffect, useState, type ChangeEvent } from 'react';
-import { MousePointerClick, Palette, Plus, Ruler, Save, Trash2 } from 'lucide-react';
+/** Edits a linked template and explicit overrides. The chatbot's name stays in its own column. */
+import { useId, useMemo, useState, type ReactNode } from 'react';
+import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Save, Trash2, Type, UserRound, Send } from 'lucide-react';
 import {
-  APPEARANCE_BOUNDS,
-  APPEARANCE_INTRO_MAX_CHARS,
-  APPEARANCE_QUICK_BUTTONS_MAX,
-  APPEARANCE_QUICK_BUTTON_MAX_CHARS,
-  APPEARANCE_AVATAR_URL_MAX_CHARS,
-  presetAppearance,
-  type AppearanceMode,
-  type ChatbotAppearance,
+  APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_TEMPLATES,
+  APPEARANCE_INTRO_MAX_CHARS, APPEARANCE_AVATAR_URL_MAX_CHARS, APPEARANCE_SUBTITLE_MAX_CHARS,
+  APPEARANCE_PLACEHOLDER_MAX_CHARS, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS,
+  APPEARANCE_QUICK_BUTTONS_MAX, APPEARANCE_QUICK_BUTTON_MAX_CHARS,
+  APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, APPEARANCE_RAMPS,
+  appearanceIcon, appearanceInk, isAppearanceOverridden, parseAppearanceSelection,
+  resetAppearanceOverride, resolveAppearance, selectAppearanceTemplate, setAppearanceOverride,
+  type AppearanceIconId, type AppearanceOverridePath, type AppearanceTemplateId, type StoredAppearance,
 } from '../src/appearanceContract';
+import { DISPLAY_NAME_MAX_CHARS } from '../src/adminContract';
 import { apiJson, jsonRequest, runtime } from './runtime';
 import type { ChatbotBotView } from './types';
 import { AppearancePreview } from './AppearancePreview';
 
-/** A hint for the form, never the rule: the server parses every address it is given and refuses one it
- *  cannot reduce to an https address or an image, so this only keeps an obviously wrong value out of a save
- *  and explains itself next to the field. */
-export function avatarHint(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  if (trimmed.startsWith('data:')) return /^data:image\/[a-z0-9.+-]+[;,]/.test(trimmed) ? null : 'invalid';
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? null : 'invalid';
-  } catch {
-    return 'invalid';
-  }
+function Icon({ id }: { id: AppearanceIconId }) {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={appearanceIcon(id).path} /></svg>;
 }
 
-/** A quick button the list already holds is one a visitor can only be confused by; the server collapses the
- *  duplicates, and this keeps the second one out of the list in the first place. */
-export function quickButtonHint(value: string, existing: string[]): string | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  return existing.includes(trimmed) ? 'duplicate' : null;
+/** Small visual swatches use the contract's actual fills, geometry and glyphs. */
+function TemplateSwatch({ template }: { template: AppearanceTemplateId }) {
+  const a = APPEARANCE_TEMPLATES[template];
+  const ramp = APPEARANCE_RAMPS[a.mode];
+  return <span aria-hidden className="flex h-28 w-full flex-col gap-2 p-2" style={{ background: a.colors.panel, borderRadius: a.radius / 2, border: `1px solid ${ramp.border}` }}>
+    <span className="h-2 w-1/2 rounded" style={{ background: ramp.muted }} />
+    <span className="h-4 w-3/4 self-start" style={{ background: a.colors.botBubble, borderRadius: a.radius / 3 }} />
+    <span className="h-4 w-1/2 self-end" style={{ background: a.colors.visitorBubble, borderRadius: a.radius / 3 }} />
+    <span className="mt-auto flex justify-end gap-2">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full" style={{ background: a.colors.launcher, color: appearanceInk(a.colors.launcher) }}><Icon id={a.launcher.icon} /></span>
+      <span className="flex h-6 w-6 items-center justify-center" style={{ background: a.colors.sendButton, color: a.colors.sendIcon, borderRadius: a.send.shape === 'circle' ? '50%' : 4 }}><Icon id={a.send.icon} /></span>
+    </span>
+  </span>;
 }
-
-const COLOR_FIELDS = ['panel', 'visitorBubble', 'botBubble', 'sendButton'] as const;
-type ColorField = (typeof COLOR_FIELDS)[number];
 
 export function AppearanceModal({ bot, onClose, onChanged }: {
   bot: ChatbotBotView;
   onClose(): void;
-  /** The saved row, back from the server: the register shows the new name and the next save compares
-   *  against the new `updatedAt`. */
   onChanged(bot: ChatbotBotView): void;
 }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { toast } = hooks.useToast();
+  const id = useId();
   const [name, setName] = useState(bot.displayName);
-  const [appearance, setAppearance] = useState<ChatbotAppearance>(bot.appearance);
+  const [stored, setStored] = useState<StoredAppearance>(bot.appearance);
   const [draftButton, setDraftButton] = useState('');
+  const [draftIcon, setDraftIcon] = useState<AppearanceIconId | null>(null);
+  const [templateChoice, setTemplateChoice] = useState<AppearanceTemplateId | null>(null);
   const [revision, setRevision] = useState(bot.updatedAt);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const appearance = useMemo(() => resolveAppearance(stored), [stored]);
+  const look = useMemo(() => ({ name, appearance }), [name, appearance]);
 
-  // A different chatbot is a different form, so it starts from that chatbot's values with nothing open. A
-  // save does NOT re-seed it: the row it comes back with is the row this editor just wrote, and re-seeding
-  // would throw away an edit made while the request was in flight.
-  useEffect(() => {
-    setName(bot.displayName);
-    setAppearance(bot.appearance);
-    setRevision(bot.updatedAt);
-    setDraftButton('');
-    setError(null);
-  }, [bot.chatbotUserId]);
+  const patch = (path: AppearanceOverridePath, value: unknown) => setStored(current => setAppearanceOverride(current, path, value));
+  const reset = (path: AppearanceOverridePath, label: string, compact = false) => {
+    if (!isAppearanceOverridden(stored, path)) return null;
+    const title = s.appearanceReset.replace('{value}', label);
+    const onClick = () => setStored(current => resetAppearanceOverride(current, path));
+    return compact
+      ? <C.IconButton icon={RotateCcw} disabled={pending} label={title} onClick={onClick} />
+      : <C.Button variant="ghost" size="sm" icon={RotateCcw} disabled={pending} aria-label={title} onClick={onClick}>{s.appearanceOverridden}</C.Button>;
+  };
+  const heading = (path: AppearanceOverridePath, label: string, help?: string) => <div className="flex flex-wrap items-center justify-between gap-1">
+    <label htmlFor={`${id}-${path}`} className="text-sm font-medium text-foreground">{label}</label>
+    <span className="flex items-center gap-1">{help ? <C.HelpTip>{help}</C.HelpTip> : null}{reset(path, label)}</span>
+  </div>;
+  const field = (path: AppearanceOverridePath, label: string, control: ReactNode, help?: string) => <div className="flex min-w-0 flex-col gap-2">{heading(path, label, help)}{control}</div>;
+  const textField = (path: AppearanceOverridePath, label: string, value: string, max: number, placeholder?: string, help?: string) =>
+    field(path, label, <C.Input id={`${id}-${path}`} aria-label={label} value={value} maxLength={max} disabled={pending} placeholder={placeholder} onChange={event => patch(path, event.target.value)} />, help);
+  const select = (path: AppearanceOverridePath, label: string, value: string, options: { value: string; label: string; icon?: ReactNode }[]) =>
+    field(path, label, <C.SelectMenu label={label} value={value} options={options} disabled={pending} onChange={value => patch(path, value)} />);
+  const icons = APPEARANCE_ICONS.map(icon => ({ value: icon.id, label: s[`appearanceIcon_${icon.id}`], icon: <Icon id={icon.id} /> }));
+  const iconPicker = (path: 'send.icon' | 'launcher.icon', label: string, value: AppearanceIconId) => select(path, label, value, icons);
+  const color = (key: keyof typeof appearance.colors, label: string) => field(`colors.${key}`, label,
+    <input id={`${id}-colors.${key}`} type="color" aria-label={label} value={appearance.colors[key]} disabled={pending} onChange={event => patch(`colors.${key}`, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />);
+  const scalar = (path: AppearanceOverridePath, key: keyof typeof APPEARANCE_BOUNDS, label: string, value: number) => {
+    const text = s.appearancePixels.replace('{value}', String(value));
+    return <div className="py-2">
+      <div className="flex items-center gap-2.5">
+        <Ruler size={18} aria-hidden className="shrink-0 text-muted-foreground" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-foreground"><span className="truncate" title={label}>{label}</span><C.HelpTip>{s[`appearanceHint_${key}`]}</C.HelpTip></span>
+        <span className="shrink-0 font-mono text-sm tabular-nums text-primary">{text}</span>
+        {reset(path, label, true)}
+      </div>
+      <C.Slider className="mt-3" value={value} {...APPEARANCE_BOUNDS[key]} step={1} disabled={pending} aria-label={label} aria-valuetext={text} onChange={value => patch(path, value)} />
+    </div>;
+  };
+  const toggle = (path: 'header.showAvatar' | 'header.showMessageName', label: string, checked: boolean) =>
+    field(path, label, <C.Toggle label={label} checked={checked} disabled={pending} onChange={value => patch(path, value)} />);
+  const section = (label: string, icon: ReactNode, children: ReactNode, help?: string, action?: ReactNode) => <section className="flex min-w-0 flex-col gap-4 border-t border-border pt-4">
+    <div className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">{icon}</span><h3 className="text-sm font-semibold text-foreground">{label}</h3>{help ? <C.HelpTip>{help}</C.HelpTip> : null}{action}</div>{children}
+  </section>;
 
-  const patch = (part: Partial<ChatbotAppearance>) => setAppearance((current) => ({ ...current, ...part }));
-  const setColor = (field: ColorField, value: string) => setAppearance((current) => ({ ...current, colors: { ...current.colors, [field]: value } }));
-  const pixels = (value: number) => s.appearancePixels.replace('{value}', String(value));
-  const maxChars = (limit: number) => s.appearanceMaxChars.replace('{max}', String(limit));
-
-  const avatar = avatarHint(appearance.avatarUrl);
-  const buttonHint = quickButtonHint(draftButton, appearance.quickButtons);
+  const buttonText = draftButton.trim();
+  const duplicate = appearance.quickButtons.some(button => button.text === buttonText);
   const quickFull = appearance.quickButtons.length >= APPEARANCE_QUICK_BUTTONS_MAX;
-
+  const addButton = () => {
+    if (pending || quickFull || duplicate || !buttonText) return;
+    patch('quickButtons', [...appearance.quickButtons, { text: buttonText, icon: draftIcon }]);
+    setDraftButton('');
+  };
+  const valid = parseAppearanceSelection(stored).ok;
   const save = async () => {
     setPending(true);
     setError(null);
     try {
       const answer = await apiJson<{ bot: ChatbotBotView }>('/plugins/chatbot/api/appearance', jsonRequest('PUT', {
-        chatbotUserId: bot.chatbotUserId,
-        expectedUpdatedAt: revision,
-        displayName: name,
-        appearance,
+        chatbotUserId: bot.chatbotUserId, expectedUpdatedAt: revision, displayName: name, appearance: stored,
       }));
       setRevision(answer.bot.updatedAt);
+      setStored(answer.bot.appearance);
       onChanged(answer.bot);
       toast(s.appearanceSaved);
     } catch (reason) {
       setError(utils.apiErrorMessage(reason) || s.appearanceSaveFailed);
-    } finally {
-      setPending(false);
-    }
+    } finally { setPending(false); }
   };
 
-  const addButton = () => {
-    if (buttonHint !== null) return;
-    const label = draftButton.trim();
-    setAppearance((current) => ({ ...current, quickButtons: [...current.quickButtons, label] }));
-    setDraftButton('');
-  };
-
-  const colorLabels: Record<ColorField, string> = {
-    panel: s.appearanceColorPanel,
-    visitorBubble: s.appearanceColorVisitor,
-    botBubble: s.appearanceColorBot,
-    sendButton: s.appearanceColorSend,
-  };
-
-  return (
-    <C.Modal
-      title={s.appearanceTitle}
-      description={s.appearanceIntro}
-      icon={Palette}
-      size="lg"
-      presentation="center"
-      closeLabel={s.cancel}
-      closeDisabled={pending}
-      {...(pending ? { 'aria-busy': true as const } : {})}
-      onClose={onClose}
-    >
+  return <>
+    <C.Modal title={s.appearanceTitle} icon={Palette} size="lg" presentation="center" closeLabel={s.cancel} closeDisabled={pending} {...(pending ? { 'aria-busy': true as const } : {})} onClose={onClose}>
       <C.ModalBody>
-        {/* The preview comes FIRST on a narrow screen: it is the thing being configured, and a reader who
-            has to scroll past a dozen controls to reach it has no way to see what they are doing. */}
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-start">
-          <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1">
-            <C.Field label={s.appearanceNameLabel} hint={s.appearanceNameHint}>
-              <C.Input
-                value={name}
-                maxLength={80}
-                disabled={pending}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)}
-              />
-            </C.Field>
-
-            {/* Mode and corner side by side: two short choices that used to take two full-width rows. */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <C.Field label={s.appearanceModeLabel} hint={s.appearanceModeHint}>
-                <C.Segmented
-                  aria-label={s.appearanceModeLabel}
-                  value={appearance.mode}
-                  // The mode IS its colour set: switching it puts that set in the pickers below, which is what
-                  // makes "light or dark" one click rather than four. Every colour stays editable afterwards.
-                  onChange={(mode: string) => setAppearance(presetAppearance(mode as AppearanceMode))}
-                  options={[
-                    { value: 'light', label: s.appearanceModeLight },
-                    { value: 'dark', label: s.appearanceModeDark },
-                  ]}
-                />
-              </C.Field>
-
-              <C.Field label={s.appearancePositionLabel}>
-                <C.SelectMenu
-                  label={s.appearancePositionLabel}
-                  value={appearance.position}
-                  onChange={(position: string) => patch({ position: position as ChatbotAppearance['position'] })}
-                  options={[
-                    { value: 'bottom-right', label: s.appearancePositionBottomRight },
-                    { value: 'bottom-left', label: s.appearancePositionBottomLeft },
-                    { value: 'top-right', label: s.appearancePositionTopRight },
-                    { value: 'top-left', label: s.appearancePositionTopLeft },
-                  ]}
-                />
-              </C.Field>
-            </div>
-
-            {/* The four colours as four records of the host's own section card: a label opposite its
-                control, which is what this was imitating with a bordered label of its own. */}
-            <C.SettingsGroup title={s.appearanceColorsLabel} icon={Palette} columns={2} density="compact">
-              {COLOR_FIELDS.map((field) => (
-                <C.SettingsRow
-                  key={field}
-                  label={colorLabels[field]}
-                  status={<span className="font-mono text-[11px] uppercase">{appearance.colors[field]}</span>}
-                  control={(
-                    <input
-                      type="color"
-                      aria-label={colorLabels[field]}
-                      value={appearance.colors[field]}
-                      disabled={pending}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) => setColor(field, event.target.value)}
-                      className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0"
-                    />
-                  )}
-                />
-              ))}
-            </C.SettingsGroup>
-
-            {/* The three scalars as three records, each one line: the slider opposite its name with the
-                value it is at, instead of a stacked field per number. */}
-            <C.SettingsGroup title={s.appearanceSizeLabel} icon={Ruler} density="compact">
-              <C.SettingsRow
-                label={s.appearanceRadiusLabel}
-                status={<span className="font-mono text-[11px]">{pixels(appearance.radius)}</span>}
-                control={(
-                  <C.Slider
-                    value={appearance.radius}
-                    min={APPEARANCE_BOUNDS.radius.min}
-                    max={APPEARANCE_BOUNDS.radius.max}
-                    step={1}
-                    aria-label={s.appearanceRadiusLabel}
-                    onChange={(value: number) => patch({ radius: value })}
-                  />
-                )}
-              />
-              <C.SettingsRow
-                label={s.appearanceWidthLabel}
-                status={<span className="font-mono text-[11px]">{pixels(appearance.width)}</span>}
-                control={(
-                  <C.Slider
-                    value={appearance.width}
-                    min={APPEARANCE_BOUNDS.width.min}
-                    max={APPEARANCE_BOUNDS.width.max}
-                    step={10}
-                    aria-label={s.appearanceWidthLabel}
-                    onChange={(value: number) => patch({ width: value })}
-                  />
-                )}
-              />
-              <C.SettingsRow
-                label={s.appearanceHeightLabel}
-                status={<span className="font-mono text-[11px]">{pixels(appearance.height)}</span>}
-                control={(
-                  <C.Slider
-                    value={appearance.height}
-                    min={APPEARANCE_BOUNDS.height.min}
-                    max={APPEARANCE_BOUNDS.height.max}
-                    step={10}
-                    aria-label={s.appearanceHeightLabel}
-                    onChange={(value: number) => patch({ height: value })}
-                  />
-                )}
-              />
-            </C.SettingsGroup>
-
-            <C.Field label={s.appearanceIntroLabel} hint={`${s.appearanceIntroHint} ${maxChars(APPEARANCE_INTRO_MAX_CHARS)}`}>
-              <textarea
-                value={appearance.intro ?? ''}
-                rows={3}
-                maxLength={APPEARANCE_INTRO_MAX_CHARS}
-                disabled={pending}
-                placeholder={s.appearanceIntroPlaceholder}
-                onChange={(event: ChangeEvent<HTMLTextAreaElement>) => patch({ intro: event.target.value === '' ? null : event.target.value })}
-                className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
-              />
-            </C.Field>
-
-            <C.Field label={s.appearanceAvatarLabel} hint={`${s.appearanceAvatarHint} ${maxChars(APPEARANCE_AVATAR_URL_MAX_CHARS)}`}>
-              <C.Input
-                value={appearance.avatarUrl}
-                maxLength={APPEARANCE_AVATAR_URL_MAX_CHARS}
-                disabled={pending}
-                placeholder={s.appearanceAvatarPlaceholder}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => patch({ avatarUrl: event.target.value })}
-              />
-            </C.Field>
-            {avatar === 'invalid' ? <p className="text-xs text-destructive">{s.appearanceAvatarInvalid}</p> : null}
-
-            <C.SettingsGroup
-              title={s.appearanceQuickLabel}
-              description={`${s.appearanceQuickHint} ${maxChars(APPEARANCE_QUICK_BUTTON_MAX_CHARS)}`}
-              icon={MousePointerClick}
-            >
-              {appearance.quickButtons.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{s.appearanceQuickEmpty}</p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {appearance.quickButtons.map((text) => (
-                    <li key={text} className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm text-foreground">{text}</span>
-                      <C.IconButton
-                        icon={Trash2}
-                        variant="danger"
-                        label={s.appearanceQuickRemove.replace('{value}', text)}
-                        disabled={pending}
-                        onClick={() => patch({ quickButtons: appearance.quickButtons.filter((candidate) => candidate !== text) })}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="flex flex-wrap items-end gap-2">
-                <C.Field label={s.appearanceQuickAdd}>
-                  <C.Input
-                    value={draftButton}
-                    maxLength={APPEARANCE_QUICK_BUTTON_MAX_CHARS}
-                    disabled={pending}
-                    placeholder={s.appearanceQuickPlaceholder}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => setDraftButton(event.target.value)}
-                  />
-                </C.Field>
-                <C.Button icon={Plus} disabled={pending || draftButton.trim() === '' || buttonHint !== null || quickFull} onClick={addButton}>
-                  {s.appearanceQuickAdd}
-                </C.Button>
-              </div>
-              {buttonHint === 'duplicate' ? <p className="text-xs text-destructive">{s.appearanceQuickDuplicate}</p> : null}
-              {quickFull ? <p className="text-xs text-muted-foreground">{s.appearanceQuickFull}</p> : null}
-            </C.SettingsGroup>
+        <div className="flex flex-col gap-6">
+          <div role="group" aria-label={s.appearanceTemplates} className="flex gap-3 overflow-x-auto pb-2">
+            {APPEARANCE_TEMPLATE_IDS.map(template => <C.Button key={template} variant={stored.template === template ? 'accent' : 'outline'} className="h-auto min-w-28 flex-1 flex-col gap-2 p-2" disabled={pending} aria-pressed={stored.template === template} onClick={() => { if (template !== stored.template) setTemplateChoice(template); }}>
+              <TemplateSwatch template={template} /><span>{s[`appearanceTemplate_${template}`]}</span>
+            </C.Button>)}
           </div>
-
-          <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-0">
-            <AppearancePreview look={{ name, appearance }} label={s.appearancePreview} hint={s.appearancePreviewHint} />
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]">
+            <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1">
+              {section(s.appearanceColorsLabel, <Palette size={18} />, <>
+                {select('mode', s.appearanceModeLabel, appearance.mode, [{ value: 'light', label: s.appearanceModeLight }, { value: 'dark', label: s.appearanceModeDark }])}
+                <div className="grid grid-cols-2 gap-4">{color('panel', s.appearanceColorPanel)}{color('visitorBubble', s.appearanceColorVisitor)}{color('botBubble', s.appearanceColorBot)}</div>
+                {scalar('width', 'width', s.appearanceWidthLabel, appearance.width)}
+                {scalar('height', 'height', s.appearanceHeightLabel, appearance.height)}
+                {scalar('radius', 'radius', s.appearanceRadiusLabel, appearance.radius)}
+              </>)}
+              {section(s.appearanceSendGroup, <Send size={18} />, <>
+                <div className="grid grid-cols-2 gap-4">{color('sendButton', s.appearanceColorSend)}{color('sendIcon', s.appearanceColorSendIcon)}</div>
+                {iconPicker('send.icon', s.appearanceSendIcon, appearance.send.icon)}
+                {select('send.shape', s.appearanceSendShape, appearance.send.shape, [{ value: 'circle', label: s.appearanceShapeCircle }, { value: 'rounded-square', label: s.appearanceShapeSquare }])}
+              </>)}
+              {section(s.appearanceLauncherGroup, <MousePointerClick size={18} />, <>
+                {color('launcher', s.appearanceColorLauncher)}
+                {iconPicker('launcher.icon', s.appearanceLauncherIcon, appearance.launcher.icon)}
+                {textField('launcher.label', s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS)}
+                {select('position', s.appearancePositionLabel, appearance.position, [
+                  { value: 'bottom-right', label: s.appearancePositionBottomRight }, { value: 'bottom-left', label: s.appearancePositionBottomLeft },
+                  { value: 'top-right', label: s.appearancePositionTopRight }, { value: 'top-left', label: s.appearancePositionTopLeft },
+                ])}
+                {scalar('launcher.size', 'launcherSize', s.appearanceLauncherSize, appearance.launcher.size)}
+                {scalar('launcher.offset', 'launcherOffset', s.appearanceLauncherOffset, appearance.launcher.offset)}
+              </>)}
+              {section(s.appearanceHeaderGroup, <UserRound size={18} />, <>
+                <C.Field label={s.appearanceNameLabel} hint={s.appearanceNameHint}><C.Input aria-label={s.appearanceNameLabel} value={name} maxLength={DISPLAY_NAME_MAX_CHARS} disabled={pending} onChange={event => setName(event.target.value)} /></C.Field>
+                {textField('header.subtitle', s.appearanceSubtitle, appearance.header.subtitle, APPEARANCE_SUBTITLE_MAX_CHARS)}
+                {toggle('header.showAvatar', s.appearanceShowAvatar, appearance.header.showAvatar)}
+                {textField('avatarUrl', s.appearanceAvatarLabel, appearance.avatarUrl, APPEARANCE_AVATAR_URL_MAX_CHARS, s.appearanceAvatarPlaceholder, s.appearanceAvatarHint)}
+                {toggle('header.showMessageName', s.appearanceShowMessageName, appearance.header.showMessageName)}
+              </>)}
+              {section(s.appearanceTypographyGroup, <Type size={18} />, <>
+                {scalar('typography.fontSize', 'fontSize', s.appearanceFontSize, appearance.typography.fontSize)}
+                {select('typography.fontFamily', s.appearanceFontFamily, appearance.typography.fontFamily, Object.keys(APPEARANCE_FONT_STACKS).map(value => ({ value, label: s[`appearanceFont_${value}`] })))}
+                {select('typography.shadow', s.appearanceShadow, appearance.typography.shadow, Object.keys(APPEARANCE_SHADOWS).map(value => ({ value, label: s[`appearanceShadow_${value}`] })))}
+                {textField('typography.placeholder', s.appearancePlaceholder, appearance.typography.placeholder, APPEARANCE_PLACEHOLDER_MAX_CHARS)}
+                {field('intro', s.appearanceIntroLabel, <textarea id={`${id}-intro`} aria-label={s.appearanceIntroLabel} value={appearance.intro ?? ''} rows={3} maxLength={APPEARANCE_INTRO_MAX_CHARS} disabled={pending} placeholder={s.appearanceIntroPlaceholder} onChange={event => patch('intro', event.target.value || null)} className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary" />, s.appearanceIntroHint)}
+              </>)}
+              {section(s.appearanceQuickLabel, <MousePointerClick size={18} />, <>
+                <ul className="flex flex-wrap gap-2">
+                  {appearance.quickButtons.map(button => <li key={button.text} className="flex max-w-full items-center gap-2 rounded-full border border-border bg-card py-1 pl-3 pr-1 text-sm">
+                    {button.icon === null ? null : <Icon id={button.icon} />}<span className="break-words">{button.text}</span>
+                    <C.IconButton icon={Trash2} variant="danger" label={s.appearanceQuickRemove.replace('{value}', button.text)} disabled={pending} onClick={() => patch('quickButtons', appearance.quickButtons.filter(item => item.text !== button.text))} />
+                  </li>)}
+                </ul>
+                <div className="flex flex-col gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <C.Input className="min-w-0 flex-1" aria-label={s.appearanceQuickAdd} value={draftButton} maxLength={APPEARANCE_QUICK_BUTTON_MAX_CHARS} disabled={pending || quickFull} placeholder={s.appearanceQuickPlaceholder} onChange={event => setDraftButton(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addButton(); } }} />
+                    <C.IconButton icon={Plus} label={s.appearanceQuickAdd} disabled={pending || quickFull || duplicate || !buttonText} onClick={addButton} />
+                  </div>
+                  <C.SelectMenu label={s.appearanceQuickIcon} value={draftIcon ?? ''} disabled={pending || quickFull} onChange={value => setDraftIcon(value === '' ? null : value as AppearanceIconId)} options={[{ value: '', label: s.appearanceIconNone }, ...icons]} />
+                </div>
+                {duplicate ? <p className="text-xs text-destructive">{s.appearanceQuickDuplicate}</p> : null}
+                {quickFull ? <p className="text-xs text-muted-foreground">{s.appearanceQuickFull}</p> : null}
+              </>, s.appearanceQuickHint, reset('quickButtons', s.appearanceQuickLabel))}
+            </div>
+            <div className="order-1 min-w-0 lg:sticky lg:top-0 lg:order-2"><AppearancePreview look={look} label={s.appearancePreview} /></div>
           </div>
         </div>
       </C.ModalBody>
       <C.ModalFooter>
         {error !== null ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+        {!valid ? <p className="text-xs text-destructive" role="alert">{s.appearanceInvalid}</p> : null}
         <C.Button variant="ghost" disabled={pending} onClick={onClose}>{s.cancel}</C.Button>
-        <C.Button
-          variant="accent"
-          icon={Save}
-          disabled={pending || name.trim() === '' || avatar === 'invalid'}
-          onClick={() => void save()}
-        >
-          {pending ? s.appearanceSaving : s.appearanceSave}
-        </C.Button>
+        <C.Button variant="accent" icon={Save} disabled={pending || name.trim() === '' || !valid} onClick={() => void save()}>{pending ? s.appearanceSaving : s.appearanceSave}</C.Button>
       </C.ModalFooter>
     </C.Modal>
-  );
+    <C.ConfirmDialog open={templateChoice !== null} title={s.appearanceTemplateConfirm} description={s.appearanceTemplateReplace} confirmLabel={s.appearanceTemplateApply} onClose={() => setTemplateChoice(null)} onConfirm={() => { if (templateChoice !== null) { setStored(selectAppearanceTemplate(templateChoice)); setDraftButton(''); setDraftIcon(null); setTemplateChoice(null); } }} />
+  </>;
 }

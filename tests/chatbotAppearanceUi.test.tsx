@@ -1,10 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
-import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, presetAppearance, type ChatbotAppearance } from '../plugins/chatbot/src/appearanceContract';
+import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, DEFAULT_STORED_APPEARANCE, APPEARANCE_TEMPLATES, appearanceIconSvg, type StoredAppearance } from '../plugins/chatbot/src/appearanceContract';
 import type { LimitValues } from '../plugins/chatbot/src/limits';
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
-import { avatarHint, quickButtonHint } from '../plugins/chatbot/web-src/AppearanceModal';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
 import { detectLocale, widgetStrings } from '../plugins/chatbot/embed-src/strings';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
@@ -73,7 +72,7 @@ const bot: ChatbotBotView = {
   status: 'enabled' as const,
   origins: [SITE],
   maySubmitForms: true,
-  appearance: DEFAULT_APPEARANCE,
+  appearance: DEFAULT_STORED_APPEARANCE,
   embedSnippet: null,
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
@@ -91,7 +90,7 @@ const saved: { body: Record<string, unknown> | null } = { body: null };
 const savedBot = (body: Record<string, unknown>): ChatbotBotView => ({
   ...bot,
   displayName: String(body.displayName ?? bot.displayName),
-  appearance: body.appearance as ChatbotAppearance,
+  appearance: body.appearance as StoredAppearance,
   updatedAt: '2026-09-21T17:00:00.000Z',
 });
 
@@ -163,14 +162,14 @@ describe('the appearance editor', () => {
     expect(slider(dialog, strings.appearanceWidthLabel!).min).toBe(String(APPEARANCE_BOUNDS.width.min));
     expect(slider(dialog, strings.appearanceWidthLabel!).max).toBe(String(APPEARANCE_BOUNDS.width.max));
     expect(within(dialog).getByRole('combobox', { name: strings.appearancePositionLabel! })).toHaveValue('bottom-right');
-    expect(within(dialog).getByRole('radio', { name: strings.appearanceModeDark! })).toBeChecked();
+    expect(within(dialog).getByRole('combobox', { name: strings.appearanceModeLabel! })).toHaveValue('dark');
     expect(within(dialog).getByLabelText(strings.appearanceColorPanel!)).toHaveValue(DEFAULT_APPEARANCE.colors.panel);
     expect(within(dialog).getByLabelText(strings.appearanceColorVisitor!)).toHaveValue(DEFAULT_APPEARANCE.colors.visitorBubble);
     expect(within(dialog).getByLabelText(strings.appearanceColorBot!)).toHaveValue(DEFAULT_APPEARANCE.colors.botBubble);
     expect(within(dialog).getByLabelText(strings.appearanceColorSend!)).toHaveValue(DEFAULT_APPEARANCE.colors.sendButton);
     expect(within(dialog).getByPlaceholderText(strings.appearanceIntroPlaceholder!)).toHaveValue('');
     expect(within(dialog).getByPlaceholderText(strings.appearanceAvatarPlaceholder!)).toHaveValue('');
-    expect(within(dialog).getByText(strings.appearanceQuickEmpty!)).toBeInTheDocument();
+    expect(within(dialog).queryByText('No quick button yet.')).not.toBeInTheDocument();
 
     // The preview is the REAL client, configured from that stored look and mounted in its own shadow root.
     const preview = previewPanel(dialog);
@@ -231,14 +230,99 @@ describe('the appearance editor', () => {
     expect(previewPanel(dialog).chat.getMessages()).toEqual([{ role: 'user', text: 'Chci vyplnit formulář' }]);
   });
 
-  it('switches the whole colour set with the mode, and keeps every colour editable afterwards', async () => {
+  it('confirms a template replacement, dropping changes only after approval', async () => {
     const dialog = await openEditor();
-    fireEvent.click(within(dialog).getByRole('radio', { name: strings.appearanceModeLight! }));
-    expect(previewPanel(dialog).chat.messageStyles.default.ai.bubble.backgroundColor).toBe(presetAppearance('light').colors.botBubble);
-    fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorPanel!), { target: { value: '#fafafa' } });
-    // …and the customer can still change one of them.
-    fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorPanel!), { target: { value: '#fbfbfb' } });
-    expect(previewPanel(dialog).chat.chatStyle.backgroundColor).toBe('#fbfbfb');
+    const input = within(dialog).getByLabelText(strings.appearanceColorPanel!);
+    fireEvent.change(input, { target: { value: '#123456' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceTemplate_clean! }));
+    expect(previewPanel(dialog).chat.chatStyle.backgroundColor).toBe('#123456');
+    expect(await screen.findByText(strings.appearanceTemplateReplace!)).toBeInTheDocument();
+    const confirmation = screen.getAllByRole('dialog').at(-1)!;
+    fireEvent.click(within(confirmation).getByRole('button', { name: strings.appearanceTemplateApply! }));
+    await waitFor(() => expect(previewPanel(dialog).chat.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel));
+    expect(within(dialog).queryByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorPanel!) })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'clean', overrides: {} }));
+  });
+
+  it('resets a single override without resetting the other choices', async () => {
+    const dialog = await openEditor();
+    fireEvent.change(slider(dialog, strings.appearanceWidthLabel!), { target: { value: '500' } });
+    fireEvent.change(slider(dialog, strings.appearanceHeightLabel!), { target: { value: '640' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceWidthLabel!) }));
+    expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue(String(DEFAULT_APPEARANCE.width));
+    expect(slider(dialog, strings.appearanceHeightLabel!)).toHaveValue('640');
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'elowen', overrides: { height: 640 } }));
+  });
+
+  it('renders the launcher label, curated send icon and independent colours in the actual preview', async () => {
+    const dialog = await openEditor();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: strings.appearanceLauncherLabel! }), { target: { value: 'Ask us' } });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceSendIcon! }), { target: { value: 'calendar' } });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceLauncherIcon! }), { target: { value: 'phone' } });
+    fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorSendIcon!), { target: { value: '#abcdef' } });
+    fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorLauncher!), { target: { value: '#123456' } });
+    const preview = previewPanel(dialog);
+    const launcher = preview.host.shadowRoot!.querySelector('.launcher') as HTMLButtonElement;
+    expect(launcher).not.toHaveAttribute('hidden');
+    expect(launcher.textContent).toBe('Ask us');
+    expect(launcher.innerHTML).toContain('launcher-label');
+    expect(launcher.querySelector('svg')).not.toBeNull();
+    expect(preview.chat.submitButtonStyles.submit.svg.content).toBe(appearanceIconSvg('calendar'));
+    expect(preview.chat.submitButtonStyles.disabled.svg.content).toBe(appearanceIconSvg('calendar'));
+    expect(preview.chat.submitButtonStyles.submit.svg.styles.default.color).toBe('#abcdef');
+    expect(preview.style.textContent).toContain('background: #123456');
+    expect(preview.chat.submitButtonStyles.submit.container.default.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.sendButton);
+  });
+
+  it('cancels a template change without losing manual values', async () => {
+    const dialog = await openEditor();
+    fireEvent.change(slider(dialog, strings.appearanceWidthLabel!), { target: { value: '500' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceTemplate_warm! }));
+    const confirmation = screen.getAllByRole('dialog').at(-1)!;
+    const cancel = within(confirmation).getByRole('button', { name: /Cancel/i });
+    fireEvent.click(cancel);
+    expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue('500');
+    expect(within(dialog).getByRole('button', { name: strings.appearanceTemplate_elowen! })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('previews header, typography, shape, launcher geometry and local fonts', async () => {
+    const dialog = await openEditor();
+    const change = (label: string, value: string, role = 'textbox') => fireEvent.change(within(dialog).getByRole(role, { name: label }), { target: { value } });
+    change(strings.appearanceSubtitle!, 'At your service');
+    change(strings.appearancePlaceholder!, 'Your question');
+    change(strings.appearanceFontFamily!, 'serif', 'combobox');
+    change(strings.appearanceFontSize!, '18', 'slider');
+    change(strings.appearanceShadow!, 'none', 'combobox');
+    change(strings.appearanceSendShape!, 'rounded-square', 'combobox');
+    change(strings.appearanceLauncherSize!, '72', 'slider');
+    change(strings.appearanceLauncherOffset!, '40', 'slider');
+    fireEvent.click(within(dialog).getByRole('switch', { name: strings.appearanceShowMessageName! }));
+    const preview = previewPanel(dialog);
+    expect(preview.host.shadowRoot!.querySelector('.subtitle')?.textContent).toBe('At your service');
+    expect(preview.chat.textInput.placeholder.text).toBe('Your question');
+    expect(preview.chat.chatStyle.fontFamily).toContain('Georgia');
+    expect(preview.chat.chatStyle.fontSize).toBe('18px');
+    expect(preview.chat.names).toBeUndefined();
+    expect(preview.chat.submitButtonStyles.submit.container.default.borderRadius).toBe('8px');
+    expect(preview.style.textContent).toContain('box-shadow: none');
+    expect(preview.style.textContent).toContain('right: 40px; bottom: 40px;');
+    expect(preview.style.textContent).toContain('min-height: 72px');
+    expect(preview.style.textContent).not.toContain('@import');
+  });
+
+  it('adds an icon chip with Enter, removes it and saves the object shape', async () => {
+    const dialog = await openEditor();
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceQuickIcon! }), { target: { value: 'calendar' } });
+    const input = within(dialog).getByPlaceholderText(strings.appearanceQuickPlaceholder!);
+    fireEvent.change(input, { target: { value: 'Book' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(previewPanel(dialog).chat.introMessage.html).toContain(appearanceIconSvg('calendar'));
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
+    await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.quickButtons).toEqual([{ text: 'Book', icon: 'calendar' }]));
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceQuickRemove!.replace('{value}', 'Book') }));
+    expect(within(dialog).queryByText('Book')).not.toBeInTheDocument();
   });
 
   it('shows an avatar once one is given, and keeps an obviously wrong address out of a save', async () => {
@@ -250,7 +334,7 @@ describe('the appearance editor', () => {
     expect(previewPanel(dialog).chat.avatars).toEqual({ ai: { src: 'https://www.example.cz/logo.svg' } });
 
     fireEvent.change(avatar, { target: { value: 'logo.svg' } });
-    expect(within(dialog).getByText(strings.appearanceAvatarInvalid!)).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.appearanceInvalid!)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: strings.appearanceSave! })).toBeDisabled();
   });
 
@@ -286,9 +370,9 @@ describe('the appearance editor', () => {
     // The row the editor read is the concurrency token, exactly as every other write of a bot is.
     expect(saved.body!.expectedUpdatedAt).toBe(bot.updatedAt);
     expect(saved.body!.displayName).toBe('Podatelna města');
-    expect((saved.body!.appearance as ChatbotAppearance).height).toBe(640);
-    expect((saved.body!.appearance as ChatbotAppearance).intro).toBe('Dobrý den.');
-    expect((saved.body!.appearance as ChatbotAppearance).colors).toEqual(DEFAULT_APPEARANCE.colors);
+    expect((saved.body!.appearance as StoredAppearance).overrides.height).toBe(640);
+    expect((saved.body!.appearance as StoredAppearance).overrides.intro).toBe('Dobrý den.');
+    expect((saved.body!.appearance as StoredAppearance).overrides.colors).toBeUndefined();
     // The saved row is what the register now shows.
     expect(await screen.findAllByText('Podatelna města')).not.toHaveLength(0);
 
@@ -296,7 +380,7 @@ describe('the appearance editor', () => {
     // token the server has already moved past.
     fireEvent.change(slider(dialog, strings.appearanceRadiusLabel!), { target: { value: '9' } });
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
-    await waitFor(() => expect((saved.body!.appearance as ChatbotAppearance).radius).toBe(9));
+    await waitFor(() => expect((saved.body!.appearance as StoredAppearance).overrides.radius).toBe(9));
     expect(saved.body!.expectedUpdatedAt).toBe('2026-09-21T17:00:00.000Z');
   });
 
@@ -323,22 +407,5 @@ describe('the appearance editor', () => {
     fireEvent.change(field, { target: { value: 'Dotaz 1' } });
     expect(within(dialog).getByText(strings.appearanceQuickDuplicate!)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: strings.appearanceQuickAdd! })).toBeDisabled();
-  });
-});
-
-describe('the hints the editor reports with', () => {
-  it('accepts the two kinds of avatar the server accepts, and nothing else', () => {
-    expect(avatarHint('')).toBeNull();
-    expect(avatarHint('https://www.example.cz/logo.svg')).toBeNull();
-    expect(avatarHint('data:image/svg+xml;utf8,<svg/>')).toBeNull();
-    expect(avatarHint('data:text/html,<b>x</b>')).toBe('invalid');
-    expect(avatarHint('javascript:alert(1)')).toBe('invalid');
-    expect(avatarHint('/logo.svg')).toBe('invalid');
-  });
-
-  it('keeps a quick button the list already holds out of it', () => {
-    expect(quickButtonHint('', ['Dotaz'])).toBeNull();
-    expect(quickButtonHint('Jiný', ['Dotaz'])).toBeNull();
-    expect(quickButtonHint('Dotaz', ['Dotaz'])).toBe('duplicate');
   });
 });

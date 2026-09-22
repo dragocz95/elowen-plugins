@@ -183,7 +183,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
         <LimitsModal draft={limits} disabled={pending} onChange={setLimits} onClose={() => setOpened(null)} />
       ) : null}
       {opened === 'appearance' ? (
-        <AppearanceModal bot={bot} onClose={() => setOpened(null)} onChanged={onChanged} />
+        <AppearanceModal key={bot.chatbotUserId} bot={bot} onClose={() => setOpened(null)} onChanged={onChanged} />
       ) : null}
     </C.Modal>
   );
