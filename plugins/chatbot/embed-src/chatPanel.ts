@@ -226,7 +226,7 @@ function chatConfig(input: {
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that.
-    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+    auxiliaryStyle: `.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -359,6 +359,8 @@ export class ChatPanel implements ChatView {
    *  library, so anything the panel wants to show is queued until it is ready — which is what lets a rebuilt
    *  panel replay a conversation instead of losing it. */
   private ready = false;
+  private scrollPending = false;
+  private readonly layoutObserver = new ResizeObserver(() => this.flushScroll());
   private readonly queued: { role: string; text: string }[] = [];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
@@ -456,6 +458,7 @@ export class ChatPanel implements ChatView {
 
     this.applyChrome();
     this.messages.append(this.chat);
+    this.layoutObserver.observe(this.chat);
 
     this.launcher.addEventListener('click', () => this.toggle(!this.isOpen()));
     close.addEventListener('click', () => this.toggle(false));
@@ -579,10 +582,17 @@ export class ChatPanel implements ChatView {
     this.scrollToLatest();
   }
 
-  /** Put the conversation's end in view. Before the element has rendered there is nothing to scroll, and the
-   *  flush that follows its render scrolls instead. */
+  /** Rendering messages is not layout: a hidden panel has zero scroll height. Keep the request until the
+   *  chat has a visible box, then consume it once so later resizes never override the visitor's scrolling. */
   private scrollToLatest(): void {
-    if (this.ready) this.chat.scrollToBottom();
+    this.scrollPending = true;
+    this.flushScroll();
+  }
+
+  private flushScroll(): void {
+    if (!this.scrollPending || !this.ready || this.chat.clientHeight === 0) return;
+    this.chat.scrollToBottom();
+    this.scrollPending = false;
   }
 
   /** Ask the visitor. Resolves true only for a click the visitor made themselves. */
@@ -602,6 +612,7 @@ export class ChatPanel implements ChatView {
   destroy(): void {
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
+    this.layoutObserver.disconnect();
     this.host.remove();
   }
 
@@ -654,12 +665,14 @@ export class ChatPanel implements ChatView {
         .map((message) => ({ role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' }))
         .filter((message) => message.text !== '')
       : [];
+    this.layoutObserver.disconnect();
     this.chat.remove();
     this.ready = false;
     this.answerIndex = null;
     this.queued.push(...carried);
     this.chat = this.createChat();
     this.messages.append(this.chat);
+    this.layoutObserver.observe(this.chat);
   }
 
   private flushRedraw(): void {
@@ -731,6 +744,7 @@ export class ChatPanel implements ChatView {
     this.launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!open) return;
     this.chat.focusInput();
+    this.flushScroll();
     // Opening is the visitor's own act, and the first moment the widget may ask the server for anything: a
     // page whose panel is never opened is never touched.
     this.onOpen?.();
