@@ -137,20 +137,26 @@ function introUtilities(
  *  administrator previews cannot be two different sets of properties.
  *
  *  Deliberately unused from the library's own surface: `attachmentContainerStyle` and `dropupStyles` style an
- *  attachment rail and a button menu this widget does not have (no files, no dropup), and `customButtons`
- *  places buttons in the input row, which is not where a quick button belongs. `maxVisibleMessages` is left
+ *  attachment rail and a button menu this widget does not have (no files, no dropup), while `customButtons`
+ *  provides the session-owned stop control. Quick buttons belong in the greeting. `maxVisibleMessages` is left
  *  at the library's own bound: how many messages a conversation keeps in the DOM is not a property of how it
  *  looks. */
 function chatConfig(input: {
   look: ChatbotLook;
   strings: WidgetStrings;
   onQuickButton: (text: string) => void;
+  onStop: () => void;
 }): Record<string, unknown> {
   const { look, strings } = input;
   const appearance = look.appearance;
   const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === 'circle' ? '50%' : '8px';
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
+  const sendContainer = {
+    default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+    hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+    click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+  };
   return {
     chatStyle: {
       // The GROUND is painted by the panel's own `.messages` element, not here. deep-chat reads `chatStyle`
@@ -184,12 +190,9 @@ function chatConfig(input: {
       },
     },
     submitButtonStyles: {
+      position: 'inside-end',
       submit: {
-        container: {
-          default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
-          hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
-          click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
-        },
+        container: sendContainer,
         svg: {
           content: appearanceIconSvg(appearance.send.icon),
           styles: { default: { color: appearance.colors.sendIcon, width: '20px', height: '20px' } },
@@ -203,6 +206,17 @@ function chatConfig(input: {
         svg: { content: appearanceIconSvg(appearance.send.icon), styles: { default: { color: appearance.colors.sendIcon, width: '20px', height: '20px' } } },
       },
     },
+    customButtons: [{
+      position: 'inside-end',
+      styles: { button: { default: {
+        container: sendContainer,
+        svg: {
+          content: '<svg xmlns="http://www.w3.org/2000/svg" data-cb-stop-icon="" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+          styles: { default: { color: appearance.colors.sendIcon, filter: 'none', width: '20px', height: '20px' } },
+        },
+      } } },
+      onClick: input.onStop,
+    }],
     // The bubble's FILL is the customer's and its INK is not: whichever of the two inks reads better on that
     // fill is the one used, so a white bubble and a black one are both legible without a second control.
     messageStyles: {
@@ -225,8 +239,29 @@ function chatConfig(input: {
       },
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
-    // library provides for exactly that.
-    auxiliaryStyle: `.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+    // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
+    // only the primary color source changes to the widget appearance's send color.
+    auxiliaryStyle: `
+:host { --cb-stop-color: ${appearance.colors.sendButton}; }
+:host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
+:host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
+.input-button:has([data-cb-stop-icon]) { right: .33em !important; }
+:host([data-answer-active]) .input-button:has([data-cb-stop-icon]) { animation: stop-pulse 1.6s ease-out infinite; }
+:host([data-answer-active]) [data-cb-stop-icon] { animation: stop-pulse-icon 1.6s ease-in-out infinite; }
+@keyframes stop-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--cb-stop-color) 85%, transparent); }
+  70% { box-shadow: 0 0 0 12px color-mix(in oklab, var(--cb-stop-color) 30%, transparent); }
+  100% { box-shadow: 0 0 0 16px color-mix(in oklab, var(--cb-stop-color) 0%, transparent); }
+}
+@keyframes stop-pulse-icon {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :host([data-answer-active]) .input-button:has([data-cb-stop-icon]),
+  :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
+}
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -371,6 +406,7 @@ export class ChatPanel implements ChatView {
   private answer = '';
   private answerIndex: number | null = null;
   private signals: StreamSignals | null = null;
+  private answerActive = false;
   private pendingConfirmation: ((confirmed: boolean) => void) | null = null;
 
   constructor(options: ChatPanelOptions) {
@@ -532,6 +568,8 @@ export class ChatPanel implements ChatView {
     this.answer = '';
     this.answerIndex = null;
     this.clearStatus();
+    this.answerActive = true;
+    this.syncAnswerControl();
     this.signals?.onOpen();
   }
 
@@ -546,6 +584,8 @@ export class ChatPanel implements ChatView {
   finishAnswer(text: string): void {
     // The terminal frame carries the WHOLE answer, and it is rendered as an overwrite: a delta lost on the
     // way, or replayed by a reconnect, cannot leave the visitor reading a message that never existed.
+    this.answerActive = false;
+    this.syncAnswerControl();
     this.answer = text === '' ? this.answer : text;
     const signals = this.signals;
     this.signals = null;
@@ -570,6 +610,8 @@ export class ChatPanel implements ChatView {
   }
 
   error(text: string): void {
+    this.answerActive = false;
+    this.syncAnswerControl();
     this.setStatus(text, true);
     this.signals?.onClose();
     this.signals = null;
@@ -628,7 +670,7 @@ export class ChatPanel implements ChatView {
    *  one reconfigured for a new look are configured identically, or the panel a visitor sees and the panel an
    *  administrator previews would be two different things. */
   private chatConfig(): Record<string, unknown> {
-    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text) });
+    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text), onStop: () => this.stopAnswer() });
   }
 
   /** One chat element, configured from the current look. `connect` is what makes this widget answer with its
@@ -637,21 +679,42 @@ export class ChatPanel implements ChatView {
   private createChat(): ChatElement {
     const chat = document.createElement('deep-chat') as ChatElement;
     Object.assign(chat, this.chatConfig());
+    chat.validateInput = (text) => !this.answerActive && !!text?.trim();
     chat.connect = {
       stream: true,
       handler: (body, signals) => this.handleSubmit(body, signals as unknown as StreamSignals),
     };
     chat.onComponentRender = () => {
       this.ready = true;
+      this.syncAnswerControl();
       for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
       this.scrollToLatest();
     };
     return chat;
   }
 
-  /** Whether the message element has nothing to lose: it has rendered, it has drawn no message, and nothing
-   *  is waiting to be drawn into it. An element that has not rendered yet cannot take a reconfiguration at
-   *  all — there is nothing to re-render — so it is replaced, which is free because it is empty. */
+  /** Session begin/end signals, not a local submit, own whether stopping is possible. The custom stop
+   *  occupies the native send slot without reaching into deep-chat's private submit/validation state. */
+  private syncAnswerControl(): void {
+    this.chat.toggleAttribute('data-answer-active', this.answerActive);
+    const stop = this.chat.shadowRoot?.querySelector<HTMLElement>('.input-button:has([data-cb-stop-icon])');
+    stop?.setAttribute('aria-label', this.strings.stop);
+    stop?.setAttribute('title', this.strings.stop);
+    if (!this.answerActive && this.ready) this.chat.disableSubmitButton(false);
+  }
+
+  private stopAnswer(): void {
+    if (!this.answerActive) return;
+    this.onStop();
+    this.answerActive = false;
+    this.signals?.onClose();
+    this.signals = null;
+    this.answerIndex = null;
+    this.syncAnswerControl();
+    this.flushRedraw();
+  }
+
+  /** Only a rendered, empty element can be reconfigured without losing messages. */
   private pristineChat(): boolean {
     return this.ready && this.queued.length === 0 && this.chat.getMessages().length === 0;
   }
@@ -666,6 +729,7 @@ export class ChatPanel implements ChatView {
    *  message list whenever one of its properties is set, so this is the only way to change the look of a
    *  panel that already has a conversation in it. */
   private redrawChat(): void {
+    const carryingAnswer = this.answerIndex !== null;
     const carried = this.ready
       ? this.chat.getMessages()
         .map((message) => ({ role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' }))
@@ -675,8 +739,8 @@ export class ChatPanel implements ChatView {
     this.cancelDrawScroll();
     this.chat.remove();
     this.ready = false;
-    this.answerIndex = null;
     this.queued.push(...carried);
+    this.answerIndex = carryingAnswer ? this.queued.length - 1 : null;
     this.chat = this.createChat();
     this.messages.append(this.chat);
     this.layoutObserver.observe(this.chat);
@@ -800,7 +864,7 @@ export class ChatPanel implements ChatView {
     }
     this.signals = signals;
     this.answerIndex = null;
-    signals.stopClicked.listener = () => this.onStop();
+    signals.stopClicked.listener = () => this.stopAnswer();
     this.onVisitorMessage(text);
   }
 

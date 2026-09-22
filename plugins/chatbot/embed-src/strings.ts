@@ -14,6 +14,7 @@ export interface WidgetStrings {
   /** The panel's heading when the chatbot has no display name. */
   title: string;
   close: string;
+  stop: string;
   /** The empty input's hint. */
   placeholder: string;
   /** The greeting the panel opens with, when the chatbot is configured with none of its own. */
@@ -50,6 +51,7 @@ const CS: WidgetStrings = {
   launcher: 'Otevřít chat',
   title: 'Chat',
   close: 'Zavřít',
+  stop: 'Zastavit příjem odpovědi',
   placeholder: 'Napište zprávu',
   intro: 'Dobrý den. Pomohu vám s vyplněním formuláře na této stránce.',
   quickButtons: 'Rychlé dotazy',
@@ -73,6 +75,7 @@ const SK: WidgetStrings = {
   launcher: 'Otvoriť chat',
   title: 'Chat',
   close: 'Zavrieť',
+  stop: 'Zastaviť príjem odpovede',
   placeholder: 'Napíšte správu',
   intro: 'Dobrý deň. Pomôžem vám s vyplnením formulára na tejto stránke.',
   quickButtons: 'Rýchle otázky',
@@ -96,6 +99,7 @@ const EN: WidgetStrings = {
   launcher: 'Open chat',
   title: 'Chat',
   close: 'Close',
+  stop: 'Stop receiving the answer',
   placeholder: 'Write a message',
   intro: 'Hello. I can help you fill in the form on this page.',
   quickButtons: 'Quick questions',
