@@ -19873,6 +19873,7 @@ var ChatPanel = class {
    *  panel replay a conversation instead of losing it. */
   ready = false;
   scrollPending = false;
+  drawScrollFrame = null;
   layoutObserver = new ResizeObserver(() => this.flushScroll());
   queued = [];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
@@ -19965,6 +19966,9 @@ var ChatPanel = class {
       if (event.isTrusted) this.answerConfirmation(true);
     });
     confirmNo.addEventListener("click", () => this.answerConfirmation(false));
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      this.messages.addEventListener(event, () => this.cancelDrawScroll(), { passive: true });
+    }
     this.host.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !this.panel.hidden) this.toggle(false);
     });
@@ -20049,6 +20053,7 @@ var ChatPanel = class {
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages) {
     for (const message of messages) this.draw(message);
+    this.cancelDrawScroll();
     this.scrollToLatest();
   }
   /** Rendering messages is not layout: a hidden panel has zero scroll height. Keep the request until the
@@ -20058,7 +20063,7 @@ var ChatPanel = class {
     this.flushScroll();
   }
   flushScroll() {
-    if (!this.scrollPending || !this.ready || this.chat.clientHeight === 0) return;
+    if (!this.scrollPending || this.drawScrollFrame !== null || !this.ready || this.chat.clientHeight === 0) return;
     this.chat.scrollToBottom();
     this.scrollPending = false;
   }
@@ -20077,6 +20082,7 @@ var ChatPanel = class {
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
+    this.cancelDrawScroll();
     this.host.remove();
   }
   // ── the panel's own drawing ───────────────────────────────────────────────────────────────────────
@@ -20120,6 +20126,7 @@ var ChatPanel = class {
   redrawChat() {
     const carried = this.ready ? this.chat.getMessages().map((message) => ({ role: typeof message.role === "string" ? message.role : "ai", text: typeof message.text === "string" ? message.text : "" })).filter((message) => message.text !== "") : [];
     this.layoutObserver.disconnect();
+    this.cancelDrawScroll();
     this.chat.remove();
     this.ready = false;
     this.answerIndex = null;
@@ -20141,7 +20148,29 @@ var ChatPanel = class {
       this.queued.push(message);
       return;
     }
+    const follow = this.atLatest();
     this.chat.addMessage(message);
+    if (follow) {
+      this.scrollPending = true;
+      if (this.drawScrollFrame !== null) cancelAnimationFrame(this.drawScrollFrame);
+      this.drawScrollFrame = requestAnimationFrame(() => {
+        this.drawScrollFrame = requestAnimationFrame(() => {
+          this.drawScrollFrame = null;
+          this.flushScroll();
+        });
+      });
+    }
+  }
+  cancelDrawScroll() {
+    if (this.drawScrollFrame === null) return;
+    cancelAnimationFrame(this.drawScrollFrame);
+    this.drawScrollFrame = null;
+    this.scrollPending = false;
+  }
+  /** Read BEFORE changing content: growing an answer is not a visitor scrolling away. */
+  atLatest() {
+    const list = this.chat.shadowRoot?.querySelector("#messages");
+    return this.scrollPending || !!list && list.clientHeight > 0 && list.scrollHeight - list.clientHeight - list.scrollTop <= 1;
   }
   /** A quick button is the visitor's own message: it is drawn in the transcript and then handed to the
    *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
@@ -20221,8 +20250,11 @@ var ChatPanel = class {
       this.answerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       return;
     }
-    if (this.ready) this.chat.updateMessage({ text }, this.answerIndex);
-    else this.queued[this.answerIndex] = message;
+    if (this.ready) {
+      const follow = this.atLatest();
+      this.chat.updateMessage({ text }, this.answerIndex);
+      if (follow) this.scrollToLatest();
+    } else this.queued[this.answerIndex] = message;
   }
 };
 function lastUserText(body) {

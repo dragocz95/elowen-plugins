@@ -3,7 +3,7 @@ import { actionRequestPayload, eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
 import { parseStoredAppearance, resolveAppearance } from './appearanceContract.js';
-import { HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
+import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
@@ -83,29 +83,29 @@ export function createPublicRoute(deps) {
     const presentedToken = (req) => {
         const presented = readAuthorizationToken(req.headers);
         if (!presented)
-            return reply(401, { error: 'token_required' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.required });
         const verified = verifyVisitorToken({ secret: deps.secret(), token: presented, nowMs: now().getTime() });
         if (!verified.ok)
-            return reply(401, { error: 'invalid_token' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.invalid });
         const row = store.token(verified.payload.jti);
         if (!row || row.revoked_at !== null)
-            return reply(401, { error: 'invalid_token' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.invalid });
         if (!sameHash(hashToken(presented), row.token_hash))
-            return reply(401, { error: 'invalid_token' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.invalid });
         const bot = store.botByPublicId(verified.payload.bot);
         const refusal = admitBot(bot);
         if (refusal)
             return refusal;
         const visitor = store.visitor(verified.payload.sub);
         if (!visitor || visitor.revoked_at !== null)
-            return reply(401, { error: 'invalid_token' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.invalid });
         // The token row, the signed payload and the visitor row must all agree on both identities. A visitor
         // id is bound to ONE chatbot: a token naming a visitor that belongs elsewhere is refused rather than
         // creating a second conversation for a bot it was not issued for.
         if (row.visitor_id !== visitor.visitor_id
             || row.chatbot_user_id !== bot.chatbot_user_id
             || visitor.chatbot_user_id !== bot.chatbot_user_id) {
-            return reply(401, { error: 'invalid_token' });
+            return reply(401, { error: VISITOR_CREDENTIAL_ERRORS.invalid });
         }
         return { bot: bot, visitorId: visitor.visitor_id };
     };
