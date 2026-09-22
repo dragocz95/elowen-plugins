@@ -9,7 +9,7 @@ import type { TurnEventRow, TurnRow } from './db.js';
 import type { ChatbotTurnQueue } from './queue.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
-import { parseStoredAppearance, type ChatbotAppearance } from './appearanceContract.js';
+import { parseStoredAppearance, resolveAppearance, type ChatbotAppearance } from './appearanceContract.js';
 import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
@@ -266,7 +266,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     // the customer's own page instead of as the refusal it is.
     let appearance: ChatbotAppearance;
     try {
-      appearance = parseStoredAppearance(admitted.bot.appearance);
+      appearance = resolveAppearance(parseStoredAppearance(admitted.bot.appearance));
     } catch (error) {
       warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${error instanceof Error ? error.message : String(error)}`);
       return reply(503, { error: 'appearance_invalid' }, corsHeaders(origin));

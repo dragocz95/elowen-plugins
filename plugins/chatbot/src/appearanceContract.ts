@@ -1,163 +1,231 @@
-/** What a chatbot's panel LOOKS like: the one home of that shape, its defaults and its bounds.
- *
- *  This module is DELIBERATELY dependency-free, like `publicContract.ts` beside it, because the same bytes
- *  of truth are compiled into three very different places: the daemon-side public route that serves the
- *  configuration, the widget bundle that runs on a customer's website, and the administrator's own bundle
- *  that previews a change before it is saved. A value that meant one thing on the server and another in the
- *  preview would be a customer configuring a look nobody ever sees.
- *
- *  What is configurable is the AGREED set and nothing more: four colours, the corner radius, the panel's
- *  width and height, the greeting, the avatar, the quick buttons, the light/dark mode and the corner the
- *  panel sits in. There is deliberately no theme language here — no CSS, no selector, no arbitrary property.
- *  Everything the widget paints that a customer does NOT set (the header ground, borders, muted text, the
- *  error accent) is derived from `mode`, so the panel stays one design rather than a bag of overrides. */
+/** Shared appearance contract for storage, the public widget and the administrator preview. */
 
-/** Bumped only when the STORED shape changes incompatibly. A row written by another version is refused
- *  rather than reinterpreted — see `parseStoredAppearance`. */
-const APPEARANCE_SCHEMA_VERSION = 1;
+export const APPEARANCE_SCHEMA_VERSION = 2;
 
-/** The two modes, and the list the parser accepts. Internal: what a caller needs is the TYPE, and a caller
- *  that iterated the modes would be a second place that decides what a mode is. */
+export const APPEARANCE_TEMPLATE_IDS = ['elowen', 'clean', 'mono', 'warm'] as const;
+export type AppearanceTemplateId = (typeof APPEARANCE_TEMPLATE_IDS)[number];
+
 const APPEARANCE_MODES = ['light', 'dark'] as const;
 export type AppearanceMode = (typeof APPEARANCE_MODES)[number];
 
-/** The four corners a panel may hang in. Internal for the same reason: the parser is the only thing that has
- *  to enumerate them. */
 const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
 type PanelPosition = (typeof PANEL_POSITIONS)[number];
 
-/** The four colours a customer sets. Everything else in the panel is derived from these and from the mode. */
-export interface AppearanceColors {
-  /** The panel's own ground, and the ground of the conversation area. */
-  panel: string;
-  /** A message the VISITOR wrote. */
-  visitorBubble: string;
-  /** A message the CHATBOT answered with, and the greeting. */
-  botBubble: string;
-  /** The send button, and the launcher that opens the panel. */
-  sendButton: string;
+const SEND_SHAPES = ['circle', 'rounded-square'] as const;
+type SendShape = (typeof SEND_SHAPES)[number];
+
+export type AppearanceFontFamily = keyof typeof APPEARANCE_FONT_STACKS;
+
+type AppearanceShadowStrength = keyof typeof APPEARANCE_SHADOWS;
+
+interface AppearanceIcon {
+  id: string;
+  path: string;
 }
 
+/** One dependency-free icon catalog. Every consumer renders the same 24 px stroked path. */
+export const APPEARANCE_ICONS = [
+  { id: 'arrow', path: 'M5 12h14 M13 6l6 6-6 6' },
+  { id: 'paper-plane', path: 'M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7Z' },
+  { id: 'speech-bubble', path: 'M21 15a4 4 0 0 1-4 4H8l-5 3 1.7-5.1A8 8 0 1 1 21 15Z' },
+  { id: 'sparkles', path: 'M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Z M19 13l.8 2.2L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.8L19 13Z' },
+  { id: 'question', path: 'M9.1 9a3 3 0 1 1 4.7 2.5c-1.1.7-1.8 1.2-1.8 2.5 M12 18h.01 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z' },
+  { id: 'phone', path: 'M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z' },
+  { id: 'calendar', path: 'M6 2v4 M18 2v4 M3 9h18 M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z' },
+  { id: 'cart', path: 'M3 3h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6 M10 21h.01 M18 21h.01' },
+  { id: 'person', path: 'M20 21a8 8 0 0 0-16 0 M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z' },
+  { id: 'envelope', path: 'M3 5h18v14H3V5Z M3 6l9 7 9-7' },
+  { id: 'check', path: 'm5 12 4 4L19 6' },
+] as const satisfies readonly AppearanceIcon[];
+export type AppearanceIconId = (typeof APPEARANCE_ICONS)[number]['id'];
+
+interface QuickButton {
+  text: string;
+  icon: AppearanceIconId | null;
+}
+
+interface AppearanceColors {
+  panel: string;
+  visitorBubble: string;
+  botBubble: string;
+  sendButton: string;
+  sendIcon: string;
+  launcher: string;
+}
+
+interface SendAppearance {
+  icon: AppearanceIconId;
+  shape: SendShape;
+}
+
+interface LauncherAppearance {
+  icon: AppearanceIconId;
+  size: number;
+  offset: number;
+  label: string;
+}
+
+interface HeaderAppearance {
+  subtitle: string;
+  showAvatar: boolean;
+  showMessageName: boolean;
+}
+
+interface TypographyAppearance {
+  fontSize: number;
+  fontFamily: AppearanceFontFamily;
+  shadow: AppearanceShadowStrength;
+  /** Empty means the widget's localized built-in placeholder. */
+  placeholder: string;
+}
+
+/** Complete, resolved appearance served publicly. It contains no template metadata. */
 export interface ChatbotAppearance {
   schemaVersion: number;
   mode: AppearanceMode;
   position: PanelPosition;
-  /** Panel width and height in CSS pixels. Both are ALSO clamped to the visitor's viewport by the widget,
-   *  so a wide panel on a phone narrows instead of overflowing. */
   width: number;
   height: number;
-  /** Corner radius of the panel, its bubbles and its launcher, in CSS pixels. */
   radius: number;
   colors: AppearanceColors;
-  /** The greeting. `null` means "the widget's own greeting", which is written in the visitor's language —
-   *  something a configuration stored on the server cannot know. */
   intro: string | null;
-  /** An avatar or logo beside the chatbot's own messages. Empty means none. */
   avatarUrl: string;
-  /** Buttons under the greeting. Clicking one sends its text as the visitor's own message. */
-  quickButtons: string[];
+  quickButtons: QuickButton[];
+  send: SendAppearance;
+  launcher: LauncherAppearance;
+  header: HeaderAppearance;
+  typography: TypographyAppearance;
 }
 
-/** The bounds the server enforces, and the ranges the administrator's sliders offer. One place, so a slider
- *  cannot be dragged somewhere the server would refuse. */
+export interface AppearanceOverrides {
+  mode?: AppearanceMode;
+  position?: PanelPosition;
+  width?: number;
+  height?: number;
+  radius?: number;
+  colors?: Partial<AppearanceColors>;
+  intro?: string | null;
+  avatarUrl?: string;
+  quickButtons?: QuickButton[];
+  send?: Partial<SendAppearance>;
+  launcher?: Partial<LauncherAppearance>;
+  header?: Partial<HeaderAppearance>;
+  typography?: Partial<TypographyAppearance>;
+}
+
+/** Exact persisted shape. Explicit overrides remain pinned until the administrator resets them. */
+export interface StoredAppearance {
+  schemaVersion: number;
+  template: AppearanceTemplateId;
+  overrides: AppearanceOverrides;
+}
+
 export const APPEARANCE_BOUNDS = {
   width: { min: 280, max: 640 },
   height: { min: 320, max: 760 },
-  radius: { min: 0, max: 28 },
+  radius: { min: 0, max: 32 },
+  launcherSize: { min: 44, max: 72 },
+  launcherOffset: { min: 8, max: 40 },
+  fontSize: { min: 12, max: 18 },
 } as const;
 
 export const APPEARANCE_INTRO_MAX_CHARS = 400;
 export const APPEARANCE_AVATAR_URL_MAX_CHARS = 2048;
+export const APPEARANCE_SUBTITLE_MAX_CHARS = 80;
+export const APPEARANCE_PLACEHOLDER_MAX_CHARS = 80;
+export const APPEARANCE_LAUNCHER_LABEL_MAX_CHARS = 24;
 export const APPEARANCE_QUICK_BUTTONS_MAX = 6;
 export const APPEARANCE_QUICK_BUTTON_MAX_CHARS = 40;
 
-/** The colour set a customer starts from, and the set the mode control puts back. A light panel on a dark
- *  page and a dark panel on a light one are both ordinary, which is why these are two presets of the same
- *  shape rather than two stylesheets. The dark set is the widget's own shipped look. */
-export const APPEARANCE_PRESETS: Record<AppearanceMode, AppearanceColors> = {
-  dark: { panel: '#070707', visitorBubble: '#ff5236', botBubble: '#151515', sendButton: '#ff5236' },
-  light: { panel: '#ffffff', visitorBubble: '#ff5236', botBubble: '#f3efec', sendButton: '#ff5236' },
+export const APPEARANCE_FONT_STACKS = {
+  system: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  humanist: "Optima, Candara, 'Noto Sans', sans-serif",
+  serif: "Georgia, Cambria, 'Times New Roman', serif",
+  mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+} as const;
+
+export const APPEARANCE_SHADOWS = {
+  none: 'none',
+  soft: '0 12px 32px rgb(0 0 0 / 0.16)',
+  medium: '0 18px 48px rgb(0 0 0 / 0.28)',
+  strong: '0 24px 64px rgb(0 0 0 / 0.5)',
+} as const;
+
+const template = (appearance: Omit<ChatbotAppearance, 'schemaVersion'>): ChatbotAppearance => ({
+  schemaVersion: APPEARANCE_SCHEMA_VERSION,
+  ...appearance,
+});
+
+export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, ChatbotAppearance>> = {
+  elowen: template({
+    mode: 'dark', position: 'bottom-right', width: 380, height: 560, radius: 16,
+    colors: { panel: '#070707', visitorBubble: '#ff5236', botBubble: '#151515', sendButton: '#ff5236', sendIcon: '#1b1917', launcher: '#ff5236' },
+    intro: null, avatarUrl: '', quickButtons: [],
+    send: { icon: 'arrow', shape: 'circle' },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+    header: { subtitle: '', showAvatar: true, showMessageName: true },
+    typography: { fontSize: 14, fontFamily: 'system', shadow: 'strong', placeholder: '' },
+  }),
+  clean: template({
+    mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 20,
+    colors: { panel: '#ffffff', visitorBubble: '#2563eb', botBubble: '#f1f5f9', sendButton: '#2563eb', sendIcon: '#ffffff', launcher: '#2563eb' },
+    intro: null, avatarUrl: '', quickButtons: [],
+    send: { icon: 'paper-plane', shape: 'circle' },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+    header: { subtitle: '', showAvatar: true, showMessageName: false },
+    typography: { fontSize: 15, fontFamily: 'system', shadow: 'soft', placeholder: '' },
+  }),
+  mono: template({
+    mode: 'dark', position: 'bottom-right', width: 320, height: 520, radius: 4,
+    colors: { panel: '#000000', visitorBubble: '#ffffff', botBubble: '#171717', sendButton: '#ffffff', sendIcon: '#000000', launcher: '#000000' },
+    intro: null, avatarUrl: '', quickButtons: [],
+    send: { icon: 'arrow', shape: 'rounded-square' },
+    launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '' },
+    header: { subtitle: '', showAvatar: false, showMessageName: true },
+    typography: { fontSize: 14, fontFamily: 'mono', shadow: 'none', placeholder: '' },
+  }),
+  warm: template({
+    mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 28,
+    colors: { panel: '#fffaf0', visitorBubble: '#d88c9a', botBubble: '#f7eadf', sendButton: '#d88c9a', sendIcon: '#1b1917', launcher: '#8fae98' },
+    intro: null, avatarUrl: '', quickButtons: [],
+    send: { icon: 'paper-plane', shape: 'circle' },
+    launcher: { icon: 'sparkles', size: 60, offset: 24, label: '' },
+    header: { subtitle: '', showAvatar: true, showMessageName: false },
+    typography: { fontSize: 15, fontFamily: 'humanist', shadow: 'medium', placeholder: '' },
+  }),
 };
 
-/** The part of the panel a customer does not set: the header ground, its borders, its muted text, the field
- *  a message is typed into, and the colour a failure is said in. Two fixed ramps, one per mode, so the
- *  chrome and the customer's own colours cannot drift into a palette nobody chose. */
+export const DEFAULT_STORED_APPEARANCE: StoredAppearance = {
+  schemaVersion: APPEARANCE_SCHEMA_VERSION,
+  template: 'elowen',
+  overrides: {},
+};
+
+export const DEFAULT_APPEARANCE: ChatbotAppearance = APPEARANCE_TEMPLATES.elowen;
+
+/** Neutral chrome remains derived only from mode. */
 export interface AppearanceRamp {
   foreground: string;
   muted: string;
   border: string;
-  /** The header, the greeting's ground and the confirmation box. */
   raised: string;
-  /** The input field's ground. */
   field: string;
-  /** Anything the visitor should read as a failure. */
   ember: string;
 }
 
 export const APPEARANCE_RAMPS: Record<AppearanceMode, AppearanceRamp> = {
-  dark: {
-    foreground: '#f7f3f0',
-    muted: '#9d948e',
-    border: '#242424',
-    raised: '#151515',
-    field: '#151515',
-    ember: '#ff9a62',
-  },
-  light: {
-    foreground: '#1b1917',
-    muted: '#6f6862',
-    border: '#e2ddd8',
-    raised: '#f7f4f1',
-    field: '#f7f4f1',
-    ember: '#b03a12',
-  },
+  dark: { foreground: '#f7f3f0', muted: '#9d948e', border: '#242424', raised: '#151515', field: '#151515', ember: '#ff9a62' },
+  light: { foreground: '#1b1917', muted: '#6f6862', border: '#e2ddd8', raised: '#f7f4f1', field: '#f7f4f1', ember: '#b03a12' },
 };
 
-/** Ink that can be read on the given ground, and the two inks it is chosen from. A bubble's colour is the
- *  customer's, so its TEXT colour cannot be: it is picked by contrast, which is why a white bubble and a
- *  black one are both readable without a second control for it. */
-const LIGHT_INK = '#f7f3f0';
-const DARK_INK = '#1b1917';
-
-export const DEFAULT_APPEARANCE: ChatbotAppearance = {
-  schemaVersion: APPEARANCE_SCHEMA_VERSION,
-  mode: 'dark',
-  position: 'bottom-right',
-  width: 380,
-  height: 560,
-  radius: 16,
-  colors: APPEARANCE_PRESETS.dark,
-  intro: null,
-  avatarUrl: '',
-  quickButtons: [],
-};
-
-/** The default look in one of the two modes: what the mode control puts in the colour pickers. */
-export function presetAppearance(mode: AppearanceMode): ChatbotAppearance {
-  return { ...DEFAULT_APPEARANCE, mode, colors: { ...APPEARANCE_PRESETS[mode] } };
-}
-
-/** The chatbot's own name together with how its panel looks: exactly what `GET v1/appearance` answers, and
- *  the one value both the widget and the administrator's preview draw a panel from.
- *
- *  The name is NOT part of the appearance document. It is the chatbot's `display_name` — the same column the
- *  register shows and the same one an administrator edits — so the panel cannot end up titled with a second
- *  name nobody else can see. */
 export interface ChatbotLook {
   name: string;
   appearance: ChatbotAppearance;
 }
 
-// ── colour arithmetic the widget and the preview both need ──────────────────────────────────────────
-
-/** `#rrggbb` and nothing else. Short hex, `rgb()`, a named colour or a colour function is refused rather
- *  than guessed at: what a customer picks is written straight into a style, and one parser is the only way
- *  two sides can agree on what a stored value means. */
+const LIGHT_INK = '#f7f3f0';
+const DARK_INK = '#1b1917';
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-function isAppearanceColor(value: unknown): value is string {
-  return typeof value === 'string' && HEX_COLOR.test(value);
-}
 
 const channels = (hex: string): [number, number, number] => [
   Number.parseInt(hex.slice(1, 3), 16),
@@ -168,7 +236,6 @@ const channels = (hex: string): [number, number, number] => [
 const toHex = (value: number): string =>
   Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
 
-/** WCAG relative luminance. Used only to CHOOSE between two inks, never to describe a colour. */
 function relativeLuminance(hex: string): number {
   const channel = (value: number): number => {
     const scaled = value / 255;
@@ -180,7 +247,6 @@ function relativeLuminance(hex: string): number {
 
 const contrastRatio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
-/** The text colour a bubble of this fill should use: whichever of the two inks reads better on it. */
 export function appearanceInk(background: string): string {
   const ground = relativeLuminance(background);
   return contrastRatio(ground, relativeLuminance(LIGHT_INK)) >= contrastRatio(ground, relativeLuminance(DARK_INK))
@@ -188,8 +254,6 @@ export function appearanceInk(background: string): string {
     : DARK_INK;
 }
 
-/** The same colour, moved a little toward white or black. Used for the hover of a button the customer
- *  coloured, so a hover can never be a colour the customer did not choose. */
 export function appearanceShade(color: string, direction: 'lighter' | 'darker', amount = 0.12): string {
   const target = direction === 'lighter' ? 255 : 0;
   const [r, g, b] = channels(color);
@@ -197,16 +261,102 @@ export function appearanceShade(color: string, direction: 'lighter' | 'darker', 
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
 }
 
-// ── reading untrusted values ────────────────────────────────────────────────────────────────────────
+export function appearanceIcon(id: AppearanceIconId): (typeof APPEARANCE_ICONS)[number] {
+  return APPEARANCE_ICONS.find((entry) => entry.id === id)!;
+}
 
-export type AppearanceParse = { ok: true; value: ChatbotAppearance } | { ok: false; error: string };
+export function appearanceIconSvg(id: AppearanceIconId): string {
+  const icon = appearanceIcon(id);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icon.path}"/></svg>`;
+}
+
+export function appearanceFontStack(family: AppearanceFontFamily): string {
+  return APPEARANCE_FONT_STACKS[family];
+}
+
+function cloneAppearance(value: ChatbotAppearance): ChatbotAppearance {
+  return {
+    ...value,
+    colors: { ...value.colors },
+    quickButtons: value.quickButtons.map((button) => ({ ...button })),
+    send: { ...value.send },
+    launcher: { ...value.launcher },
+    header: { ...value.header },
+    typography: { ...value.typography },
+  };
+}
+
+export function resolveAppearance(stored: StoredAppearance): ChatbotAppearance {
+  const base = cloneAppearance(APPEARANCE_TEMPLATES[stored.template]);
+  const overrides = stored.overrides;
+  return {
+    ...base,
+    ...overrides,
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
+    colors: { ...base.colors, ...overrides.colors },
+    quickButtons: overrides.quickButtons?.map((button) => ({ ...button })) ?? base.quickButtons,
+    send: { ...base.send, ...overrides.send },
+    launcher: { ...base.launcher, ...overrides.launcher },
+    header: { ...base.header, ...overrides.header },
+    typography: { ...base.typography, ...overrides.typography },
+  };
+}
+
+export type AppearanceOverridePath =
+  | 'mode' | 'position' | 'width' | 'height' | 'radius' | 'intro' | 'avatarUrl' | 'quickButtons'
+  | `colors.${keyof AppearanceColors}`
+  | `send.${keyof SendAppearance}`
+  | `launcher.${keyof LauncherAppearance}`
+  | `header.${keyof HeaderAppearance}`
+  | `typography.${keyof TypographyAppearance}`;
+
+export function setAppearanceOverride(stored: StoredAppearance, path: AppearanceOverridePath, value: unknown): StoredAppearance {
+  const [group, child] = path.split('.') as [string, string | undefined];
+  const overrides = { ...stored.overrides };
+  if (child === undefined) {
+    (overrides as Record<string, unknown>)[group] = value;
+  } else {
+    (overrides as Record<string, unknown>)[group] = {
+      ...((overrides as Record<string, unknown>)[group] as Record<string, unknown> | undefined),
+      [child]: value,
+    };
+  }
+  return { ...stored, overrides };
+}
+
+export function resetAppearanceOverride(stored: StoredAppearance, path: AppearanceOverridePath): StoredAppearance {
+  const [group, child] = path.split('.') as [string, string | undefined];
+  const overrides = { ...stored.overrides } as Record<string, unknown>;
+  if (child === undefined) {
+    delete overrides[group];
+  } else {
+    const nested = { ...(overrides[group] as Record<string, unknown> | undefined) };
+    delete nested[child];
+    if (Object.keys(nested).length === 0) delete overrides[group];
+    else overrides[group] = nested;
+  }
+  return { ...stored, overrides: overrides as AppearanceOverrides };
+}
+
+export function isAppearanceOverridden(stored: StoredAppearance, path: AppearanceOverridePath): boolean {
+  const [group, child] = path.split('.') as [string, string | undefined];
+  if (child === undefined) return Object.prototype.hasOwnProperty.call(stored.overrides, group);
+  const nested = (stored.overrides as Record<string, unknown>)[group];
+  return typeof nested === 'object' && nested !== null && Object.prototype.hasOwnProperty.call(nested, child);
+}
+
+export function selectAppearanceTemplate(templateId: AppearanceTemplateId): StoredAppearance {
+  return { schemaVersion: APPEARANCE_SCHEMA_VERSION, template: templateId, overrides: {} };
+}
+
+type Parse<T> = { ok: true; value: T } | { ok: false; error: string };
+export type AppearanceParse = Parse<ChatbotAppearance>;
+export type StoredAppearanceParse = Parse<StoredAppearance>;
 
 const integerWithin = (value: unknown, min: number, max: number): boolean =>
   typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= min && value <= max;
 
-/** A plain object with exactly the given keys. An array, `null`, an extra field or a prototype trick is a
- *  refusal that names the offending key, like every other payload this plugin accepts. */
-function plainObject(input: unknown, allowed: readonly string[], where: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+function plainObject(input: unknown, allowed: readonly string[], where: string): Parse<Record<string, unknown>> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return { ok: false, error: `${where} must be a JSON object` };
   const record = input as Record<string, unknown>;
   for (const key of Object.keys(record)) {
@@ -215,155 +365,265 @@ function plainObject(input: unknown, allowed: readonly string[], where: string):
   return { ok: true, value: record };
 }
 
-function readColor(record: Record<string, unknown>, key: string): { ok: true; value: string } | { ok: false; error: string } {
-  const value = record[key];
-  if (!isAppearanceColor(value)) return { ok: false, error: `"${key}" must be a colour written as #rrggbb` };
-  return { ok: true, value: value.toLowerCase() };
+function requiredKeys(record: Record<string, unknown>, keys: readonly string[], where: string): Parse<true> {
+  for (const key of keys) if (!(key in record)) return { ok: false, error: `${where} is missing "${key}"` };
+  return { ok: true, value: true };
 }
 
-/** `''` means no avatar, `http(s)` is an ordinary image wherever it is hosted, and a `data:image/…` URL is
- *  an uploaded one. Anything else — `javascript:`, a `file:`, a bare path — is refused: the value is handed
- *  to an `<img src>`, and the one place that decides what may go there is this function. */
-function readAvatarUrl(record: Record<string, unknown>): { ok: true; value: string } | { ok: false; error: string } {
-  const value = record.avatarUrl;
-  if (value === undefined || value === '') return { ok: true, value: '' };
-  if (typeof value !== 'string') return { ok: false, error: '"avatarUrl" must be a string' };
+function readEnum<T extends string>(value: unknown, values: readonly T[], key: string): Parse<T> {
+  return typeof value === 'string' && (values as readonly string[]).includes(value)
+    ? { ok: true, value: value as T }
+    : { ok: false, error: `"${key}" is not an allowed value` };
+}
+
+function readString(value: unknown, key: string, max: number, nullable = false): Parse<string | null> {
+  if (nullable && value === null) return { ok: true, value: null };
+  if (typeof value !== 'string') return { ok: false, error: `"${key}" must be a string` };
   const trimmed = value.trim();
+  if (trimmed.length > max) return { ok: false, error: `"${key}" is longer than ${max} characters` };
+  return { ok: true, value: nullable && trimmed === '' ? null : trimmed };
+}
+
+function readColor(value: unknown, key: string): Parse<string> {
+  return typeof value === 'string' && HEX_COLOR.test(value)
+    ? { ok: true, value: value.toLowerCase() }
+    : { ok: false, error: `"${key}" must be a colour written as #rrggbb` };
+}
+
+function readAvatar(value: unknown): Parse<string> {
+  const text = readString(value, 'avatarUrl', APPEARANCE_AVATAR_URL_MAX_CHARS);
+  if (!text.ok) return text as Parse<string>;
+  const trimmed = text.value as string;
   if (trimmed === '') return { ok: true, value: '' };
-  if (trimmed.length > APPEARANCE_AVATAR_URL_MAX_CHARS) return { ok: false, error: '"avatarUrl" is too long' };
   if (trimmed.startsWith('data:')) {
     return /^data:image\/[a-z0-9.+-]+[;,]/.test(trimmed)
       ? { ok: true, value: trimmed }
       : { ok: false, error: '"avatarUrl" may carry an image, not another kind of data' };
   }
-  let parsed: URL;
   try {
-    parsed = new URL(trimmed);
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+      ? { ok: true, value: trimmed }
+      : { ok: false, error: '"avatarUrl" must be an https address or an image' };
   } catch {
     return { ok: false, error: '"avatarUrl" must be an https address or an image' };
   }
-  return parsed.protocol === 'https:' || parsed.protocol === 'http:'
-    ? { ok: true, value: trimmed }
-    : { ok: false, error: '"avatarUrl" must be an https address or an image' };
 }
 
-/** The greeting, or `null` for the widget's own. Empty text IS `null`: a customer who clears the field means
- *  "say the usual thing", and storing an empty string would make the greeting disappear at random depending
- *  on which language the visitor's page is in. */
-function readIntro(record: Record<string, unknown>): { ok: true; value: string | null } | { ok: false; error: string } {
-  const value = record.intro;
-  if (value === undefined || value === null) return { ok: true, value: null };
-  if (typeof value !== 'string') return { ok: false, error: '"intro" must be a string' };
-  const trimmed = value.trim();
-  if (trimmed === '') return { ok: true, value: null };
-  if (trimmed.length > APPEARANCE_INTRO_MAX_CHARS) return { ok: false, error: `"intro" is longer than ${APPEARANCE_INTRO_MAX_CHARS} characters` };
-  return { ok: true, value: trimmed };
-}
-
-/** The quick buttons: short, few, and each one distinct. A repeated button is one a visitor can only be
- *  confused by, so the duplicates collapse the way the allowed-domain list already does. */
-function readQuickButtons(record: Record<string, unknown>): { ok: true; value: string[] } | { ok: false; error: string } {
-  const value = record.quickButtons;
-  if (value === undefined || value === null) return { ok: true, value: [] };
+function readQuickButtons(value: unknown): Parse<QuickButton[]> {
   if (!Array.isArray(value)) return { ok: false, error: '"quickButtons" must be an array' };
   if (value.length > APPEARANCE_QUICK_BUTTONS_MAX) return { ok: false, error: `at most ${APPEARANCE_QUICK_BUTTONS_MAX} quick buttons` };
+  const result: QuickButton[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
-    if (typeof entry !== 'string') return { ok: false, error: 'every quick button must be a string' };
-    const trimmed = entry.trim();
-    if (trimmed === '') return { ok: false, error: 'a quick button must not be empty' };
-    if (trimmed.length > APPEARANCE_QUICK_BUTTON_MAX_CHARS) {
-      return { ok: false, error: `a quick button is longer than ${APPEARANCE_QUICK_BUTTON_MAX_CHARS} characters` };
+    const object = plainObject(entry, ['text', 'icon'], 'quick button');
+    if (!object.ok) return object;
+    const present = requiredKeys(object.value, ['text', 'icon'], 'quick button');
+    if (!present.ok) return present;
+    const text = readString(object.value.text, 'quick button text', APPEARANCE_QUICK_BUTTON_MAX_CHARS);
+    if (!text.ok) return text as Parse<QuickButton[]>;
+    if (text.value === '') return { ok: false, error: 'a quick button must not be empty' };
+    if (seen.has(text.value as string)) return { ok: false, error: 'quick button text must be unique' };
+    let icon: AppearanceIconId | null = null;
+    if (object.value.icon !== null) {
+      const parsedIcon = readEnum(object.value.icon, APPEARANCE_ICONS.map((item) => item.id), 'quick button icon');
+      if (!parsedIcon.ok) return parsedIcon;
+      icon = parsedIcon.value;
     }
-    seen.add(trimmed);
+    seen.add(text.value as string);
+    result.push({ text: text.value as string, icon });
   }
-  return { ok: true, value: [...seen] };
+  return { ok: true, value: result };
 }
 
-/** Parse one appearance, strictly. Every key is required except the ones that have an obvious empty value
- *  (`intro`, `avatarUrl`, `quickButtons`), and the result is always a COMPLETE appearance: a partial object
- *  is refused rather than filled in, so a caller can never believe it stored something it did not. */
+function parseColors(input: unknown, partial: boolean): Parse<Partial<AppearanceColors>> {
+  const keys = ['panel', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'] as const;
+  const object = plainObject(input, keys, 'appearance.colors');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, keys, 'appearance.colors');
+    if (!present.ok) return present;
+  }
+  const result: Partial<AppearanceColors> = {};
+  for (const key of keys) {
+    if (!(key in object.value)) continue;
+    const value = readColor(object.value[key], key);
+    if (!value.ok) return value;
+    result[key] = value.value;
+  }
+  return { ok: true, value: result };
+}
+
+function parseSend(input: unknown, partial: boolean): Parse<Partial<SendAppearance>> {
+  const keys = ['icon', 'shape'] as const;
+  const object = plainObject(input, keys, 'appearance.send');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, keys, 'appearance.send');
+    if (!present.ok) return present;
+  }
+  const result: Partial<SendAppearance> = {};
+  if ('icon' in object.value) {
+    const icon = readEnum(object.value.icon, APPEARANCE_ICONS.map((item) => item.id), 'send.icon');
+    if (!icon.ok) return icon;
+    result.icon = icon.value;
+  }
+  if ('shape' in object.value) {
+    const shape = readEnum(object.value.shape, SEND_SHAPES, 'send.shape');
+    if (!shape.ok) return shape;
+    result.shape = shape.value;
+  }
+  return { ok: true, value: result };
+}
+
+function parseLauncher(input: unknown, partial: boolean): Parse<Partial<LauncherAppearance>> {
+  const keys = ['icon', 'size', 'offset', 'label'] as const;
+  const object = plainObject(input, keys, 'appearance.launcher');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, keys, 'appearance.launcher');
+    if (!present.ok) return present;
+  }
+  const result: Partial<LauncherAppearance> = {};
+  if ('icon' in object.value) {
+    const icon = readEnum(object.value.icon, APPEARANCE_ICONS.map((item) => item.id), 'launcher.icon');
+    if (!icon.ok) return icon;
+    result.icon = icon.value;
+  }
+  if ('size' in object.value) {
+    if (!integerWithin(object.value.size, APPEARANCE_BOUNDS.launcherSize.min, APPEARANCE_BOUNDS.launcherSize.max)) return { ok: false, error: '"launcher.size" is outside its bounds' };
+    result.size = object.value.size as number;
+  }
+  if ('offset' in object.value) {
+    if (!integerWithin(object.value.offset, APPEARANCE_BOUNDS.launcherOffset.min, APPEARANCE_BOUNDS.launcherOffset.max)) return { ok: false, error: '"launcher.offset" is outside its bounds' };
+    result.offset = object.value.offset as number;
+  }
+  if ('label' in object.value) {
+    const label = readString(object.value.label, 'launcher.label', APPEARANCE_LAUNCHER_LABEL_MAX_CHARS);
+    if (!label.ok) return label as Parse<Partial<LauncherAppearance>>;
+    result.label = label.value as string;
+  }
+  return { ok: true, value: result };
+}
+
+function parseHeader(input: unknown, partial: boolean): Parse<Partial<HeaderAppearance>> {
+  const keys = ['subtitle', 'showAvatar', 'showMessageName'] as const;
+  const object = plainObject(input, keys, 'appearance.header');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, keys, 'appearance.header');
+    if (!present.ok) return present;
+  }
+  const result: Partial<HeaderAppearance> = {};
+  if ('subtitle' in object.value) {
+    const subtitle = readString(object.value.subtitle, 'header.subtitle', APPEARANCE_SUBTITLE_MAX_CHARS);
+    if (!subtitle.ok) return subtitle as Parse<Partial<HeaderAppearance>>;
+    result.subtitle = subtitle.value as string;
+  }
+  for (const key of ['showAvatar', 'showMessageName'] as const) {
+    if (!(key in object.value)) continue;
+    if (typeof object.value[key] !== 'boolean') return { ok: false, error: `"header.${key}" must be a boolean` };
+    result[key] = object.value[key] as boolean;
+  }
+  return { ok: true, value: result };
+}
+
+function parseTypography(input: unknown, partial: boolean): Parse<Partial<TypographyAppearance>> {
+  const keys = ['fontSize', 'fontFamily', 'shadow', 'placeholder'] as const;
+  const object = plainObject(input, keys, 'appearance.typography');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, keys, 'appearance.typography');
+    if (!present.ok) return present;
+  }
+  const result: Partial<TypographyAppearance> = {};
+  if ('fontSize' in object.value) {
+    if (!integerWithin(object.value.fontSize, APPEARANCE_BOUNDS.fontSize.min, APPEARANCE_BOUNDS.fontSize.max)) return { ok: false, error: '"typography.fontSize" is outside its bounds' };
+    result.fontSize = object.value.fontSize as number;
+  }
+  if ('fontFamily' in object.value) {
+    const family = readEnum(object.value.fontFamily, Object.keys(APPEARANCE_FONT_STACKS) as AppearanceFontFamily[], 'typography.fontFamily');
+    if (!family.ok) return family;
+    result.fontFamily = family.value;
+  }
+  if ('shadow' in object.value) {
+    const shadow = readEnum(object.value.shadow, Object.keys(APPEARANCE_SHADOWS) as AppearanceShadowStrength[], 'typography.shadow');
+    if (!shadow.ok) return shadow;
+    result.shadow = shadow.value;
+  }
+  if ('placeholder' in object.value) {
+    const placeholder = readString(object.value.placeholder, 'typography.placeholder', APPEARANCE_PLACEHOLDER_MAX_CHARS);
+    if (!placeholder.ok) return placeholder as Parse<Partial<TypographyAppearance>>;
+    result.placeholder = placeholder.value as string;
+  }
+  return { ok: true, value: result };
+}
+
+const appearanceFields = ['mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons', 'send', 'launcher', 'header', 'typography'] as const;
+
 export function parseAppearance(input: unknown): AppearanceParse {
-  const outer = plainObject(input, ['schemaVersion', 'mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons'], 'appearance');
-  if (!outer.ok) return outer;
-  const record = outer.value;
-
-  if (record.schemaVersion !== APPEARANCE_SCHEMA_VERSION) {
-    return { ok: false, error: `"schemaVersion" must be ${APPEARANCE_SCHEMA_VERSION}` };
-  }
-  if (typeof record.mode !== 'string' || !(APPEARANCE_MODES as readonly string[]).includes(record.mode)) {
-    return { ok: false, error: '"mode" must be light or dark' };
-  }
-  if (typeof record.position !== 'string' || !(PANEL_POSITIONS as readonly string[]).includes(record.position)) {
-    return { ok: false, error: `"position" must be one of ${PANEL_POSITIONS.join(', ')}` };
-  }
-
-  const colors = plainObject(record.colors, ['panel', 'visitorBubble', 'botBubble', 'sendButton'], 'appearance.colors');
-  if (!colors.ok) return colors;
-  const panel = readColor(colors.value, 'panel');
-  if (!panel.ok) return panel;
-  const visitorBubble = readColor(colors.value, 'visitorBubble');
-  if (!visitorBubble.ok) return visitorBubble;
-  const botBubble = readColor(colors.value, 'botBubble');
-  if (!botBubble.ok) return botBubble;
-  const sendButton = readColor(colors.value, 'sendButton');
-  if (!sendButton.ok) return sendButton;
-
-  if (!integerWithin(record.width, APPEARANCE_BOUNDS.width.min, APPEARANCE_BOUNDS.width.max)) {
-    return { ok: false, error: `"width" must be a whole number of pixels between ${APPEARANCE_BOUNDS.width.min} and ${APPEARANCE_BOUNDS.width.max}` };
-  }
-  if (!integerWithin(record.height, APPEARANCE_BOUNDS.height.min, APPEARANCE_BOUNDS.height.max)) {
-    return { ok: false, error: `"height" must be a whole number of pixels between ${APPEARANCE_BOUNDS.height.min} and ${APPEARANCE_BOUNDS.height.max}` };
-  }
-  if (!integerWithin(record.radius, APPEARANCE_BOUNDS.radius.min, APPEARANCE_BOUNDS.radius.max)) {
-    return { ok: false, error: `"radius" must be a whole number of pixels between ${APPEARANCE_BOUNDS.radius.min} and ${APPEARANCE_BOUNDS.radius.max}` };
-  }
-
-  const intro = readIntro(record);
-  if (!intro.ok) return intro;
-  const avatarUrl = readAvatarUrl(record);
-  if (!avatarUrl.ok) return avatarUrl;
-  const quickButtons = readQuickButtons(record);
-  if (!quickButtons.ok) return quickButtons;
-
-  return {
-    ok: true,
-    value: {
-      schemaVersion: APPEARANCE_SCHEMA_VERSION,
-      mode: record.mode as AppearanceMode,
-      position: record.position as PanelPosition,
-      width: record.width as number,
-      height: record.height as number,
-      radius: record.radius as number,
-      colors: {
-        panel: panel.value,
-        visitorBubble: visitorBubble.value,
-        botBubble: botBubble.value,
-        sendButton: sendButton.value,
-      },
-      intro: intro.value,
-      avatarUrl: avatarUrl.value,
-      quickButtons: quickButtons.value,
-    },
-  };
+  const object = plainObject(input, ['schemaVersion', ...appearanceFields], 'appearance');
+  if (!object.ok) return object;
+  const { schemaVersion, ...fields } = object.value;
+  if (schemaVersion !== APPEARANCE_SCHEMA_VERSION) return { ok: false, error: `"schemaVersion" must be ${APPEARANCE_SCHEMA_VERSION}` };
+  const parsed = parseOverrides(fields, false);
+  if (!parsed.ok) return parsed;
+  // The full parser requires every field and every nested key before this assertion.
+  return { ok: true, value: { schemaVersion, ...parsed.value } as ChatbotAppearance };
 }
 
-/** The appearance of a stored row. `null` is a chatbot nobody has configured yet and is answered with the
- *  default look; anything else must be an appearance this version wrote.
- *
- *  A stored value that does NOT parse is CORRUPT rather than hostile — this plugin is the only writer — and
- *  it is reported as a failure of the row instead of being quietly replaced by something the customer never
- *  chose. The admin surface shows it; the public route refuses with `appearance_invalid` and the widget
- *  keeps its built-in look, so a visitor is never shown a panel nobody configured. */
-export function parseStoredAppearance(raw: string | null): ChatbotAppearance {
-  if (raw === null || raw === '') return DEFAULT_APPEARANCE;
+function parseOverrides(input: unknown, partial = true): Parse<AppearanceOverrides> {
+  const object = plainObject(input, appearanceFields, 'appearance.overrides');
+  if (!object.ok) return object;
+  if (!partial) {
+    const present = requiredKeys(object.value, appearanceFields, 'appearance');
+    if (!present.ok) return present;
+  }
+  const result: AppearanceOverrides = {};
+  if ('mode' in object.value) { const value = readEnum(object.value.mode, APPEARANCE_MODES, 'mode'); if (!value.ok) return value; result.mode = value.value; }
+  if ('position' in object.value) { const value = readEnum(object.value.position, PANEL_POSITIONS, 'position'); if (!value.ok) return value; result.position = value.value; }
+  for (const [key, bounds] of [['width', APPEARANCE_BOUNDS.width], ['height', APPEARANCE_BOUNDS.height], ['radius', APPEARANCE_BOUNDS.radius]] as const) {
+    if (!(key in object.value)) continue;
+    if (!integerWithin(object.value[key], bounds.min, bounds.max)) return { ok: false, error: `"${key}" is outside its bounds` };
+    result[key] = object.value[key] as number;
+  }
+  if ('colors' in object.value) { const value = parseColors(object.value.colors, partial); if (!value.ok) return value; result.colors = value.value; }
+  if ('intro' in object.value) { const value = readString(object.value.intro, 'intro', APPEARANCE_INTRO_MAX_CHARS, true); if (!value.ok) return value as Parse<AppearanceOverrides>; result.intro = value.value; }
+  if ('avatarUrl' in object.value) { const value = readAvatar(object.value.avatarUrl); if (!value.ok) return value as Parse<AppearanceOverrides>; result.avatarUrl = value.value; }
+  if ('quickButtons' in object.value) { const value = readQuickButtons(object.value.quickButtons); if (!value.ok) return value; result.quickButtons = value.value; }
+  if ('send' in object.value) { const value = parseSend(object.value.send, partial); if (!value.ok) return value; result.send = value.value; }
+  if ('launcher' in object.value) { const value = parseLauncher(object.value.launcher, partial); if (!value.ok) return value; result.launcher = value.value; }
+  if ('header' in object.value) { const value = parseHeader(object.value.header, partial); if (!value.ok) return value; result.header = value.value; }
+  if ('typography' in object.value) { const value = parseTypography(object.value.typography, partial); if (!value.ok) return value; result.typography = value.value; }
+  return { ok: true, value: result };
+}
+
+export function parseAppearanceSelection(input: unknown): StoredAppearanceParse {
+  const object = plainObject(input, ['schemaVersion', 'template', 'overrides'], 'appearance');
+  if (!object.ok) return object;
+  const present = requiredKeys(object.value, ['schemaVersion', 'template', 'overrides'], 'appearance');
+  if (!present.ok) return present;
+  if (object.value.schemaVersion !== APPEARANCE_SCHEMA_VERSION) return { ok: false, error: `"schemaVersion" must be ${APPEARANCE_SCHEMA_VERSION}` };
+  const templateId = readEnum(object.value.template, APPEARANCE_TEMPLATE_IDS, 'template');
+  if (!templateId.ok) return templateId;
+  const overrides = parseOverrides(object.value.overrides);
+  if (!overrides.ok) return overrides;
+  return { ok: true, value: {
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
+    template: templateId.value,
+    overrides: overrides.value,
+  } };
+}
+
+export function parseStoredAppearance(raw: string | null): StoredAppearance {
+  if (raw === null) return selectAppearanceTemplate(DEFAULT_STORED_APPEARANCE.template);
   let decoded: unknown;
   try {
     decoded = JSON.parse(raw);
   } catch {
     throw new Error('chatbot: the stored appearance is not JSON');
   }
-  const parsed = parseAppearance(decoded);
+  const parsed = parseAppearanceSelection(decoded);
   if (!parsed.ok) throw new Error(`chatbot: the stored appearance is invalid: ${parsed.error}`);
   return parsed.value;
 }

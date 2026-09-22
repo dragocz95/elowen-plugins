@@ -20,7 +20,7 @@ import {
 import { capturePageSnapshot, isSensitiveField, wouldSubmit } from '../plugins/chatbot/embed-src/pageSnapshot.js';
 import { ChatSession, type ChatView, type PageBridge } from '../plugins/chatbot/embed-src/session.js';
 import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel.js';
-import { APPEARANCE_PRESETS, DEFAULT_APPEARANCE, presetAppearance, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
+import { APPEARANCE_TEMPLATES, DEFAULT_APPEARANCE, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
 import { widgetStrings } from '../plugins/chatbot/embed-src/strings.js';
 
 /** The widget's own half of the protocol, and the two things it promises a customer's page: that a
@@ -838,11 +838,11 @@ describe('the look a panel is given', () => {
     // A first visit applies the look one round trip after the panel was opened, which is exactly when the
     // visitor may already be typing. Replacing the element there would throw their half-written message away,
     // so an empty element is reconfigured instead — and it still takes the new look.
-    instance.applyAppearance({ name: 'Podatelna', appearance: presetAppearance('light') });
+    instance.applyAppearance({ name: 'Podatelna', appearance: { ...APPEARANCE_TEMPLATES.clean, header: { ...APPEARANCE_TEMPLATES.clean.header, showMessageName: true } } });
 
     const after = chatOf(instance);
     expect(after).toBe(before);
-    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_PRESETS.light.panel);
+    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
     expect(after.names.ai.text).toBe('Podatelna');
     expect(instance.host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
     instance.destroy();
@@ -854,11 +854,11 @@ describe('the look a panel is given', () => {
     const before = chatOf(instance);
     expect(before.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
 
-    instance.applyAppearance({ name: 'Městský úřad', appearance: presetAppearance('light') });
+    instance.applyAppearance({ name: 'Městský úřad', appearance: APPEARANCE_TEMPLATES.clean });
     const after = chatOf(instance);
     expect(after).not.toBe(before);
     expect(after.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
-    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_PRESETS.light.panel);
+    expect(after.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
     instance.destroy();
   });
 });
