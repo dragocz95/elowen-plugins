@@ -543,6 +543,99 @@ describe('a dropped connection', () => {
   });
 });
 
+describe('preserving visitor credentials during failures', () => {
+  function stored() {
+    let token: string | null = 'original';
+    return { getItem: () => token, setItem: (_key: string, value: string) => { token = value; }, removeItem: () => { token = null; } };
+  }
+  const failures: [string, () => Response][] = [
+    ['network', () => { throw new TypeError('offline'); }],
+    ['server', () => jsonResponse(503, { error: 'unavailable' })],
+    ['forbidden', () => jsonResponse(403, { error: 'origin_not_allowed' })],
+    ['misleading server error', () => jsonResponse(503, { error: 'invalid_token' })],
+    ['unknown unauthorized', () => jsonResponse(401, { error: 'daemon_refused' })],
+    ['unreadable unauthorized', () => new Response('<html>down</html>', { status: 401 })],
+    ['malformed success', () => jsonResponse(200, { unexpected: true })],
+  ];
+  it.each(failures)('keeps identity and restores on retry after %s', async (_name, failure) => {
+    const storage = stored();
+    const view = makeView();
+    let failed = true;
+    const harness = makeSession({ storage, view, page: makePage(), responses: ({ url }) => {
+      if (url.endsWith('/conversation')) return failed ? failure() : jsonResponse(200, { turns: [{ turnId: 'T1', message: 'Earlier', reply: 'Kept', lastSeq: 2, pendingActions: [] }], activeTurnId: null });
+      return jsonResponse(200, { token: 'replacement' });
+    } });
+    await harness.session.start();
+    expect(storage.getItem()).toBe('original');
+    expect(harness.requests).toHaveLength(1);
+    expect(view.errors).toContain(strings.errorUnavailable);
+    failed = false;
+    await harness.session.start();
+    expect(view.restored).toEqual([{ role: 'user', text: 'Earlier' }, { role: 'ai', text: 'Kept' }]);
+  });
+  it.each(failures)('keeps identity when token refresh encounters %s', async (_name, failure) => {
+    const storage = stored();
+    const harness = makeSession({ storage, view: makeView(), page: makePage(), responses: ({ url }) => {
+      if (url.endsWith('/conversation')) return jsonResponse(401, { error: 'invalid_token' });
+      if (url.endsWith('/refresh')) return failure();
+      return jsonResponse(200, { token: 'replacement' });
+    } });
+    await harness.session.start();
+    expect(storage.getItem()).toBe('original');
+    expect(harness.requests.some(r => r.url.endsWith('/visitors'))).toBe(false);
+  });
+  it.each(['token_required', 'invalid_token'])('replaces identity only after explicit %s rejection', async error => {
+    const storage = stored();
+    const harness = makeSession({ storage, view: makeView(), page: makePage(), responses: ({ url, attempt }) => {
+      if (url.endsWith('/conversation') && attempt > 0) return jsonResponse(200, { turns: [], activeTurnId: null });
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'replacement' });
+      return jsonResponse(401, { error });
+    } });
+    await harness.session.start();
+    expect(storage.getItem()).toBe('replacement');
+    expect(harness.requests.filter(r => r.url.endsWith('/visitors'))).toHaveLength(1);
+  });
+  it.each(failures.slice(0, -1))('keeps identity on send failure: %s', async (_name, failure) => {
+    const storage = stored();
+    const harness = makeSession({ storage, view: makeView(), page: makePage(), responses: () => failure() });
+    await harness.session.send('Hello');
+    expect(storage.getItem()).toBe('original');
+    expect(harness.requests).toHaveLength(1);
+  });
+  it.each(failures.slice(0, -1))('keeps identity and resumes a dropped stream after %s', async (_name, failure) => {
+    const storage = stored();
+    const view = makeView();
+    const harness = makeSession({ storage, view, page: makePage(), responses: ({ url, attempt }) => {
+      if (url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T1' });
+      if (url.includes('/events?')) return attempt === 0 ? failure() : new Response(streamOf([frame('done', { text: 'Recovered' }, 1)]));
+      return jsonResponse(200, { token: 'wrong replacement' });
+    } });
+    await harness.session.send('Hello');
+    expect(storage.getItem()).toBe('original');
+    expect(harness.requests.filter(r => r.method === 'POST')).toHaveLength(1);
+    expect(view.answers).toEqual(['Recovered']);
+  });
+  it('does not follow an old turn under a newly minted visitor', async () => {
+    const storage = stored();
+    const harness = makeSession({ storage, view: makeView(), page: makePage(), responses: ({ url, attempt }) => {
+      if (url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T1' });
+      if (url.includes('/events?') && attempt > 0) return new Response(streamOf([frame('done', { text: 'Wrong visitor' }, 1)]));
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'replacement' });
+      return jsonResponse(401, { error: 'invalid_token' });
+    } });
+    await harness.session.send('Hello');
+    expect(harness.requests.filter(r => r.url.includes('/events?'))).toHaveLength(1);
+  });
+  it('preserves a stored identity when navigation handoff is unavailable', async () => {
+    const storage = stored();
+    const page = makePage();
+    page.bridge.takeHandoff = () => 'a'.repeat(64);
+    const harness = makeSession({ storage, view: makeView(), page, responses: () => jsonResponse(503, { error: 'unavailable' }) });
+    await harness.session.start();
+    expect(storage.getItem()).toBe('original');
+  });
+});
+
 describe('acting on the page', () => {
   const SNAPSHOT = 's0123456789abcdef';
   const ACTION_ID = '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34';

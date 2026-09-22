@@ -16,6 +16,9 @@ export const PUBLIC_MOUNT = 'v2';
  *  another version is refused, never reinterpreted. */
 export const PUBLIC_SCHEMA_VERSION = 2;
 
+/** Only these public 401 errors prove that a visitor credential cannot be used. */
+export const VISITOR_CREDENTIAL_ERRORS = { required: 'token_required', invalid: 'invalid_token' } as const;
+
 /** The widget script a customer pastes into their site, relative to the mount. */
 export const WIDGET_ASSET_NAME = 'widget.js';
 
