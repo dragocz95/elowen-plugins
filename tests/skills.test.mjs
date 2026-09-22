@@ -118,15 +118,16 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     registerApiRoute: (route) => routes.push(route),
     registerUserRemoved: (fn) => userRemoved.push(fn),
     // The host side of a live reload: a `reload` change REPLACES this plugin's registered skills, exactly
-    // as the daemon's registry does, so every later read of the catalog sees the new set.
-    requestReload: (change) => {
+    // as the daemon's registry does, so every later read of the catalog sees the new set. A test's own
+    // `requestReload` answers first; when it rejects, the host took nothing and the promise rejects.
+    requestReload: async (change) => {
       reloads.push(change);
+      await requestReload(change);
       if (change?.mode === 'reload') {
         skills.splice(0);
         registeredRoots.clear();
         for (const { skill, ownerUserId } of change.skills) ctx.registerSkill(skill, ownerUserId === undefined ? {} : { ownerUserId });
       }
-      requestReload(change);
     },
     currentIdentity: () => session.identity,
     // WHOSE personal skills the turn may open. The host resolves it per turn from the session and its
@@ -339,6 +340,7 @@ function setup(opts = {}) {
   const enabled = opts.enabled ?? ['skills'];
   const plugin = enabled.includes('skills') ? loadPlugin({
     dataRoot, users: () => users.list(), managementEntries: opts.managementEntries, managementSet: opts.managementSet,
+    ...(opts.requestReload ? { requestReload: opts.requestReload } : {}),
   }) : null;
   const mounts = plugin ? mountRoutes(plugin.routes) : new Map();
   // Mounts this plugin DECLARES but does not currently serve — i.e. it is disabled or failed to load.
@@ -1124,6 +1126,19 @@ test('skills plugin creator tools', async (t) => {
     assert.ok(names(reg.reloads[2]).includes('mine'));
   });
 
+  // From a sub-agent the reload travels to the daemon, and it used to be dropped while the tool said the
+  // skill was available. When the host does not take the change, the tool says so; the file stays saved.
+  await t.test('CreateSkill and DeleteSkill report a change the host did not take as saved but not applied', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot, requestReload: () => Promise.reject(new Error('the daemon IPC channel closed before the host RPC was sent')) });
+    const created = asText(await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'ship-it', scope: 'instance', description: 'when shipping', content: 'steps' })));
+    assert.match(created, /^Error: the skill change is saved, but Elowen could not apply it yet \(the daemon IPC channel closed/);
+    assert.doesNotMatch(created, /available from your next message/);
+    assert.ok(existsSync(join(dataRoot, 'skills/ship-it.md')));
+    const deleted = asText(await asTurn(reg, OWNER_TURN, () => runTool(reg, 'DeleteSkill', { name: 'ship-it' })));
+    assert.match(deleted, /^Error: the skill change is saved, but Elowen could not apply it yet/);
+  });
+
   // Ownership comes from the host's live catalog, never from a map the plugin filled at load time: a skill
   // created after load must open for its owner and stay refused to everybody else.
   await t.test('SkillLoad opens a personal skill created after load for its owner only', async () => {
@@ -1620,6 +1635,13 @@ test('skills routes', async (t) => {
 
     assert.equal((await app.request(`/plugins/skills/amy-skill?owner=${amy.id}`, del(adminTok))).status, 200);
     assert.equal(existsSync(join(dataRoot, 'skills', 'users', String(amy.id), 'amy-skill.md')), false);
+  });
+
+  await t.test('an HTTP write the host did not take answers an error, not a success', async () => {
+    const { app, adminTok } = setup({ requestReload: () => Promise.reject(new Error('plugin skills is not loaded in the daemon')) });
+    const response = await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'shared' })));
+    assert.equal(response.status, 500);
+    assert.match((await response.json()).error, /saved, but Elowen could not apply it yet \(plugin skills is not loaded in the daemon\)/);
   });
 
   // Every HTTP write applies itself the same way the tools do: one live reload carrying the whole set.

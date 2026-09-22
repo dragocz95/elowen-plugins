@@ -402,8 +402,16 @@ export function register(ctx) {
     return registrations;
   };
   /** Apply a change this plugin just wrote to disk: the host replaces the whole skill set in the running
-   *  daemon, and every conversation reads it from its next message. No restart, no interrupted turn. */
-  const reloadSkills = () => { ctx.requestReload({ mode: 'reload', skills: collectSkills() }); };
+   *  daemon, and every conversation reads it from its next message. No restart, no interrupted turn.
+   *  Rejects when the host did not take it (from a sub-agent it travels to the daemon first), so no caller
+   *  reports a skill as available when only the file changed. */
+  const reloadSkills = async () => {
+    try {
+      await ctx.requestReload({ mode: 'reload', skills: collectSkills() });
+    } catch (e) {
+      throw new Error(`the skill change is saved, but Elowen could not apply it yet (${e instanceof Error ? e.message : String(e)}); it applies at the next restart`);
+    }
+  };
 
   const registrations = collectSkills();
   for (const { skill, ownerUserId } of registrations) {
@@ -430,9 +438,9 @@ export function register(ctx) {
   // An account is gone: drop its personal skills with it. Nothing else ever reaches this folder again
   // (the id is never handed out twice — see db.ts's user-sequence guard), so leaving it behind would
   // simply keep one person's private instructions on the operator's disk forever.
-  ctx.registerUserRemoved((userId) => {
+  ctx.registerUserRemoved(async (userId) => {
     const dir = userSkillsDir(userId);
-    if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); reloadSkills(); }
+    if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); await reloadSkills(); }
   });
 
   /** The account behind the current request/turn, or null when there is none (cron, an unlinked sender). */
@@ -600,6 +608,11 @@ export function register(ctx) {
     typeof description !== 'string' || description.trim() === '' || typeof content !== 'string' || content.trim() === ''
       ? 'description and content must be non-empty' : null;
   const jsonRes = (body, status = 200) => ({ status, body });
+  /** Answer a write that already reached the disk: success only once the running daemon took it. */
+  const appliedRes = async (body, status = 200) => {
+    try { await reloadSkills(); } catch (e) { return jsonRes({ error: e instanceof Error ? e.message : String(e) }, 500); }
+    return jsonRes(body, status);
+  };
 
   // HTTP compatibility for clients that omit `?owner=`: preserve the route's historical auth-based target.
   // An API admin writes the instance set; anyone else writes their own set. The CreateSkill tool does NOT
@@ -787,8 +800,7 @@ export function register(ctx) {
       if (escapesOwnScope(target, file)) return jsonRes({ error: `"${name}" resolves outside that skills directory` }, 409);
       mkdirSync(target.dir, { recursive: true });
       writeFileSync(file, buildSkillBody(applyManagedFields({}, name, description, disableModelInvocation), content), 'utf-8');
-      reloadSkills();
-      return jsonRes({ ok: true }, 201);
+      return appliedRes({ ok: true }, 201);
     },
   });
 
@@ -826,8 +838,7 @@ export function register(ctx) {
       if (description !== cur.description || content !== cur.content) bumpVersion(fm);
       bumpRevision(fm, currentRevision);
       writeFileSync(file, buildSkillBody(fm, content), 'utf-8');
-      reloadSkills();
-      return jsonRes({ ok: true, revision: skillRevision(fm) });
+      return appliedRes({ ok: true, revision: skillRevision(fm) });
     },
   });
 
@@ -841,8 +852,7 @@ export function register(ctx) {
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
       const removed = removeSkill({ name, target: deletionTargetIn(target, name) }, NON_RECURSIVE_DELETE);
       if (removed.error) return jsonRes({ error: removed.error }, removed.status);
-      reloadSkills();
-      return jsonRes({ ok: true });
+      return appliedRes({ ok: true });
     },
   });
 
@@ -928,8 +938,8 @@ export function register(ctx) {
         ctx.logger.warn(`could not edit moved skill '${name}': ${e instanceof Error ? e.message : e}`);
         return jsonRes({ error: 'the skill could not be updated' }, 500);
       }
-      reloadSkills(); // it leaves one catalog and enters another
-      return jsonRes({ ok: true, owner: dest.owner, ...(edit ? { revision: skillRevision(readSkillFile(destinationFile).front) } : {}) });
+      // It leaves one catalog and enters another.
+      return appliedRes({ ok: true, owner: dest.owner, ...(edit ? { revision: skillRevision(readSkillFile(destinationFile).front) } : {}) });
     },
   });
 
@@ -982,7 +992,7 @@ export function register(ctx) {
         writeFileSync(file, body, 'utf-8');
         // Applied live: the host replaces the skill set in place, so the new skill is in the
         // available-skills block from the next message, with no restart.
-        reloadSkills();
+        await reloadSkills();
         return ok(`Skill "${p.name}" saved (${wantsInstance ? 'instance-wide' : 'personal'}). It is available from your next message.`);
       } catch (e) { return fail(e); }
     },
@@ -1040,7 +1050,7 @@ export function register(ctx) {
           const message = removed.status === 404 ? `no skill named "${p.name}" that you can delete` : removed.error;
           return ok(`Error: ${message}.`);
         }
-        reloadSkills(); // the skill leaves the catalog from the next message
+        await reloadSkills(); // the skill leaves the catalog from the next message
         return ok(`Skill "${p.name}" deleted.`);
       } catch (e) { return fail(e); }
     },
