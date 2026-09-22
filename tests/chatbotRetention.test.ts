@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createCoreSessionBridge, type CoreSessionDeletion } from '../plugins/chatbot/src/coreSessions.js';
-import { RETENTION_INTERVAL_MS, createRetentionCleaner } from '../plugins/chatbot/src/retention.js';
+import { RETENTION_INTERVAL_MS, createRetentionCleaner, eraseConversations } from '../plugins/chatbot/src/retention.js';
 import { utcDay } from '../plugins/chatbot/src/budget.js';
 import {
   CHATBOT_SITE as SITE,
@@ -403,5 +403,51 @@ describe('the bridge to the daemon', () => {
 describe('the cleaner runs on a schedule the plugin sets', () => {
   it('asks for a pass every quarter of an hour', () => {
     expect(RETENTION_INTERVAL_MS).toBe(15 * 60_000);
+  });
+});
+describe('when an operator erases a chatbot\'s conversations', () => {
+  it('deletes them whatever their due date, through the same two steps as a pass', async () => {
+    conversation({ visitorId: 'v-old', daysAgo: TEST_LIMITS.retentionDays! + 1 });
+    conversation({ visitorId: 'v-today', daysAgo: 0 });
+    const core = fakeCore();
+
+    const result = await eraseConversations({
+      store: host.store,
+      now: () => new Date(NOW_MS),
+      core: core.bridge,
+      info: () => {},
+      warn: () => {},
+    }, { chatbotUserId: 12, limit: 50 });
+
+    expect(result).toEqual({ deleted: 2, kept: 0 });
+    // Core was asked first for every one of them, and nothing of the plugin's own survives.
+    expect(core.asked).toHaveLength(2);
+    expect(holdings('v-old')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings('v-today')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+  });
+
+  it('leaves a conversation whose answer is still being written, and says so', async () => {
+    conversation({ visitorId: 'v-live', daysAgo: 0, activeTurn: true });
+    const core = fakeCore();
+
+    const result = await eraseConversations({
+      store: host.store, now: () => new Date(NOW_MS), core: core.bridge, info: () => {}, warn: () => {},
+    }, { chatbotUserId: 12, limit: 50 });
+
+    expect(result).toEqual({ deleted: 0, kept: 0 });
+    expect(core.asked).toHaveLength(0);
+    expect(holdings('v-live').conversations).toBe(1);
+  });
+
+  it('keeps the plugin\'s rows when core does not confirm the delete', async () => {
+    conversation({ visitorId: 'v-kept', daysAgo: 0 });
+    const core = fakeCore({ ok: false, reason: 'unverified' });
+
+    const result = await eraseConversations({
+      store: host.store, now: () => new Date(NOW_MS), core: core.bridge, info: () => {}, warn: () => {},
+    }, { chatbotUserId: 12, limit: 50 });
+
+    expect(result).toEqual({ deleted: 0, kept: 1 });
+    expect(holdings('v-kept').conversations).toBe(1);
   });
 });

@@ -10,7 +10,7 @@ import { createPublicRoute, STREAM_PING_INTERVAL_MS } from './publicRoutes.js';
 import { PUBLIC_MOUNT } from './publicContract.js';
 import { inspectAccount } from './preflight.js';
 import { ChatbotTurnQueue } from './queue.js';
-import { RETENTION_INTERVAL_MS, createRetentionCleaner } from './retention.js';
+import { RETENTION_INTERVAL_MS, createRetentionCleaner, eraseConversations } from './retention.js';
 import { ChatbotStore } from './store.js';
 import { newSecret, TOKEN_SECRET_KEY } from './token.js';
 import { asChatbotContext } from './coreSeams.js';
@@ -73,11 +73,27 @@ export function register(published: PluginContext): void {
 
   ctx.registerPlatform(adapter);
 
+  // Deleting a conversation is ONE path, whether a due date or an administrator asked for it: core's own
+  // delete through a credential minted for the chatbot account, and only then this plugin's rows.
+  const retentionDeps = {
+    store,
+    now,
+    core: createCoreSessionBridge({
+      // Both are read per call and never captured at registration: the deployment's own address and a
+      // credential minted for one account are decisions of the running daemon, not of this module load.
+      baseUrl: () => ctx.host.elowenCli().url ?? null,
+      tokenForUser: (chatbotUserId: number) => ctx.host.elowenCli().tokenForUser(chatbotUserId),
+    }),
+    info: (message: string) => logger.info(message),
+    warn,
+  };
+
   const adminApi = createAdminApi({
     store,
     stores,
     publicBaseUrl: () => ctx.publicWebUrl(),
     now,
+    erase: (input) => eraseConversations(retentionDeps, input),
   });
 
   // The public route is registered AHEAD of any configuration or readiness check, so an instance whose
@@ -114,6 +130,7 @@ export function register(published: PluginContext): void {
   // name the chatbot they are about and re-check it, so no route here can answer for a chatbot the caller
   // did not name.
   ctx.registerApiRoute({ path: 'conversations', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversations(req.auth, req.query) });
+  ctx.registerApiRoute({ path: 'conversations', method: 'DELETE', access: 'admin', handler: async (req) => adminApi.eraseConversations(req.auth, req.query) });
   ctx.registerApiRoute({ path: 'conversation', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversation(req.auth, req.query) });
   ctx.registerApiRoute({ path: 'stats', method: 'GET', access: 'admin', handler: async (req) => adminApi.stats(req.auth, req.query) });
 
@@ -185,19 +202,8 @@ export function register(published: PluginContext): void {
   // Retention. One bounded pass every quarter of an hour, in the background: the cleaner deletes a
   // conversation in core through an advisor token for its own chatbot account, and only then removes what
   // this plugin holds. A pass that cannot confirm the core delete keeps everything and tries again.
-  const cleaner = createRetentionCleaner({
-    store,
-    now,
-    core: createCoreSessionBridge({
-      // Both are read per call and never captured at registration: the deployment's own address and a
-      // credential minted for one account are decisions of the running daemon, not of this module load.
-      baseUrl: () => ctx.host.elowenCli().url ?? null,
-      tokenForUser: (chatbotUserId) => ctx.host.elowenCli().tokenForUser(chatbotUserId),
-    }),
-    info: (message) => logger.info(message),
-    warn,
-  });
+  const cleaner = createRetentionCleaner(retentionDeps);
   ctx.registerInterval('chatbot-retention', async () => { await cleaner.run(); }, RETENTION_INTERVAL_MS);
 
-  logger.info('chatbot plugin registered: platform, public hook v1, the admin route, the page-action tool and the retention cleaner');
+  logger.info(`chatbot plugin registered: platform, public hook ${PUBLIC_MOUNT}, the admin route, the page-action tool and the retention cleaner`);
 }

@@ -574,6 +574,15 @@ export class ChatPanel implements ChatView {
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages: { role: 'user' | 'ai'; text: string }[]): void {
     for (const message of messages) this.draw(message);
+    // A restored transcript opens where the visitor left off, which is its END: a reload that lands on the
+    // first message hides the answer the visitor came back for. `addMessage` only follows a LIVE message.
+    this.scrollToLatest();
+  }
+
+  /** Put the conversation's end in view. Before the element has rendered there is nothing to scroll, and the
+   *  flush that follows its render scrolls instead. */
+  private scrollToLatest(): void {
+    if (this.ready) this.chat.scrollToBottom();
   }
 
   /** Ask the visitor. Resolves true only for a click the visitor made themselves. */
@@ -618,6 +627,7 @@ export class ChatPanel implements ChatView {
     chat.onComponentRender = () => {
       this.ready = true;
       for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
+      this.scrollToLatest();
     };
     return chat;
   }

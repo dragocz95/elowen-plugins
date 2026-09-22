@@ -31,6 +31,10 @@ export interface AdminApiDeps {
   /** Canonical deployment URL, for the embed snippet. Null when the deployment has none. */
   publicBaseUrl: () => string | null;
   now: () => Date;
+  /** Erase one chatbot's conversations here and in core, one bounded batch per call. Injected rather than
+   *  built here: deleting a transcript in core needs a credential only the running daemon can mint, and this
+   *  surface decides WHO may ask for it, not how it is done. */
+  erase: (input: { chatbotUserId: number; limit: number }) => Promise<{ deleted: number; kept: number }>;
 }
 
 interface Reply {
@@ -281,6 +285,20 @@ export function createAdminApi(deps: AdminApiDeps) {
       const conversations = store.conversations({ chatbotUserId, limit, offset });
       const total = store.conversationCount(chatbotUserId);
       return { status: 200, body: { conversations, total, limit, offset } satisfies ChatbotConversationsAnswer };
+    },
+
+    /** Erase this chatbot's conversations, here and in core. One bounded batch per call, so the answer says
+     *  what is left: `remaining` above zero means the caller repeats. A conversation whose answer is still
+     *  being written is reported as `kept` and survives, exactly as retention leaves it. */
+    async eraseConversations(auth: PluginApiAuth, query: Record<string, string>): Promise<Reply> {
+      const refusal = requireAdmin(auth);
+      if (refusal) return refusal;
+      const chatbotUserId = readChatbotUserId(query.chatbotUserId);
+      if (chatbotUserId === null) return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
+      const bot = requireBot(chatbotUserId);
+      if (isRefusal(bot)) return bot;
+      const { deleted, kept } = await deps.erase({ chatbotUserId, limit: CONVERSATIONS_MAX_LIMIT });
+      return { status: 200, body: { deleted, kept, remaining: store.conversationCount(chatbotUserId) } };
     },
 
     /** One conversation, as an administrator may read it: the visitor's own words and the answer the

@@ -30,6 +30,9 @@ vi.mock('deep-chat', () => {
     addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     focusInput(): void { /* no focus in jsdom */ }
+    /** The panel scrolls a restored transcript to its end through this; jsdom has no layout, so it only has
+     *  to exist. */
+    scrollToBottom(): void { /* no layout in jsdom */ }
     private readonly _messages: { role?: string; text?: string }[] = [];
   }
   if (!customElements.get('deep-chat')) customElements.define('deep-chat', StubChat);

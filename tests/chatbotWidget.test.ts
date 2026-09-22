@@ -40,6 +40,10 @@ vi.mock('deep-chat', () => {
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     submitUserMessage(content: { text?: string }): void { this._messages.push({ role: 'user', text: content.text }); }
     focusInput(): void { /* no focus in jsdom */ }
+    /** Counted rather than ignored: a restored transcript has to open at its END, and the panel proves that
+     *  by asking the element to scroll there. jsdom has no layout, so the call itself is the evidence. */
+    scrollToBottom(): void { this.scrolledToBottom += 1; }
+    scrolledToBottom = 0;
     private readonly _messages: { role?: string; text?: string }[] = [];
   }
   if (!customElements.get('deep-chat')) customElements.define('deep-chat', StubChat);
@@ -936,6 +940,56 @@ describe('the look a panel is given', () => {
     expect(after).not.toBe(before);
     expect(after.getMessages()).toEqual([{ role: 'ai', text: 'Hotovo' }]);
     expect(groundOf(instance)).toBe(APPEARANCE_TEMPLATES.clean.colors.panel);
+    instance.destroy();
+  });
+});
+describe('a transcript restored after the page was loaded again', () => {
+  function mountedPanel(): ChatPanel {
+    const instance = new ChatPanel({
+      strings,
+      look: { name: 'Městský úřad', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined,
+      onStop: () => undefined,
+    });
+    document.body.append(instance.host);
+    return instance;
+  }
+
+  /** The stub element the panel drew into, with the scroll counter this assertion reads. */
+  function chatOf(instance: ChatPanel): { getMessages(): unknown[]; scrolledToBottom: number } {
+    return instance.host.shadowRoot!.querySelector('deep-chat') as unknown as
+      { getMessages(): unknown[]; scrolledToBottom: number };
+  }
+
+  it('opens at the end, not at the first message', () => {
+    const instance = mountedPanel();
+    const chat = chatOf(instance);
+    const before = chat.scrolledToBottom;
+
+    instance.restore([
+      { role: 'user', text: 'Dobrý den' },
+      { role: 'ai', text: 'Dobrý den, jak mohu pomoci?' },
+      { role: 'user', text: 'Chci se objednat' },
+    ]);
+
+    expect(chat.getMessages()).toHaveLength(3);
+    expect(chat.scrolledToBottom).toBeGreaterThan(before);
+    instance.destroy();
+  });
+
+  it('still opens at the end when the transcript arrives before the element has rendered', () => {
+    const instance = new ChatPanel({
+      strings,
+      look: { name: 'Městský úřad', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined,
+      onStop: () => undefined,
+    });
+    instance.restore([{ role: 'user', text: 'Dobrý den' }, { role: 'ai', text: 'Dobrý den.' }]);
+    document.body.append(instance.host);
+
+    const chat = chatOf(instance);
+    expect(chat.getMessages()).toHaveLength(2);
+    expect(chat.scrolledToBottom).toBeGreaterThan(0);
     instance.destroy();
   });
 });
