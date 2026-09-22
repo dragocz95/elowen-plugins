@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, presetAppearance, type ChatbotAppearance } from '../plugins/chatbot/src/appearanceContract';
 import type { LimitValues } from '../plugins/chatbot/src/limits';
-import { ChatbotWorkspace } from '../plugins/chatbot/web-src/ChatbotWorkspace';
+import { ChatbotSettings } from "../plugins/chatbot/web-src/ChatbotSettings";
 import { avatarHint, quickButtonHint } from '../plugins/chatbot/web-src/AppearanceModal';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
 import { detectLocale, widgetStrings } from '../plugins/chatbot/embed-src/strings';
@@ -114,13 +114,19 @@ beforeAll(() => listen());
 afterEach(() => { cleanup(); resetHandlers(); saved.body = null; });
 afterAll(() => close());
 
-/** Open the editor from the register, exactly as an administrator does. */
+/** Open the editor the way an administrator does: a chatbot's row in the Settings section opens its
+ *  drawer, and the drawer's footer opens the appearance window over it. The editor is therefore the SECOND
+ *  dialog on screen — the drawer it was opened from stays mounted underneath. */
 async function openEditor(): Promise<HTMLElement> {
   const { wrapper: Wrapper } = createWrapper();
-  render(<Wrapper><ToastProvider><ChatbotWorkspace /></ToastProvider></Wrapper>);
-  await screen.findByText(strings.workspaceEyebrow!);
-  fireEvent.click(await screen.findByRole('button', { name: strings.appearanceAction! }));
-  return await screen.findByRole('dialog');
+  render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="page" /></ToastProvider></Wrapper>);
+  await screen.findByText(strings.sectionHint!);
+  fireEvent.click(await screen.findByRole('button', { name: strings.openBot!.replace('{name}', bot.displayName) }));
+  const drawer = await screen.findByRole('dialog');
+  fireEvent.click(within(drawer).getByRole('button', { name: strings.appearanceAction! }));
+  await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(2));
+  const dialogs = screen.getAllByRole('dialog');
+  return dialogs[dialogs.length - 1]!;
 }
 
 /** The live preview's panel, re-read every time: the widget client mounted in its own shadow root inside the

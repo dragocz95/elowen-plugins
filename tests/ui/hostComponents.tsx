@@ -16,7 +16,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffe
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cpu, Eye, FolderGit2,
+  CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Cpu, FolderGit2,
   GitCommitHorizontal, Layers, Loader2, Maximize2, Package, Search, Settings2, SlidersHorizontal, Trash2,
   TriangleAlert, User, X, XCircle, type LucideIcon,
 } from 'lucide-react';
@@ -90,14 +90,18 @@ export interface SegmentedOption { value: string; label: string }
  *  The host composes this from Radix, whose thumb is the element wearing `role="slider"` — hence the app
  *  wrapper forwarding `aria-label` to `thumbProps`. A native `input[type=range]` is the same control in one
  *  element: same role, same accessible name, same `change` event a suite fires at it. */
-export function Slider({ value, onChange, min = 0, max = 100, step = 1, className, 'aria-label': ariaLabel }: {
+export function Slider({ value, onChange, min = 0, max = 100, step = 1, disabled = false, className, 'aria-label': ariaLabel, 'aria-valuetext': ariaValueText }: {
   value: number;
   onChange: (value: number) => void;
   min?: number;
   max?: number;
   step?: number;
+  disabled?: boolean;
   className?: string;
   'aria-label'?: string;
+  /** What the number MEANS where the number alone does not say it — the host forwards it to the thumb,
+   *  which is the element wearing the slider role in both implementations. */
+  'aria-valuetext'?: string;
 }) {
   return (
     <input
@@ -105,10 +109,12 @@ export function Slider({ value, onChange, min = 0, max = 100, step = 1, classNam
       role="slider"
       aria-label={ariaLabel}
       aria-valuenow={value}
+      aria-valuetext={ariaValueText}
       min={min}
       max={max}
       step={step}
       value={value}
+      disabled={disabled}
       className={className}
       onChange={(event) => onChange(Number(event.target.value))}
     />
@@ -123,6 +129,8 @@ export function Segmented({ options, value, onChange, className, 'aria-label': a
   onChange: (value: string) => void;
   className?: string;
   nowrap?: boolean;
+  /** Accepted and ignored: the host's two track heights are paint, and nothing a suite can see. */
+  size?: 'sm' | 'md';
   'aria-label'?: string;
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -973,15 +981,12 @@ interface SelectionSummaryProps {
   /** More specific accessible name when several managed selections share one page. */
   manageAriaLabel?: string;
   variant?: 'default' | 'line';
-  /** The list behind the button is display-only (ManageSelectionModal in `readOnly` mode), so the action
-   *  is an EYE rather than a gear: the button must not promise a setting the window will not offer. */
-  readOnly?: boolean;
 }
 
 /** Ported from web/components/ui/SelectionSummary.tsx: the compact on-page summary of a managed
  *  selection — a count line, sample chips and the "Manage" button that opens the modal. The two
  *  `data-selection-*` hooks are the contract the panel is asserted through. */
-export function SelectionSummary({ countText, samples, moreCount, onManage, manageLabel, manageAriaLabel, readOnly = false }: SelectionSummaryProps) {
+export function SelectionSummary({ countText, samples, moreCount, onManage, manageLabel, manageAriaLabel }: SelectionSummaryProps) {
   return (
     <div data-selection-summary>
       <div>
@@ -999,7 +1004,7 @@ export function SelectionSummary({ countText, samples, moreCount, onManage, mana
         )}
       </div>
       <button type="button" data-selection-manage onClick={onManage} aria-label={manageAriaLabel}>
-        {readOnly ? <Eye size={13} aria-hidden /> : <Settings2 size={13} aria-hidden />}
+        <Settings2 size={13} aria-hidden />
         {manageLabel}
       </button>
     </div>
@@ -1022,38 +1027,24 @@ export interface ManageSelectionItem {
   disabledHint?: string;
 }
 
-interface ManageSelectionCommonProps {
+interface ManageSelectionModalProps {
   title: string;
   subtitle?: string;
   open: boolean;
   onClose: () => void;
   items: ManageSelectionItem[];
-  countLabel?: (n: number) => string;
-  /** Optional icon per group key, shown in the group header and its filter chip. */
-  groupIcons?: Record<string, ReactNode>;
-}
-
-interface ManageSelectionEditableProps extends ManageSelectionCommonProps {
-  readOnly?: false;
   selected: Set<string>;
   onSave: (next: Set<string>) => void | Promise<void>;
   saving?: boolean;
   /** Shown in the footer instead of the count when nothing is selected (e.g. "empty = all allowed"). */
   emptySelectionHint?: string;
+  countLabel?: (n: number) => string;
+  /** Optional icon per group key, shown in the group header and its filter chip. */
+  groupIcons?: Record<string, ReactNode>;
   /** Single-select mode: clicking a row REPLACES the selection (radio-like check, no deselect) and the
    *  header chip + footer show the chosen item's label instead of a count. */
   single?: boolean;
 }
-
-/** Display-only variant: the list is INFORMATION, not a choice. Rows are plain list items — no checkbox,
- *  nothing focusable — and the footer offers Close instead of Cancel/Save. Taking no `selected`/`onSave`
- *  at all is deliberate, exactly as in the host: a read-only caller cannot end up passing a no-op save
- *  handler and calling that "locked". */
-interface ManageSelectionReadOnlyProps extends ManageSelectionCommonProps {
-  readOnly: true;
-}
-
-type ManageSelectionModalProps = ManageSelectionEditableProps | ManageSelectionReadOnlyProps;
 
 /** Case- and diacritics-insensitive haystack normalization for the search filter. */
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -1063,24 +1054,9 @@ function RadioDot({ checked }: { checked: boolean }) {
   return <span aria-hidden data-checked={checked}><span /></span>;
 }
 
-/** One row — checkbox in multi mode, radio-like dot in single mode, and in read-only mode a plain static
- *  line carrying its description on hover, exactly as the host renders it. The row IS the control, so its
- *  `aria-pressed` is what the selection is asserted through. */
-function Row({ item, on, single, readOnly, onToggle }: {
-  item: ManageSelectionItem;
-  on: boolean;
-  single: boolean;
-  readOnly: boolean;
-  onToggle: (item: ManageSelectionItem) => void;
-}) {
-  const content = (
-    <>
-      {item.icon ? <span aria-hidden>{item.icon}</span> : null}
-      <span>{item.label}</span>
-      {item.badges?.map((b) => <span key={b.text}>{b.text}</span>)}
-    </>
-  );
-  if (readOnly) return <div title={item.disabledHint}>{content}</div>;
+/** One selectable row — checkbox in multi mode, radio-like dot in single mode. The row IS the control,
+ *  so its `aria-pressed` is what the selection is asserted through. */
+function Row({ item, on, single, onToggle }: { item: ManageSelectionItem; on: boolean; single: boolean; onToggle: (item: ManageSelectionItem) => void }) {
   return (
     <button
       type="button"
@@ -1089,7 +1065,9 @@ function Row({ item, on, single, readOnly, onToggle }: {
       aria-pressed={on}
       title={item.disabled ? item.disabledHint : undefined}
     >
-      {content}
+      {item.icon ? <span aria-hidden>{item.icon}</span> : null}
+      <span>{item.label}</span>
+      {item.badges?.map((b) => <span key={b.text}>{b.text}</span>)}
       {single ? <RadioDot checked={on} /> : <Checkbox checked={on} />}
     </button>
   );
@@ -1106,16 +1084,10 @@ export function ManageSelectionModal(props: ManageSelectionModalProps) {
   return <ManageSelectionModalBody {...props} />;
 }
 
-function ManageSelectionModalBody(props: ManageSelectionModalProps) {
-  const { title, subtitle, onClose, items, countLabel, groupIcons } = props;
-  // A read-only list has no selection and no save to make, so the shared body reads both as absent rather
-  // than as an empty choice nobody can change.
-  const readOnly = props.readOnly === true;
-  const selected = readOnly ? undefined : props.selected;
-  const onSave = readOnly ? undefined : props.onSave;
-  const saving = readOnly ? false : props.saving ?? false;
-  const emptySelectionHint = readOnly ? undefined : props.emptySelectionHint;
-  const single = readOnly ? false : props.single ?? false;
+function ManageSelectionModalBody({
+  title, subtitle, onClose, items, selected, onSave, saving = false,
+  emptySelectionHint, countLabel, groupIcons, single = false,
+}: ManageSelectionModalProps) {
   const { t } = useTranslation();
   const [local, setLocal] = useState<Set<string>>(() => new Set(selected));
   const [query, setQuery] = useState('');
@@ -1152,7 +1124,6 @@ function ManageSelectionModalBody(props: ManageSelectionModalProps) {
   const chosenLabel = chosen?.label ?? emptySelectionHint ?? '—';
 
   const save = async () => {
-    if (onSave === undefined) return;
     try {
       const result = onSave(new Set(local));
       // Synchronous pickers close in the same interaction frame; async persistence keeps the modal open
@@ -1178,10 +1149,7 @@ function ManageSelectionModalBody(props: ManageSelectionModalProps) {
               aria-label={t.managePicker.searchPlaceholder}
             />
           </div>
-          {/* In read-only mode the number labels the ITEMS, since nothing is selected. */}
-          <span>{readOnly ? (countLabel ?? ((n: number) => String(n)))(items.length)
-            : single ? chosenLabel
-              : t.managePicker.selectedCount.replace('{n}', String(local.size))}</span>
+          <span>{single ? chosenLabel : t.managePicker.selectedCount.replace('{n}', String(local.size))}</span>
         </div>
 
         {groups.length > 1 && (
@@ -1204,7 +1172,7 @@ function ManageSelectionModalBody(props: ManageSelectionModalProps) {
             <div>
               {pinned.length > 0 && (
                 <ul>
-                  {pinned.map((item) => <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} readOnly={readOnly} onToggle={toggle} /></li>)}
+                  {pinned.map((item) => <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} onToggle={toggle} /></li>)}
                 </ul>
               )}
               {groups.map((g) => {
@@ -1218,7 +1186,7 @@ function ManageSelectionModalBody(props: ManageSelectionModalProps) {
                     </h3>
                     <ul>
                       {groupItems.map((item) => (
-                        <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} readOnly={readOnly} onToggle={toggle} /></li>
+                        <li key={item.id}><Row item={item} on={local.has(item.id)} single={single} onToggle={toggle} /></li>
                       ))}
                     </ul>
                   </section>
@@ -1230,26 +1198,18 @@ function ManageSelectionModalBody(props: ManageSelectionModalProps) {
       <ModalFooter
         status={
           <span>
-            {readOnly
-              ? (countLabel ?? ((n: number) => String(n)))(items.length)
-              : single
-                ? chosenLabel
-                : local.size === 0 && emptySelectionHint
-                  ? emptySelectionHint
-                  : (countLabel ?? ((n: number) => t.managePicker.selectedCount.replace('{n}', String(n))))(local.size)}
+            {single
+              ? chosenLabel
+              : local.size === 0 && emptySelectionHint
+                ? emptySelectionHint
+                : (countLabel ?? ((n: number) => t.managePicker.selectedCount.replace('{n}', String(n))))(local.size)}
           </span>
         }
       >
-        {/* Nothing here is a choice, so the only action is leaving: no Cancel/Save pair a reader could
-            mistake for a setting. */}
-        {readOnly ? <Button type="button" variant="ghost" onClick={onClose}>{t.common.close}</Button> : (
-          <>
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t.common.cancel}</Button>
-            <Button type="button" variant="accent" onClick={save} disabled={saving}>
-              {saving ? t.common.saving : t.managePicker.saveChanges}
-            </Button>
-          </>
-        )}
+        <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t.common.cancel}</Button>
+        <Button type="button" variant="accent" onClick={save} disabled={saving}>
+          {saving ? t.common.saving : t.managePicker.saveChanges}
+        </Button>
       </ModalFooter>
     </Modal>
   );
@@ -2269,8 +2229,8 @@ export function SettingsGroup({ title, description, icon: Icon, actions, tone = 
   /** Accepted and ignored: it opted a group out of the orbital rendering the host has since retired. */
   variant?: 'classic';
   /** Accepted and rendered OPEN. The host folds the body under the header and remembers the reader's
-   *  choice per browser; the body stays mounted either way, so what a suite can see of a folded group is
-   *  what it sees here. The fold itself is a browser behaviour and is reported as unverified. */
+   *  choice per browser; the body stays MOUNTED either way, so what a suite can see of a folded group is
+   *  exactly what it sees here. The fold itself is a browser behaviour and is reported as unverified. */
   collapsible?: boolean;
   defaultOpen?: boolean;
   storageKey?: string;

@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Coins, Gauge } from 'lucide-react';
+import { Activity, Coins } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
-import { formatDateTime, formatDay, integer, money, seconds } from './format';
+import { formatDay, integer, money } from './format';
 import type { ChatbotBotView, ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
-/** What this chatbot actually did, over a window of days.
+/** What this chatbot actually did, over a window of days: the window, the chart, the spend. Nothing else.
  *
- *  Two counters meet on this screen and they are deliberately NOT the same one:
+ *  It used to be a chart plus thirteen counters in three cards, and the counters were the problem: turns,
+ *  answered and failed are what the chart already draws, day by day; "waiting now" and "running now" are
+ *  instantaneous facts about a queue, which a window of days cannot report and which belong to a
+ *  monitoring surface rather than to a configuration one; and the six extra spend rows restated one
+ *  number six ways. What is left is the two things a reader opens this for — how much traffic there was,
+ *  and what it cost.
  *
- *  - the plugin's own admission counters, which answer "how many turns did this chatbot admit, per day,
- *    and how long did they wait" — read from the plugin's own rows through its own admin route;
- *  - the account's spend, read from core's `usage_by_origin` rollup through the host's admin usage route.
- *    That rollup is the ONLY source of origin-attributed spend in this codebase, and nothing here counts
- *    tokens or cost by scanning messages.
- *
- *  They are labelled separately because they are separate counters, and the rollup only starts at the day
- *  it began tracking — which the view states rather than hides. */
+ *  The two numbers here are deliberately NOT the same counter: the chart is the plugin's own admission
+ *  count, read from its own rows; the spend is the ACCOUNT's, read from core's `usage_by_origin` rollup,
+ *  which is the only source of origin-attributed spend in this codebase. Nothing here counts tokens or
+ *  cost by scanning messages, and the rollup only starts on the day it began tracking — which the row
+ *  states rather than hides. */
 
 const WINDOW_DAYS = [7, 30, 90] as const;
 /** How far into the instance's spend rows to look for this account's. The route orders by tokens, so a
@@ -56,10 +58,10 @@ export function chartPoints(days: readonly ChatbotStatsDayView[], from: string, 
   return points;
 }
 
-export function StatsView({ bot }: { bot: ChatbotBotView }) {
+export function StatsModal({ bot, onClose }: { bot: ChatbotBotView; onClose(): void }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
-  const { locale } = hooks.useTranslation();
+  const { locale, t } = hooks.useTranslation();
   const [days, setDays] = useState<string>('30');
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -93,86 +95,57 @@ export function StatsView({ bot }: { bot: ChatbotBotView }) {
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
   ];
 
-  const picker = (
-    <div className="min-w-[12rem] max-w-xs">
-      <C.SelectMenu
-        value={days}
-        onChange={setDays}
-        options={WINDOW_DAYS.map((value) => ({ value: String(value), label: s.statsWindowDays.replace('{count}', String(value)) }))}
-        label={s.statsWindowLabel}
-        variant="line"
-      />
-    </div>
-  );
-
-  if (loadError !== null) {
-    return (
-      <div className="flex flex-col gap-4">
-        {picker}
-        <C.ErrorState message={`${s.statsLoadError} — ${loadError}`} onRetry={load} />
-      </div>
-    );
-  }
-  if (answer === null) {
-    return (
-      <div className="flex flex-col gap-4">
-        {picker}
-        <C.LoadingState variant="block" />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-5">
-      {picker}
+    <C.Modal
+      title={s.statsTitle}
+      description={bot.displayName || s.botFallback}
+      icon={Activity}
+      size="lg"
+      presentation="center"
+      closeLabel={t.common.close}
+      onClose={onClose}
+    >
+      <C.ModalBody>
+        <div className="flex flex-col gap-4">
+          {/* Three choices, so they are all visible: a dropdown would make the reader open a list to
+              discover what the other two windows are. */}
+          <C.Segmented
+            size="sm"
+            aria-label={s.statsWindowLabel}
+            value={days}
+            onChange={setDays}
+            options={WINDOW_DAYS.map((value) => ({ value: String(value), label: s.statsWindowDays.replace('{count}', String(value)) }))}
+          />
 
-      <C.SettingsGroup title={s.chartTitle} description={s.chartHint} icon={Activity}>
-        {answer.totals.turns === 0 ? (
-          <C.EmptyState title={s.statsEmptyTitle} description={s.statsEmptyDescription} icon={Activity} />
-        ) : (
-          <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
-        )}
-      </C.SettingsGroup>
+          {loadError !== null ? <C.ErrorState message={`${s.statsLoadError} — ${loadError}`} onRetry={load} />
+            : answer === null ? <C.LoadingState variant="block" />
+              : answer.totals.turns === 0 ? <C.EmptyState title={s.statsEmptyTitle} description={s.statsEmptyDescription} icon={Activity} />
+                : <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />}
 
-      <C.SettingsGroup title={s.totalsTitle} description={s.totalsHint} icon={Gauge}>
-        <C.SettingsRow label={s.totalTurns} status={integer(answer.totals.turns, locale)} />
-        <C.SettingsRow label={s.totalDone} status={integer(answer.totals.done, locale)} />
-        <C.SettingsRow label={s.totalErrors} status={integer(answer.totals.errors, locale)} />
-        <C.SettingsRow label={s.totalQueued} description={s.totalQueuedHint} status={integer(answer.totals.queued, locale)} />
-        <C.SettingsRow label={s.totalRunning} status={integer(answer.totals.running, locale)} />
-        <C.SettingsRow
-          label={s.queueWait}
-          description={s.queueWaitHint}
-          hint={s.queueWaitHelp}
-          status={answer.queueWait.samples === 0
-            ? '—'
-            : `${s.queueWaitP50}: ${seconds(answer.queueWait.p50Seconds, locale)} · ${s.queueWaitP95}: ${seconds(answer.queueWait.p95Seconds, locale)}`}
-        />
-      </C.SettingsGroup>
-
-      <C.SettingsGroup title={s.spendTitle} description={s.spendHint} icon={Coins}>
-        {usage.isLoading ? <C.LoadingLine layout="block" />
-          : usage.isError ? <C.ErrorState message={s.spendLoadError} />
-            : spend === null ? <C.EmptyState title={s.spendEmptyTitle} description={s.spendEmptyDescription} icon={Coins} />
-              : (
-                <>
-                  <C.SettingsRow label={s.spendTurns} status={integer(spend.turns, locale)} />
-                  <C.SettingsRow label={s.spendTokens} status={integer(spend.tokens, locale)} />
-                  <C.SettingsRow
-                    label={s.spendCost}
-                    description={s.spendCostHint}
-                    status={money(spend.cost, locale)}
-                  />
-                  <C.SettingsRow label={s.spendPricedTurns} description={s.spendPricedTurnsHint} status={`${integer(spend.costedTurns, locale)} / ${integer(spend.turns, locale)}`} />
-                  <C.SettingsRow label={s.spendOrigins} description={s.spendOriginsHint} status={integer(spend.origins, locale)} />
-                  <C.SettingsRow label={s.spendFirst} status={formatDateTime(new Date(spend.firstAt).toISOString(), locale)} />
-                  <C.SettingsRow label={s.spendLast} status={formatDateTime(new Date(spend.lastAt).toISOString(), locale)} />
-                </>
-              )}
-        {usage.data?.trackingSince == null ? null : (
-          <p className="mt-3 text-xs text-muted-foreground">{s.spendTrackingSince.replace('{day}', formatDay(usage.data.trackingSince, locale))}</p>
-        )}
-      </C.SettingsGroup>
-    </div>
+          <C.SettingsGroup density="compact">
+            <C.SettingsRow
+              label={s.spendTitle}
+              icon={Coins}
+              description={s.spendHint}
+              hint={usage.data?.trackingSince == null ? undefined : s.spendTrackingSince.replace('{day}', formatDay(usage.data.trackingSince, locale))}
+              status={usage.isLoading ? <C.LoadingLine layout="inline" />
+                : usage.isError ? <span className="text-xs text-destructive">{s.spendLoadError}</span>
+                  : spend === null ? <span className="text-xs text-muted-foreground">{s.spendEmptyTitle}</span>
+                    : (
+                      <span className="font-mono text-xs tabular-nums">
+                        {s.spendLine
+                          .replace('{turns}', integer(spend.turns, locale))
+                          .replace('{tokens}', integer(spend.tokens, locale))
+                          .replace('{cost}', money(spend.cost, locale))}
+                      </span>
+                    )}
+            />
+          </C.SettingsGroup>
+        </div>
+      </C.ModalBody>
+      <C.ModalFooter>
+        <C.Button variant="accent" onClick={onClose}>{t.common.done}</C.Button>
+      </C.ModalFooter>
+    </C.Modal>
   );
 }

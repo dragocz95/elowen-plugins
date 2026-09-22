@@ -25,7 +25,3 @@ export const integer = (value: number, locale: string): string => new Intl.Numbe
  *  reported no price is unpriced, and printing it as free is a claim the data does not support. */
 export const money = (value: number | null, locale: string): string =>
   value == null ? '—' : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value);
-
-/** A queue wait in seconds, or an em dash when no turn in the window ever started. */
-export const seconds = (value: number | null, locale: string): string =>
-  value == null ? '—' : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} s`;

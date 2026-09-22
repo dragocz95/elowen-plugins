@@ -3,13 +3,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** cronjob and skills each ship ONE settings section and no nav, which is exactly the shape the host
- *  serves at the bare `/p/<plugin>` route (`sole` in web/app/p/[plugin]/[[...rest]]/page.tsx). These
+/** cronjob, skills and chatbot each ship ONE settings section and no nav, which is exactly the shape the
+ *  host serves at the bare `/p/<plugin>` route (`sole` in web/app/p/[plugin]/[[...rest]]/page.tsx). These
  *  bundles used to register a duplicate root page for that address and no longer do.
  *
  *  What replaces it is `ownsPageFrame`, and a mistake there is SILENT. The host matches the declared ids
  *  against `web.settings[].id` FROM THE MANIFEST, so an id that does not appear there just leaves the
  *  page frame double-wrapped: no error, only a section rendered narrower than every sibling register.
+ *  Declaring nothing is a deliberate choice rather than an omission — a section that does NOT claim the
+ *  frame is drawn by the host's own masthead and settings document, which is what makes it look like a
+ *  page of Settings rather than a page beside it — so which of the two a bundle means is asserted, not
+ *  left open.
+ *
  *  `requiresApiVersion` has the same split — the host gates on the manifest's copy while the bundle
  *  carries its own — so a manifest that asks for less than the bundle needs admits a host that cannot
  *  render it. Both are therefore checked ACROSS the two files rather than against a literal in one. */
@@ -44,7 +49,7 @@ function manifestWeb(plugin: string): ManifestWeb {
   return (JSON.parse(readFileSync(path, 'utf-8')) as { web: ManifestWeb }).web;
 }
 
-function expectSoleFramedSection(plugin: string, sectionId: string): void {
+function expectSoleSection(plugin: string, sectionId: string, frame: 'plugin' | 'host'): void {
   const call = register.mock.calls.find(([name]) => name === plugin);
   expect(call, `${plugin}'s bundle registered no plugin UI`).toBeDefined();
   const registration = call![1] as Registration;
@@ -57,7 +62,7 @@ function expectSoleFramedSection(plugin: string, sectionId: string): void {
   expect(Object.keys(registration.pages ?? {})).toEqual([]);
   expect(Object.keys(registration.settings ?? {})).toEqual([sectionId]);
   // The id the host compares against the manifest. An id that matches nothing fails no check at runtime.
-  expect(registration.ownsPageFrame).toEqual([sectionId]);
+  expect(registration.ownsPageFrame).toEqual(frame === 'plugin' ? [sectionId] : undefined);
   expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
   expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
 }
@@ -65,11 +70,22 @@ function expectSoleFramedSection(plugin: string, sectionId: string): void {
 describe('single-surface plugin workspace registration', () => {
   it('registers Automation as the sole page-framing Settings section', async () => {
     await import('../plugins/cronjob/web-src/index');
-    expectSoleFramedSection('cronjob', 'jobs');
+    expectSoleSection('cronjob', 'jobs', 'plugin');
   });
 
   it('registers Skills as the sole page-framing Settings section', async () => {
     await import('../plugins/skills/web-src/index');
-    expectSoleFramedSection('skills', 'skills');
+    expectSoleSection('skills', 'skills', 'plugin');
+  });
+
+  it('registers Chatbots as a Settings section the HOST frames', async () => {
+    await import('../plugins/chatbot/web-src/index');
+    // The chatbot admin surface is a section of Settings and nothing else: no nav entry, no page of its
+    // own, and no claim on the page frame — the host's masthead and settings document draw it, which is
+    // what makes it the same object as every core section rather than a register that resembles one.
+    expectSoleSection('chatbot', 'chatbots', 'host');
+    // It stays admin-only: the host gates the whole `/plugins/ui` listing on this flag, so moving the
+    // surface out of the nav did not widen who can reach it.
+    expect((manifestWeb('chatbot') as { adminOnly?: boolean }).adminOnly).toBe(true);
   });
 });

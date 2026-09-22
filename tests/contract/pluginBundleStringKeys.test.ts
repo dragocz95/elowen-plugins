@@ -47,7 +47,7 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
   // `s[`limit_${field}`]`. The field names come from `plugins/chatbot/src/limits.ts`, the same table the
   // server enforces the numbers from — one table, so the list below is the whole set it can produce.
   {
-    file: 'chatbot/web-src/BotDetail.tsx',
+    file: 'chatbot/web-src/LimitsModal.tsx',
     keys: [
       'limit_rateIpPerMinute', 'limit_rateChatbotPerMinute', 'limit_rateConversationPerMinute',
       'limit_dailyTurnLimit', 'limit_dailyTokenLimit', 'limit_dailyCostMicrousd',

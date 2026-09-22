@@ -47,24 +47,6 @@ export interface AccountToolRow {
   toggleable: boolean;
 }
 
-/** One row of the host's managed-selection list. Declared here because this bundle builds the rows it
- *  hands to {@link ChatbotComponents.ManageSelectionModal}, and the shape is the host's. */
-export interface ManageSelectionItem {
-  id: string;
-  label: string;
-  /** Grouping key; `''` pins the row above the grouped sections with no header of its own. */
-  group: string;
-  groupLabel?: string;
-  icon?: ReactNode;
-  badges?: { text: string; tone?: 'accent' | 'muted' }[];
-  /** In `readOnly` mode this is simply the row's description, shown on hover. */
-  disabledHint?: string;
-}
-
-type PageFilterField =
-  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
-  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
-
 /** The core translation catalog, narrowed the way every bundle that mounts a host affordance narrows it.
  *  Only host-generic sections are read here: `managePicker.manage` is the word on the button that opens a
  *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
@@ -102,9 +84,6 @@ interface ChatbotComponents {
     children?: ReactNode;
   } & Omit<ComponentProps<'button'>, 'children'>>;
   ConfirmDialog: AnyComponent;
-  ControlSurfaceDocument: ComponentType<{ children?: ReactNode; className?: string }>;
-  ControlSurfaceRegister: ComponentType<{ children?: ReactNode; className?: string }>;
-  ControlSurfaceState: ComponentType<{ children?: ReactNode; tone?: 'default' | 'danger'; className?: string }>;
   /** The register table. `columns` IS the template, so the row cells and the header row share one
    *  definition of the grid instead of each stating it. */
   DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; mobileColumns?: string; children?: ReactNode; className?: string }>;
@@ -137,19 +116,6 @@ interface ChatbotComponents {
   Input: ComponentType<ComponentProps<'input'>>;
   LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
   LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
-  /** The host's searchable, grouped list behind a {@link ChatbotComponents.SelectionSummary}. `readOnly`
-   *  is the display-only variant: the rows are information, so they carry no checkbox and the footer
-   *  offers Close — which is exactly what an account's tool access is on this surface, since the grants
-   *  themselves are owned by the Users screen. */
-  ManageSelectionModal: ComponentType<{
-    title: string;
-    subtitle?: string;
-    open: boolean;
-    onClose: () => void;
-    items: ManageSelectionItem[];
-    countLabel?: (count: number) => string;
-    readOnly: true;
-  }>;
   Modal: ComponentType<{
     title: string;
     onClose: () => void;
@@ -193,10 +159,23 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
+  /** The frame a plugin's settings section wears per surface: on a page the host's own settings masthead
+   *  above a settings document, and inside the Settings deck nothing at all, because the panel around it
+   *  already names the section. Taking it from the host is the whole reason this surface looks like the
+   *  rest of Settings rather than like a workspace of its own. */
+  PluginPageFrame: ComponentType<{
+    surface: 'page' | 'deck';
+    title?: string;
+    description?: string;
+    icon?: LucideIcon;
+    action?: ReactNode;
+    plugin?: string;
+    section?: string;
+    children?: ReactNode;
+  }>;
   /** The compact stand-in for a long list: a count line, a few sample chips and one button that opens the
    *  list. It is how the app states a managed selection everywhere — the account tool set on the Users
-   *  screen, a job's destination in cronjob — so the sections here that used to render every item inline
-   *  are this row plus one window. */
+   *  screen, a job's destination in cronjob — so the lists here are this row plus one window. */
   SelectionSummary: ComponentType<{
     countText: string;
     samples: { id?: string; label: string; icon?: ReactNode }[];
@@ -205,12 +184,7 @@ interface ChatbotComponents {
     manageLabel: string;
     manageAriaLabel?: string;
     variant?: 'default' | 'line';
-    /** The list behind the button is display-only, so the affordance is an eye rather than a gear. */
-    readOnly?: boolean;
   }>;
-  /** A stack of section cards rather than one bordered document: what every settings and account surface
-   *  in the app is, and therefore what one chatbot's configuration is. */
-  SettingsDocument: ComponentType<{ children?: ReactNode; className?: string }>;
   /** A records card: an accent-marked heading above a body of rows. The admin sections below are exactly
    *  that shape, which is why they are not rebuilt out of raw markup. */
   SettingsGroup: ComponentType<{
@@ -260,36 +234,29 @@ interface ChatbotComponents {
     ariaLabel?: string;
   }>;
   Toggle: ComponentType<{ checked: boolean; onChange(checked: boolean): void; label?: string; disabled?: boolean }>;
-  /** The host's scalar slider, which is how the panel's size and its corner radius are set. A number typed
-   *  into a box cannot show a customer what they are about to get; a slider that drives a live preview
-   *  can. */
+  /** The host's scalar slider. Every bounded number on this surface is set with one — the panel's size and
+   *  its corner radius, and every rate and ceiling a chatbot serves under — because a number typed into a
+   *  box says nothing about where it sits between its two bounds. */
   Slider: ComponentType<{
     value: number;
     onChange(value: number): void;
     min?: number;
     max?: number;
     step?: number;
+    disabled?: boolean;
     'aria-label'?: string;
+    'aria-valuetext'?: string;
     className?: string;
   }>;
-  /** The host's two-option switch, for light and dark. A dropdown for two choices makes the customer open a
-   *  list to discover what the other choice is. */
+  /** The host's small-set switch: light or dark, and the statistics window. A dropdown for two or three
+   *  choices makes the reader open a list to discover what the other choices are. */
   Segmented: ComponentType<{
     options: { value: string; label: string }[];
     value: string;
     onChange(value: string): void;
+    size?: 'sm' | 'md';
     className?: string;
     'aria-label'?: string;
-  }>;
-  WorkspaceMetric: ComponentType<{ label: string; value: ReactNode; icon?: LucideIcon }>;
-  WorkspaceShell: ComponentType<{
-    variant?: 'register' | 'deck' | 'single';
-    hero: Record<string, unknown>;
-    navigation?: { sections: { id: string; label: string; icon?: LucideIcon }[]; value: string; onChange: (id: string) => void; ariaLabel: string };
-    toolbar?: { search?: ReactNode; filters?: PageFilterField[]; actions?: ReactNode; children?: ReactNode };
-    embedded?: boolean;
-    children?: ReactNode;
-    className?: string;
   }>;
 }
 
@@ -304,14 +271,24 @@ export interface ChatbotRuntime {
   navigate(href: string): void;
 }
 
-type PluginPage = ComponentType<{ plugin: string; params: Record<string, string>; rest: string[]; surface: 'page' | 'deck' }>;
+/** A settings section of this plugin. `surface` is the ONE thing it branches on: `page` when the host
+ *  serves it at `/p/chatbot`, `deck` when it is mounted inside a settings deck that already named it. */
+export type ChatbotSettingsSection = ComponentType<{
+  plugin: string;
+  params: Record<string, string>;
+  rest: string[];
+  surface: 'page' | 'deck';
+}>;
 
 /** The two globals a plugin bundle meets the host through. Declared here rather than taken from the kit's
- *  `declare global`, because this bundle states its OWN registration shape (`pages` plus the API version it
- *  targets) and the compiler is what checks that the two agree. */
+ *  `declare global`, because this bundle states its OWN registration shape (its settings sections plus the
+ *  API version it targets) and the compiler is what checks that the two agree. */
 interface HostWindow {
   ElowenUiRuntime?: unknown;
-  __elowenRegisterPluginUi?(plugin: string, registration: { requiresApiVersion: number; pages: Record<string, PluginPage> }): void;
+  __elowenRegisterPluginUi?(plugin: string, registration: {
+    requiresApiVersion: number;
+    settings: Record<string, ChatbotSettingsSection>;
+  }): void;
 }
 
 export function runtime(): ChatbotRuntime {
@@ -320,8 +297,15 @@ export function runtime(): ChatbotRuntime {
   return value;
 }
 
-export function registerChatbotUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, pages });
+/** The chatbot admin surface is ONE settings section, exactly as `cronjob` and `skills` are.
+ *
+ *  It registers no page of its own: the host serves a plugin's sole settings section at `/p/chatbot`
+ *  itself, and it is deliberately NOT listed in `ownsPageFrame` — the frame, the masthead and the settings
+ *  document are the host's, which is the whole reason this surface reads like the rest of Settings. The
+ *  version must equal the manifest's `web.requiresApiVersion`; the host gates the load on the manifest's
+ *  copy and the mount on this one. */
+export function registerChatbotUi(settings: Record<string, ChatbotSettingsSection>): void {
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, settings });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
