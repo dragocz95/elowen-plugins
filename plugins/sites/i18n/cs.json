@@ -73,8 +73,6 @@
       "columnOwner": "Vlastník",
       "project": "Projekt",
       "noAddress": "Zatím bez adresy",
-      "previewTitle": "Náhled stránky",
-      "previewHint": "Snímek stránky pořízený přes její vlastní adresu. Instance ho obnoví, když zastará.",
       "previewPending": "Snímá se stránka…",
       "previewNone": "Zatím žádný snímek této stránky.",
       "previewFailed": "Poslední snímek se nepovedl",

@@ -161,9 +161,9 @@ describe('the Sites workspace', () => {
     // wherever no shell declares itself a container, which a browser confirmed is what happens.
     expect(register.parentElement?.className).toContain('@container');
     expect(register.className).not.toContain('@container');
-    // The standalone Publication column is withdrawn; the publication shape is a badge on the card.
+    // The standalone Publication column is withdrawn; the publication shape rides on the card's own plate.
     expect(screen.queryByRole('columnheader')).not.toBeInTheDocument();
-    expect(screen.getByText(strings.kindStatic)).toBeVisible();
+    expect(document.querySelector(`[data-site-plate]`)).not.toBeNull();
   });
 
   /** The plate is the card's signature band. It must carry the address — the fact a reader recognises a
@@ -439,14 +439,18 @@ describe('the Sites workspace', () => {
       return HttpResponse.json({ queued: true }, { status: 202 });
     }));
     mount();
-    const drawer = within(await openSite());
+    const detail = await openSite();
+    const drawer = within(detail);
 
-    expect(drawer.getByText(strings.previewTitle)).toBeVisible();
     expect(drawer.getByText(new RegExp(strings.previewCapturedAt.split('{time}')[0].trim()))).toBeVisible();
     // The drawer shows the same stored picture the card does, and it is decoration there too.
     const picture = document.querySelector(`[data-site-picture="${site.id}"]`);
     expect(picture).not.toBeNull();
     expect(picture).toHaveAttribute('alt', '');
+    // The picture LEADS the drawer, with no heading of its own: a reader opening a site sees the page
+    // itself before any of the words about it.
+    expect(picture!.compareDocumentPosition(drawer.getByText(site.title)) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
 
     fireEvent.click(drawer.getByRole('button', { name: strings.previewRefresh }));
     await waitFor(() => expect(refreshed).toEqual(['/api/plugins/sites/api/site/site-1/preview/refresh']));
@@ -485,7 +489,7 @@ describe('the Sites workspace', () => {
     })));
     mount();
     const drawer = within(await openSite());
-    expect(drawer.getByText(strings.previewTitle)).toBeVisible();
+    expect(document.querySelector(`[data-site-picture="${site.id}"]`)).not.toBeNull();
     expect(drawer.queryByRole('button', { name: strings.previewRefresh })).not.toBeInTheDocument();
   });
 });
