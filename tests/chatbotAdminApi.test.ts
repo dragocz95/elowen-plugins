@@ -100,7 +100,7 @@ describe('what the register offers to create a chatbot from', () => {
         { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
         { id: 13, username: 'skola-bot', name: 'Škola', avatar: '', isAdmin: false, type: 'chatbot' },
         { id: 20, username: 'patulka', name: 'Patricie', avatar: '', isAdmin: false, type: 'human' },
-        { id: 21, username: 'sabi', name: 'Sabina', avatar: '', isAdmin: false, type: null },
+        { id: 21, username: 'sabi', name: 'Sabina', avatar: '', isAdmin: false },
         { id: 1, username: 'boss', name: 'Šéf', avatar: '', isAdmin: true, type: 'human' },
       ],
     });
