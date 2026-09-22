@@ -52,9 +52,60 @@ export interface AccountToolRow {
  *  managed selection, and it belongs to the host that draws that button rather than to this plugin's copy. */
 type HostDictionary = Record<string, Record<string, string>>;
 
+/** One field of a plugin's own instance configuration, as the manifest declares it and the host's
+ *  config form renders it. Only the shape this bundle passes through is named here: the form reads the
+ *  whole record itself. */
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  type: string;
+  hint?: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: unknown;
+  options?: { value: string; label: string }[];
+  risk?: 'low' | 'medium' | 'high';
+}
+
+/** The host's own plugin detail, narrowed to what the config form reads. `i18n` carries the manifest's
+ *  own translations (`i18n/<lang>.json` `fields`), which is where this plugin's config labels are
+ *  localized: they are NOT page copy and must not be restated as bundle strings. */
+interface PluginDetail {
+  name: string;
+  config: Record<string, unknown>;
+  configSchema: PluginConfigField[];
+  secretsSet: string[];
+  revision?: number;
+  i18n?: Record<string, { fields?: Record<string, { label?: string; hint?: string; options?: Record<string, string> }> }>;
+}
+
+/** The draft the host's config form writes through: it owns the debounce, the save and the status, so
+ *  this bundle never writes plugin config itself. */
+interface PluginConfigDraft {
+  values: Record<string, unknown>;
+  setValue(key: string, value: unknown): void;
+  status: unknown;
+  retry?: () => void;
+  ready: boolean;
+}
+
+interface QueryResult<T> {
+  data?: T;
+  isLoading: boolean;
+  isError: boolean;
+  refetch(): unknown;
+}
+
 interface ChatbotHooks {
   /** This plugin's own page copy: its manifest's English fallback, with the active locale's overrides. */
   usePluginStrings(plugin: string): Record<string, string>;
+  /** This plugin's own instance configuration, read through the host's admin route. The shared-settings
+   *  section edits exactly this and nothing else: a second editor for the same record is a second thing
+   *  that can disagree with it. */
+  usePluginDetail(plugin: string): QueryResult<PluginDetail>;
+  usePluginConfigDraft(plugin: string, detail: Pick<PluginDetail, 'config' | 'configSchema'>): PluginConfigDraft;
   /** The app's own locale and dictionary. `locale` is what formats every number, price and timestamp on
    *  this surface in the reader's own locale; `t` supplies the host's words for the host's own controls. */
   useTranslation(): { locale: string; t: HostDictionary };
@@ -159,18 +210,58 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
-  /** The frame a plugin's settings section wears per surface: on a page the host's own settings masthead
-   *  above a settings document, and inside the Settings deck nothing at all, because the panel around it
-   *  already names the section. Taking it from the host is the whole reason this surface looks like the
-   *  rest of Settings rather than like a workspace of its own. */
-  PluginPageFrame: ComponentType<{
-    surface: 'page' | 'deck';
-    title?: string;
+  /** The page name, for the app masthead and the browser tab. It draws nothing of its own. */
+  ModuleHeader: ComponentType<{ title: string; icon?: LucideIcon; children?: ReactNode }>;
+  /** The canonical page shell. `deck` is the variant for a page whose sections are ADDRESSES read one at
+   *  a time, which is exactly what this page is.
+   *
+   *  `navigation` is the prop that will draw those sections as the secondary column beside the content and
+   *  as the phone's one scrollable line. It is declared here in the shape the host is being changed to
+   *  accept, and `SectionDeck.tsx` is the one place that mounts it — see that file for what this bundle
+   *  draws in the meantime. */
+  WorkspaceShell: ComponentType<{
+    variant?: 'register' | 'deck' | 'single';
+    hero?: {
+      eyebrow?: string;
+      title: string;
+      description?: string;
+      icon?: LucideIcon;
+      action?: ReactNode;
+      mascot?: boolean | 'idle' | 'error';
+    };
+    navigation?: {
+      sections: { id: string; label: string; icon: LucideIcon; description?: string; count?: number }[];
+      value: string;
+      onChange(id: string): void;
+      ariaLabel: string;
+    };
+    embedded?: boolean;
+    children?: ReactNode;
+    className?: string;
+  }>;
+  /** The document surface a set of settings cards sits on. */
+  SettingsDocument: ComponentType<{ children?: ReactNode; className?: string }>;
+  /** The host's own editor for a plugin's instance configuration: one row per manifest field, a slider
+   *  beside the box for every bounded number, and the host's debounce and save behind it. The shared
+   *  settings of this plugin ARE that record, so they are edited by this and never by a second form. */
+  PluginConfigEditor: ComponentType<{
+    name: string;
+    detail: Pick<PluginDetail, 'name' | 'configSchema' | 'secretsSet'>;
+    draft: PluginConfigDraft;
+    mode?: 'setup' | 'behavior' | 'advanced' | 'all';
+    fieldLabel(field: PluginConfigField): string;
+    fieldHint(field: PluginConfigField): string | undefined;
+    fieldOptions(field: PluginConfigField): { value: string; label: string }[];
+    riskText(risk: 'low' | 'medium' | 'high'): string;
+  }>;
+  /** The master/detail rail: a surface opened to READ one record. One conversation's transcript is
+   *  exactly that, so it is not a second window built out of raw markup. */
+  WorkspaceDetailRail: ComponentType<{
+    label: string;
     description?: string;
-    icon?: LucideIcon;
-    action?: ReactNode;
-    plugin?: string;
-    section?: string;
+    closeLabel: string;
+    onClose(): void;
+    scrim?: 'default' | 'soft';
     children?: ReactNode;
   }>;
   /** The compact stand-in for a long list: a count line, a few sample chips and one button that opens the
@@ -271,9 +362,8 @@ export interface ChatbotRuntime {
   navigate(href: string): void;
 }
 
-/** A settings section of this plugin. `surface` is the ONE thing it branches on: `page` when the host
- *  serves it at `/p/chatbot`, `deck` when it is mounted inside a settings deck that already named it. */
-export type ChatbotSettingsSection = ComponentType<{
+/** The plugin's own page, as the host mounts a registered route. */
+export type ChatbotPageComponent = ComponentType<{
   plugin: string;
   params: Record<string, string>;
   rest: string[];
@@ -287,7 +377,7 @@ interface HostWindow {
   ElowenUiRuntime?: unknown;
   __elowenRegisterPluginUi?(plugin: string, registration: {
     requiresApiVersion: number;
-    settings: Record<string, ChatbotSettingsSection>;
+    pages: Record<string, ChatbotPageComponent>;
   }): void;
 }
 
@@ -297,15 +387,14 @@ export function runtime(): ChatbotRuntime {
   return value;
 }
 
-/** The chatbot admin surface is ONE settings section, exactly as `cronjob` and `skills` are.
+/** The chatbot admin surface is ONE page of the main navigation, at the manifest's own `nav` route.
  *
- *  It registers no page of its own: the host serves a plugin's sole settings section at `/p/chatbot`
- *  itself, and it is deliberately NOT listed in `ownsPageFrame` — the frame, the masthead and the settings
- *  document are the host's, which is the whole reason this surface reads like the rest of Settings. The
+ *  It registers no settings section: everything this plugin configures — the chatbots themselves and the
+ *  one instance-wide record — is read and written inside that page, which carries its own sections. The
  *  version must equal the manifest's `web.requiresApiVersion`; the host gates the load on the manifest's
  *  copy and the mount on this one. */
-export function registerChatbotUi(settings: Record<string, ChatbotSettingsSection>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, settings });
+export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, pages });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

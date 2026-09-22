@@ -409,6 +409,40 @@ export function useSavePluginConfig() {
   });
 }
 
+/** The draft behind the host's plugin-config form, ported from the host's own hook down to what a plugin
+ *  bundle can observe through it: the stored record overlaid with what has been typed, ONE setter, and a
+ *  save that carries the whole record.
+ *
+ *  The debounce is deliberately not reproduced. A bundle only hands this to `PluginConfigEditor` and reads
+ *  `values`, so what a test has to be able to prove is that a control writes the draft and that the save
+ *  sends the schema's own keys; a timer here would make that assertion about fake timers instead. */
+export function usePluginConfigDraft(
+  name: string,
+  detail: { config: Record<string, unknown>; configSchema: { key: string; default?: unknown }[] },
+) {
+  const save = useSavePluginConfig();
+  const [edits, setEdits] = useState<Record<string, unknown>>({});
+  // A declared default is what the field holds until the instance stores something; a typed value wins
+  // over both until it is saved.
+  const defaults = Object.fromEntries(
+    detail.configSchema.filter((field) => field.default !== undefined).map((field) => [field.key, field.default]),
+  );
+  const values: Record<string, unknown> = { ...defaults, ...detail.config, ...edits };
+  const setValue = (key: string, value: unknown) => {
+    setEdits((current) => ({ ...current, [key]: value }));
+    save.mutate({ name, values: { ...values, [key]: value } });
+  };
+  return {
+    values,
+    setValue,
+    commitValue: async (key: string, value: unknown) => { setValue(key, value); },
+    status: save.isError ? 'error' : save.isPending ? 'saving' : 'idle',
+    retry: () => save.reset(),
+    flush: () => undefined,
+    ready: true,
+  };
+}
+
 // ── layout / selection behaviour ─────────────────────────────────────────────────────────────────────
 
 /** A `useState` mirrored into localStorage and rehydrated on mount, validated on read against a fixed

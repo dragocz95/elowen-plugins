@@ -752,7 +752,15 @@ export function WorkspaceMetric({ label, value, icon: Icon }: { label: string; v
 
 /** The detail drawer: portaled to <body>, `role="dialog"` and named by the entry it edits. The editor
  *  form lives inside it, which is why the tests scope their form queries to `findByRole('dialog')`. */
-export function WorkspaceDetailRail({ label, closeLabel, onClose, children }: { label: string; closeLabel: string; onClose: () => void; children: ReactNode }) {
+export function WorkspaceDetailRail({ label, description, closeLabel, onClose, children }: {
+  label: string;
+  /** The one line that identifies the record under its name. The real rail hands it to `Modal`, which
+   *  draws it in the header it already owns. */
+  description?: string;
+  closeLabel: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   useEffect(() => setPortal(document.body), []);
   const content = (
@@ -761,6 +769,7 @@ export function WorkspaceDetailRail({ label, closeLabel, onClose, children }: { 
       <aside role="dialog" aria-modal="true" tabIndex={-1} className="workspace-detail-rail" aria-label={label}>
         <header className="workspace-detail-rail__header">
           <span>{label}</span>
+          {description ? <span className="workspace-detail-rail__description">{description}</span> : null}
           <button type="button" onClick={onClose} aria-label={closeLabel}>×</button>
         </header>
         <div className="workspace-detail-rail__body">{children}</div>
@@ -2414,6 +2423,84 @@ export function PluginSection({ surface, title, description, icon, action, actio
         {children}
       </SettingsGroup>
     </PluginPageFrame>
+  );
+}
+
+/** The host's editor for a plugin's own instance configuration, ported from
+ *  `web/modules/settings/PluginConfigEditor.tsx` down to what a plugin bundle can observe through it.
+ *
+ *  What matters here is the CONTRACT a bundle depends on: the schema is the manifest's, the copy comes
+ *  from the `fieldLabel`/`fieldHint` the caller supplies (a plugin localizes its own fields), a `section`
+ *  field opens a named group, and a BOUNDED NUMBER is one value behind a slider and a box — which is the
+ *  reason a plugin hands its numbers to this form instead of building a second one. Writes go through
+ *  `draft.setValue`, so nothing here knows how a save is made. */
+export function PluginConfigEditor({ detail, draft, fieldLabel, fieldHint, fieldOptions }: {
+  name: string;
+  detail: { name: string; configSchema: { key: string; label: string; type: string; min?: number; max?: number; step?: number; hint?: string; options?: { value: string; label: string }[] }[]; secretsSet: string[] };
+  draft: { values: Record<string, unknown>; setValue: (key: string, value: unknown) => void };
+  mode?: string;
+  fieldLabel: (field: { key: string; label: string }) => string;
+  fieldHint: (field: { key: string; label: string }) => string | undefined;
+  fieldOptions: (field: { key: string; label: string }) => { value: string; label: string }[];
+  riskText: (risk: 'low' | 'medium' | 'high') => string;
+}) {
+  const groups: { section: { key: string; label: string; type: string; hint?: string } | null; fields: typeof detail.configSchema }[] = [];
+  for (const field of detail.configSchema) {
+    if (field.type === 'section') groups.push({ section: field, fields: [] });
+    else {
+      if (groups.length === 0) groups.push({ section: null, fields: [] });
+      groups[groups.length - 1]!.fields.push(field);
+    }
+  }
+  return (
+    <>
+      {groups.map((group, index) => (
+        <SettingsGroup
+          key={group.section?.key ?? `group-${index}`}
+          title={group.section ? fieldLabel(group.section) : undefined}
+          description={group.section ? fieldHint(group.section) : undefined}
+        >
+          {group.fields.map((field) => {
+            const label = fieldLabel(field);
+            const raw = draft.values[field.key];
+            const bounded = field.type === 'number' && typeof field.min === 'number' && typeof field.max === 'number';
+            const numeric = typeof raw === 'number' ? raw : Number(raw ?? field.min ?? 0);
+            return (
+              <SettingsRow
+                key={field.key}
+                label={label}
+                description={fieldHint(field)}
+                trailingLayout={bounded ? 'stack' : 'inline'}
+                status={field.type === 'select' ? (
+                  <SelectMenu
+                    label={label}
+                    value={String(raw ?? '')}
+                    onChange={(value) => draft.setValue(field.key, value)}
+                    options={fieldOptions(field)}
+                  />
+                ) : (
+                  <Input
+                    aria-label={label}
+                    value={raw === undefined || raw === null ? '' : String(raw)}
+                    onChange={(event) => draft.setValue(field.key, field.type === 'number' ? Number(event.target.value) : event.target.value)}
+                  />
+                )}
+                control={bounded ? (
+                  <Slider
+                    aria-label={label}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    value={numeric}
+                    onChange={(value: number) => draft.setValue(field.key, value)}
+                  />
+                ) : undefined}
+              />
+            );
+          })}
+        </SettingsGroup>
+      ))}
+    </>
   );
 }
 

@@ -85,6 +85,9 @@ export function ensurePluginUiRuntime(): void {
       // API 17's canonical month/date grid — real in core, ahead of this repo's pinned elowen.
       Calendar: C.Calendar,
       PluginPageFrame: C.PluginPageFrame, PluginPageHeader: C.PluginPageHeader, PluginSection: C.PluginSection,
+      // The host's own editor for a plugin's instance configuration, so a bundle that has instance-wide
+      // settings hands them to this form instead of shipping a second one.
+      PluginConfigEditor: C.PluginConfigEditor,
     },
     // The data hooks keep the react-query cache in the HOST, so a plugin panel and the app share one
     // cache and one invalidation path. A bundle that imported the library itself would get a second
@@ -113,6 +116,7 @@ export function ensurePluginUiRuntime(): void {
       useActivity: H.useActivity, useModelUsage: H.useModelUsage, useUsageByDay: H.useUsageByDay,
       useUsageByOrigin: H.useUsageByOrigin, useResetUsage: H.useResetUsage,
       usePluginDetail: H.usePluginDetail, useSavePluginConfig: H.useSavePluginConfig,
+      usePluginConfigDraft: H.usePluginConfigDraft,
       // Batched queries against the HOST's react-query client — a bundle that imported the library
       // itself would get a second QueryClient context and read an empty cache.
       useQuery: H.useQuery, useMutation: H.useMutation, useInfiniteQuery: H.useInfiniteQuery,

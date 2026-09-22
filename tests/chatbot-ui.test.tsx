@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
-import { ChatbotSettings } from '../plugins/chatbot/web-src/ChatbotSettings';
+import { ChatbotPage } from '../plugins/chatbot/web-src/ChatbotPage';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
 import { limitDraftOf, readLimitDraft, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
@@ -12,13 +12,16 @@ import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } fr
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 
-/** The chatbot admin surface — ONE section of Settings — rendered the way it renders in production: inside
- *  the host's own runtime fixture, reaching EVERY component and every string through
- *  `window.ElowenUiRuntime`. What this cannot prove is layout — that is a browser's job and is reported as
- *  unverified — but it does prove that the section mounts against the published component contract inside
- *  the host's own settings frame, reads only strings its manifest declares, renders its loading, error,
- *  empty and populated states, scopes conversations and statistics to ONE chatbot, and writes back exactly
- *  the grants, rules and numbers it showed. */
+/** The chatbot page — the plugin's own entry in the main navigation, a deck of four sections — rendered
+ *  the way it renders in production: inside the host's own runtime fixture, reaching EVERY component and
+ *  every string through `window.ElowenUiRuntime`.
+ *
+ *  What this cannot prove is layout: whether the sections read as a column beside the content and as one
+ *  scrollable line on a phone is a browser's judgement and is reported as unverified. What it does prove
+ *  is that every section is reachable and mounts against the published component contract, that the page
+ *  reads only strings its manifest declares, that its loading, error, empty and populated states are all
+ *  drawn, that conversations and statistics are scoped to ONE chatbot, and that the page writes back
+ *  exactly the grants, rules and numbers it showed. */
 
 ensurePluginUiRuntime();
 
@@ -108,10 +111,33 @@ const asked: {
   usage: string[];
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
-} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [] };
+  configPatch: Record<string, unknown>[];
+} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [] };
 
 setDefaults(
-  http.get('/api/plugins/ui', () => HttpResponse.json([{ name: 'chatbot', url: '/plugins/chatbot/web/index.js', apiVersion: 12, nav: [], settings: [], strings }])),
+  http.get('/api/plugins/ui', () => HttpResponse.json([{
+    name: 'chatbot',
+    url: '/plugins/chatbot/web/index.js',
+    apiVersion: 12,
+    nav: [{ label: 'Chatbots', icon: 'MessagesSquare', route: '' }],
+    settings: [],
+    strings,
+  }])),
+  // The plugin's OWN instance configuration, as the host's admin route answers it: the manifest's schema,
+  // what is stored against it, and the manifest's own translations for its fields.
+  http.get('/api/plugins/chatbot', () => HttpResponse.json({
+    name: 'chatbot',
+    config: {},
+    configSchema: manifest.configSchema,
+    secretsSet: [],
+    // The manifest's OWN translations, which is where a plugin's config labels are localized. The value
+    // here is deliberately not the manifest's English label, so a test can tell the two apart.
+    i18n: { en: { fields: { visitorTokenTtlDays: { label: 'Visitor token lifetime, localized' } } } },
+  })),
+  http.patch('/api/plugins/chatbot/config', async ({ request }) => {
+    asked.configPatch.push((await request.json() as { values: Record<string, unknown> }).values);
+    return HttpResponse.json({ ok: true });
+  }),
   http.get('/api/auth/me', () => HttpResponse.json({ user: { id: 1, username: 'filip', is_admin: true } })),
   http.get('/api/brain/models', () => HttpResponse.json([])),
   http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody())),
@@ -224,27 +250,30 @@ afterEach(() => {
   asked.usage = [];
   asked.userPatch = [];
   asked.botPatch = [];
+  asked.configPatch = [];
 });
 afterAll(() => close());
 
-/** Rendered the way the host mounts it: `surface="deck"`, inside the plugin's detail workspace. The
- *  manifest places this section in Settings → Plugins, so the deck is the ONLY surface it is ever drawn
- *  on, and a test that rendered it as a page would be testing a frame production never gives it. */
-function renderSection() {
+function renderPage() {
   const { wrapper: Wrapper } = createWrapper();
-  return render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="deck" /></ToastProvider></Wrapper>);
+  return render(<Wrapper><ToastProvider><ChatbotPage plugin="chatbot" params={{}} rest={[]} surface="page" /></ToastProvider></Wrapper>);
 }
 
-/** Wait until the section's own copy has arrived. The plugin's strings come from a listing query, so the
+/** Wait until the page's own copy has arrived. The plugin's strings come from a listing query, so the
  *  first paint renders every label empty and React then REUSES those nodes with text — a control queried
- *  before that lands is a node whose events reach nothing. Awaiting the creation button by its plugin-owned
- *  name (it is in the card header in every state, including while the register is loading or failed) is
- *  what makes a test that touches a control honest. */
+ *  before that lands is a node whose events reach nothing. */
 const settled = () => screen.findAllByRole('button', { name: strings.newBot! });
 
-/** The window on top. The surface is one card whose rows open a drawer, and the drawer's own rows open
- *  further windows, so "the dialog" is always the last one mounted — every overlay the host draws is
- *  portaled to the body in mount order. */
+/** Move to a section the way a reader does. The sections are drawn TWICE — the column beside the content
+ *  and the phone's scrollable line — because which of the two is visible is a viewport's decision, made in
+ *  CSS. Both carry the same destinations, so a test clicks the first and asserts on both. */
+const openSection = async (label: string): Promise<void> => {
+  fireEvent.click(screen.getAllByRole('button', { name: label })[0]!);
+  await waitFor(() => expect(screen.getAllByRole('button', { name: label })[0]!).toHaveAttribute('aria-current', 'page'));
+};
+
+/** The window on top. A drawer's own rows open further windows, so "the dialog" is always the last one
+ *  mounted — every overlay the host draws is portaled to the body in mount order. */
 const top = (): HTMLElement => {
   const dialogs = screen.getAllByRole('dialog');
   return dialogs[dialogs.length - 1]!;
@@ -265,35 +294,66 @@ const openWindow = async (label: string): Promise<HTMLElement> => {
   return top();
 };
 
-describe('the chatbot settings section', () => {
-  it('fills the panel it is given, one row per chatbot, and draws no header of its own', async () => {
-    renderSection();
+describe('the chatbots page', () => {
+  it('offers its four sections in both navigations, with the register open first', async () => {
+    renderPage();
+    await settled();
+    // The page names itself, and every section is a destination on screen rather than an entry hidden
+    // behind a menu: the column has them and so does the phone's line, which is why each is found twice.
+    expect(screen.getByRole('heading', { name: strings.title! })).toBeInTheDocument();
+    for (const label of [strings.sectionBots!, strings.sectionConversations!, strings.sectionStatistics!, strings.sectionShared!]) {
+      expect(screen.getAllByRole('button', { name: label })).toHaveLength(2);
+    }
+    // Exactly one destination is marked, in each of the two navigations, and it is the register.
+    const current = screen.getAllByRole('button', { name: strings.sectionBots! });
+    expect(current.every((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
+    expect(screen.getAllByRole('button', { name: strings.sectionConversations! }).some((b) => b.getAttribute('aria-current') === 'page')).toBe(false);
+    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
+  });
+
+  it('shows ONE section at a time', async () => {
+    renderPage();
+    await settled();
+    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
+
+    await openSection(strings.sectionShared!);
+    // The register is gone with its section, not merely scrolled past: a deck reads one section at a time.
+    await waitFor(() => expect(screen.queryByRole('button', { name: strings.openBot!.replace('{name}', 'Městský úřad') })).not.toBeInTheDocument());
+    expect(screen.getByText(strings.sharedRequirementsTitle!)).toBeInTheDocument();
+
+    await openSection(strings.sectionBots!);
+    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
+  });
+});
+
+describe('the chatbots section', () => {
+  it('lists one row per chatbot and narrows them from the card\'s own search', async () => {
+    renderPage();
     await settled();
     expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
     expect(screen.getByText('Škola')).toBeInTheDocument();
     expect(screen.getAllByText(strings.statusAttention!).length).toBeGreaterThan(0);
-    // The workspace tab around this panel already names the section — from the manifest entry, the one
-    // place that word lives — so nothing here repeats it as a heading. A second title is exactly what
-    // `surface="deck"` exists to prevent.
-    expect(screen.queryByRole('heading', { name: manifest.web.settings[0]!.label })).not.toBeInTheDocument();
-    // No workspace of its own: no tab strip, and nothing of one chatbot's configuration until a row is
-    // opened.
-    expect(screen.queryAllByRole('radio')).toHaveLength(0);
-    expect(screen.queryByText(strings.embedTitle!)).not.toBeInTheDocument();
-    expect(screen.queryByText(strings.botsEmptyTitle!)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.botsSearch! }), { target: { value: 'Škola' } });
+    await waitFor(() => expect(screen.queryByText('Městský úřad')).not.toBeInTheDocument());
+    expect(screen.getByText('Škola')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.botsSearch! }), { target: { value: 'nic' } });
+    expect(await screen.findByText(strings.botsNoResults!)).toBeInTheDocument();
   });
 
   it('shows what an administrator has to fix, in the drawer of the chatbot it is wrong about', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Škola');
     const drawer = await openBot('Škola');
     expect(within(drawer).getByText(strings.detailProjectNone!)).toBeInTheDocument();
     expect(within(drawer).getByText(strings.accountNotChatbot!)).toBeInTheDocument();
   });
 
   it('warns that a needed tool is missing instead of listing the account\'s whole tool set', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     // The working chatbot reaches the tool its turns need, so nothing is said about tools at all — the
     // grants belong to the Users screen and a read-only copy of them here would only repeat it.
     const good = await openBot('Městský úřad');
@@ -306,19 +366,24 @@ describe('the chatbot settings section', () => {
     expect(await within(bad).findByText(strings.toolsMissing!.replace('{names}', REQUIRED_TOOL))).toBeInTheDocument();
   });
 
-  it('narrows the register from the card\'s own search', async () => {
-    renderSection();
+  it('keeps what a chatbot DID out of its drawer', async () => {
+    renderPage();
     await settled();
-    fireEvent.change(screen.getByRole('searchbox', { name: strings.botsSearch! }), { target: { value: 'Škola' } });
-    await waitFor(() => expect(screen.queryByText('Městský úřad')).not.toBeInTheDocument());
-    expect(screen.getByText('Škola')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('searchbox', { name: strings.botsSearch! }), { target: { value: 'nic' } });
-    expect(await screen.findByText(strings.botsNoResults!)).toBeInTheDocument();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+    // Conversations and statistics are sections of the page, each with a picker over the same register,
+    // so the drawer offers no second way into them.
+    expect(within(drawer).queryByRole('button', { name: strings.sectionConversations! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('button', { name: strings.sectionStatistics! })).not.toBeInTheDocument();
+    // What it does carry is this chatbot's own configuration.
+    expect(within(drawer).getByPlaceholderText(strings.promptPlaceholder!)).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: strings.limitsEdit! })).toBeInTheDocument();
   });
 
   it('saves the whole row on an explicit submit, and disables it only after a confirmation', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
 
     const prompt = within(drawer).getByPlaceholderText(strings.promptPlaceholder!) as HTMLTextAreaElement;
@@ -334,13 +399,13 @@ describe('the chatbot settings section', () => {
     const confirm = top();
     expect(within(confirm).getByText(strings.disableTitle!)).toBeInTheDocument();
     fireEvent.click(within(confirm).getByRole('button', { name: strings.disableConfirm! }));
-    // The row comes back disabled, so the drawer offers the opposite action.
     await waitFor(() => expect(within(top()).getByRole('button', { name: strings.enableAction! })).toBeInTheDocument());
   });
 
   it('asks before closing a drawer that holds unsaved changes', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
     fireEvent.change(within(drawer).getByPlaceholderText(strings.promptPlaceholder!), { target: { value: 'Rozepsáno.' } });
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
@@ -353,8 +418,9 @@ describe('the chatbot settings section', () => {
   });
 
   it('states the sensitive-data mode as unavailable instead of offering a switch it would refuse', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
     expect(within(drawer).getByText(strings.sensitiveTitle!)).toBeInTheDocument();
     expect(within(drawer).getByText(strings.sensitiveUnavailable!)).toBeInTheDocument();
@@ -362,17 +428,11 @@ describe('the chatbot settings section', () => {
     // option somebody can try to turn on.
     expect(within(drawer).queryByRole('switch', { name: strings.sensitiveTitle! })).not.toBeInTheDocument();
     expect(within(drawer).queryByRole('checkbox', { name: strings.sensitiveTitle! })).not.toBeInTheDocument();
-    // WHY it is refused is carried as the row's own help, the way every other explanation on this surface
-    // is. The host reveals that on hover or focus, so the words are not in the document until then: what a
-    // test can honestly check is that the mark is offered and that no second copy of the explanation was
-    // left lying on the drawer as a paragraph.
-    expect(within(drawer).getAllByRole('button', { name: 'Help' }).length).toBeGreaterThan(0);
-    expect(within(drawer).queryByText(strings.sensitiveBody!)).not.toBeInTheDocument();
   });
 
   it('reports a failed load with a retry instead of an empty register', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
-    renderSection();
+    renderPage();
     await settled();
     // The retry action is the HOST's, labelled from its own dictionary — not the plugin's copy.
     await waitFor(() => expect(screen.getByText(strings.botsLoadError!, { exact: false })).toBeInTheDocument());
@@ -381,23 +441,22 @@ describe('the chatbot settings section', () => {
 
   it('offers creation when there is nothing registered yet, and lists what it created', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
-    renderSection();
+    renderPage();
     await settled();
     expect(await screen.findByText(strings.botsEmptyTitle!)).toBeInTheDocument();
-    // ONE way in, in the card's header, where it also is when the register is full: the empty state says
-    // what is missing and does not offer a second copy of the same button.
+    // ONE way in, in the card's header, where it also is when the register is full.
     expect(screen.getAllByRole('button', { name: strings.newBot! })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: strings.newBot! }));
     const dialog = top();
     expect(within(dialog).getByText(strings.createTitle!)).toBeInTheDocument();
-    // One managed Project is on offer and it is preselected, so the submit is reachable straight away.
     expect(within(dialog).getByRole('button', { name: strings.createSubmit! })).toBeEnabled();
   });
 
   it('grants a new chatbot account this plugin and the tools its turns need, keeping its other grants', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText(strings.botsEmptyTitle!);
     fireEvent.click(screen.getByRole('button', { name: strings.newBot! }));
     const dialog = top();
     // A fresh account: the dialog creates it rather than reusing one of the candidates.
@@ -407,8 +466,7 @@ describe('the chatbot settings section', () => {
 
     await waitFor(() => expect(asked.userPatch).toHaveLength(1));
     // The patch replaces each list wholesale, so it carries what the account already had plus this plugin
-    // and the tool the plugin's own admin route named — an account that reaches other plugins must not lose
-    // them by becoming a chatbot.
+    // and the tool the plugin's own admin route named.
     expect(asked.userPatch[0]).toEqual({
       granted_plugins: ['stats', 'chatbot'],
       allowed_tools: ['MemorySearch', REQUIRED_TOOL],
@@ -420,11 +478,16 @@ describe('the chatbot settings section', () => {
 });
 
 describe('one chatbot\'s limits', () => {
-  it('sets every limit with a slider and a box that are one value', async () => {
-    renderSection();
+  const openLimits = async (name: string) => {
+    renderPage();
     await settled();
-    await openBot('Městský úřad');
-    const limits = await openWindow(strings.limitsEdit!);
+    await screen.findByText(name);
+    await openBot(name);
+    return await openWindow(strings.limitsEdit!);
+  };
+
+  it('sets every limit with a slider and a box that are one value', async () => {
+    const limits = await openLimits('Městský úřad');
 
     const box = within(limits).getByRole('textbox', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
     const slider = within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
@@ -446,122 +509,127 @@ describe('one chatbot\'s limits', () => {
   });
 
   it('will not enable a chatbot whose numbers are not all decided, and names the ones missing', async () => {
-    renderSection();
-    await settled();
     // The broken chatbot is the draft with no Project, so its blockers already keep it from being enabled.
     // What this checks is the LIMIT half: clearing a mandatory number disables the action and says which.
-    const drawer = await openBot('Škola');
-    const limits = await openWindow(strings.limitsEdit!);
+    const limits = await openLimits('Škola');
     fireEvent.change(within(limits).getByRole('textbox', { name: strings.limit_dailyTurnLimit! }), { target: { value: '' } });
     expect(await within(top()).findByText(strings.limitsMissing!.replace('{fields}', strings.limit_dailyTurnLimit!))).toBeInTheDocument();
 
     fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
-    // Back in the drawer: the state is marked and the action that would be refused is not offered.
-    expect(within(drawer).getByRole('button', { name: strings.enableAction! })).toBeDisabled();
+    expect(within(top()).getByRole('button', { name: strings.enableAction! })).toBeDisabled();
   });
 
   it('reports a limit the server would refuse, without pretending it was stored', async () => {
-    renderSection();
-    await settled();
-    const drawer = await openBot('Městský úřad');
-    const limits = await openWindow(strings.limitsEdit!);
+    const limits = await openLimits('Městský úřad');
     fireEvent.change(within(limits).getByRole('textbox', { name: strings.limit_maxActionsPerTurn! }), { target: { value: '0' } });
     expect(within(top()).getByText(`${strings.limit_maxActionsPerTurn}: ${strings.limitsRange!.replace('{min}', '1').replace('{max}', '20')}`)).toBeInTheDocument();
 
     fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
-    expect(within(drawer).getByRole('button', { name: strings.saveAction! })).toBeDisabled();
+    expect(within(top()).getByRole('button', { name: strings.saveAction! })).toBeDisabled();
   });
 });
 
-describe('one chatbot\'s conversations', () => {
-  it('lists them, opens one in the same window, and shows what was said', async () => {
-    renderSection();
+describe('the conversations section', () => {
+  const openConversations = async () => {
+    renderPage();
     await settled();
-    await openBot('Městský úřad');
-    const conversations = await openWindow(strings.conversationsTab!);
+    await screen.findByText('Městský úřad');
+    await openSection(strings.sectionConversations!);
+  };
 
-    expect(await within(conversations).findByText('visitor-ured')).toBeInTheDocument();
-    // The request named the chatbot whose drawer this was opened from.
+  it('reads one chatbot at a time, and switches with the picker', async () => {
+    await openConversations();
+    expect(await screen.findByText('visitor-ured')).toBeInTheDocument();
+    // The first chatbot of the register until somebody says otherwise, and the request named it.
     expect(asked.conversations).toEqual([bot.chatbotUserId]);
 
-    fireEvent.click(within(conversations).getByRole('button', { name: strings.openConversation!.replace('{visitor}', 'visitor-ured') }));
-    // One window, two views: the transcript REPLACES the list rather than stacking a third overlay.
-    expect(screen.getAllByRole('dialog')).toHaveLength(2);
-    expect(await within(top()).findByText('Dobrý den, kdy máte otevřeno?')).toBeInTheDocument();
-    expect(within(top()).getByText('V pondělí od osmi.')).toBeInTheDocument();
-    // A turn that produced no answer says so rather than rendering an empty answer.
-    expect(within(top()).getByText(strings.transcriptNoReply!)).toBeInTheDocument();
-    expect(asked.conversation).toEqual(['visitor-ured']);
-
-    fireEvent.click(within(top()).getByRole('button', { name: 'Back' }));
-    expect(await within(top()).findByText('visitor-ured')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
+    expect(await screen.findByText('visitor-skola')).toBeInTheDocument();
+    // Nothing of the previous chatbot is left under the new one's name.
+    expect(screen.queryByText('visitor-ured')).not.toBeInTheDocument();
+    expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
   });
 
-  it('never shows another chatbot\'s conversations under this chatbot\'s heading', async () => {
-    renderSection();
-    await settled();
-    await openBot('Gymnázium');
-    const conversations = await openWindow(strings.conversationsTab!);
+  it('opens one conversation in the host\'s inspection rail and shows what was said', async () => {
+    await openConversations();
+    fireEvent.click(await screen.findByRole('button', { name: strings.openConversation!.replace('{visitor}', 'visitor-ured') }));
 
-    expect(await within(conversations).findByText('visitor-skola')).toBeInTheDocument();
-    expect(within(conversations).queryByText('visitor-ured')).not.toBeInTheDocument();
-    expect(asked.conversations).toEqual([second.chatbotUserId]);
+    const rail = await screen.findByRole('dialog');
+    expect(await within(rail).findByText('Dobrý den, kdy máte otevřeno?')).toBeInTheDocument();
+    expect(within(rail).getByText('V pondělí od osmi.')).toBeInTheDocument();
+    // A turn that produced no answer says so rather than rendering an empty answer.
+    expect(within(rail).getByText(strings.transcriptNoReply!)).toBeInTheDocument();
+    expect(asked.conversation).toEqual(['visitor-ured']);
+
+    fireEvent.click(within(rail).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
+    // The register it was opened from is still there, unchanged.
+    expect(screen.getByText('visitor-ured')).toBeInTheDocument();
   });
 
   it('says the register is empty instead of rendering an empty table', async () => {
     use(http.get('/api/plugins/chatbot/api/conversations', () => HttpResponse.json({ conversations: [], total: 0, limit: 25, offset: 0 })));
-    renderSection();
-    await settled();
-    await openBot('Městský úřad');
-    const conversations = await openWindow(strings.conversationsTab!);
-    expect(await within(conversations).findByText(strings.conversationsEmptyTitle!)).toBeInTheDocument();
+    await openConversations();
+    expect(await screen.findByText(strings.conversationsEmptyTitle!)).toBeInTheDocument();
   });
 
   it('reports a failed read with the retry the host owns', async () => {
     use(http.get('/api/plugins/chatbot/api/conversations', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
-    renderSection();
+    await openConversations();
+    expect(await screen.findByText(strings.conversationsLoadError!, { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('says there is nothing to read when no chatbot is registered', async () => {
+    use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
+    renderPage();
     await settled();
-    await openBot('Městský úřad');
-    const conversations = await openWindow(strings.conversationsTab!);
-    expect(await within(conversations).findByText(strings.conversationsLoadError!, { exact: false })).toBeInTheDocument();
-    expect(within(conversations).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    await screen.findByText(strings.botsEmptyTitle!);
+    await openSection(strings.sectionConversations!);
+    // A picker over nothing is not offered at all: the section says what has to happen first.
+    expect(await screen.findByText(strings.pickerNoBots!)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: strings.pickerLabel! })).not.toBeInTheDocument();
   });
 });
 
-describe('one chatbot\'s statistics', () => {
-  it('is a window, a chart and one line of spend', async () => {
-    renderSection();
+describe('the statistics section', () => {
+  const openStats = async () => {
+    renderPage();
     await settled();
-    await openBot('Městský úřad');
-    const stats = await openWindow(strings.statsTitle!);
+    await screen.findByText('Městský úřad');
+    await openSection(strings.sectionStatistics!);
+  };
+
+  it('is a chatbot, a window, a chart and one line of spend', async () => {
+    await openStats();
 
     // Three windows, all of them visible: a list would hide two of the three choices.
-    expect(within(stats).getByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '30') })).toBeChecked();
-    await waitFor(() => expect(within(top()).getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
-    expect(within(top()).getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '30') })).toBeChecked();
+    await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
+    expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
     expect(asked.stats).toEqual([bot.chatbotUserId]);
 
     // The spend is ONE line, from the instance's rollup for this account, over the same window.
-    expect(within(top()).getByText(strings.spendTitle!)).toBeInTheDocument();
-    expect(await within(top()).findByText('9 turns · 1,234 tokens · $12.50')).toBeInTheDocument();
+    expect(screen.getByText(strings.spendTitle!)).toBeInTheDocument();
+    expect(await screen.findByText('9 turns · 1,234 tokens · $12.50')).toBeInTheDocument();
     const [from, to] = asked.usage[0]!.split('|');
     expect(new Date(from!).getTime()).toBeLessThan(new Date(to!).getTime());
 
-    // The counters the chart already draws are not restated beside it.
-    expect(within(top()).queryByText(strings.statsEmptyTitle!)).not.toBeInTheDocument();
+    // Another window is another read, over a range the reader chose.
+    fireEvent.click(screen.getByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '7') }));
+    await waitFor(() => expect(asked.stats).toHaveLength(2));
   });
 
-  it('scopes the chart and the spend to the chatbot whose drawer it was opened from', async () => {
-    renderSection();
-    await settled();
-    await openBot('Gymnázium');
-    const stats = await openWindow(strings.statsTitle!);
+  it('scopes the chart and the spend to the chatbot the picker names', async () => {
+    await openStats();
+    await waitFor(() => expect(asked.stats).toEqual([bot.chatbotUserId]));
 
-    await waitFor(() => expect(asked.stats).toEqual([second.chatbotUserId]));
+    fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
+    await waitFor(() => expect(asked.stats).toEqual([bot.chatbotUserId, second.chatbotUserId]));
     // The second chatbot has no spend row of its own: it says so rather than showing a confident zero.
-    expect(await within(stats).findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
+    expect(await screen.findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
   });
 
   it('says there were no turns instead of drawing an empty chart', async () => {
@@ -573,28 +641,82 @@ describe('one chatbot\'s statistics', () => {
       totals: { turns: 0, done: 0, errors: 0, queued: 0, running: 0 },
       queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
     })));
-    renderSection();
-    await settled();
-    await openBot('Městský úřad');
-    const stats = await openWindow(strings.statsTitle!);
-    expect(await within(stats).findByText(strings.statsEmptyTitle!)).toBeInTheDocument();
+    await openStats();
+    expect(await screen.findByText(strings.statsEmptyTitle!)).toBeInTheDocument();
   });
 
   it('reports a failed counters read with the retry the host owns', async () => {
     use(http.get('/api/plugins/chatbot/api/stats', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
-    renderSection();
+    await openStats();
+    expect(await screen.findByText(strings.statsLoadError!, { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});
+
+describe('the shared settings section', () => {
+  const openShared = async () => {
+    renderPage();
     await settled();
-    await openBot('Městský úřad');
-    const stats = await openWindow(strings.statsTitle!);
-    expect(await within(stats).findByText(strings.statsLoadError!, { exact: false })).toBeInTheDocument();
-    expect(within(stats).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    await screen.findByText('Městský úřad');
+    await openSection(strings.sectionShared!);
+  };
+
+  /** The manifest's one instance-wide field, read from the manifest itself so this test cannot drift from
+   *  what the plugin actually declares. */
+  const field = manifest.configSchema.find((entry) => entry.key === 'visitorTokenTtlDays')!;
+
+  it('edits the plugin\'s own configuration through the host\'s form, with a slider beside the number', async () => {
+    await openShared();
+    // The label is the MANIFEST's, in the reader's locale, not a second copy kept as this page's copy:
+    // what is on screen is the translation the listing carried, not the English in the schema.
+    const label = 'Visitor token lifetime, localized';
+    expect(screen.queryByText(field.label)).not.toBeInTheDocument();
+    const box = await screen.findByRole('textbox', { name: label }) as HTMLInputElement;
+    const slider = screen.getByRole('slider', { name: label }) as HTMLInputElement;
+    // Nothing is stored yet, so the field holds the manifest's own default.
+    expect(box.value).toBe(String(field.default));
+    expect(Number(slider.min)).toBe(field.min);
+    expect(Number(slider.max)).toBe(field.max);
+
+    fireEvent.change(slider, { target: { value: '60' } });
+    // The save carries the whole record, keyed the way the manifest keys it.
+    await waitFor(() => expect(asked.configPatch).toHaveLength(1));
+    expect(asked.configPatch[0]).toEqual({ visitorTokenTtlDays: 60 });
+    expect((screen.getByRole('textbox', { name: label }) as HTMLInputElement).value).toBe('60');
+  });
+
+  it('states what every chatbot account needs, without offering to grant it here', async () => {
+    await openShared();
+    expect(screen.getByText(strings.sharedRequirementsTitle!)).toBeInTheDocument();
+    expect(screen.getByText(strings.toolsRequiredLabel!)).toBeInTheDocument();
+    expect(screen.getByText(REQUIRED_TOOL)).toBeInTheDocument();
+    // A grant belongs to one account and the Users screen owns it, so this row is a fact and not a form.
+    expect(screen.queryByRole('switch', { name: REQUIRED_TOOL })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: REQUIRED_TOOL })).not.toBeInTheDocument();
+  });
+
+  it('reports a failed configuration read with a retry', async () => {
+    use(http.get('/api/plugins/chatbot', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
+    await openShared();
+    expect(await screen.findByText(strings.sharedLoadError!, { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });
 
 describe('page-action rules', () => {
-  it('says on the drawer that there is no rule, and keeps the author behind its own window', async () => {
-    renderSection();
+  const openRules = async () => {
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+    const rules = await openWindow(strings.securityTitle!);
+    return { drawer, rules };
+  };
+
+  it('says on the drawer that there is no rule, and keeps the author behind its own window', async () => {
+    renderPage();
+    await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
     expect(within(drawer).getByText(strings.rulesEmpty!)).toBeInTheDocument();
     expect(within(drawer).queryByRole('combobox', { name: strings.ruleOriginLabel! })).not.toBeInTheDocument();
@@ -602,10 +724,7 @@ describe('page-action rules', () => {
   });
 
   it('adds a rule and sends the whole policy with the save', async () => {
-    renderSection();
-    await settled();
-    const drawer = await openBot('Městský úřad');
-    const rules = await openWindow(strings.securityTitle!);
+    const { drawer, rules } = await openRules();
 
     fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
     // The field opens holding "/", so this is what a reader typing their own path into it really sends.
@@ -629,10 +748,7 @@ describe('page-action rules', () => {
   });
 
   it('refuses the same rule twice and a limit beyond the per-turn ceiling', async () => {
-    renderSection();
-    await settled();
-    await openBot('Městský úřad');
-    const rules = await openWindow(strings.securityTitle!);
+    const { rules } = await openRules();
     fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
     fireEvent.click(within(rules).getByRole('button', { name: strings.ruleAdd! }));
     await waitFor(() => expect(within(rules).getByText(`${SITE}/`)).toBeInTheDocument());
@@ -651,10 +767,7 @@ describe('page-action rules', () => {
   });
 
   it('offers the visitor\'s confirmation only where the protocol can carry one', async () => {
-    renderSection();
-    await settled();
-    await openBot('Městský úřad');
-    const rules = await openWindow(strings.securityTitle!);
+    const { rules } = await openRules();
     // `read` cannot be confirmed, so the control is not offered at all.
     expect(within(rules).queryByText(strings.ruleConfirmationLabel!)).not.toBeInTheDocument();
     fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleActionLabel! }), { target: { value: 'request_submit' } });
@@ -662,10 +775,7 @@ describe('page-action rules', () => {
   });
 
   it('requires a domain, a path and a limit the server would accept before offering to add', async () => {
-    renderSection();
-    await settled();
-    await openBot('Městský úřad');
-    const rules = await openWindow(strings.securityTitle!);
+    const { rules } = await openRules();
     // Nothing is chosen yet, so the domain is asked for rather than silently defaulted.
     expect(within(rules).getByText(strings.ruleOriginRequired!)).toBeInTheDocument();
     fireEvent.change(within(rules).getByRole('combobox', { name: strings.ruleOriginLabel! }), { target: { value: SITE } });
@@ -676,8 +786,9 @@ describe('page-action rules', () => {
 
 describe('the allowed domains', () => {
   it('states them as a summary, and refuses one the server would reject', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
     // The drawer itself names the domains it answers on, without listing them as rows.
     expect(within(drawer).getByText(strings.originsCount!.replace('{n}', '1'))).toBeInTheDocument();
@@ -693,8 +804,9 @@ describe('the allowed domains', () => {
   });
 
   it('adds one in the window and carries it into the summary', async () => {
-    renderSection();
+    renderPage();
     await settled();
+    await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
     const domains = await openWindow(strings.originsLabel!);
     fireEvent.change(within(domains).getByPlaceholderText(strings.originsPlaceholder!), { target: { value: 'https://www.druhy.cz' } });

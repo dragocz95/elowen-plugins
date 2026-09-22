@@ -11,8 +11,8 @@
     }
   },
   "web": {
-    "settings": {
-      "chatbots": "Chatboti"
+    "nav": {
+      "": "Chatboti"
     },
     "strings": {
       "botsSearch": "Hledat podle názvu, účtu nebo veřejného ID…",
@@ -29,7 +29,6 @@
       "botsNoResultsDescription": "Změňte hledání nebo filtr.",
       "botsLoadError": "Chatboty se nepodařilo načíst",
       "detailFactsTitle": "Registrace",
-      "activityTitle": "Provoz",
       "detailAccount": "Účet Elowen",
       "detailProject": "Spravovaný projekt",
       "detailUpdated": "Upraveno",
@@ -143,7 +142,6 @@
       "transcriptNoReply": "K tomuto tahu nebyla zveřejněna žádná odpověď.",
       "transcriptFailed": "Tento tah selhal",
       "statsWindowLabel": "Období",
-      "statsTitle": "Statistiky",
       "statsWindowDays": "Posledních {count} dní",
       "statsLoadError": "Statistiky se nepodařilo načíst",
       "chartTitle": "Objem tahů",
@@ -227,7 +225,21 @@
       "appearanceSaving": "Ukládám…",
       "appearanceSaved": "Vzhled uložen",
       "appearanceSaveFailed": "Vzhled se nepodařilo uložit",
-      "appearanceMaxChars": "Nejvýše {max} znaků."
+      "appearanceMaxChars": "Nejvýše {max} znaků.",
+      "title": "Chatboti",
+      "pageHint": "Chatboti, kteří odpovídají návštěvníkům webů třetích stran. Každý pracuje v právě jednom spravovaném projektu a jeho konverzace patří jeho vlastnímu účtu.",
+      "sectionsLabel": "Sekce chatbotů",
+      "sectionBots": "Chatboti",
+      "sectionConversations": "Konverzace",
+      "sectionStatistics": "Statistiky",
+      "sectionShared": "Společné nastavení",
+      "pickerLabel": "Chatbot",
+      "pickerNoBots": "Zatím žádný chatbot",
+      "pickerNoBotsDescription": "Nejprve založte chatbota v sekci Chatboti; tady se čte, co který z nich dělal.",
+      "sharedLoadError": "Nastavení pluginu se nepodařilo načíst.",
+      "sharedRequirementsTitle": "Co potřebuje každý chatbot",
+      "toolsRequiredLabel": "Požadované nástroje",
+      "toolsRequiredHint": "Každý účet chatbota k nim musí mít přístup, jinak jeho tahy návštěvníkovi odpovědí, ale na jeho stránce nic neudělají. Oprávnění se udělují po účtech na obrazovce Uživatelé."
     }
   }
 }

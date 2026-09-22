@@ -54,12 +54,11 @@
     "css": "web/index.css",
     "requiresApiVersion": 12,
     "adminOnly": true,
-    "settings": [
+    "nav": [
       {
-        "id": "chatbots",
         "label": "Chatbots",
         "icon": "MessagesSquare",
-        "placement": "pluginDetail"
+        "route": ""
       }
     ],
     "strings": {
@@ -77,7 +76,6 @@
       "botsNoResultsDescription": "Change the search or the filter.",
       "botsLoadError": "The chatbots could not be loaded",
       "detailFactsTitle": "Registration",
-      "activityTitle": "Activity",
       "detailAccount": "Elowen account",
       "detailProject": "Managed Project",
       "detailUpdated": "Updated",
@@ -191,7 +189,6 @@
       "transcriptNoReply": "No answer was published for this turn.",
       "transcriptFailed": "This turn failed",
       "statsWindowLabel": "Window",
-      "statsTitle": "Statistics",
       "statsWindowDays": "Last {count} days",
       "statsLoadError": "The statistics could not be loaded",
       "chartTitle": "Turn volume",
@@ -275,7 +272,21 @@
       "appearanceSaving": "Saving…",
       "appearanceSaved": "Appearance saved",
       "appearanceSaveFailed": "The appearance could not be saved",
-      "appearanceMaxChars": "At most {max} characters."
+      "appearanceMaxChars": "At most {max} characters.",
+      "title": "Chatbots",
+      "pageHint": "Chatbots answering visitors of third-party websites. Each one works inside exactly one managed Project, and its conversations belong to its own account.",
+      "sectionsLabel": "Chatbot sections",
+      "sectionBots": "Chatbots",
+      "sectionConversations": "Conversations",
+      "sectionStatistics": "Statistics",
+      "sectionShared": "Shared settings",
+      "pickerLabel": "Chatbot",
+      "pickerNoBots": "No chatbot yet",
+      "pickerNoBotsDescription": "Register a chatbot in the Chatbots section first; this reads what one of them did.",
+      "sharedLoadError": "The plugin configuration could not be read.",
+      "sharedRequirementsTitle": "What every chatbot needs",
+      "toolsRequiredLabel": "Required tools",
+      "toolsRequiredHint": "Every chatbot account must be allowed to reach these, or its turns answer a visitor and can touch nothing on their page. Grants are given per account on the Users screen."
     }
   }
 }

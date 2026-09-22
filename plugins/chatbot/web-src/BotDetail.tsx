@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity, BadgeCheck, Bot, Check, ChevronRight, ClipboardCopy, Code2, Gauge,
-  MessageSquareText, MessagesSquare, Palette, Power, Save,
+  BadgeCheck, Bot, Check, ChevronRight, ClipboardCopy, Code2, Gauge,
+  MessageSquareText, Palette, Power, Save,
 } from 'lucide-react';
 import { LIMIT_FIELDS } from '../src/limits';
 import { apiJson, chatbotApi, jsonRequest, runtime, type AccountToolRow } from './runtime';
@@ -9,8 +9,6 @@ import { formatDateTime } from './format';
 import { SecuritySettings, actionRuleKey } from './SecuritySettings';
 import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, readLimitDraft, type LimitDraft } from './LimitsModal';
-import { ConversationsModal } from './ConversationsView';
-import { StatsModal } from './StatsView';
 import { AppearanceModal } from './AppearanceModal';
 import type { ChatbotActionRuleView, ChatbotBotView } from './types';
 
@@ -91,7 +89,7 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<'enable' | 'disable' | 'discard' | null>(null);
-  const [opened, setOpened] = useState<'limits' | 'appearance' | 'conversations' | 'stats' | null>(null);
+  const [opened, setOpened] = useState<'limits' | 'appearance' | null>(null);
 
   // A saved row comes back with the server's own values (a normalised domain, a trimmed name), so the
   // fields are re-seeded from it. It deliberately does NOT touch `confirming` or `error`: this effect fires
@@ -219,18 +217,9 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
             />
           </C.SettingsGroup>
 
-          <C.SettingsGroup title={s.activityTitle} icon={Activity} density="compact">
-            <C.SettingsRow
-              label={s.conversationsTab}
-              icon={MessagesSquare}
-              actions={<C.IconButton icon={ChevronRight} label={s.conversationsTab} onClick={() => setOpened('conversations')} />}
-            />
-            <C.SettingsRow
-              label={s.statsTitle}
-              icon={Activity}
-              actions={<C.IconButton icon={ChevronRight} label={s.statsTitle} onClick={() => setOpened('stats')} />}
-            />
-          </C.SettingsGroup>
+          {/* What this chatbot DID is deliberately not here. Its conversations and its statistics are
+              sections of the page, each with a picker over the same register, so they are read in one
+              place instead of in a per-chatbot copy reachable only through this drawer. */}
 
           {snippet === null ? null : (
             <C.SettingsGroup
@@ -275,12 +264,6 @@ export function BotDetail({ bot, requiredTools, onChanged, unknownError, onClose
 
       {opened === 'limits' ? (
         <LimitsModal draft={limits} disabled={pending} onChange={setLimits} onClose={() => setOpened(null)} />
-      ) : null}
-      {opened === 'conversations' ? (
-        <ConversationsModal bot={bot} onClose={() => setOpened(null)} />
-      ) : null}
-      {opened === 'stats' ? (
-        <StatsModal bot={bot} onClose={() => setOpened(null)} />
       ) : null}
       {opened === 'appearance' ? (
         <AppearanceModal

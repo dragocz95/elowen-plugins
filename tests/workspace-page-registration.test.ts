@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** cronjob, skills and chatbot each ship ONE settings section and no nav, which is exactly the shape the
+/** cronjob and skills each ship ONE settings section and no nav, which is exactly the shape the
  *  host serves at the bare `/p/<plugin>` route (`sole` in web/app/p/[plugin]/[[...rest]]/page.tsx). These
  *  bundles used to register a duplicate root page for that address and no longer do.
  *
@@ -34,7 +34,7 @@ interface Registration {
 
 interface ManifestWeb {
   requiresApiVersion?: number;
-  nav?: unknown;
+  nav?: { route: string }[];
   adminOnly?: boolean;
   settings?: { id: string; placement?: 'page' | 'pluginDetail' }[];
 }
@@ -50,7 +50,7 @@ function manifestWeb(plugin: string): ManifestWeb {
   return (JSON.parse(readFileSync(path, 'utf-8')) as { web: ManifestWeb }).web;
 }
 
-function expectSoleSection(plugin: string, sectionId: string, frame: 'plugin' | 'host', placement?: 'pluginDetail'): void {
+function expectSoleSection(plugin: string, sectionId: string, frame: 'plugin' | 'host'): void {
   const call = register.mock.calls.find(([name]) => name === plugin);
   expect(call, `${plugin}'s bundle registered no plugin UI`).toBeDefined();
   const registration = call![1] as Registration;
@@ -59,11 +59,10 @@ function expectSoleSection(plugin: string, sectionId: string, frame: 'plugin' | 
   // The host only serves the bare route from a settings section when there is exactly one and no nav.
   expect(web.nav).toBeUndefined();
   expect(web.settings?.map((section) => section.id)).toEqual([sectionId]);
-  // Where the section is OFFERED. Absent means 'page': a world of its own in the main navigation.
-  // 'pluginDetail' keeps it out of the menu and serves it inside Settings → Plugins → that plugin, and
-  // the host redirects both `/p/<plugin>` and `/p/<plugin>/settings/<id>` there, so the choice decides
-  // which surface the component is ever drawn on.
-  expect(web.settings?.[0]?.placement).toBe(placement);
+  // Where the section is OFFERED. Absent means 'page' — the bare `/p/<plugin>` route this whole helper is
+  // about. 'pluginDetail' would take the section out of the main navigation and serve it inside
+  // Settings → Plugins instead, which is a different surface with a different frame.
+  expect(web.settings?.[0]?.placement).toBeUndefined();
   // No root page of its own: `/p/<plugin>` resolving to the sole section is the host's job now.
   expect(Object.keys(registration.pages ?? {})).toEqual([]);
   expect(Object.keys(registration.settings ?? {})).toEqual([sectionId]);
@@ -84,16 +83,30 @@ describe('single-surface plugin workspace registration', () => {
     expectSoleSection('skills', 'skills', 'plugin');
   });
 
-  it('registers Chatbots as a Settings → Plugins section the HOST frames', async () => {
+  /** Chatbots is the other shape: a plugin whose surface IS its product, so it keeps an entry in the main
+   *  navigation and one page behind it. The page carries its own sections, which makes the pair below the
+   *  whole contract — a nav route with no page registered for it is a menu entry that opens nothing, and a
+   *  page registered at a route the manifest does not advertise is a page nothing leads to. */
+  it('registers Chatbots as one navigation page and no settings section', async () => {
     await import('../plugins/chatbot/web-src/index');
-    // The chatbot admin surface is a section of Settings and nothing else: no nav entry, no page of its
-    // own, no claim on the page frame, and placed inside the plugin's detail workspace rather than in the
-    // main navigation. The host draws the tab, the panel and the settings document around it, which is
-    // what makes it the same object as every core section rather than a register that resembles one.
-    expectSoleSection('chatbot', 'chatbots', 'host', 'pluginDetail');
-    // It stays admin-only, and that flag is enforced by the SERVER, not by the surface it is offered on:
-    // `/plugins/ui` omits the entry for a non-admin and `/plugins/:name/web/:file` answers 403 for the
-    // bundle and the stylesheet (src/api/routes/pluginUi.ts).
-    expect(manifestWeb('chatbot').adminOnly).toBe(true);
+    const call = register.mock.calls.find(([name]) => name === 'chatbot');
+    expect(call, 'chatbot\'s bundle registered no plugin UI').toBeDefined();
+    const registration = call![1] as Registration;
+    const web = manifestWeb('chatbot');
+
+    expect(web.nav?.map((entry) => entry.route)).toEqual(['']);
+    expect(web.settings).toBeUndefined();
+    // The page is registered at the manifest's own route, and the bundle contributes nothing to Settings.
+    expect(Object.keys(registration.pages ?? {})).toEqual(['']);
+    expect(Object.keys(registration.settings ?? {})).toEqual([]);
+    // `ownsPageFrame` names SETTINGS sections that draw their own page frame. A page always owns its
+    // frame, so declaring anything here would name an id that matches nothing.
+    expect(registration.ownsPageFrame).toBeUndefined();
+    expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
+    expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
+    // It stays admin-only, and that flag is enforced by the SERVER rather than by the surface it is
+    // offered on: `/plugins/ui` omits the entry for a non-admin and `/plugins/:name/web/:file` answers
+    // 403 for the bundle and the stylesheet (src/api/routes/pluginUi.ts).
+    expect(web.adminOnly).toBe(true);
   });
 });

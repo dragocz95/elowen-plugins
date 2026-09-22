@@ -1,62 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, MessagesSquare, Plus, Search, Settings2 } from 'lucide-react';
-import { apiJson, chatbotApi, runtime } from './runtime';
+import { useState } from 'react';
+import { Bot, Plus, Search, Settings2 } from 'lucide-react';
+import { runtime } from './runtime';
 import { BotDetail, statusText } from './BotDetail';
 import { CreateBotDialog } from './CreateBotDialog';
 import type { ChatbotBotView, ChatbotsAnswer } from './types';
 
-/** The chatbot admin surface: ONE section of Settings, offered inside Settings → Plugins → Chatbot.
+/** THE CHATBOTS SECTION: the register, and one chatbot's configuration in the drawer its row opens.
  *
- *  It used to be a workspace of its own — a page in the left navigation with a hero, three metrics, a tab
- *  strip and a two-column register — which is a shape nothing else in this app wears for configuration.
- *  Its manifest entry now declares `placement: "pluginDetail"`, so the host mounts it as a tab of that
- *  plugin's detail workspace with `surface="deck"`: the tab names the section and the host supplies the
- *  panel and the settings document around it (`web/modules/settings/PluginSettingsSection.tsx`). This
- *  file therefore draws NO header of its own and no navigation of its own — it fills the panel it is
- *  given. The section is not in `ownsPageFrame` for the same reason: the frame is the host's.
+ *  One card, one row per chatbot: the name, the account and Project it runs as, and the state an
+ *  administrator has to see before anything else. Everything ABOUT one chatbot is in the drawer, which is
+ *  how every settings surface in this app treats a record it configures — the register says which records
+ *  exist, and the record itself is read and written in one place.
  *
- *  `C.PluginPageFrame` is what makes that true on both surfaces without a branch of our own: it is a
- *  pass-through on the deck and supplies the masthead if the section is ever placed as a page. The one
- *  control the surface owns lives in the CARD's header rather than in that masthead, because the masthead
- *  does not exist on the deck.
- *
- *  What is on the panel is one card: the chatbots, one row each. Everything about ONE chatbot lives in the
- *  drawer that row opens, which is how every other settings surface treats a record it configures. */
-export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 'page' | 'deck' }) {
-  const { components: C, hooks, utils } = runtime();
+ *  The register's own controls live in the card header: the search over it and the creation action. */
+export function BotsSection({ plugin, answer, loadError, onReload, onChanged }: {
+  plugin: string;
+  answer: ChatbotsAnswer | null;
+  loadError: string | null;
+  onReload(): void;
+  onChanged(bot: ChatbotBotView): void;
+}) {
+  const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('chatbot');
-
-  const [answer, setAnswer] = useState<ChatbotsAnswer | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const load = useCallback(() => {
-    setLoadError(null);
-    void apiJson<ChatbotsAnswer>(chatbotApi.bots())
-      .then((value) => setAnswer(value))
-      .catch((error) => setLoadError(utils.apiErrorMessage(error) || s.botsLoadError));
-  }, [s.botsLoadError, utils]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const bots = useMemo(() => answer?.bots ?? [], [answer]);
-  /** A saved row replaces the one it came from; a newly created one JOINS the register. It used to only
-   *  ever replace, so a chatbot created here was not in the list it was created from until a reload. */
-  const upsertBot = (updated: ChatbotBotView) => {
-    setAnswer((current) => {
-      if (current === null) return current;
-      const known = current.bots.some((candidate) => candidate.chatbotUserId === updated.chatbotUserId);
-      return {
-        ...current,
-        bots: known
-          ? current.bots.map((candidate) => candidate.chatbotUserId === updated.chatbotUserId ? updated : candidate)
-          : [...current.bots, updated],
-      };
-    });
-  };
-
+  const bots = answer?.bots ?? [];
   const needle = search.trim().toLowerCase();
   const visible = bots.filter((bot) => {
     if (needle === '') return true;
@@ -67,7 +37,7 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
   // the reader to another chatbot's drawer.
   const open = bots.find((bot) => bot.chatbotUserId === openId) ?? null;
 
-  const body = loadError !== null ? <C.ErrorState message={`${s.botsLoadError} — ${loadError}`} onRetry={load} />
+  const body = loadError !== null ? <C.ErrorState message={`${s.botsLoadError} — ${loadError}`} onRetry={onReload} />
     : answer === null ? <C.LoadingState variant="list" />
       : bots.length === 0 ? (
         // No second creation button here: the card's header carries it in every state, and one card
@@ -99,17 +69,8 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
           ));
 
   return (
-    <C.PluginPageFrame
-      // No title of our own: placed as a page, the frame reads the section's label from the manifest
-      // listing, so the heading cannot drift from the entry that leads here.
-      surface={surface}
-      plugin={plugin}
-      section="chatbots"
-      icon={MessagesSquare}
-    >
-      {/* No title inside the card either: the workspace tab above it already names the section, and a
-          native settings panel wears no second heading. The header carries the controls the list needs —
-          creation among them, because the deck has no masthead to put an action in. */}
+    <>
+      {/* No card title: the section's own navigation record already names it. */}
       <C.SettingsGroup
         actions={(
           <>
@@ -137,7 +98,7 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
           key={open.chatbotUserId}
           bot={open}
           requiredTools={answer?.requiredTools ?? []}
-          onChanged={upsertBot}
+          onChanged={onChanged}
           unknownError={s.saveFailed}
           onClose={() => setOpenId(null)}
         />
@@ -150,11 +111,11 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
           candidates={answer.candidates}
           onClose={() => setCreating(false)}
           onCreated={(bot) => {
-            upsertBot(bot);
+            onChanged(bot);
             setOpenId(bot.chatbotUserId);
           }}
         />
       ) : null}
-    </C.PluginPageFrame>
+    </>
   );
 }

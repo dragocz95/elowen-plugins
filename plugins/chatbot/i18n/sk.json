@@ -11,8 +11,8 @@
     }
   },
   "web": {
-    "settings": {
-      "chatbots": "Chatboti"
+    "nav": {
+      "": "Chatboti"
     },
     "strings": {
       "botsSearch": "Hľadať podľa názvu, účtu alebo verejného ID…",
@@ -29,7 +29,6 @@
       "botsNoResultsDescription": "Zmeňte hľadanie alebo filter.",
       "botsLoadError": "Chatbotov sa nepodarilo načítať",
       "detailFactsTitle": "Registrácia",
-      "activityTitle": "Prevádzka",
       "detailAccount": "Účet Elowen",
       "detailProject": "Spravovaný projekt",
       "detailUpdated": "Upravené",
@@ -143,7 +142,6 @@
       "transcriptNoReply": "K tomuto tahu nebola zverejnená žiadna odpoveď.",
       "transcriptFailed": "Tento tah zlyhal",
       "statsWindowLabel": "Obdobie",
-      "statsTitle": "Štatistiky",
       "statsWindowDays": "Posledných {count} dní",
       "statsLoadError": "Štatistiky sa nepodarilo načítať",
       "chartTitle": "Objem tahov",
@@ -227,7 +225,21 @@
       "appearanceSaving": "Ukladám…",
       "appearanceSaved": "Vzhľad uložený",
       "appearanceSaveFailed": "Vzhľad sa nepodarilo uložiť",
-      "appearanceMaxChars": "Najviac {max} znakov."
+      "appearanceMaxChars": "Najviac {max} znakov.",
+      "title": "Chatboti",
+      "pageHint": "Chatboti, ktorí odpovedajú návštevníkom webov tretích strán. Každý pracuje v práve jednom spravovanom projekte a jeho konverzácie patria jeho vlastnému účtu.",
+      "sectionsLabel": "Sekcie chatbotov",
+      "sectionBots": "Chatboti",
+      "sectionConversations": "Konverzácie",
+      "sectionStatistics": "Štatistiky",
+      "sectionShared": "Spoločné nastavenia",
+      "pickerLabel": "Chatbot",
+      "pickerNoBots": "Zatiaľ žiadny chatbot",
+      "pickerNoBotsDescription": "Najprv založte chatbota v sekcii Chatboti; tu sa číta, čo ktorý z nich robil.",
+      "sharedLoadError": "Nastavenia pluginu sa nepodarilo načítať.",
+      "sharedRequirementsTitle": "Čo potrebuje každý chatbot",
+      "toolsRequiredLabel": "Požadované nástroje",
+      "toolsRequiredHint": "Každý účet chatbota k nim musí mať prístup, inak jeho ťahy návštevníkovi odpovedia, ale na jeho stránke nič neurobia. Oprávnenia sa udeľujú po účtoch na obrazovke Používatelia."
     }
   }
 }
