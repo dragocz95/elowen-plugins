@@ -19750,7 +19750,7 @@ function chatConfig(input) {
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that.
-    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+    auxiliaryStyle: `.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -19872,6 +19872,8 @@ var ChatPanel = class {
    *  library, so anything the panel wants to show is queued until it is ready — which is what lets a rebuilt
    *  panel replay a conversation instead of losing it. */
   ready = false;
+  scrollPending = false;
+  layoutObserver = new ResizeObserver(() => this.flushScroll());
   queued = [];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
@@ -19956,6 +19958,7 @@ var ChatPanel = class {
     shadow.append(this.style, root);
     this.applyChrome();
     this.messages.append(this.chat);
+    this.layoutObserver.observe(this.chat);
     this.launcher.addEventListener("click", () => this.toggle(!this.isOpen()));
     close.addEventListener("click", () => this.toggle(false));
     this.confirmYes.addEventListener("click", (event) => {
@@ -20046,6 +20049,18 @@ var ChatPanel = class {
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages) {
     for (const message of messages) this.draw(message);
+    this.scrollToLatest();
+  }
+  /** Rendering messages is not layout: a hidden panel has zero scroll height. Keep the request until the
+   *  chat has a visible box, then consume it once so later resizes never override the visitor's scrolling. */
+  scrollToLatest() {
+    this.scrollPending = true;
+    this.flushScroll();
+  }
+  flushScroll() {
+    if (!this.scrollPending || !this.ready || this.chat.clientHeight === 0) return;
+    this.chat.scrollToBottom();
+    this.scrollPending = false;
   }
   /** Ask the visitor. Resolves true only for a click the visitor made themselves. */
   confirm(request) {
@@ -20061,6 +20076,7 @@ var ChatPanel = class {
   destroy() {
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
+    this.layoutObserver.disconnect();
     this.host.remove();
   }
   // ── the panel's own drawing ───────────────────────────────────────────────────────────────────────
@@ -20083,6 +20099,7 @@ var ChatPanel = class {
     chat.onComponentRender = () => {
       this.ready = true;
       for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
+      this.scrollToLatest();
     };
     return chat;
   }
@@ -20102,12 +20119,14 @@ var ChatPanel = class {
    *  panel that already has a conversation in it. */
   redrawChat() {
     const carried = this.ready ? this.chat.getMessages().map((message) => ({ role: typeof message.role === "string" ? message.role : "ai", text: typeof message.text === "string" ? message.text : "" })).filter((message) => message.text !== "") : [];
+    this.layoutObserver.disconnect();
     this.chat.remove();
     this.ready = false;
     this.answerIndex = null;
     this.queued.push(...carried);
     this.chat = this.createChat();
     this.messages.append(this.chat);
+    this.layoutObserver.observe(this.chat);
   }
   flushRedraw() {
     if (!this.redrawPending) return;
@@ -20171,6 +20190,7 @@ var ChatPanel = class {
     this.launcher.setAttribute("aria-expanded", open ? "true" : "false");
     if (!open) return;
     this.chat.focusInput();
+    this.flushScroll();
     this.onOpen?.();
   }
   answerConfirmation(confirmed) {
@@ -21055,7 +21075,7 @@ var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var STATS_MAX_DAYS = 366;
 var PAGE_SIZE2 = 20;
 var DAY_MS = 864e5;
-var SERIES_COLOURS = { turns: "var(--color-chart-1)", errors: "var(--color-chart-2)" };
+var SERIES_COLOURS = { turns: "var(--color-chart-1)", cost: "var(--color-chart-3)" };
 var dayStart = (timestamp) => {
   const date = new Date(timestamp);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -21069,14 +21089,15 @@ function statsWindow(range, now, bounds) {
   const fromMs = Math.min(toMs, Math.max(requestedFrom, earliest));
   return { from: dayKey(fromMs), to: dayKey(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
 }
-function chartPoints(days, from, to2) {
+function chartPoints(days, spend, from, to2) {
   const byDay = new Map(days.map((day) => [day.day, day]));
+  const costs = new Map(spend.map(({ day, usage }) => [day, knownCost(usage)]));
   const points = [];
   const end = Date.parse(`${to2}T00:00:00.000Z`);
   for (let at2 = Date.parse(`${from}T00:00:00.000Z`); at2 <= end; at2 += DAY_MS) {
     const day = dayKey(at2);
     const row = byDay.get(day);
-    points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0 });
+    points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0, cost: costs.get(day) ?? null });
   }
   return points;
 }
@@ -21129,15 +21150,14 @@ function StatsSection() {
       cost: sum.cost === null || cost === null ? null : sum.cost + cost
     };
   }, { turns: 0, tokens: 0, cost: 0 });
-  const costPoints = answer === null ? [] : answer.spend.map(({ day, usage }) => ({ label: day, cost: knownCost(usage) }));
-  const unknownCost = costPoints.some((point) => point.cost === null);
-  const points = answer === null ? [] : chartPoints(answer.days, answer.from, answer.to);
+  const points = answer === null ? [] : chartPoints(answer.days, answer.spend, answer.from, answer.to);
+  const unknownCost = points.some((point) => point.cost === null);
   const pageCount = Math.max(1, Math.ceil(points.length / PAGE_SIZE2));
   const clampedPage = Math.min(page, pageCount - 1);
   const rows = points.slice(clampedPage * PAGE_SIZE2, (clampedPage + 1) * PAGE_SIZE2);
   const series = [
-    { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "bar", axis: "left", format: (value) => integer(value, locale) },
-    { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) }
+    { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "line", axis: "left", format: (value) => integer(value, locale) },
+    { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => money(value, locale) }
   ];
   const rangeLabels = {
     today: t.common.rangeToday,
@@ -21174,6 +21194,7 @@ function StatsSection() {
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.PageFilters, { fields: filters }),
           loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.statsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.TimeSeriesChart, { data: points, series, height: 240, ariaLabel: s.chartTitle, emptyText: s.chartEmpty }),
+            unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "text-xs text-muted-foreground", children: s.costUnknownHint }) : null,
             /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "mt-4 flex flex-col gap-3", children: [
               /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h3", { className: "text-sm font-semibold", children: s.statsTableTitle }),
               /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTable, { ariaLabel: s.statsTableTitle, columns: "minmax(8rem,1fr) 7rem 7rem 7rem", compactColumns: "minmax(0,1fr) 5rem 5rem", mobileColumns: "minmax(0,1fr) 3rem 3.5rem", children: [
@@ -21205,10 +21226,6 @@ function StatsSection() {
         ] })
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { title: s.costChartTitle, description: s.costChartHint, icon: Coins, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "settings-group__panel", children: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "text-xs text-destructive", children: s.spendLoadError }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.TimeSeriesChart, { data: costPoints, series: [{ key: "cost", label: s.spendTitle, colour: "var(--color-chart-3)", variant: "bar", format: (value) => money(value, locale) }], height: 200, ariaLabel: s.costChartTitle, emptyText: s.spendEmptyTitle }),
-      unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "mt-2 text-xs text-muted-foreground", children: s.costUnknownHint }) : null
-    ] }) }) }),
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       C.SettingsRow,
       {
