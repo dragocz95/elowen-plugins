@@ -115,7 +115,7 @@ test('a CNAME chain to the app hostname makes the gateway serve before any certi
   assert.equal(readiness.hint, undefined, 'a working gateway has nothing for an operator to do');
 });
 
-test('flattened IPv4 DNS is accepted when either answer set intersects', async () => {
+test('flattened IPv4 DNS rejects every extra address outside the destination set', async () => {
   const harness = makeHarness({
     dns: {
       resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
@@ -123,7 +123,8 @@ test('flattened IPv4 DNS is accepted when either answer set intersects', async (
         : hostname === `${APP_HOST}.` ? ['192.0.2.41', '192.0.2.42'] : await missingDns(),
     },
   });
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile()).active, false);
+  assert.equal((await harness.manager.readiness()).status, 'misdirected');
 });
 
 test('flattened IPv6 DNS is accepted without an IPv4 answer', async () => {
@@ -281,7 +282,7 @@ test('a transient CNAME lookup failure is unavailable rather than a proven wrong
     dns: {
       resolveCname: async () => { throw dnsFailure('SERVFAIL'); },
       resolve4: async (hostname) => hostname === `${PROBE_HOST}.`
-        ? ['203.0.113.10']
+        ? ['192.0.2.10']
         : hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
     },
   });
@@ -291,7 +292,7 @@ test('a transient CNAME lookup failure is unavailable rather than a proven wrong
   assert.equal(harness.calls.sync, 0);
 });
 
-test('changing load-balanced answers are compared as unordered sampled sets', async () => {
+test('sampling load-balanced answers rejects any destination outside the allowed set', async () => {
   const counts = new Map();
   const next = (hostname, answers) => {
     const count = counts.get(hostname) ?? 0;
@@ -307,7 +308,8 @@ test('changing load-balanced answers are compared as unordered sampled sets', as
           : await missingDns(),
     },
   });
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile()).active, false);
+  assert.equal((await harness.manager.readiness()).status, 'misdirected');
 });
 
 test('concurrent reconciles join one broker call', async () => {

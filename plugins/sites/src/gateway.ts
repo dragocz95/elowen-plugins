@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
 import type { SitesContext, SitesGatewayStatus } from './coreSeams.js';
-import { canonicalDnsAddress, derivedHostnameBase, resolveGatewayDnsTarget, type GatewayDnsTarget, type GatewayDnsTargetResolution } from './config.js';
+import { derivedHostnameBase } from './config.js';
+import { GatewayDnsTargetService, type TrafficDnsResolver } from './dns.js';
 
 const GATEWAY_TOKEN_KEY = 'gatewayToken';
 const DNS_TIMEOUT_MS = 5_000;
@@ -11,11 +12,7 @@ const MAX_BACKOFF_MS = 3600_000;
 /** The exact configured or backward-compatible default record an operator has to create. */
 export type RequiredRecord = { name: string; type: 'CNAME' | 'A' | 'AAAA'; value: string };
 
-export interface GatewayDnsResolver {
-  resolveCname(hostname: string): Promise<string[]>;
-  resolve4(hostname: string): Promise<string[]>;
-  resolve6(hostname: string): Promise<string[]>;
-}
+export type GatewayDnsResolver = TrafficDnsResolver;
 
 type GatewayDnsState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
 
@@ -31,16 +28,6 @@ export interface SiteGatewayReadiness {
 }
 
 type DnsCheck = { state: GatewayDnsState; observedTargets: string[]; detail?: string };
-type DnsAnswer = { values: string[]; missing: boolean; error: string | null };
-
-const normalizedHost = (value: string): string => value.trim().replace(/\.+$/, '').toLowerCase();
-const fqdn = (value: string): string => `${normalizedHost(value)}.`;
-const negativeDnsError = (error: unknown): boolean => {
-  const code = typeof error === 'object' && error !== null && 'code' in error
-    ? String((error as { code?: unknown }).code)
-    : '';
-  return code === 'ENODATA' || code === 'ENOTFOUND' || code === 'EAI_NONAME';
-};
 
 /** Owns the one conversation with the root broker: the shared marker token, per-site certificates, and
  *  the check that the wildcard DNS record this whole feature stands on actually exists.
@@ -59,7 +46,7 @@ export class SiteGatewayManager {
   private reconciling: Promise<SitesGatewayStatus> | null = null;
   private readonly nextAttempt = new Map<string, number>();
   private readonly backoffMs = new Map<string, number>();
-  private readonly resolver: GatewayDnsResolver;
+  private readonly destination: GatewayDnsTargetService;
   private readonly randomLabel: () => string;
   private dnsCheck: DnsCheck = { state: 'unavailable', observedTargets: [], detail: 'DNS has not been checked yet.' };
 
@@ -68,11 +55,16 @@ export class SiteGatewayManager {
     randomLabel?: () => string;
   } = {}) {
     const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: 2 });
-    this.resolver = deps.resolver ?? {
-      resolveCname: (hostname) => resolver.resolveCname(hostname),
-      resolve4: (hostname) => resolver.resolve4(hostname),
-      resolve6: (hostname) => resolver.resolve6(hostname),
+    const dnsResolver = deps.resolver ?? {
+      resolveCname: (hostname: string) => resolver.resolveCname(hostname),
+      resolve4: (hostname: string) => resolver.resolve4(hostname),
+      resolve6: (hostname: string) => resolver.resolve6(hostname),
     };
+    this.destination = new GatewayDnsTargetService({
+      configured: () => (this.ctx.config as Record<string, unknown>).gatewayDnsTarget,
+      fallbackHostname: () => this.appHost(),
+      resolver: dnsResolver,
+    });
     this.randomLabel = deps.randomLabel ?? (() => `elowen-${randomBytes(6).toString('hex')}`);
   }
 
@@ -125,13 +117,9 @@ export class SiteGatewayManager {
    *  served from is a wildcard an operator creates and nothing ever uses. */
   requiredRecord(): RequiredRecord | null {
     const base = this.hostnameBase();
-    const { target } = this.dnsTarget();
+    const { target } = this.destination.current();
     if (!base || !target) return null;
-    return {
-      name: `*.${base}`,
-      type: target.kind === 'hostname' ? 'CNAME' : target.kind === 'ipv4' ? 'A' : 'AAAA',
-      value: target.kind === 'hostname' ? `${target.value}.` : target.value,
-    };
+    return target.requiredRecord(`*.${base}`);
   }
 
   private brokerHostnameBase(): string | null {
@@ -144,112 +132,11 @@ export class SiteGatewayManager {
     try { return new URL(url).hostname; } catch { return null; }
   }
 
-  private dnsTarget(): GatewayDnsTargetResolution {
-    const configured = (this.ctx.config as Record<string, unknown>).gatewayDnsTarget;
-    return resolveGatewayDnsTarget(configured, this.appHost());
-  }
-
   reconcile(): Promise<SitesGatewayStatus> {
     if (this.reconciling) return this.reconciling;
     const run = this.reconcileNow().finally(() => { this.reconciling = null; });
     this.reconciling = run;
     return run;
-  }
-
-  private async answer(query: () => Promise<string[]>): Promise<DnsAnswer> {
-    try { return { values: await query(), missing: false, error: null }; }
-    catch (error) {
-      if (negativeDnsError(error)) return { values: [], missing: true, error: null };
-      return { values: [], missing: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  private async cnameTargets(probe: string, expectedHost: string): Promise<{
-    reachesTarget: boolean;
-    observed: string[];
-    errors: string[];
-  }> {
-    const pending = [probe];
-    const visited = new Set<string>();
-    const observed = new Set<string>();
-    const errors: string[] = [];
-    for (let depth = 0; pending.length > 0 && depth < 8; depth += 1) {
-      const current = normalizedHost(pending.shift() ?? '');
-      if (!current || visited.has(current)) continue;
-      visited.add(current);
-      const answer = await this.answer(() => this.resolver.resolveCname(fqdn(current)));
-      if (answer.error) errors.push(answer.error);
-      for (const raw of answer.values) {
-        const target = normalizedHost(raw);
-        if (!target) continue;
-        observed.add(target);
-        if (target === expectedHost) return { reachesTarget: true, observed: [...observed], errors };
-        if (!visited.has(target)) pending.push(target);
-      }
-    }
-    return { reachesTarget: false, observed: [...observed], errors };
-  }
-
-  private async sampledAddresses(hostname: string): Promise<{
-    ipv4: Set<string>;
-    ipv6: Set<string>;
-    answered: boolean;
-    errors: string[];
-  }> {
-    const ipv4 = new Set<string>();
-    const ipv6 = new Set<string>();
-    const errors: string[] = [];
-    let answered = false;
-    for (let sample = 0; sample < 2; sample += 1) {
-      const [v4, v6] = await Promise.all([
-        this.answer(() => this.resolver.resolve4(fqdn(hostname))),
-        this.answer(() => this.resolver.resolve6(fqdn(hostname))),
-      ]);
-      // Canonical on the way in, so a compressed answer and an expanded configured address compare equal.
-      for (const value of v4.values) { const address = canonicalDnsAddress(value); if (address) ipv4.add(address.value); }
-      for (const value of v6.values) { const address = canonicalDnsAddress(value); if (address) ipv6.add(address.value); }
-      answered = answered || v4.values.length > 0 || v6.values.length > 0;
-      if (v4.error) errors.push(v4.error);
-      if (v6.error) errors.push(v6.error);
-    }
-    return { ipv4, ipv6, answered, errors };
-  }
-
-  /** Prove that a random wildcard label reaches this instance, either through a CNAME chain or through
-   *  flattened A/AAAA answers. Every query is absolute so a host search domain cannot change the result. */
-  private async checkWildcard(base: string, target: GatewayDnsTarget): Promise<DnsCheck> {
-    const probe = normalizedHost(`${this.randomLabel()}.${base}`);
-    const cname = await this.cnameTargets(probe, target.value);
-    if (cname.reachesTarget) return { state: 'ready', observedTargets: cname.observed };
-
-    const [probeAddresses, targetAddresses] = await Promise.all([
-      this.sampledAddresses(probe),
-      target.kind === 'hostname'
-        ? this.sampledAddresses(target.value)
-        : Promise.resolve({
-            ipv4: new Set(target.kind === 'ipv4' ? [target.value] : []),
-            ipv6: new Set(target.kind === 'ipv6' ? [target.value] : []),
-            answered: true,
-            errors: [],
-          }),
-    ]);
-    const ipv4Matches = [...probeAddresses.ipv4].some((address) => targetAddresses.ipv4.has(address));
-    const ipv6Matches = [...probeAddresses.ipv6].some((address) => targetAddresses.ipv6.has(address));
-    const observedTargets = [...new Set([
-      ...cname.observed,
-      ...probeAddresses.ipv4,
-      ...probeAddresses.ipv6,
-    ])].slice(0, 8);
-    if (ipv4Matches || ipv6Matches) return { state: 'ready', observedTargets };
-    if (!probeAddresses.answered && cname.observed.length === 0) {
-      const errors = [...cname.errors, ...probeAddresses.errors];
-      return errors.length > 0
-        ? { state: 'unavailable', observedTargets, detail: errors[0] }
-        : { state: 'missing', observedTargets };
-    }
-    const errors = [...cname.errors, ...probeAddresses.errors, ...targetAddresses.errors];
-    if (errors.length > 0) return { state: 'unavailable', observedTargets, detail: errors[0] };
-    return { state: 'misdirected', observedTargets };
   }
 
   private async reconcileNow(): Promise<SitesGatewayStatus> {
@@ -264,7 +151,7 @@ export class SiteGatewayManager {
       this.current = await gateway.status();
       return this.current;
     }
-    const destination = this.dnsTarget();
+    const destination = this.destination.current();
     if (!destination.target) {
       this.dnsCheck = {
         state: 'unavailable',
@@ -274,7 +161,8 @@ export class SiteGatewayManager {
       this.current = { available: false, active: false, hostnameBase: base, detail: this.dnsCheck.detail };
       return this.current;
     }
-    this.dnsCheck = await this.checkWildcard(base, destination.target);
+    const probe = `${this.randomLabel()}.${base}`.toLowerCase();
+    this.dnsCheck = await destination.target.verifyHostname(probe, 2);
     if (this.dnsCheck.state !== 'ready') {
       // Fail loudly and stay failed. Serving the pages from the app's own origin instead would put
       // agent-authored script next to the app's session cookie, so there is nothing to fall back to.
