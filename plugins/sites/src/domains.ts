@@ -4,6 +4,7 @@ import type { SiteAddressService } from './address.js';
 import type { SiteGatewayManager } from './gateway.js';
 import type { SiteHostnameCoordinator } from './hostnameCoordinator.js';
 import {
+  CUSTOM_HOSTNAME_LIMIT,
   HostnameClaimError,
   type Site,
   type SiteHostnameCertificateState,
@@ -344,7 +345,11 @@ export class SiteDomainService {
         const code = error.code === 'domain_claimed'
           ? 'domain_claimed'
           : error.code === 'hostname_limit' ? 'domain_limit' : 'claim_expired';
-        throw new SiteDomainError(error.code === 'domain_claimed' ? 409 : 400, code, code === 'domain_limit' ? { count: 10 } : {});
+        throw new SiteDomainError(
+          error.code === 'domain_claimed' ? 409 : 400,
+          code,
+          code === 'domain_limit' ? { count: CUSTOM_HOSTNAME_LIMIT } : {},
+        );
       }
       throw error;
     }

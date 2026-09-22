@@ -162,6 +162,25 @@ test('claims are globally case-insensitive and the ten-hostname limit is enforce
   assert.equal(store.customHostnames('site-1').length, 10);
 });
 
+test('a custom hostname pending removal no longer consumes a site slot', () => {
+  const store = new SitesStore(makeDb(), storeOptions());
+  store.insertSite(site('site-1'));
+
+  const first = store.claimCustomHostname('site-1', parseSiteHostname('host-1.customer.example'));
+  for (let index = 2; index <= 10; index += 1) {
+    store.claimCustomHostname('site-1', parseSiteHostname(`host-${index}.customer.example`));
+  }
+  store.requestHostnameRemoval(first.id);
+
+  store.claimCustomHostname('site-1', parseSiteHostname('replacement.customer.example'));
+
+  assert.equal(
+    store.customHostnames('site-1').filter((row) => row.removalRequestedAt === null).length,
+    10,
+  );
+  assert.notEqual(store.hostnameById(first.id).removalRequestedAt, null);
+});
+
 test('an unverified reservation expires after 24 hours while a verified claim does not', () => {
   let now = NOW;
   const store = new SitesStore(makeDb(), storeOptions({ now: () => now }));

@@ -299,7 +299,7 @@ const HOSTNAME_CERTIFICATE_STATES = new Set<SiteHostnameCertificateState>([
   'none', 'requested', 'issuing', 'ready', 'authority_refused', 'rate_limited',
   'renewal_blocked', 'expired',
 ]);
-const CUSTOM_HOSTNAME_LIMIT = 10;
+export const CUSTOM_HOSTNAME_LIMIT = 10;
 const OWNERSHIP_RESERVATION_MS = 24 * 60 * 60 * 1000;
 
 const enumValue = <T extends string>(value: string, allowed: ReadonlySet<T>, field: string): T => {
@@ -1043,8 +1043,11 @@ export class SitesStore {
         if (!site || site.status === 'deleting') {
           throw new HostnameClaimError('site_unavailable', 'The Site is unavailable for a hostname claim.');
         }
-        const count = this.db.prepare("SELECT COUNT(*) AS count FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom'")
-          .get(siteId) as { count: number };
+        const count = this.db.prepare(`
+          SELECT COUNT(*) AS count
+          FROM p_sites_hostnames
+          WHERE site_id = ? AND kind = 'custom' AND removal_requested_at IS NULL
+        `).get(siteId) as { count: number };
         if (count.count >= CUSTOM_HOSTNAME_LIMIT) {
           throw new HostnameClaimError('hostname_limit', `A Site may have at most ${CUSTOM_HOSTNAME_LIMIT} custom hostnames.`);
         }
