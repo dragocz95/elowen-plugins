@@ -91,6 +91,19 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       'statusLive', 'statusDraft', 'statusFailed',
     ],
   },
+  // Domain status and routing-copy keys are selected from the server-provided stable code enums. The browser
+  // substitutes parameters only; it never derives DNS or hostname facts.
+  {
+    file: 'sites/web-src/SiteDomains.tsx',
+    keys: [
+      'ownership_missing', 'ownership_mismatch', 'ownership_unavailable', 'ownership_ready',
+      'dns_missing', 'dns_misdirected', 'dns_unavailable', 'dns_ready',
+      'certificate_waiting', 'certificate_requested', 'certificate_issuing',
+      'certificate_reload_pending', 'certificate_ready', 'authority_refused', 'rate_limited',
+      'gateway_configuration_failed', 'gateway_not_serving', 'renewal_dns_missing',
+      'renewal_dns_misdirected', 'certificate_expired', 'routingHintRoot', 'routingHintSubdomain',
+    ],
+  },
 ];
 
 interface Manifest { web?: { strings?: Record<string, string> } }

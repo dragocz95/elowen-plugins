@@ -4,8 +4,9 @@ import { cookieName, type AccessDeps, type Viewer } from './access.js';
 import type { SitesHttpRequest, SitesHttpResponse } from './coreSeams.js';
 import type { ProjectPreview, Site, SitesStore } from './store.js';
 import type { SitesConfig } from './config.js';
-import { siteUrl } from './config.js';
 import { proxyToProject, type ProxyLimits } from './proxy.js';
+import type { SiteAddressService } from './address.js';
+import type { SitesGatewayBinding, SitesGatewayStatus } from './coreSeams.js';
 import { requireSandbox } from './sandboxControl.js';
 
 export interface PreviewDeps {
@@ -14,7 +15,13 @@ export interface PreviewDeps {
   project(id: number): { executionKind: string; lifecycle: string } | null | undefined;
   control(): Pick<SandboxControl, 'projectPreviewBinding'> | undefined;
   config(): SitesConfig;
-  gateway: { ensureSite(slug: string): Promise<unknown>; removeSite(slug: string): Promise<unknown> };
+  addresses: SiteAddressService;
+  gateway: {
+    reconcile(bindings: readonly SitesGatewayBinding[]): Promise<SitesGatewayStatus>;
+    ensureBinding(binding: SitesGatewayBinding, bindings: readonly SitesGatewayBinding[]): Promise<unknown>;
+    removeBinding(hostname: string, slug: string, bindings: readonly SitesGatewayBinding[]): Promise<unknown>;
+    hasCertificate(hostname: string): boolean;
+  };
   proxyLimits(): ProxyLimits;
   usernameOf(id: number): string | null;
   proxy?: typeof proxyToProject;
@@ -45,9 +52,13 @@ export class ProjectPreviewService {
       preview = this.deps.store.projectPreview(projectId, port);
     }
     if (!preview) throw new Error('the Project preview record could not be created');
-    const url = siteUrl(this.deps.config(), preview.slug);
-    if (!url) throw new Error('the isolated Sites origin is unavailable');
-    await this.deps.gateway.ensureSite(preview.slug);
+    const bindings = this.deps.addresses.bindings();
+    const address = bindings.find((entry) => entry.siteId === preview.id && entry.class === 'generated');
+    if (!address) throw new Error('the isolated Sites origin is unavailable');
+    const synced = await this.deps.gateway.reconcile(bindings);
+    if (!synced.available || !synced.active) throw new Error(synced.detail ?? 'the isolated Sites gateway is unavailable');
+    await this.deps.gateway.ensureBinding(address, bindings);
+    const url = this.deps.addresses.urlForHostname(address.hostname);
     if (!this.allowed(projectId, accountUserId)) throw new Error('Project access changed while preparing the preview');
     return { url, projectId, port };
   }
@@ -64,7 +75,8 @@ export class ProjectPreviewService {
       title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
       sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port),
       status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
-      createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
+      createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null,
+      primaryCustomHostnameId: null };
   }
   async serve(site: Site, req: SitesHttpRequest, rest: string, viewer: Viewer, siteRoot: string): Promise<SitesHttpResponse> {
     const denied = (): SitesHttpResponse => ({ status: 404, headers: { 'cache-control': 'no-store' }, body: '' });
@@ -88,15 +100,34 @@ export class ProjectPreviewService {
       return { status: 503, headers: { 'cache-control': 'no-store' }, body: 'The project preview is unavailable.' };
     } finally { await binding?.release(); }
   }
-  async syncGateway(issued: ReadonlySet<string>, renew: boolean): Promise<void> {
+  async syncGateway(renew: boolean): Promise<void> {
+    const bindings = this.deps.addresses.bindings();
+    const synced = await this.deps.gateway.reconcile(bindings);
+    if (!synced.available || !synced.active) return;
     for (const preview of this.deps.store.allPreviews()) {
       if (!this.active(preview.projectId)) continue;
-      if (renew || !issued.has(preview.slug)) await this.deps.gateway.ensureSite(preview.slug);
+      const binding = bindings.find((entry) => entry.siteId === preview.id && entry.class === 'generated');
+      if (binding && (renew || !this.deps.gateway.hasCertificate(binding.hostname))) {
+        await this.deps.gateway.ensureBinding(binding, bindings);
+      }
     }
   }
   async removeProject(projectId: number): Promise<void> {
     const previews = this.deps.store.previewsInProject(projectId);
+    const hostnameBase = this.deps.config().siteHostBase;
+    const remaining = this.deps.addresses.bindings(
+      Date.now(),
+      new Set(previews.map((preview) => preview.id)),
+    );
+    if (hostnameBase) {
+      for (const preview of previews) {
+        await this.deps.gateway.removeBinding(
+          `${preview.slug}.${hostnameBase}`,
+          preview.slug,
+          remaining,
+        );
+      }
+    }
     this.deps.store.deletePreviews(projectId);
-    for (const preview of previews) await this.deps.gateway.removeSite(preview.slug);
   }
 }

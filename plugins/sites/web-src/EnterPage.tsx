@@ -24,12 +24,12 @@ export function EnterPage() {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(window.location.search);
-    const slug = params.get('site') ?? '';
+    const binding = params.get('binding') ?? '';
     const returnPath = params.get('r') ?? '';
-    if (!slug) { setPhase('denied'); return; }
+    if (!binding) { setPhase('denied'); return; }
 
     void runtime()
-      .api('/plugins/sites/api/ticket', jsonBody('POST', { slug, r: returnPath }))
+      .api('/plugins/sites/api/ticket', jsonBody('POST', { binding, r: returnPath }))
       .then((data) => {
         const ticket = data as TicketResponse;
         if (!ticket?.token || !ticket?.action) { setPhase('denied'); return; }

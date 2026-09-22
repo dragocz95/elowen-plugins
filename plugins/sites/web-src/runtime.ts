@@ -16,6 +16,70 @@ export type PublicationKind = 'static' | 'proxy';
  *  is the information about the page, not the picture of it. A register that dropped to a monogram every
  *  time a capture failed would be a register that flickers, and the monogram is reserved for having no
  *  picture at all. */
+type SiteDomainStatus =
+  | 'awaiting_ownership' | 'awaiting_routing' | 'misdirected' | 'issuing' | 'ready'
+  | 'authority_refused' | 'rate_limited' | 'renewal_blocked' | 'expired' | 'removing';
+
+export interface SiteDomainRecordView {
+  type: 'TXT' | 'A' | 'AAAA' | 'CNAME' | 'ALIAS/ANAME';
+  name: string;
+  value: string;
+}
+
+interface SiteDomainStepView {
+  state: string;
+  code: string;
+  params: Record<string, string>;
+}
+
+export interface SiteDomainView {
+  id: string;
+  hostname: string;
+  displayHostname: string;
+  url: string;
+  kind: 'root' | 'subdomain';
+  delegatedRootWarning: boolean;
+  status: SiteDomainStatus;
+  statusCode: string;
+  statusParams: Record<string, string>;
+  isPrimary: boolean;
+  canOpen: boolean;
+  removalState: 'active' | 'removing';
+  ownership: SiteDomainStepView & {
+    record: SiteDomainRecordView;
+    checkedAt: string | null;
+    expiresAt: string | null;
+  };
+  routing: SiteDomainStepView & {
+    hint: 'routingHintRoot' | 'routingHintSubdomain';
+    recommended: SiteDomainRecordView[];
+    alternatives: SiteDomainRecordView[];
+    observed: string[];
+    checkedAt: string | null;
+    nextCheckAt: string | null;
+    planState: 'ready' | 'unavailable';
+  };
+  certificate: SiteDomainStepView & {
+    requestedAt: string | null;
+    retryAt: string | null;
+    notAfter: string | null;
+  };
+}
+
+export interface SiteDomainsResponse {
+  siteId: string;
+  effectiveUrl: string | null;
+  generated: {
+    id: string;
+    hostname: string;
+    displayHostname: string;
+    url: string;
+    effective: boolean;
+  } | null;
+  primaryHostnameId: string | null;
+  domains: SiteDomainView[];
+}
+
 interface PreviewView {
   state: 'none' | 'pending' | 'ready' | 'failed';
   /** Cache key of the stored picture; 0 when there is none. */
@@ -193,6 +257,21 @@ interface RuntimeComponents {
     variant?: 'default' | 'line';
     className?: string;
   }>;
+  Modal: ComponentType<{
+    title: string;
+    onClose(): void;
+    children: ReactNode;
+    size?: 'lg' | 'xl' | 'md' | 'sm' | 'page';
+    icon?: LucideIcon;
+    description?: string;
+    presentation?: 'auto' | 'center' | 'drawer' | 'sheet' | 'fullscreen';
+    closeLabel?: string;
+    closeDisabled?: boolean;
+    'aria-busy'?: true;
+    'data-testid'?: string;
+  }>;
+  ModalBody: ComponentType<{ children: ReactNode; gap?: 4 | 5 | 6 }>;
+  ModalFooter: ComponentType<{ children?: ReactNode; status?: ReactNode }>;
   ConfirmDialog: ComponentType<{
     open: boolean;
     title: string;
@@ -346,6 +425,7 @@ export const jsonBody = (method: string, value: unknown): RequestInit => ({
 
 export const SITES_LIST_KEY = ['sites', 'list'];
 export const siteDetailKey = (siteId: string): unknown[] => ['sites', 'detail', siteId];
+export const siteDomainsKey = (siteId: string): unknown[] => ['sites', 'domains', siteId];
 
 /** The Avatar takes exactly this shape already, so this is an identity — kept as a named function so
  *  every call site goes through one place if the host contract ever widens. */
@@ -369,20 +449,23 @@ export const PREVIEW_POLL_MS = 4000;
 export const awaitingPreview = (sites: readonly SiteView[]): boolean =>
   sites.some((site) => site.preview.state === 'pending');
 
-/** Relative time in the shape the register uses: short, and never a bare timestamp nobody reads. */
+/** Relative time localized by the document language the host already selected. */
 export function relativeTime(iso: string | null): string {
   if (!iso) return '';
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return '';
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 90) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 31) return `${days} d ago`;
-  return new Date(then).toISOString().slice(0, 10);
+  const locale = document.documentElement.lang || navigator.language || 'en';
+  const deltaSeconds = Math.round((then - Date.now()) / 1000);
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' });
+  const absoluteSeconds = Math.abs(deltaSeconds);
+  if (absoluteSeconds < 90) return formatter.format(0, 'second');
+  const minutes = Math.round(deltaSeconds / 60);
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
+  const hours = Math.round(deltaSeconds / 3600);
+  if (Math.abs(hours) < 36) return formatter.format(hours, 'hour');
+  const days = Math.round(deltaSeconds / 86400);
+  if (Math.abs(days) < 31) return formatter.format(days, 'day');
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(then));
 }
 
 export const formatBytes = (bytes: number): string =>

@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CAPTURE_HEADER, mintTicket } from './access.js';
-import { siteUrl } from './config.js';
 /** How long a minted grant may be presented for. It exists to be spent by the very next request a capture
  *  makes, so this only has to outlast a browser launch. */
 export const CAPTURE_GRANT_TTL_MS = 60_000;
@@ -52,7 +51,7 @@ export class SitePreviewImageService {
             return 'that site is being deleted';
         if (site.status !== 'live')
             return 'the site has not been published yet';
-        if (siteUrl(this.deps.config(), site.slug) === null) {
+        if (this.deps.addresses.urlForSite(site) === null) {
             return 'this instance has no site address to take a picture through, because its domain gateway is not ready';
         }
         if (site.kind === 'proxy') {
@@ -227,7 +226,7 @@ export class SitePreviewImageService {
             return;
         }
         const control = this.deps.captureControl();
-        const address = siteUrl(this.deps.config(), site.slug);
+        const address = this.deps.addresses.urlForSite(site);
         if (!control || address === null)
             return;
         // The grant is minted per attempt, one per Site, and replaced by the next attempt: a token that was

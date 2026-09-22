@@ -79,12 +79,9 @@ export interface ChatbotRelayControl {
   relay: ChatbotRelay;
 }
 
-/** An account as the host reports it once the account KIND is part of the user contract. `type` is absent
- *  on older daemons, so a caller treats a missing value as "not a chatbot" (fail closed). */
-export interface ChatbotAccountView extends Omit<PluginUserView, 'id'> {
-  id: number;
-  type?: 'human' | 'chatbot';
-}
+/** The account projection is the host contract. The manifest's core floor guarantees `type`; keeping a
+ * second, optional restatement here would let the registry compile against a shape the runtime forbids. */
+export type ChatbotAccountView = PluginUserView;
 
 export interface ChatbotStores extends Omit<PluginHostStores, 'projects' | 'usersRead'>, ChatbotProjectStores {
   usersRead: Omit<PluginHostStores['usersRead'], 'list'> & { list(): ChatbotAccountView[] };

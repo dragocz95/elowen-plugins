@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CAPTURE_HEADER, mintTicket } from './access.js';
-import { siteUrl, type SitesConfig } from './config.js';
 import type { Site, SitePreviewImage, SitesStore } from './store.js';
+import type { SiteAddressService } from './address.js';
 
 /** A picture of a published page, kept beside the Site it belongs to.
  *
@@ -96,7 +96,7 @@ export interface PreviewImageDeps {
    *  it is rather than `control` so no reader can mistake it for the Sandbox seam: a missing one is a
    *  reason a picture cannot be taken, never a failure of the plugin itself. */
   captureControl(): BrowserCaptureLike | undefined;
-  config(): SitesConfig;
+  addresses: Pick<SiteAddressService, 'urlForSite'>;
   now?(): number;
   logger?: { warn(message: string): void };
 }
@@ -120,7 +120,7 @@ export class SitePreviewImageService {
   private unavailableReason(site: Site): string | null {
     if (site.status === 'deleting') return 'that site is being deleted';
     if (site.status !== 'live') return 'the site has not been published yet';
-    if (siteUrl(this.deps.config(), site.slug) === null) {
+    if (this.deps.addresses.urlForSite(site) === null) {
       return 'this instance has no site address to take a picture through, because its domain gateway is not ready';
     }
     if (site.kind === 'proxy') {
@@ -290,7 +290,7 @@ export class SitePreviewImageService {
       return;
     }
     const control = this.deps.captureControl();
-    const address = siteUrl(this.deps.config(), site.slug);
+    const address = this.deps.addresses.urlForSite(site);
     if (!control || address === null) return;
 
     // The grant is minted per attempt, one per Site, and replaced by the next attempt: a token that was

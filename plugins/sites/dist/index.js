@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
-import { resolveConfig, siteHost } from './config.js';
-import { SiteCertificateService, sitesDueForCertificate } from './certificate.js';
+import { resolveConfig } from './config.js';
+import { SiteCertificateService } from './certificate.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
@@ -12,6 +12,9 @@ import { deleteSiteResources } from './deletion.js';
 import { ProjectPreviewService } from './preview.js';
 import { SitePreviewImageService } from './previewImage.js';
 import { ProjectPublicationService } from './publication.js';
+import { SiteAddressService } from './address.js';
+import { SiteHostnameCoordinator } from './hostnameCoordinator.js';
+import { SiteDomainService } from './domains.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -20,7 +23,8 @@ const ISSUE_SWEEP_MS = 30_000;
 const isDaemonProcess = () => typeof process.send !== 'function';
 export function register(published) {
     const ctx = asSitesContext(published);
-    const store = new SitesStore(ctx.db());
+    const gateway = new SiteGatewayManager(ctx);
+    const store = new SitesStore(ctx.db(), { hostnameBase: gateway.hostnameBase() });
     store.migrateSourceReferences((projectId) => {
         const project = ctx.host.stores().projects.get(projectId);
         if (!project)
@@ -49,16 +53,65 @@ export function register(published) {
             cachedSecret = mintSessionSecret();
         return cachedSecret;
     };
-    const gateway = new SiteGatewayManager(ctx);
     const config = () => resolveConfig(ctx.config, ctx.publicWebUrl(), gateway.hostnameBase());
+    const addresses = new SiteAddressService({
+        store,
+        scheme: () => config().siteScheme,
+        hostnameBase: () => config().siteHostBase,
+        previews: () => store.allPreviews(),
+        previewActive: (projectId) => {
+            const project = ctx.host.stores().projects.get(projectId);
+            return project?.executionKind === 'managed' && project.lifecycle === 'active';
+        },
+    });
+    const issueGeneratedBinding = async (slug) => {
+        const site = store.siteBySlug(slug);
+        if (!site)
+            throw new Error(`Site ${slug} does not exist`);
+        const binding = addresses.bindings().find((entry) => entry.siteId === site.id && entry.class === 'generated');
+        if (!binding)
+            throw new Error(`Site ${slug} has no generated binding`);
+        const bindings = addresses.bindings();
+        const synced = await gateway.reconcile(bindings);
+        if (!synced.available || !synced.active)
+            throw new Error(synced.detail ?? 'The Sites gateway is unavailable');
+        await gateway.ensureBinding(binding, bindings);
+    };
     const certificates = new SiteCertificateService({
         canIssue: () => gateway.hasBroker(),
-        issue: (slug) => gateway.ensureSite(slug),
-        mayAttempt: (slug) => gateway.mayAttempt(slug),
-        issuedSlugs: () => (gateway.hasBroker() ? gateway.issuedSlugs() : null),
+        issue: issueGeneratedBinding,
+        mayAttempt: (slug) => {
+            const site = store.siteBySlug(slug);
+            const retry = site ? store.generatedHostname(site.id)?.certificateRetryAt : null;
+            return retry === null || retry === undefined || Date.parse(retry) <= Date.now();
+        },
+        issuedSlugs: () => gateway.hasBroker()
+            ? store.allSites()
+                .filter((site) => {
+                const generated = store.generatedHostname(site.id);
+                return generated !== null && gateway.hasCertificate(generated.hostname);
+            })
+                .map((site) => site.slug)
+            : null,
         store,
     });
-    const certificateHost = (site) => siteHost(config(), site.slug);
+    const certificateHost = (site) => addresses.generatedHostname(site)?.hostname ?? null;
+    const hostnameCoordinator = new SiteHostnameCoordinator({ store, gateway, addresses, logger: ctx.logger });
+    const domains = new SiteDomainService({
+        store,
+        addresses,
+        gateway,
+        coordinator: hostnameCoordinator,
+        appHostname: () => {
+            try {
+                return new URL(config().appBaseUrl).hostname;
+            }
+            catch {
+                return null;
+            }
+        },
+        gatewayHostname: () => typeof ctx.config.gatewayDnsTarget === 'string' ? ctx.config.gatewayDnsTarget : null,
+    });
     const access = {
         accountExists: (userId) => ctx.host.stores().usersRead.list().some((user) => user.id === userId),
         isAdmin: (userId) => ctx.host.stores().usersRead.isAdmin(userId),
@@ -105,6 +158,7 @@ export function register(published) {
         project: id => ctx.host.stores().projects.get(id),
         control: () => ctx.control('sandbox'),
         config,
+        addresses,
         gateway,
         proxyLimits,
         usernameOf: id => people().get(id)?.username ?? null,
@@ -113,7 +167,10 @@ export function register(published) {
         store,
         control: () => ctx.control('sandbox'),
         project: id => ctx.host.stores().projects.get(id),
-        siteHost: slug => siteHost(config(), slug),
+        siteHost: (slug) => {
+            const site = store.siteBySlug(slug);
+            return site ? addresses.effectiveHostname(site) : null;
+        },
         logger: ctx.logger,
     });
     /** The picture of each published page, for the register. It renders through the site's own published
@@ -124,7 +181,7 @@ export function register(published) {
         siteDir,
         project: id => ctx.host.stores().projects.get(id),
         captureControl: () => ctx.control('browserCapture'),
-        config,
+        addresses,
         logger: ctx.logger,
     });
     const deleteSite = async (siteId) => {
@@ -141,7 +198,7 @@ export function register(published) {
                 siteDir,
                 hasGatewayBroker: () => gateway.hasBroker(),
                 releasePublication: (target) => publications.release(target),
-                removeGateway: (slug) => gateway.removeSite(slug),
+                removeHostnames: async () => { await hostnameCoordinator.cleanupRemoved(); },
             });
             deletingSiteIds.delete(siteId);
         }
@@ -197,12 +254,11 @@ export function register(published) {
             access,
             secret: sessionSecret,
             config: () => ({
-                siteHostBase: config().siteHostBase,
-                siteScheme: config().siteScheme,
                 appBaseUrl: config().appBaseUrl,
                 sessionTtlHours: config().sessionTtlHours,
                 gatewayToken: gateway.gatewayToken(),
             }),
+            addresses,
             releaseDir,
             countHit: (siteId) => {
                 if (!deletingSiteIds.has(siteId))
@@ -219,6 +275,8 @@ export function register(published) {
         store,
         access,
         config,
+        addresses,
+        domains,
         previewImages,
         people,
         projectSlug,
@@ -245,7 +303,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     registerTools({
-        ctx, store, access, config, deleteSite, activateRelease,
+        ctx, store, access, config, addresses, domains, deleteSite, activateRelease,
         publications, people, previews, previewImages,
         certificates: {
             publish: (site) => certificates.publish(site, certificateHost(site)),
@@ -253,27 +311,13 @@ export function register(published) {
         },
     });
     ctx.registerReadinessCheck(() => gateway.readiness());
-    const syncGateway = async (all = false) => {
-        const status = await gateway.reconcile();
+    const syncGateway = async (renew = false) => {
+        const status = await gateway.reconcile(addresses.bindings());
         if (!status.active)
             return;
-        const issued = new Set(gateway.issuedSlugs());
-        for (const site of sitesDueForCertificate(store.allSites(), { all, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) })) {
-            const requested = site.certificateRequestedAt != null;
-            try {
-                await gateway.ensureSite(site.slug);
-                store.updateSite(site.id, {
-                    ...(requested ? { certificateRequestedAt: null } : {}),
-                    ...(store.siteById(site.id)?.certificateError != null ? { certificateError: null } : {}),
-                });
-            }
-            catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                store.updateSite(site.id, { ...(requested ? { certificateRequestedAt: null } : {}), certificateError: message });
-                ctx.logger.warn(`site ${site.slug} has no certificate yet: ${message}`);
-            }
-        }
-        await previews.syncGateway(issued, all);
+        await hostnameCoordinator.sweep({ renew });
+        await previews.syncGateway(renew);
+        await hostnameCoordinator.cleanupRemoved();
     };
     if (isDaemonProcess()) {
         ctx.registerService({ name: 'site-gateway', start: async () => { await syncGateway(); }, stop: () => { } });
@@ -307,10 +351,8 @@ export function register(published) {
     ctx.registerInterval('issue-site-certificates', async () => {
         if (!gateway.isActive())
             return;
-        const issued = new Set(gateway.issuedSlugs());
-        const pending = sitesDueForCertificate(store.allSites(), { all: false, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) });
-        if (pending.length > 0)
-            await syncGateway();
+        await hostnameCoordinator.sweep();
+        await hostnameCoordinator.cleanupRemoved();
     }, ISSUE_SWEEP_MS);
     ctx.registerInterval('renew-site-gateway', async () => { await syncGateway(true); }, GATEWAY_RECONCILE_MS);
     ctx.registerInterval('recover-site-gateway', async () => {

@@ -9,19 +9,49 @@ type SitesSandboxControl = Pick<
   'projectPreviewBinding' | 'projectPublicationBinding' | 'projectPublicationRelease'
 >;
 
+type SitesGatewayBindingClass = 'generated' | 'custom';
+
+export interface SitesGatewayBinding {
+  hostname: string;
+  slug: string;
+  class: SitesGatewayBindingClass;
+}
+
+export interface SitesGatewayBindingStatus {
+  hostname: string;
+  present: boolean;
+  notAfter?: string;
+  servedGeneration?: string;
+  detail?: string;
+}
+
 export interface SitesGatewayStatus {
   available: boolean;
   active: boolean;
   hostnameBase: string | null;
   detail?: string;
-  slugs?: string[];
+  bindings?: SitesGatewayBindingStatus[];
 }
 
 interface SitesGatewayControl {
   hostnameBase(): string | null;
-  syncSites(input: { gatewayToken: string }): Promise<SitesGatewayStatus>;
-  ensureSite(input: { slug: string; email: string; gatewayToken: string }): Promise<SitesGatewayStatus>;
-  removeSite(input: { slug: string; gatewayToken: string }): Promise<SitesGatewayStatus>;
+  reservedHostnames(): readonly string[];
+  syncBindings(input: {
+    bindings: readonly SitesGatewayBinding[];
+    gatewayToken: string;
+  }): Promise<SitesGatewayStatus>;
+  ensureBinding(input: {
+    binding: SitesGatewayBinding;
+    bindings: readonly SitesGatewayBinding[];
+    email: string;
+    gatewayToken: string;
+  }): Promise<SitesGatewayStatus>;
+  removeBinding(input: {
+    hostname: string;
+    slug: string;
+    bindings: readonly SitesGatewayBinding[];
+    gatewayToken: string;
+  }): Promise<SitesGatewayStatus>;
   deny(): Promise<SitesGatewayStatus>;
   status(): Promise<SitesGatewayStatus>;
 }

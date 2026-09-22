@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { SiteGatewayManager } from '../plugins/sites/dist/gateway.js';
-import { resolveConfig, siteUrl } from '../plugins/sites/dist/config.js';
+import { SiteAddressService } from '../plugins/sites/dist/address.js';
 
 // Every tool call arrives in a FORKED RUNNER. Core builds that process with `migrate: false`, and on that
 // branch it constructs no privileged published-sites gateway at all — so `ctx.control('publishedSitesGateway')`
@@ -68,10 +68,30 @@ test('a runner builds the same site address the daemon would print for the same 
   // The whole chain, because the hostname base alone is not what an agent reads: SiteCreate and SitePublish
   // refuse outright when `siteHostBase` is null, which is exactly what this produced in a runner.
   const harness = runnerHarness();
-  const config = resolveConfig({}, APP_URL, harness.manager.hostnameBase());
+  const addresses = new SiteAddressService({
+    store: {
+      allSites: () => [],
+      generatedHostname: () => ({
+        id: 'site-1:generated',
+        siteId: 'site-1',
+        kind: 'generated',
+        hostname: `demo-abc123.${HOSTNAME_BASE}`,
+        removalRequestedAt: null,
+      }),
+      customHostnames: () => [],
+      hostnameById: () => null,
+      siteById: () => null,
+    },
+    scheme: () => 'https:',
+    hostnameBase: () => harness.manager.hostnameBase(),
+    previews: () => [],
+    previewActive: () => true,
+  });
 
-  assert.equal(config.siteHostBase, HOSTNAME_BASE);
-  assert.equal(siteUrl(config, 'demo-abc123'), `https://demo-abc123.${HOSTNAME_BASE}/`);
+  assert.equal(
+    addresses.urlForSite({ id: 'site-1', primaryCustomHostnameId: null }),
+    `https://demo-abc123.${HOSTNAME_BASE}/`,
+  );
 });
 
 test('the broker stays the authority for the hostname wherever it exists', () => {
@@ -96,17 +116,20 @@ test('knowing the hostname buys a runner no certificate, and reaches no privileg
 
   assert.equal(harness.manager.hostnameBase(), HOSTNAME_BASE, 'the address is known');
   await assert.rejects(
-    harness.manager.ensureSite('demo-abc123'),
-    /this daemon has no published-sites gateway broker/,
+    harness.manager.ensureBinding(
+      { hostname: `demo-abc123.${HOSTNAME_BASE}`, slug: 'demo-abc123', class: 'generated' },
+      [],
+    ),
+    /No published-sites gateway broker/,
     'issuance refuses in a runner rather than falling back to anything',
   );
   // Removal must also refuse. Treating an absent control as success would let durable deletion discard its
   // retry owner while privileged gateway resources may still exist.
   await assert.rejects(
-    harness.manager.removeSite('demo-abc123'),
-    /this daemon has no published-sites gateway broker/,
+    harness.manager.removeBinding(`demo-abc123.${HOSTNAME_BASE}`, 'demo-abc123', []),
+    /No published-sites gateway broker/,
   );
   assert.deepEqual(harness.warnings, []);
-  assert.deepEqual([...harness.manager.issuedSlugs()], [],
+  assert.deepEqual([...harness.manager.issuedHostnames()], [],
     'a runner never reconciles, so it holds no issued set and must not invent one');
 });

@@ -70,6 +70,19 @@ setDefaults(
     mine: [site], shared: [], allowPublicSites: true,
   })),
   http.get('/api/plugins/sites/api/site/:id', () => HttpResponse.json(detail)),
+  http.get('/api/plugins/sites/api/site/:id/domains', () => HttpResponse.json({
+    siteId: site.id,
+    effectiveUrl: site.url,
+    generated: {
+      id: site.id + ':generated',
+      hostname: 'dashboard-abc123.sites.example.com',
+      displayHostname: 'dashboard-abc123.sites.example.com',
+      url: site.url,
+      effective: true,
+    },
+    primaryHostnameId: null,
+    domains: [],
+  })),
   http.get('/api/plugins/sites/api/directory', () => HttpResponse.json({ accounts: [OWNER, GUEST, OUTSIDER] })),
 );
 
@@ -88,7 +101,7 @@ const openSite = async () => {
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(site.title) }));
   const drawer = await screen.findByRole('dialog', { name: strings.detailTitle });
   // The drawer resolves the site by id on open, so wait for the loaded document rather than the frame.
-  await within(drawer).findByText(strings.address);
+  await within(drawer).findByText(site.title);
   return drawer;
 };
 
@@ -201,7 +214,7 @@ describe('the Sites workspace', () => {
     const drawer = within(await openSite());
     // No tab strip: address, access, guests, releases and deletion are all present together,
     // which is what keeps the drawer one size on every surface.
-    expect(drawer.getByText(strings.address)).toBeInTheDocument();
+    expect(drawer.getByText(strings.addresses)).toBeInTheDocument();
     expect(drawer.getAllByText(strings.whoCanOpen).length).toBeGreaterThan(0);
     expect(drawer.getByText(strings.guests)).toBeInTheDocument();
     expect(drawer.getAllByText(strings.releases).length).toBeGreaterThan(0);

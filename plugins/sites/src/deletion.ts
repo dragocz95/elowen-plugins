@@ -10,7 +10,7 @@ export interface SiteDeletionDeps {
    *  control is withheld so a runner never gains a path to sudo. */
   hasGatewayBroker(): boolean;
   releasePublication(site: Site): Promise<void>;
-  removeGateway(slug: string): Promise<void>;
+  removeHostnames(site: Site): Promise<void>;
 }
 
 /** Finish the daemon-owned phase of a durable site deletion. */
@@ -24,6 +24,6 @@ export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps
   if (!deps.hasGatewayBroker()) return;
   if (site.kind === 'proxy') await deps.releasePublication(site);
   rmSync(deps.siteDir(siteId), { recursive: true, force: true });
-  await deps.removeGateway(site.slug);
-  deps.store.deleteSite(siteId);
+  await deps.removeHostnames(site);
+  if (deps.store.hostnamesForSite(siteId).length === 0) deps.store.deleteSite(siteId);
 }

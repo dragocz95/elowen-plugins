@@ -149,16 +149,20 @@ export function sitesDueForCertificate(sites, options) {
  *  A list of sites paid a TLS handshake each to say anything about certificates, so it said nothing at all —
  *  and an agent reading it had no way to tell a site whose certificate failed from one that is simply
  *  waiting. Both are recorded on the row already; this reports exactly that and claims nothing more. */
-export function recordedCertificate(site) {
+export function recordedCertificate(site, hostname) {
     if (site.status !== 'live')
         return null;
-    if (site.certificateError) {
-        return { state: 'error', detail: `the last recorded attempt failed: ${site.certificateError}` };
+    if (hostname?.certificateErrorDetail || hostname?.certificateErrorCode) {
+        return {
+            state: 'error',
+            detail: `the last recorded attempt failed: ${hostname.certificateErrorDetail ?? hostname.certificateErrorCode}`,
+        };
     }
-    if (site.certificateRequestedAt != null) {
+    if (hostname?.certificateState === 'requested' || hostname?.certificateState === 'issuing'
+        || hostname?.certificateRequestedAt != null) {
         return {
             state: 'requested',
-            detail: `requested at ${site.certificateRequestedAt}; the daemon issues it on its next gateway sweep`,
+            detail: `requested at ${hostname.certificateRequestedAt ?? 'an unknown time'}; the daemon issues it on its next gateway sweep`,
         };
     }
     // Deliberately not read as "nothing has happened": a SUCCESSFUL issuance clears both columns, so a site
@@ -195,7 +199,7 @@ export class SiteCertificateService {
         // Recorded BEFORE the attempt, in both processes. It is how a runner asks at all, and in the daemon it
         // is what survives a crash between here and certbot returning — the sweep then finishes the job
         // instead of leaving a live site permanently uncertified.
-        this.deps.store.updateSite(site.id, { certificateRequestedAt: new Date().toISOString() });
+        this.deps.store.requestGeneratedCertificate(site.id, new Date().toISOString());
         if (hostname === null)
             return this.withoutHostname();
         // A backed-off slug is not asked again, here least of all: this is the path an agent repeats after
@@ -204,11 +208,11 @@ export class SiteCertificateService {
         if (this.deps.canIssue() && this.deps.mayAttempt(site.slug)) {
             try {
                 await this.deps.issue(site.slug);
-                this.deps.store.updateSite(site.id, { certificateRequestedAt: null, certificateError: null });
+                this.deps.store.clearGeneratedCertificateRequest(site.id);
             }
             catch (error) {
                 const detail = messageOf(error);
-                this.deps.store.updateSite(site.id, { certificateRequestedAt: null, certificateError: detail });
+                this.deps.store.failGeneratedCertificate(site.id, detail);
                 return { state: 'error', detail: `the certificate for ${hostname} was not issued: ${detail}` };
             }
             const observation = await this.probe(hostname);
@@ -242,7 +246,7 @@ export class SiteCertificateService {
             return { state: 'ready', detail: observation.detail };
         // A recorded reason outranks the handshake: a hostname left uncertified BECAUSE the authority refused
         // it is an error, and reporting it as pending would promise a wait that never ends.
-        const recorded = this.deps.store.siteById(site.id)?.certificateError ?? null;
+        const recorded = this.deps.store.generatedHostname(site.id)?.certificateErrorDetail ?? null;
         if (recorded)
             return { state: 'error', detail: `the last certificate attempt for ${hostname} failed: ${recorded}` };
         if (!observation.reachable)

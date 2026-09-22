@@ -12,7 +12,10 @@ import {
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { resolveWithin } from '../plugins/sites/dist/releaseFiles.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
+import { resolveConfig } from '../plugins/sites/dist/config.js';
+import { SiteAddressService } from '../plugins/sites/dist/address.js';
+import { parseSiteHostname } from '../plugins/sites/dist/hostname.js';
+import { resolveGatewayDnsTarget } from '../plugins/sites/dist/dns.js';
 import { proxyToProject, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
@@ -74,6 +77,14 @@ const deps = ({ accounts = [1, 2, 3, 9], admins = [9], projects = {}, allowPubli
 });
 
 const tempDir = (label) => mkdtempSync(join(tmpdir(), `sites-${label}-`));
+
+const addressesFor = (store, hostnameBase = 'sites.elowen.example') => new SiteAddressService({
+  store,
+  scheme: () => 'https:',
+  hostnameBase: () => hostnameBase,
+  previews: () => store.allPreviews(),
+  previewActive: () => true,
+});
 
 // ── manifest ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -310,20 +321,27 @@ const serveHarness = (t, overrides = {}, handlerDeps = {}) => {
   writeFileSync(join(release, 'index.html'), '<!doctype html><title>demo</title>');
   writeFileSync(join(release, 'app.css'), 'body{}');
 
-  const store = new SitesStore(makeDb());
+  const hostnameBase = overrides.siteHostBase ?? 'sites.example.com';
+  const store = new SitesStore(makeDb(), { hostnameBase });
   store.insertSite(site(overrides));
+  const addresses = new SiteAddressService({
+    store,
+    scheme: () => 'https:',
+    hostnameBase: () => hostnameBase,
+    previews: () => [],
+    previewActive: () => true,
+  });
 
   const handler = createSiteHandler({
     store,
     access: deps({ projects: { 2: [7] } }),
     secret: () => 'serve-secret',
     config: () => ({
-      siteHostBase: overrides.siteHostBase ?? 'sites.example.com',
-      siteScheme: 'https:',
       appBaseUrl: 'https://elowen.example',
       sessionTtlHours: 12,
       gatewayToken: GATEWAY_TOKEN,
     }),
+    addresses,
     releaseDir: () => release,
     countHit: () => {},
     endpointFor: () => null,
@@ -331,7 +349,7 @@ const serveHarness = (t, overrides = {}, handlerDeps = {}) => {
     usernameOf: () => 'amy',
     ...handlerDeps,
   });
-  return { handler, store, release };
+  return { handler, store, release, addresses };
 };
 
 /** A request as the site gateway delivers it: on the site's OWN hostname and carrying the marker nginx
@@ -358,14 +376,14 @@ const request = (path, extra = {}) => {
   };
 };
 
-test('an unknown slug and a slug you may not see answer identically', async (t) => {
-  // Same method, same headers: anything that differs here is a directory of what exists on the
-  // instance, which is exactly what a private site must not publish.
+test('an unknown generated Host stays concealed while an active private Site can bounce to sign-in', async (t) => {
   const { handler } = serveHarness(t, { visibility: 'private' });
   const unknown = await handler(request('never-taken-000000/'));
   const forbidden = await handler(request('demo-abc123/'));
-  assert.equal(unknown.status, forbidden.status);
-  assert.equal(unknown.headers.location, forbidden.headers.location?.replace('demo-abc123', 'never-taken-000000'));
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.headers.location, undefined);
+  assert.equal(forbidden.status, 302);
+  assert.match(forbidden.headers.location, /\/p\/sites\/enter\?/);
 
   const unknownFetch = await handler(request('never-taken-000000/', { headers: { accept: 'application/json' } }));
   const forbiddenFetch = await handler(request('demo-abc123/', { headers: { accept: 'application/json' } }));
@@ -411,12 +429,12 @@ test('the app hostname does not serve published pages at all', async (t) => {
   const { handler } = serveHarness(t, { visibility: 'public' });
 
   const viaApp = await handler(request('demo-abc123/', { headers: { host: 'elowen.example' } }));
-  assert.equal(viaApp.status, 421);
+  assert.equal(viaApp.status, 404);
   assert.ok(!viaApp.headers['content-security-policy'].includes('allow-same-origin'));
 
   // A neighbouring site's hostname is not this site's origin either.
   const viaNeighbour = await handler(request('demo-abc123/', { headers: { host: 'other.sites.example.com' } }));
-  assert.equal(viaNeighbour.status, 421);
+  assert.equal(viaNeighbour.status, 404);
 
   // The Host header alone proves nothing: it is the caller who writes it. Without the marker nginx
   // overwrites, a loopback request claiming the site hostname gets the same answer as a free slug.
@@ -427,13 +445,71 @@ test('the app hostname does not serve published pages at all', async (t) => {
   assert.equal(wrongMarker.status, 404);
 });
 
+test('generated and custom hosts serve the same Site while a custom host cannot switch internal Site identity', async (t) => {
+  const { handler, store } = serveHarness(t, { visibility: 'public' });
+  const claimed = store.claimCustomHostname('site-1', parseSiteHostname('www.customer.example'));
+  store.verifyHostnameOwnership(claimed.id);
+  store.recordHostnameDns(claimed.id, 'ready', ['192.0.2.10']);
+  store.recordHostnameCertificate(claimed.id, { state: 'ready' });
+
+  const generated = await handler(request('demo-abc123/', { acceptsStreamBody: false }));
+  const custom = await handler(request('demo-abc123/', {
+    acceptsStreamBody: false,
+    headers: { host: 'www.customer.example' },
+  }));
+  assert.equal(custom.status, 200);
+  assert.deepEqual(custom.body, generated.body);
+
+  const switched = await handler(request('other-def456/', { headers: { host: 'www.customer.example' } }));
+  assert.equal(switched.status, 404);
+});
+
 test('a browser without a session is sent to the app to sign in', async (t) => {
   const { handler } = serveHarness(t, { visibility: 'project' });
   const response = await handler(request('demo-abc123/reports/q3.html'));
   assert.equal(response.status, 302);
   assert.match(response.headers.location, /^https:\/\/elowen\.example\/p\/sites\/enter\?/);
-  assert.match(response.headers.location, /site=demo-abc123/);
+  assert.match(response.headers.location, /binding=site-1%3Agenerated/);
   assert.match(response.headers.location, /r=reports%2Fq3\.html/);
+});
+
+test('a private custom hostname returns through its opaque active binding and rejects forged ids', async (t) => {
+  const { handler, store, addresses } = serveHarness(t, { visibility: 'private' });
+  const claimed = store.claimCustomHostname('site-1', parseSiteHostname('private.customer.example'));
+  store.verifyHostnameOwnership(claimed.id);
+  store.recordHostnameDns(claimed.id, 'ready', ['192.0.2.10']);
+  store.recordHostnameCertificate(claimed.id, { state: 'ready' });
+
+  const bounce = await handler(request('demo-abc123/report', {
+    headers: { host: 'private.customer.example' },
+  }));
+  assert.equal(bounce.status, 302);
+  assert.match(bounce.headers.location, /binding=/);
+  assert.doesNotMatch(bounce.headers.location, /private\.customer\.example/);
+
+  const handlers = createApiHandlers({
+    store,
+    addresses,
+    access: deps(),
+    config: () => resolveConfig({}, 'https://elowen.example', 'sites.example.com'),
+    people: () => new Map([[1, { id: 1, username: 'owner', name: 'Owner', avatar: '' }]]),
+    projectSlug: () => 'demo',
+    deleteSite: async () => {},
+    activateRelease: () => {},
+    gatewayReadiness: async () => ({ id: 'sites-gateway', label: 'Gateway', ok: true, status: 'ready', detail: 'ready' }),
+    gatewayRecord: () => null,
+  });
+  const apiRequest = (binding) => ({
+    method: 'POST',
+    auth: { userId: 1, admin: false },
+    json: async () => ({ binding, r: 'report' }),
+  });
+  const accepted = await handlers.ticket(apiRequest(claimed.id));
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.action, 'https://private.customer.example/__elowen/session');
+
+  const forged = await handlers.ticket(apiRequest('forged-binding-id'));
+  assert.equal(forged.status, 403);
 });
 
 test('a public site is served without any session at all', async (t) => {
@@ -753,23 +829,10 @@ test('every site gets the root of the gateway hostname derived by core', () => {
   // has to say so rather than invent one on the app's own origin.
   const unprovisioned = resolveConfig({}, 'https://elowen.example');
   assert.equal(unprovisioned.siteHostBase, null);
-  assert.equal(siteUrl(unprovisioned, 'demo'), null);
-  assert.equal(requestOnSiteHost(unprovisioned, 'demo', 'demo.sites.elowen.example'), false);
 
   const dedicated = resolveConfig({}, 'https://elowen.example', 'sites.elowen.example');
   assert.equal(dedicated.siteHostBase, 'sites.elowen.example');
   assert.equal('gatewayDnsTarget' in dedicated, false, 'the DNS destination is resolved once, where the gateway uses it');
-  assert.equal(siteUrl(dedicated, 'demo'), 'https://demo.sites.elowen.example/');
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443'), true);
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'elowen.example'), false);
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'other.sites.elowen.example'), false);
-
-  // A Host is one hostname and at most one numeric port. Reading only up to the first colon would call
-  // each of these the site's own address, which is an identity decision made on an unvalidated string.
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:not-a-port'), false);
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example:443:junk'), false);
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'demo.sites.elowen.example.'), false, 'a trailing dot is a different name');
-  assert.equal(requestOnSiteHost(dedicated, 'demo', 'DEMO.Sites.Elowen.Example:8443'), true, 'a hostname is case-insensitive');
 
   // A broker hostname is only accepted beside the trusted HTTPS app deployment.
   assert.equal(resolveConfig({}, 'http://elowen.example', 'sites.elowen.example').siteHostBase, null);
@@ -780,17 +843,19 @@ test('every site gets the root of the gateway hostname derived by core', () => {
 test('the Sites DNS destination is parsed once, strictly, for both readiness and the record', () => {
   // One exported contract, used by the gateway for the DNS check AND for the record the settings screen
   // shows. Everything that is not exactly a hostname or an address is refused rather than guessed at.
-  assert.deepEqual(resolveGatewayDnsTarget(undefined, 'elowen.example'), {
-    target: { kind: 'hostname', value: 'elowen.example' }, error: null,
-  });
-  assert.deepEqual(resolveGatewayDnsTarget('203.0.113.40', 'elowen.example').target, { kind: 'ipv4', value: '203.0.113.40' });
-  assert.deepEqual(resolveGatewayDnsTarget('Origin.Example.COM.', null).target, { kind: 'hostname', value: 'origin.example.com' });
+  const targetShape = (value, fallback) => {
+    const resolved = resolveGatewayDnsTarget(value, fallback);
+    return resolved.target ? { kind: resolved.target.kind, value: resolved.target.value } : null;
+  };
+  assert.deepEqual(targetShape(undefined, 'elowen.example'), { kind: 'hostname', value: 'elowen.example' });
+  assert.deepEqual(targetShape('203.0.113.40', 'elowen.example'), { kind: 'ipv4', value: '203.0.113.40' });
+  assert.deepEqual(targetShape('Origin.Example.COM.', null), { kind: 'hostname', value: 'origin.example.com' });
 
   // A trailing dot is a fully qualified value, not a hostname whose last label happens to be numeric.
-  assert.deepEqual(resolveGatewayDnsTarget('188.130.140.170.', null).target, { kind: 'ipv4', value: '188.130.140.170' });
+  assert.deepEqual(targetShape('188.130.140.170.', null), { kind: 'ipv4', value: '188.130.140.170' });
 
   // IPv6 is canonicalised, so a stored value and a resolver answer are the same string.
-  assert.deepEqual(resolveGatewayDnsTarget('2001:0DB8:0000:0000:0000:0000:0000:0020', null).target, {
+  assert.deepEqual(targetShape('2001:0DB8:0000:0000:0000:0000:0000:0020', null), {
     kind: 'ipv6', value: '2001:db8::20',
   });
 
@@ -820,6 +885,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
     store,
     access: deps(),
     config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+    addresses: addressesFor(store),
     people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
     projectSlug: () => 'demo',
     deleteSite: async () => {},
@@ -853,9 +919,9 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease, domains } = {}) => {
   const db = makeDb();
-  const store = new SitesStore(db);
+  const store = new SitesStore(db, { hostnameBase: gatewayHost });
   const registered = new Map();
   const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
   mkdirSync(join(dir, 'project'), { recursive: true });
@@ -876,13 +942,42 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     control: () => sandboxAvailable ? { activeWorkspace: () => null } : undefined,
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
+  const addresses = addressesFor(store, gatewayHost);
+  const domainService = domains ?? {
+    list: async (target) => {
+      const generated = store.generatedHostname(target.id);
+      return {
+        siteId: target.id,
+        effectiveUrl: addresses.urlForSite(target),
+        generated: generated ? {
+          id: generated.id,
+          hostname: generated.hostname,
+          displayHostname: generated.hostname,
+          url: addresses.urlForHostname(generated.hostname),
+          effective: true,
+        } : null,
+        primaryHostnameId: target.primaryCustomHostnameId,
+        domains: [],
+      };
+    },
+    add: async () => { throw new Error('domain add is not stubbed in this harness'); },
+    check: async () => { throw new Error('domain check is not stubbed in this harness'); },
+    makePrimary: async () => { throw new Error('domain primary is not stubbed in this harness'); },
+    remove: async () => { throw new Error('domain removal is not stubbed in this harness'); },
+  };
   registerTools({
     ctx,
     store,
     access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
+    addresses,
+    domains: domainService,
     people: () => new Map(accounts.map((person) => [person.id, person])),
-    deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
+    deleteSite: async (id) => {
+      store.beginDelete(id);
+      for (const hostname of store.hostnamesForSite(id)) store.completeHostnameRemoval(hostname.id);
+      store.deleteSite(id);
+    },
     activateRelease: activateRelease ?? ((target, releaseId) => {
       store.updateSite(target.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
     }),
@@ -918,6 +1013,67 @@ const answeringTransport = {
 };
 
 const activeManagedProject = [{ id: 7, slug: 'demo', path: '/host/demo', executionKind: 'managed', lifecycle: 'active' }];
+
+const domainToolView = (overrides = {}) => ({
+  id: 'domain-1',
+  hostname: 'www.customer.example',
+  displayHostname: 'www.customer.example',
+  url: 'https://www.customer.example/',
+  kind: 'subdomain',
+  delegatedRootWarning: true,
+  status: 'awaiting_ownership',
+  statusCode: 'ownership_missing',
+  statusParams: {},
+  isPrimary: false,
+  canOpen: false,
+  removalState: 'active',
+  ownership: {
+    state: 'missing', code: 'ownership_missing', params: {}, checkedAt: null,
+    expiresAt: '2026-09-23T06:00:00.000Z',
+    record: { type: 'TXT', name: '_elowen-site.www.customer.example', value: 'elowen-site-verification=secret' },
+  },
+  routing: {
+    state: 'unchecked', code: 'dns_missing', params: { hostname: 'www.customer.example' },
+    hint: 'routingHintSubdomain', planState: 'ready', observed: [], checkedAt: null, nextCheckAt: null,
+    recommended: [{ type: 'CNAME', name: 'www.customer.example', value: 'edge.example.' }],
+    alternatives: [{ type: 'A', name: 'www.customer.example', value: '192.0.2.44' }],
+  },
+  certificate: {
+    state: 'none', code: 'certificate_waiting', params: {}, requestedAt: null, retryAt: null, notAfter: null,
+  },
+  ...overrides,
+});
+
+test('custom-domain tools pass structured service inputs and return the exact server record plan', async (t) => {
+  const calls = [];
+  const domain = domainToolView();
+  const domains = {
+    list: async (target) => ({ siteId: target.id, effectiveUrl: null, generated: null, primaryHostnameId: null, domains: [domain] }),
+    add: async (target, hostname) => { calls.push(['add', target.id, hostname]); return domain; },
+    check: async (target, id) => { calls.push(['check', target.id, id]); return domain; },
+    makePrimary: async (target, id) => { calls.push(['primary', target.id, id]); return { ...domain, isPrimary: true }; },
+    remove: async (target, id) => { calls.push(['remove', target.id, id]); return { removed: true }; },
+  };
+  const h = toolHarness(t, { domains });
+  managedPublication(h.store, { status: 'live' });
+  const claimed = h.store.claimCustomHostname('pub-1', parseSiteHostname(domain.hostname));
+  domain.id = claimed.id;
+
+  const added = await h.call('SiteDomainAdd', { site: 'demo-abc123', hostname: 'WWW.Customer.Example.' });
+  assert.match(added.content[0].text, /TXT _elowen-site\.www\.customer\.example = elowen-site-verification=secret/);
+  assert.match(added.content[0].text, /CNAME www\.customer\.example = edge\.example\./);
+  assert.match(added.content[0].text, /A www\.customer\.example = 192\.0\.2\.44/);
+
+  await h.call('SiteDomainCheck', { site: 'pub-1', domain: domain.hostname });
+  await h.call('SiteDomainSetPrimary', { site: 'pub-1', domain: domain.id });
+  await h.call('SiteDomainRemove', { site: 'pub-1', domain: domain.hostname });
+  assert.deepEqual(calls, [
+    ['add', 'pub-1', 'WWW.Customer.Example.'],
+    ['check', 'pub-1', domain.id],
+    ['primary', 'pub-1', domain.id],
+    ['remove', 'pub-1', domain.id],
+  ]);
+});
 
 test('SiteCreate offers one publication model: a managed Project target port', (t) => {
   const harness = toolHarness(t);
@@ -1096,8 +1252,8 @@ test('SiteList reports what each row records about its certificate, and probes n
   store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
   // Written the way the certificate path writes them: the columns are updated on an existing row, never
   // supplied at insert.
-  store.updateSite('waiting', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
-  store.updateSite('failed', { certificateError: 'certbot failed: DNS problem' });
+  store.requestGeneratedCertificate('waiting', '2026-09-12T02:40:00.000Z');
+  store.failGeneratedCertificate('failed', 'certbot failed: DNS problem');
 
   const listed = await call('SiteList', {});
   const body = listed.content[0].text;
@@ -1220,7 +1376,10 @@ test('static deletion removes release data and the gateway record without runtim
   await deleteSiteResources(target.id, {
     store, siteDir: (id) => join(root, id), hasGatewayBroker: () => true,
     releasePublication: async () => calls.push('release'),
-    removeGateway: async () => calls.push('gateway'),
+    removeHostnames: async () => {
+      calls.push('gateway');
+      for (const hostname of store.hostnamesForSite(target.id)) store.completeHostnameRemoval(hostname.id);
+    },
   });
   assert.deepEqual(calls, ['gateway']);
   assert.equal(existsSync(join(root, target.id)), false);
@@ -1516,6 +1675,7 @@ test('SiteGet and SiteRollback answer exactly what the route answers, for admin,
       store: harness.store,
       access: { isAdmin: () => actor.admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
       config: () => resolveConfig({}, 'https://elowen.example', 'sites.elowen.example'),
+      addresses: addressesFor(harness.store),
       people: () => new Map([[1, { id: 1, username: 'filip', name: 'Filip', avatar: '' }]]),
       projectSlug: () => null,
       deleteSite: async () => {},

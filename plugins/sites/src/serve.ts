@@ -11,15 +11,11 @@ import {
   type AccessDeps, type Viewer,
 } from './access.js';
 import { CONTENT_TYPES, HTML_TYPE, extensionOf, resolveWithin } from './releaseFiles.js';
-import { requestOnSiteHost } from './config.js';
 import { ProxyError, proxyToProject, type Endpoint, type ProxyLimits, type ProxyViewer } from './proxy.js';
+import type { SiteAddressService } from './address.js';
 import type { ProjectPreviewService } from './preview.js';
 
 interface ServeConfig {
-  /** Base hostname each site gets a subdomain under, or null while the gateway is unprovisioned — in
-   *  which case nothing is served at all. */
-  siteHostBase: string | null;
-  siteScheme: string;
   appBaseUrl: string;
   sessionTtlHours: number;
   /** Secret marker nginx overwrites on the wildcard path. A process that reaches the public hook on
@@ -35,6 +31,7 @@ export interface ServeDeps {
    *  load there at all — taking its tools down with it for a key nothing in that process will use. */
   secret(): string;
   config(): ServeConfig;
+  addresses: Pick<SiteAddressService, 'bindingForRequest' | 'urlForHostname'>;
   releaseDir(siteId: string, releaseId: string): string;
   countHit(siteId: string): void;
   /** Where a proxy publication's managed Project forwarder is listening. */
@@ -81,17 +78,6 @@ const notFound = (): SitesHttpResponse => ({
   body: '<!doctype html><meta charset="utf-8"><title>Not found</title><p>This address does not lead anywhere.</p>',
 });
 
-/** The answer for a request that reached this handler on anything other than the site's own hostname.
- *
- *  There is deliberately no same-origin serving mode to fall back to. `/hooks/` is proxied to the daemon
- *  on the app's hostname too, so answering here would put agent-authored pages same-origin with the app's
- *  session cookie — the exact hazard the separate origin exists to remove. */
-const misdirected = (): SitesHttpResponse => ({
-  status: 421,
-  headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...securityHeaders(false) },
-  body: '<!doctype html><meta charset="utf-8"><title>Wrong address</title><p>Published sites are served from their own addresses, not from this one.</p>',
-});
-
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 /** The answer when the application behind a published address does not answer.
@@ -136,14 +122,14 @@ function gatewayMarkerMatches(expected: string, actual: string | undefined): boo
  *  because a fetch has no sign-in step to follow. */
 function bounceOrNotFound(
   req: PluginHttpRequest,
-  slug: string,
+  bindingId: string,
   rest: string,
   config: ServeConfig,
 ): SitesHttpResponse {
   const accepts = req.headers.accept ?? '';
   if (req.method !== 'GET' || !accepts.includes('text/html')) return notFound();
   const target = new URL(`${config.appBaseUrl}/p/sites/enter`);
-  target.searchParams.set('site', slug);
+  target.searchParams.set('binding', bindingId);
   if (rest) target.searchParams.set('r', rest);
   return { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' }, body: '' };
 }
@@ -349,12 +335,13 @@ export function createSiteHandler(deps: ServeDeps) {
     const { slug, rest } = splitRemainder(req.path);
     if (!SLUG_PATTERN.test(slug)) return notFound();
 
-    // Two independent proofs that this request came through the site gateway, both required: the Host
-    // header names the site's own hostname, and nginx overwrote the marker header on the way in. The
-    // marker is what stops a loopback caller from simply claiming the Host.
-    if (!requestOnSiteHost(config, slug, req.headers.host)) return misdirected();
+    // Three proofs are required together: nginx's secret marker, an active Host binding, and the Site
+    // identity baked into the internal route. A valid hostname for one Site can never authorize another
+    // Site merely because a loopback caller changed the slug in the path.
     if (!gatewayMarkerMatches(config.gatewayToken, req.headers['x-elowen-site-gateway'])) return notFound();
-    const siteRoot = `${config.siteScheme}//${slug}.${config.siteHostBase}/`;
+    const acceptedBinding = deps.addresses.bindingForRequest(slug, req.headers.host);
+    if (!acceptedBinding) return notFound();
+    const siteRoot = deps.addresses.urlForHostname(acceptedBinding.hostname);
 
     const site = deps.store.siteBySlug(slug) ?? deps.previews?.siteBySlug(slug);
     // A durable delete marker must disappear immediately and stay a flat tombstone while cleanup retries.
@@ -367,7 +354,7 @@ export function createSiteHandler(deps: ServeDeps) {
     if (!site
       || site.status !== 'live'
       || (site.kind !== 'proxy' && !site.currentReleaseId)) {
-      return bounceOrNotFound(req, slug, rest, config);
+      return bounceOrNotFound(req, acceptedBinding.id, rest, config);
     }
 
     if (rest === `${RESERVED_PREFIX}/session`) {
@@ -382,7 +369,7 @@ export function createSiteHandler(deps: ServeDeps) {
     // page the same visitor was just refused.
     const publiclyServed = publiclyReadable(site, deps.access);
     if (!mayOpen(site, viewer, deps.store, deps.access)) {
-      return bounceOrNotFound(req, site.slug, rest, config);
+      return bounceOrNotFound(req, acceptedBinding.id, rest, config);
     }
 
     // Static releases answer reads only. Proxy publications forward the application's OWN methods, so a
@@ -420,7 +407,7 @@ export function createSiteHandler(deps: ServeDeps) {
       );
     })();
 
-    return granted ? withCaptureSession(answer, site, deps, config) : answer;
+    return granted ? withCaptureSession(answer, site, deps) : answer;
   };
 }
 
@@ -439,7 +426,7 @@ function claimCapture(req: PluginHttpRequest, site: Site, deps: ServeDeps): bool
  *
  *  Appended to whatever the answer already carries rather than replacing it: a proxied page sets its own
  *  cookies, and dropping them would break the page this picture is of. */
-function withCaptureSession(response: SitesHttpResponse, site: Site, deps: ServeDeps, config: ServeConfig): SitesHttpResponse {
+function withCaptureSession(response: SitesHttpResponse, site: Site, deps: ServeDeps): SitesHttpResponse {
   const value = signCaptureSession(deps.secret(), { g: site.accessGeneration, e: Date.now() + CAPTURE_SESSION_MS });
   const cookie = [
     `${captureCookieName(site.id)}=${value}`,
@@ -447,7 +434,7 @@ function withCaptureSession(response: SitesHttpResponse, site: Site, deps: Serve
     'HttpOnly',
     'SameSite=Lax',
     `Max-Age=${Math.floor(CAPTURE_SESSION_MS / 1000)}`,
-    ...(config.siteScheme === 'https:' ? ['Secure'] : []),
+    'Secure',
   ].join('; ');
   const existing = response.headers?.['set-cookie'];
   const setCookie = existing === undefined ? [cookie] : [...(Array.isArray(existing) ? existing : [existing]), cookie];

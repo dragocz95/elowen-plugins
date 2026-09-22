@@ -1,5 +1,4 @@
 import { isIP } from 'node:net';
-import { domainToASCII } from 'node:url';
 import type { Visibility } from './store.js';
 
 export interface SitesConfig {
@@ -34,75 +33,6 @@ const bounded = (value: unknown, fallback: number, min: number, max: number): nu
 
 const VISIBILITY_DEFAULTS = new Set(['private', 'project', 'authenticated']);
 
-export type GatewayDnsTarget = {
-  kind: 'hostname' | 'ipv4' | 'ipv6';
-  value: string;
-};
-
-export type GatewayDnsTargetResolution = {
-  target: GatewayDnsTarget | null;
-  error: string | null;
-};
-
-const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address or IPv6 address, with no scheme, path, port, network prefix, zone or wildcard.';
-
-/** Characters a DNS name may carry, plus everything above ASCII so an internationalised name still
- *  reaches the IDNA conversion. Anything else — a slash, a colon, an at-sign, a space, a percent — means
- *  the value is a URL, a prefix or a host:port, and `domainToASCII` would silently drop the difference:
- *  it answers `188.130.140.170` for `188.130.140.170/32`, which then rendered as a CNAME to an address. */
-const DNS_NAME_CHARS = /^[a-z0-9.\-\u{80}-\u{10ffff}]+$/iu;
-
-/** One address parser for every comparison and every rendered record.
- *
- *  IPv6 is serialised by the WHATWG URL parser, which is the same canonical form on both sides of a
- *  comparison: an operator typing `2001:0db8:0000:0000:0000:0000:0000:0020` and a resolver answering
- *  `2001:db8::20` are the same address, and lowercasing the two strings never made them equal. The
- *  parser also rejects what `isIP` alone accepts, such as a scoped `fe80::1%eth0`, which is not an
- *  answer any public resolver can return. */
-export function canonicalDnsAddress(value: string): { kind: 'ipv4' | 'ipv6'; value: string } | null {
-  const candidate = value.trim();
-  const family = isIP(candidate);
-  if (family === 4) return { kind: 'ipv4', value: candidate };
-  if (family !== 6) return null;
-  try {
-    const serialised = new URL(`http://[${candidate}]/`).hostname;
-    return { kind: 'ipv6', value: serialised.slice(1, -1) };
-  } catch {
-    return null;
-  }
-}
-
-/** A DNS name, or null when the value is anything else. Every rejection happens BEFORE the IDNA
- *  conversion, which is lenient in ways that matter here. */
-const dnsHostname = (value: string): string | null => {
-  if (!DNS_NAME_CHARS.test(value)) return null;
-  const ascii = domainToASCII(value.toLowerCase());
-  if (!ascii || ascii.length > 253 || !ascii.includes('.')) return null;
-  const labels = ascii.split('.');
-  if (labels.some((label) => label.length < 1 || label.length > 63
-    || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
-  // A name whose last label is all digits is not a hostname (RFC 1123 §2.1). Without this an address
-  // that failed to parse — `999.1.1.1`, or the remains of a stripped prefix — became a CNAME target.
-  if (/^\d+$/.test(labels[labels.length - 1] ?? '')) return null;
-  return ascii;
-};
-
-/** Resolve the one destination used both to validate wildcard DNS and to render the registrar record.
- *  This is an expected public DNS answer only; it never controls the host gateway proxy upstream. */
-export function resolveGatewayDnsTarget(value: unknown, fallbackHostname: string | null): GatewayDnsTargetResolution {
-  const configured = typeof value === 'string' && value.trim() !== '';
-  const candidate = configured ? value.trim() : fallbackHostname?.trim() ?? '';
-  if (!candidate) return { target: null, error: configured ? DNS_TARGET_ERROR : null };
-  // A single trailing dot is how a registrar writes a fully qualified value, so it is removed before the
-  // value is read — but only once, and the address behind it stays an address.
-  const bare = candidate.endsWith('.') ? candidate.slice(0, -1) : candidate;
-  const address = canonicalDnsAddress(candidate) ?? canonicalDnsAddress(bare);
-  if (address) return { target: address, error: null };
-  const hostname = dnsHostname(bare);
-  if (hostname) return { target: { kind: 'hostname', value: hostname }, error: null };
-  return { target: null, error: DNS_TARGET_ERROR };
-}
-
 /** Normalise a configured origin, or null when it is unusable.
  *
  *  A hostname that is not an absolute http(s) origin cannot be turned into a link, and guessing one from
@@ -129,12 +59,24 @@ const asOrigin = (value: unknown): string | null => {
  *  Nothing here is privileged: the hostname is public by construction and deterministic from a URL every
  *  plugin already holds. `tests/sites-hostname-parity.test.mjs` pins this function against core's own, so
  *  the two derivations cannot drift into naming different hostnames for the same instance. */
+const DEPLOYMENT_HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const validDeploymentHostname = (hostname: string): boolean => {
+  if (hostname.length < 4 || hostname.length > 253 || isIP(hostname) !== 0) return false;
+  if (hostname === 'localhost' || hostname.endsWith('.local')
+    || hostname.endsWith('.in-addr.arpa') || hostname.endsWith('.ip6.arpa')) return false;
+  const labels = hostname.split('.');
+  return labels.length >= 2
+    && !/^\d+$/.test(labels.at(-1) ?? '')
+    && labels.every((label) => label.length <= 63 && DEPLOYMENT_HOST_LABEL.test(label));
+};
+
 export function derivedHostnameBase(publicWebUrl: string | null): string | null {
   if (!publicWebUrl) return null;
   try {
     const url = new URL(publicWebUrl);
-    if (url.protocol !== 'https:' || !url.hostname.includes('.') || url.hostname === 'localhost') return null;
-    return `sites.${url.hostname.toLowerCase()}`;
+    const appHost = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (url.protocol !== 'https:' || !validDeploymentHostname(appHost)) return null;
+    return `sites.${appHost}`;
   } catch {
     return null;
   }
@@ -177,39 +119,6 @@ export function resolveConfig(
     appBaseUrl: appOrigin,
   };
 }
-
-/** Just the addressing part of the configuration, so the serving path can answer host questions
- *  without being handed every unrelated setting. */
-export type SiteAddressing = Pick<SitesConfig, 'siteHostBase' | 'siteScheme' | 'appBaseUrl'>;
-
-/** The hostname one site is served from, or null while the gateway is unprovisioned. Exported because the
- *  certificate probe asks the gateway for exactly this name by SNI, and a second derivation of it could
- *  report a certificate as ready for a hostname the serving path never uses. */
-export const siteHost = (config: SiteAddressing, slug: string): string | null =>
-  config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
-
-/** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the
- *  null as "not addressable yet" rather than inventing a URL on the app's own origin. */
-export const siteUrl = (config: SiteAddressing, slug: string): string | null => {
-  const host = siteHost(config, slug);
-  return host === null ? null : `${config.siteScheme}//${host}/`;
-};
-
-/** Whether THIS request arrived on the site's own hostname.
- *
- *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
- *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there
- *  too — so a page served merely because a hostname exists in settings would still be same-origin with
- *  the app, which is the whole hazard the separate origin was for. */
-export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
-  const expected = siteHost(config, slug);
-  if (expected === null || !hostHeader) return false;
-  // A Host is one hostname followed by at most one numeric port. Splitting on the first colon alone
-  // would also accept `site.example.com:not-a-port` and `site.example.com:443:junk` as this site's own
-  // address, which is a decision about identity made on a string nobody validated.
-  const parsed = /^([^:]+)(?::(\d{1,5}))?$/.exec(hostHeader.trim());
-  return parsed?.[1]?.toLowerCase() === expected;
-};
 
 /** Every publication owns the root of its own hostname. Kept in the API for legacy file rows and for
  *  callers that build links without knowing whether the row is file-backed or proxied. */
