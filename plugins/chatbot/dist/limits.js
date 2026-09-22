@@ -4,34 +4,36 @@ import { WIDGET_MAX_ACTIONS_PER_TURN } from './publicContract.js';
 export const MANDATORY_LIMITS = {
     // Bounds an address trying to talk to one chatbot. The window is a minute, so even 1000 is far past any
     // real visitor; the ceiling exists so a typo cannot produce a number the counter cannot hold.
-    rateIpPerMinute: { column: 'rate_ip_per_minute', min: 1, max: 100_000 },
+    rateIpPerMinute: { column: 'rate_ip_per_minute', min: 1, max: 100_000, default: 30 },
     // Bounds every visitor of one chatbot together, whatever address they come from.
-    rateChatbotPerMinute: { column: 'rate_chatbot_per_minute', min: 1, max: 100_000 },
+    rateChatbotPerMinute: { column: 'rate_chatbot_per_minute', min: 1, max: 100_000, default: 60 },
     // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
     // whole day's budget in a minute.
-    rateConversationPerMinute: { column: 'rate_conversation_per_minute', min: 1, max: 10_000 },
+    rateConversationPerMinute: { column: 'rate_conversation_per_minute', min: 1, max: 10_000, default: 10 },
     // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
-    dailyTurnLimit: { column: 'daily_turn_limit', min: 1, max: 10_000_000 },
+    dailyTurnLimit: { column: 'daily_turn_limit', min: 1, max: 10_000_000, default: 200 },
     // How many of this chatbot's turns may run at the same time.
-    maxConcurrentTurns: { column: 'max_concurrent_turns', min: 1, max: 64 },
+    maxConcurrentTurns: { column: 'max_concurrent_turns', min: 1, max: 64, default: 2 },
     // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
-    maxQueueDepth: { column: 'max_queue_depth', min: 1, max: 10_000 },
+    maxQueueDepth: { column: 'max_queue_depth', min: 1, max: 10_000, default: 4 },
     // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound: a
     // visitor who has waited that long has left the page.
-    queueTimeoutSeconds: { column: 'queue_timeout_seconds', min: 1, max: 3_600 },
+    queueTimeoutSeconds: { column: 'queue_timeout_seconds', min: 1, max: 3_600, default: 60 },
     // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
     // budget would be one number too many, and the server must never approve an action the widget refuses.
-    maxActionsPerTurn: { column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN },
+    maxActionsPerTurn: { column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 8 },
     // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.
-    retentionDays: { column: 'retention_days', min: 1, max: 3_650 },
+    retentionDays: { column: 'retention_days', min: 1, max: 3_650, default: 30 },
 };
 /** The numbers that may be left unset. An absent cost ceiling means "the owner has set no spending ceiling",
  *  which is a decision rather than a missing value; a token ceiling behaves the same way. */
 export const OPTIONAL_LIMITS = {
-    dailyTokenLimit: { column: 'daily_token_limit', min: 1, max: Number.MAX_SAFE_INTEGER },
-    dailyCostMicrousd: { column: 'daily_cost_microusd', min: 1, max: Number.MAX_SAFE_INTEGER },
+    dailyTokenLimit: { column: 'daily_token_limit', min: 1, max: Number.MAX_SAFE_INTEGER, default: 1_000_000 },
+    dailyCostMicrousd: { column: 'daily_cost_microusd', min: 1, max: Number.MAX_SAFE_INTEGER, default: 10_000_000 },
 };
 const LIMITS = { ...MANDATORY_LIMITS, ...OPTIONAL_LIMITS };
+/** The complete profile used for every newly registered chatbot. Values live beside their bounds above. */
+export const DEFAULT_LIMITS = Object.fromEntries(Object.entries(LIMITS).map(([field, spec]) => [field, spec.default]));
 export const LIMIT_FIELDS = Object.keys(LIMITS);
 const MANDATORY_FIELDS = Object.keys(MANDATORY_LIMITS);
 /** Whether a value is one this plugin will believe for a given limit. Exported so the admin payload is

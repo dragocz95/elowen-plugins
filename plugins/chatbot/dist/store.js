@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { CHATBOT_PLATFORM } from './adapter.js';
-import { readBotLimits } from './limits.js';
+import { DEFAULT_LIMITS, readBotLimits } from './limits.js';
 import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay } from './budget.js';
 import { chatbotScopeKey, conversationScopeKey, ipScopeKey, retryAfterSeconds, windowAt, } from './rateLimit.js';
 import { isActionKind } from './actions.js';
@@ -37,21 +37,19 @@ export class ChatbotStore {
     listBots() {
         return this.stmt('SELECT * FROM p_chatbot_bots ORDER BY display_name COLLATE NOCASE, chatbot_user_id').all();
     }
-    /** Register a bot. `limits` is a DRAFT's: whatever the administrator has decided so far, with the rest left
-     *  unset. No default is applied here — a number this function made up would be a number nobody chose. */
+    /** Register a bot with the complete default limit profile. A caller may override a value explicitly. */
     createBot(input) {
         return this.db.transaction(() => {
-            const limits = input.limits ?? {};
+            const limits = { ...DEFAULT_LIMITS, ...input.limits };
             this.stmt(`INSERT INTO p_chatbot_bots
-                   (chatbot_user_id, public_id, customer_user_id, display_name, prompt, status,
+                   (chatbot_user_id, public_id, customer_user_id, display_name, status, may_submit_forms,
                     rate_ip_per_minute, rate_chatbot_per_minute, rate_conversation_per_minute,
                     daily_turn_limit, daily_token_limit, daily_cost_microusd,
                     max_concurrent_turns, max_queue_depth, queue_timeout_seconds,
                     max_actions_per_turn, retention_days, created_at, updated_at)
-                 VALUES (?, ?, NULL, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-                .run(input.chatbotUserId, input.publicId, input.displayName, input.prompt, limits.rateIpPerMinute ?? null, limits.rateChatbotPerMinute ?? null, limits.rateConversationPerMinute ?? null, limits.dailyTurnLimit ?? null, limits.dailyTokenLimit ?? null, limits.dailyCostMicrousd ?? null, limits.maxConcurrentTurns ?? null, limits.maxQueueDepth ?? null, limits.queueTimeoutSeconds ?? null, limits.maxActionsPerTurn ?? null, limits.retentionDays ?? null, input.now, input.now);
+                 VALUES (?, ?, NULL, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                .run(input.chatbotUserId, input.publicId, input.displayName, input.maySubmitForms === false ? 0 : 1, limits.rateIpPerMinute, limits.rateChatbotPerMinute, limits.rateConversationPerMinute, limits.dailyTurnLimit, limits.dailyTokenLimit, limits.dailyCostMicrousd, limits.maxConcurrentTurns, limits.maxQueueDepth, limits.queueTimeoutSeconds, limits.maxActionsPerTurn, limits.retentionDays, input.now, input.now);
             this.replaceOrigins(input.chatbotUserId, input.origins);
-            this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
             return this.botByUserId(input.chatbotUserId);
         });
     }
@@ -69,17 +67,16 @@ export class ChatbotStore {
         return this.db.transaction(() => {
             const limits = input.limits;
             const result = this.stmt(`UPDATE p_chatbot_bots SET
-                                  display_name = ?, prompt = ?, updated_at = ?, sensitive_mode = 0,
+                                  display_name = ?, updated_at = ?, sensitive_mode = 0, may_submit_forms = ?,
                                   rate_ip_per_minute = ?, rate_chatbot_per_minute = ?, rate_conversation_per_minute = ?,
                                   daily_turn_limit = ?, daily_token_limit = ?, daily_cost_microusd = ?,
                                   max_concurrent_turns = ?, max_queue_depth = ?, queue_timeout_seconds = ?,
                                   max_actions_per_turn = ?, retention_days = ?
                                 WHERE chatbot_user_id = ? AND updated_at = ?`)
-                .run(input.displayName, input.prompt, input.now, limits.rateIpPerMinute, limits.rateChatbotPerMinute, limits.rateConversationPerMinute, limits.dailyTurnLimit, limits.dailyTokenLimit, limits.dailyCostMicrousd, limits.maxConcurrentTurns, limits.maxQueueDepth, limits.queueTimeoutSeconds, limits.maxActionsPerTurn, limits.retentionDays, input.chatbotUserId, input.expectedUpdatedAt);
+                .run(input.displayName, input.now, input.maySubmitForms ? 1 : 0, limits.rateIpPerMinute, limits.rateChatbotPerMinute, limits.rateConversationPerMinute, limits.dailyTurnLimit, limits.dailyTokenLimit, limits.dailyCostMicrousd, limits.maxConcurrentTurns, limits.maxQueueDepth, limits.queueTimeoutSeconds, limits.maxActionsPerTurn, limits.retentionDays, input.chatbotUserId, input.expectedUpdatedAt);
             if (result.changes === 0)
                 return null;
             this.replaceOrigins(input.chatbotUserId, input.origins);
-            this.replaceActionRules(input.chatbotUserId, input.actionRules, input.now);
             return this.botByUserId(input.chatbotUserId);
         });
     }
@@ -92,7 +89,7 @@ export class ChatbotStore {
      *  other edit of a bot: a stale write reports a conflict instead of replacing another administrator's.
      *
      *  It is deliberately its own statement rather than a wider `updateBot`: the appearance editor owns these
-     *  two fields and nothing else, so saving a colour can neither read nor write a prompt it never showed. */
+     *  two fields and nothing else, so saving a colour cannot touch unrelated bot configuration. */
     updateAppearance(input) {
         const result = this.stmt('UPDATE p_chatbot_bots SET display_name = ?, appearance = ?, updated_at = ? WHERE chatbot_user_id = ? AND updated_at = ?')
             .run(input.displayName, input.appearance, input.now, input.chatbotUserId, input.expectedUpdatedAt);
@@ -109,7 +106,6 @@ export class ChatbotStore {
             this.stmt('DELETE FROM p_chatbot_budget_days WHERE chatbot_user_id = ?').run(chatbotUserId);
             this.stmt('DELETE FROM p_chatbot_tokens WHERE chatbot_user_id = ?').run(chatbotUserId);
             this.stmt('DELETE FROM p_chatbot_visitors WHERE chatbot_user_id = ?').run(chatbotUserId);
-            this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
             this.stmt('DELETE FROM p_chatbot_origins WHERE chatbot_user_id = ?').run(chatbotUserId);
             this.stmt('DELETE FROM p_chatbot_bots WHERE chatbot_user_id = ?').run(chatbotUserId);
         });
@@ -569,7 +565,7 @@ export class ChatbotStore {
     resetInFlight(now) {
         return this.stmt('UPDATE p_chatbot_budget_days SET in_flight = 0, updated_at = ? WHERE in_flight > 0').run(now).changes;
     }
-    // ── page actions and the rules over them ───────────────────────────────────────────────────────────
+    // ── page actions ───────────────────────────────────────────────────────────────────────────────────
     /** The turn a visitor's action request belongs to: the one this visitor has RUNNING. A turn that is
      *  queued, done or failed is not it, and two running turns for one visitor cannot exist — the tool that
      *  asks for an action is running inside exactly one of them. */
@@ -625,37 +621,6 @@ export class ChatbotStore {
         const changed = this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmation_required')")
             .run(now, actionId);
         return changed.changes > 0 ? this.action(actionId) : null;
-    }
-    /** Every rule this chatbot has. Read in one query and resolved in memory, because the resolution is a
-     *  decision about a path and belongs in code that can be read and tested, not in SQL. */
-    actionRulesOf(chatbotUserId) {
-        return this.stmt('SELECT * FROM p_chatbot_action_rules WHERE chatbot_user_id = ? ORDER BY path_prefix DESC')
-            .all(chatbotUserId);
-    }
-    /** The same policy in the shape `updateBot` WRITES, for a caller that is replacing the whole list without
-     *  having an opinion about it: a write that carries no rules hands back what the row holds, so replacing
-     *  the list cannot drop a policy the writer never saw. This is the only reading of a stored rule back into
-     *  the write contract, so the two shapes cannot disagree about a field. */
-    actionRuleInputsOf(chatbotUserId) {
-        return this.actionRulesOf(chatbotUserId).map((row) => ({
-            origin: row.origin,
-            pathPrefix: row.path_prefix,
-            action: row.action,
-            requiresConfirmation: row.requires_confirmation === 1,
-            maxPerTurn: row.max_per_turn,
-        }));
-    }
-    /** Write this chatbot's rules as a WHOLE list, in the same transaction as the rest of a bot write: the
-     *  administrator's editor hands over a complete policy, and two partial writes would leave a rule behind
-     *  that nobody can see in the editor that is supposed to control it. */
-    replaceActionRules(chatbotUserId, rules, now) {
-        this.stmt('DELETE FROM p_chatbot_action_rules WHERE chatbot_user_id = ?').run(chatbotUserId);
-        const insert = this.stmt(`INSERT INTO p_chatbot_action_rules
-                                (id, chatbot_user_id, origin, path_prefix, action, requires_confirmation, max_per_turn, created_at, updated_at)
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        for (const rule of rules) {
-            insert.run(randomUUID(), chatbotUserId, rule.origin, rule.pathPrefix, rule.action, rule.requiresConfirmation ? 1 : 0, rule.maxPerTurn, now, now);
-        }
     }
     // ── what an administrator reads: conversations, their transcript, and the counters ────────────────
     /** This chatbot's conversations, newest activity first. A conversation is the plugin's own

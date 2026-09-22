@@ -114,10 +114,6 @@ const ACTION_REFUSALS = [
     'invalid_value',
     'action_budget_exhausted',
 ];
-/** The plugin's own refusals that only the server can reach: the turn recorded no page to act on, the
- *  chatbot's rules do not allow the action here, and a rule asks for a confirmation this version can only
- *  carry for a form submission. A page never reports these, so they stay out of `PAGE_FAILURE_DETAILS`. */
-const ACTION_RULE_REFUSALS = ['action_not_allowed', 'confirmation_unavailable'];
 /** What a page may say about an action it did not complete: the failures a browser can hit, the widget's own
  *  last-resort code, and the plugin's refusals echoed back by the page that received them.
  *

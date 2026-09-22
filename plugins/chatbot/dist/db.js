@@ -82,9 +82,7 @@ const MIGRATIONS = [
         },
     },
     {
-        /** Step 2: the page actions a turn may take on a visitor's page, and the administrator's own rule over
-         *  what may be done where. Two tables and no column on an existing one, so nothing already written is
-         *  rewritten by this step. */
+        /** Step 2: durable page actions approved for a visitor turn. */
         version: 2,
         up(db) {
             db.exec(`
@@ -114,29 +112,6 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS p_chatbot_actions_pending ON p_chatbot_actions (turn_id, status, expires_at);
 
-        -- What may be done where, per chatbot. A rule is the allowlist of the paths it names: an action a
-        -- matching rule does not list is refused even when the element itself said it could do it. An origin
-        -- with no rule at all is governed by the implicit policy its allowlist entry implies (see
-        -- actionRules.ts), which is what lets a chatbot act usefully before its first rule is written.
-        --
-        -- Nothing writes this table yet: the administrator's editor for it is a later phase, and the tool
-        -- reads it strictly — a table with no writer is a policy nobody has changed, not a policy that
-        -- grants everything.
-        CREATE TABLE IF NOT EXISTS p_chatbot_action_rules (
-          id TEXT PRIMARY KEY,
-          chatbot_user_id INTEGER NOT NULL,
-          origin TEXT NOT NULL,
-          path_prefix TEXT NOT NULL,
-          action TEXT NOT NULL CHECK (
-            action IN ('read', 'focus', 'click', 'fill', 'select', 'scroll', 'request_submit')
-          ),
-          requires_confirmation INTEGER NOT NULL DEFAULT 0
-            CHECK (requires_confirmation IN (0, 1)),
-          max_per_turn INTEGER NOT NULL CHECK (max_per_turn > 0),
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          UNIQUE (chatbot_user_id, origin, path_prefix, action)
-        );
       `);
         },
     },
@@ -245,6 +220,19 @@ const MIGRATIONS = [
         -- validated at the boundary (parseAppearance) rather than by a CHECK constraint that would have to
         -- be rewritten for every added control.
         ALTER TABLE p_chatbot_bots ADD COLUMN appearance TEXT;
+      `);
+        },
+    },
+    {
+        /** Step 5 removes both retired configuration paths and adds the one remaining page-action decision.
+         *  Existing prompt text and per-path action rules are deliberately discarded. */
+        version: 5,
+        up(db) {
+            db.exec(`
+        DROP TABLE IF EXISTS p_chatbot_action_rules;
+        ALTER TABLE p_chatbot_bots DROP COLUMN prompt;
+        ALTER TABLE p_chatbot_bots ADD COLUMN may_submit_forms INTEGER NOT NULL DEFAULT 1
+          CHECK (may_submit_forms IN (0, 1));
       `);
         },
     },

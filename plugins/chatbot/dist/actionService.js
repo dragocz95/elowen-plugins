@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { decideAction, isActionKind } from './actions.js';
-import { resolveActionRule } from './actionRules.js';
 import { readRecordedPageState } from './pageState.js';
 import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload } from './store.js';
@@ -16,8 +15,8 @@ const ACTION_WAIT_TIMEOUT_MS = 60_000;
  *
  *  The order is the contract of this module, and it is the order the phases were written in:
  *
- *  1. the request is decided against the description the turn RECORDED, the rules of the page's own origin
- *     and the element's own claim — a refusal leaves no trace in the plugin's tables and none on the page;
+ *  1. the request is decided against the description the turn RECORDED, the chatbot's allowed origin,
+ *     form-submission switch and the element's own claim — a refusal leaves no trace in the plugin's tables;
  *  2. the action row and the frame that asks the page for it are written in ONE transaction, BEFORE anything
  *     is woken: a widget that reconnects reads the same action a connected one received;
  *  3. the tool waits for the row to reach a state that answers it, and the wait ends either on the page's
@@ -41,8 +40,7 @@ export class PageActionService {
             return { status: 'refused', reason: 'no_page_state' };
         }
         const page = state.value;
-        // The kind is checked before the rules are asked about it: a name this version has no action for is not
-        // a name to look up in a table of actions.
+        // The kind is checked before any policy decision: an unknown name has no action this version can perform.
         if (!isActionKind(input.request.kind))
             return this.refuse(input, 'unknown_action');
         const kind = input.request.kind;
@@ -50,21 +48,18 @@ export class PageActionService {
         // hard limit whatever the server approves, so a server number above that would approve actions no page
         // would perform, and a number invented here would be a budget the owner never set. A chatbot whose limits
         // cannot be read has no ceiling to act under and therefore may not act.
-        const limits = readBotLimits(store.botByUserId(input.chatbotUserId));
+        const bot = store.botByUserId(input.chatbotUserId);
+        const limits = readBotLimits(bot);
         if (!limits) {
             warn(`chatbot: turn ${input.turn.turn_id} was asked for a page action but its chatbot has no usable limit configuration`);
             return this.refuse(input, 'action_not_allowed');
         }
-        const verdict = resolveActionRule({
-            rules: store.actionRulesOf(input.chatbotUserId),
-            allowedOrigins: store.originsOf(input.chatbotUserId),
-            origin: page.origin,
-            path: page.path,
-            action: kind,
-            ceiling: limits.maxActionsPerTurn,
-        });
-        if (!verdict.ok)
-            return this.refuse(input, verdict.reason);
+        if (!bot || !store.originsOf(input.chatbotUserId).includes(page.origin)) {
+            return this.refuse(input, 'action_not_allowed');
+        }
+        if (kind === 'request_submit' && bot.may_submit_forms !== 1) {
+            return this.refuse(input, 'action_not_allowed');
+        }
         const decision = decideAction({
             request: input.request,
             // The snapshot the caller named must be the one this turn recorded, and the targets are the recorded
@@ -73,7 +68,7 @@ export class PageActionService {
             turnSnapshotId: page.snapshotId,
             targets: page.targets,
             performedActions: store.actionCountOfTurn(input.turn.turn_id),
-            maxActionsPerTurn: verdict.maxPerTurn,
+            maxActionsPerTurn: limits.maxActionsPerTurn,
         });
         if (!decision.ok)
             return this.refuse(input, decision.reason);
