@@ -2410,8 +2410,15 @@ export function register(ctx) {
     },
     check: (job, timeoutMs, signal) => projectCheck(ctx, job, timeoutMs, undefined, signal),
   });
-  journal.reconcile({ nowMs: Date.now(), tickMs: adapter.tickMs });
-  journal.prune(Date.now());
+  // Both of these settle rows in `p_cronjob_runs`, which lives in the DAEMON's database — and a forked
+  // sub-agent runner loads this plugin too, in its own process, against that same database. Reconciling
+  // there does not repair anything: it reads a run the daemon is still executing and closes it as
+  // interrupted, so a job that worked is reported as failed and nothing distinguishes that from a real
+  // failure. Only the process a run could have outlived may declare it dead.
+  if (ctx.authoritativeProcess) {
+    journal.reconcile({ nowMs: Date.now(), tickMs: adapter.tickMs });
+    journal.prune(Date.now());
+  }
   ctx.registerPlatform(adapter);
   // The skill that teaches the model to USE those tools ships with them, the way the task domain's
   // does. Kept in the skills plugin it would keep describing CronAdd on an instance where this plugin
