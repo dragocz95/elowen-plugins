@@ -221,35 +221,6 @@ interface ChatbotComponents {
     countLabel?: string;
     className?: string;
   }>;
-  /** The page name, for the app masthead and the browser tab. It draws nothing of its own. */
-  ModuleHeader: ComponentType<{ title: string; icon?: LucideIcon; children?: ReactNode }>;
-  /** The canonical page shell. `deck` is the variant for a page whose sections are ADDRESSES read one at
-   *  a time, which is exactly what this page is.
-   *
-   *  `navigation` is the prop that will draw those sections as the secondary column beside the content and
-   *  as the phone's one scrollable line. It is declared here in the shape the host is being changed to
-   *  accept, and `SectionDeck.tsx` is the one place that mounts it — see that file for what this bundle
-   *  draws in the meantime. */
-  WorkspaceShell: ComponentType<{
-    variant?: 'register' | 'deck' | 'single';
-    hero?: {
-      eyebrow?: string;
-      title: string;
-      description?: string;
-      icon?: LucideIcon;
-      action?: ReactNode;
-      mascot?: boolean | 'idle' | 'error';
-    };
-    navigation?: {
-      sections: { id: string; label: string; icon: LucideIcon; description?: string; count?: number }[];
-      value: string;
-      onChange(id: string): void;
-      ariaLabel: string;
-    };
-    embedded?: boolean;
-    children?: ReactNode;
-    className?: string;
-  }>;
   /** The document surface a set of settings cards sits on. */
   SettingsDocument: ComponentType<{ children?: ReactNode; className?: string }>;
   /** The host's own editor for a plugin's instance configuration: one row per manifest field, a slider
