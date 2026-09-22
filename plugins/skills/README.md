@@ -8,8 +8,8 @@ Install **skills** from **Settings → Plugins → Available**, then grant it to
 
 | Field | Value |
 | --- | --- |
-| Version | 0.4.12 |
-| requiresCore | 0.28.50 |
+| Version | 0.5.0 |
+| requiresCore | 0.28.52 |
 | requiresSharedApi | none |
 
 This plugin has no configuration fields.

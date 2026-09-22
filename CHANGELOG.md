@@ -1,5 +1,12 @@
 # Changelog
 
+## skills 0.5.0 - 2026-09-22
+
+- Saving, editing, moving or deleting a skill no longer restarts Elowen. The plugin hands the host its complete new skill set and the host swaps it into the running daemon, so the change shows up from the next message while running turns, sub-agents and open questions carry on untouched.
+- SkillLoad now reads who owns a skill from the host's live catalog instead of a list the plugin built when it loaded, so a personal skill created after startup opens for its owner and stays refused to everyone else.
+- A skill saved or deleted by a sub-agent now reaches the running Elowen as well. If Elowen cannot apply a change, the tool or page says the skill is saved but not applied yet, instead of reporting success.
+- Requires core 0.28.52, which adds the live skill reload.
+
 ## cronjob 0.6.13 - 2026-09-22
 
 - A scheduled job that is running normally is no longer reported as failed while it runs. The plugin is also loaded by the short-lived process that runs a sub-agent turn, and that process closed every in-flight run as interrupted the moment it started, so the history showed a failure for work that had succeeded. Reconciliation of interrupted runs and the pruning of old ones now happen only in the daemon, the one process a run can actually outlive.
