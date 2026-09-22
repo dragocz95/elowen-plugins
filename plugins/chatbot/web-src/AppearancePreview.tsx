@@ -14,18 +14,11 @@
 import { useEffect, useRef } from 'react';
 import type { ChatbotLook } from '../src/appearanceContract';
 import { detectLocale, widgetStrings } from '../embed-src/strings';
-import { ChatPanel } from '../embed-src/chatPanel';
+import { ChatPanel, appearanceViewportInset } from '../embed-src/chatPanel';
 
-/** The gutter the panel leaves the page edge, mirrored from the panel's own stylesheet. The stage reports
- *  how much room the panel really has, so this is the one number the preview has to know. */
-const GUTTER_PX = 20;
-/** The room the panel leaves for its launcher and for a browser's chrome, mirrored from the panel. */
-const VERTICAL_RESERVE_PX = 40;
-
-export function AppearancePreview({ look, label, hint }: {
+export function AppearancePreview({ look, label }: {
   look: ChatbotLook;
   label: string;
-  hint: string;
 }) {
   const stage = useRef<HTMLDivElement | null>(null);
   const frame = useRef<HTMLDivElement | null>(null);
@@ -68,14 +61,15 @@ export function AppearancePreview({ look, label, hint }: {
     if (!stageElement || !frameElement) return;
     const measure = () => {
       const box = stageElement.getBoundingClientRect();
-      frameElement.style.setProperty('--cb-avail-w', `${Math.max(0, Math.round(box.width) - GUTTER_PX * 2)}px`);
-      frameElement.style.setProperty('--cb-avail-h', `${Math.max(0, Math.round(box.height) - VERTICAL_RESERVE_PX)}px`);
+      const inset = appearanceViewportInset(look.appearance);
+      panel.current?.host.style.setProperty('--cb-avail-w', `${Math.max(0, Math.round(box.width) - inset.width)}px`);
+      panel.current?.host.style.setProperty('--cb-avail-h', `${Math.max(0, Math.round(box.height) - inset.height)}px`);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stageElement);
     return () => observer.disconnect();
-  }, []);
+  }, [look.appearance]);
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -85,7 +79,6 @@ export function AppearancePreview({ look, label, hint }: {
       <div ref={stage} className="relative h-[38rem] w-full overflow-hidden rounded-xl border border-border bg-background">
         <div ref={frame} className="absolute inset-0 [transform:translateZ(0)]" />
       </div>
-      <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
     </div>
   );
 }

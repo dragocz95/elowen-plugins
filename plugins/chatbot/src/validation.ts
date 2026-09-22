@@ -1,4 +1,5 @@
-import { parseAppearance, type ChatbotAppearance } from './appearanceContract.js';
+import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
+import { parseAppearanceSelection, type StoredAppearance } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf, type LimitValues } from './limits.js';
 import {
@@ -19,7 +20,6 @@ export type Validated<T> = { ok: true; value: T } | { ok: false; error: string }
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
-const DISPLAY_NAME_MAX_CHARS = 80;
 const ORIGINS_MAX = 20;
 
 /** How much of a page's own explanation may be kept with an action. A `read` answers with the value it
@@ -307,7 +307,7 @@ export interface AppearanceWritePayload {
   chatbotUserId: number;
   expectedUpdatedAt: string;
   displayName: string;
-  appearance: ChatbotAppearance;
+  appearance: StoredAppearance;
 }
 
 /** The appearance editor's own payload: the look, plus the display name the panel draws with it. The name is
@@ -323,7 +323,7 @@ export function validateAppearanceWrite(body: unknown): Validated<AppearanceWrit
   if (!expected.ok) return expected;
   const displayName = readString(outer.value, 'displayName', DISPLAY_NAME_MAX_CHARS);
   if (!displayName.ok) return displayName;
-  const appearance = parseAppearance(outer.value.appearance);
+  const appearance = parseAppearanceSelection(outer.value.appearance);
   if (!appearance.ok) return { ok: false, error: appearance.error };
   return {
     ok: true,

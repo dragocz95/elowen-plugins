@@ -7,7 +7,9 @@
  *  on this contract. What travels is an administrator's own configuration and aggregate counts. */
 
 import type { LimitValues, MandatoryLimitField } from './limits.js';
-import type { ChatbotAppearance } from './appearanceContract.js';
+import type { StoredAppearance } from './appearanceContract.js';
+
+export const DISPLAY_NAME_MAX_CHARS = 80;
 
 /** The account a chatbot runs as, as the host reports it right now. A missing kind means a host whose user
  *  contract does not carry one, which is NOT the same as a chatbot. Private to this contract: it is the
@@ -49,9 +51,9 @@ export interface ChatbotBotView {
    *  the request itself until the model location and the retention policy are decided, and the page says so
    *  rather than offering a switch that cannot work. */
   sensitiveMode: boolean;
-  /** The stored look, parsed into a complete appearance. It travels with the bot so the appearance editor
-   *  opens on what a visitor is actually shown rather than asking the server for it again. */
-  appearance: ChatbotAppearance;
+  /** The linked template and explicit overrides. The editor resolves these with the shared contract;
+   *  only the public route serves a fully resolved appearance. */
+  appearance: StoredAppearance;
 }
 
 /** An account that could carry a chatbot but does not yet. */

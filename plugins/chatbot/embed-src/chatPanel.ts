@@ -19,7 +19,10 @@ import 'deep-chat';
 import type { DeepChat } from 'deep-chat';
 import {
   APPEARANCE_RAMPS,
+  APPEARANCE_SHADOWS,
+  appearanceFontStack,
   appearanceInk,
+  appearanceIconSvg,
   appearanceShade,
   type ChatbotAppearance,
   type ChatbotLook,
@@ -27,18 +30,14 @@ import {
 import type { ChatView } from './session.js';
 import type { WidgetStrings } from './strings.js';
 
-/** How far the panel and its launcher sit from the page's own edge. A constant rather than part of the
- *  configuration: it is the panel's breathing room, not a property of the chatbot. */
-const GUTTER_PX = 20;
-
 /** How much vertical room the panel leaves for the launcher and for a browser's own chrome. The visitor's
  *  viewport is the only thing that can force a panel to be smaller than the customer configured, so the
  *  clamp below is the one place that happens. */
-const VERTICAL_RESERVE_PX = 140;
+const LAUNCHER_GAP_PX = 12;
 
-/** The widget's own type stack. One home for it: the panel's stylesheet and the chat element both read it,
- *  and it is deliberately not deep-chat's default (see `chatStyle.fontFamily` below). */
-const FONT_STACK = "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+export function appearanceViewportInset(appearance: ChatbotAppearance): { width: number; height: number } {
+  return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
+}
 
 /** The little the panel uses of a chat element's streaming signals. Named here rather than imported from the
  *  library's internals, because this is the whole of the shape the widget relies on. */
@@ -88,7 +87,7 @@ function introHtml(input: { greeting: string; appearance: ChatbotAppearance; str
   const text = `<div class="cb-intro-text">${escapeHtml(greeting)}</div>`;
   if (appearance.quickButtons.length === 0) return text;
   const buttons = appearance.quickButtons
-    .map((label) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(label)}">${escapeHtml(label)}</button>`)
+    .map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? '' : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`)
     .join('');
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
@@ -120,6 +119,9 @@ function introUtilities(
           color: ramp.foreground,
           borderRadius: `${appearance.radius}px`,
           padding: '6px 10px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
           font: 'inherit',
           fontSize: '13px',
           cursor: 'pointer',
@@ -147,7 +149,7 @@ function chatConfig(input: {
   const { look, strings } = input;
   const appearance = look.appearance;
   const ramp = APPEARANCE_RAMPS[appearance.mode];
-  const sendInk = appearanceInk(appearance.colors.sendButton);
+  const sendRadius = appearance.send.shape === 'circle' ? '50%' : '8px';
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
   return {
     chatStyle: {
@@ -156,16 +158,16 @@ function chatConfig(input: {
       border: 'none',
       width: '100%',
       height: '100%',
-      fontSize: '14px',
+      fontSize: `${appearance.typography.fontSize}px`,
       // `fontFamily` is set here for a reason beyond typography: deep-chat appends a Google Fonts stylesheet
       // to the page's <head> unless the chat carries a family of its own, and a widget on a customer's site
       // may not call out to a font host. A family of our own is the supported way to say so — and it means a
       // page that already has Inter keeps it, while every other page falls back to the system stack.
-      fontFamily: FONT_STACK,
+      fontFamily: appearanceFontStack(appearance.typography.fontFamily),
     },
     inputAreaStyle: { backgroundColor: appearance.colors.panel },
     textInput: {
-      placeholder: { text: strings.placeholder, style: { color: ramp.muted } },
+      placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
         text: { color: ramp.foreground },
         container: {
@@ -179,16 +181,21 @@ function chatConfig(input: {
     submitButtonStyles: {
       submit: {
         container: {
-          default: { backgroundColor: appearance.colors.sendButton, color: sendInk },
-          hover: { backgroundColor: sendHover, color: sendInk },
-          click: { backgroundColor: sendHover, color: sendInk },
+          default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+          hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+          click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+        },
+        svg: {
+          content: appearanceIconSvg(appearance.send.icon),
+          styles: { default: { color: appearance.colors.sendIcon, width: '20px', height: '20px' } },
         },
       },
       // The send button rests in its DISABLED state until the visitor types something. That state is what a
       // visitor actually looks at, so the configured colour has to reach it — held back a little, because a
       // send button that looks ready when it is not is a button somebody presses for nothing.
       disabled: {
-        container: { default: { backgroundColor: appearance.colors.sendButton, color: sendInk, opacity: '0.5' } },
+        container: { default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius, opacity: '0.5' } },
+        svg: { content: appearanceIconSvg(appearance.send.icon), styles: { default: { color: appearance.colors.sendIcon, width: '20px', height: '20px' } } },
       },
     },
     // The bubble's FILL is the customer's and its INK is not: whichever of the two inks reads better on that
@@ -214,7 +221,7 @@ function chatConfig(input: {
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that.
-    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; }`,
+    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -224,8 +231,8 @@ function chatConfig(input: {
       }),
     },
     htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: appearance.avatarUrl === '' ? undefined : { ai: { src: appearance.avatarUrl } },
-    names: { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' } },
+    avatars: !appearance.header.showAvatar || appearance.avatarUrl === '' ? undefined : { ai: { src: appearance.avatarUrl } },
+    names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' } } : undefined,
   };
 }
 
@@ -237,6 +244,9 @@ function chatConfig(input: {
  *  the administrator's preview sets them to the stage it mounts the panel in, which is the whole reason a
  *  preview can show a panel at its real size instead of at the size of a modal. */
 function styleText(appearance: ChatbotAppearance): string {
+  const GUTTER_PX = appearance.launcher.offset;
+  const inset = appearanceViewportInset(appearance);
+  const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === 'dark' ? 'lighter' : 'darker');
   const ramp = APPEARANCE_RAMPS[appearance.mode];
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
@@ -252,37 +262,45 @@ function styleText(appearance: ChatbotAppearance): string {
   const fromLeft = appearance.position.endsWith('left');
   return `
 :host {
-  --cb-avail-w: calc(100vw - ${GUTTER_PX * 2}px);
-  --cb-avail-h: calc(100vh - ${VERTICAL_RESERVE_PX}px);
+  --cb-avail-w: calc(100vw - ${inset.width}px);
+  --cb-avail-h: calc(100vh - ${inset.height}px);
 }
 .root {
   position: fixed; ${corner[appearance.position]} z-index: 2147483000;
-  display: flex; flex-direction: ${fromTop ? 'column-reverse' : 'column'}; align-items: ${fromLeft ? 'flex-start' : 'flex-end'}; gap: 12px;
+  display: flex; flex-direction: ${fromTop ? 'column-reverse' : 'column'}; align-items: ${fromLeft ? 'flex-start' : 'flex-end'}; gap: ${LAUNCHER_GAP_PX}px;
+  max-width: var(--cb-avail-w);
   color: ${ramp.foreground}; line-height: 1.4; letter-spacing: normal; text-align: left; direction: ltr;
-  font-family: ${FONT_STACK};
-  font-size: 14px; font-style: normal; font-weight: 400; text-transform: none; white-space: normal;
+  font-family: ${appearanceFontStack(appearance.typography.fontFamily)};
+  font-size: ${appearance.typography.fontSize}px; font-style: normal; font-weight: 400; text-transform: none; white-space: normal;
 }
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
-  border: 1px solid ${appearance.colors.sendButton}; background: ${appearance.colors.sendButton}; color: ${sendInk};
-  font: inherit; font-size: 14px; font-weight: 600; padding: 12px 18px; border-radius: 999px; cursor: pointer;
-  box-shadow: 0 14px 40px rgb(0 0 0 / 0.35);
+  display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
+  border: 1px solid ${appearance.colors.launcher}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
+  min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
 }
-.launcher:hover { background: ${sendHover}; border-color: ${sendHover}; }
+.launcher svg { width: ${appearance.launcher.size - 2}px; height: ${appearance.launcher.size - 2}px; padding: ${Math.round(appearance.launcher.size * .28)}px; flex: 0 0 auto; }
+.launcher-label { padding-right: 18px; overflow-wrap: anywhere; }
+.launcher:hover { background: ${launcherHover}; border-color: ${launcherHover}; }
 .launcher:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-.launcher[hidden] { display: none; }
 .panel {
   display: flex; flex-direction: column;
   width: min(${appearance.width}px, var(--cb-avail-w)); height: min(${appearance.height}px, var(--cb-avail-h));
   background: ${appearance.colors.panel}; border: 1px solid ${ramp.border}; border-radius: ${appearance.radius}px;
-  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5); overflow: hidden;
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; overflow: hidden;
 }
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.raised};
 }
-.title { margin: 0; font-size: 15px; font-weight: 600; color: ${ramp.foreground}; }
+.identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
+.header-avatar[hidden], .subtitle[hidden] { display: none; }
+.subtitle { margin: 3px 0 0; color: ${ramp.muted}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.foreground}; }
 .close {
   border: 1px solid transparent; background: transparent; color: ${ramp.muted};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
@@ -322,6 +340,8 @@ export class ChatPanel implements ChatView {
   private readonly style: HTMLStyleElement;
   private readonly panel: HTMLElement;
   private readonly title: HTMLElement;
+  private readonly subtitle: HTMLElement;
+  private readonly avatar: HTMLImageElement;
   private readonly launcher: HTMLButtonElement;
   private readonly messages: HTMLElement;
   private readonly confirmBox: HTMLElement;
@@ -368,7 +388,6 @@ export class ChatPanel implements ChatView {
     this.launcher.className = 'launcher';
     this.launcher.setAttribute('aria-haspopup', 'dialog');
     this.launcher.setAttribute('aria-expanded', 'false');
-    this.launcher.textContent = this.strings.launcher;
 
     this.panel = document.createElement('section');
     this.panel.className = 'panel';
@@ -383,7 +402,17 @@ export class ChatPanel implements ChatView {
     close.type = 'button';
     close.className = 'close';
     close.textContent = this.strings.close;
-    header.append(this.title, close);
+    this.subtitle = document.createElement('p');
+    this.subtitle.className = 'subtitle';
+    this.avatar = document.createElement('img');
+    this.avatar.className = 'header-avatar';
+    this.avatar.alt = '';
+    const identity = document.createElement('div');
+    identity.className = 'identity';
+    const headings = document.createElement('div');
+    headings.append(this.title, this.subtitle);
+    identity.append(this.avatar, headings);
+    header.append(identity, close);
 
     this.status = document.createElement('p');
     this.status.className = 'status';
@@ -423,7 +452,7 @@ export class ChatPanel implements ChatView {
     this.applyChrome();
     this.messages.append(this.chat);
 
-    this.launcher.addEventListener('click', () => this.toggle(true));
+    this.launcher.addEventListener('click', () => this.toggle(!this.isOpen()));
     close.addEventListener('click', () => this.toggle(false));
     // The two answers are wired to REAL clicks. A page can dispatch a click on this button as often as it
     // likes and `isTrusted` is false for every one of them: a submit that could be triggered that way would
@@ -649,6 +678,20 @@ export class ChatPanel implements ChatView {
     this.style.textContent = styleText(this.look.appearance);
     const title = this.titleText();
     this.title.textContent = title;
+    const { appearance } = this.look;
+    this.subtitle.textContent = appearance.header.subtitle;
+    this.subtitle.hidden = appearance.header.subtitle === '';
+    this.avatar.hidden = !appearance.header.showAvatar || appearance.avatarUrl === '';
+    if (this.avatar.hidden) this.avatar.removeAttribute('src');
+    else this.avatar.src = appearance.avatarUrl;
+    this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.label !== '') {
+      const label = document.createElement('span');
+      label.className = 'launcher-label';
+      label.textContent = appearance.launcher.label;
+      this.launcher.append(label);
+    }
+    this.launcher.setAttribute('aria-label', appearance.launcher.label || this.strings.launcher);
     this.panel.setAttribute('aria-label', title);
   }
 
@@ -670,7 +713,6 @@ export class ChatPanel implements ChatView {
 
   private toggle(open: boolean): void {
     this.panel.hidden = !open;
-    this.launcher.hidden = open;
     this.launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!open) return;
     this.chat.focusInput();

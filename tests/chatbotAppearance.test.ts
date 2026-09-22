@@ -2,14 +2,25 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import {
   APPEARANCE_BOUNDS,
-  APPEARANCE_PRESETS,
+  APPEARANCE_TEMPLATES,
+  APPEARANCE_TEMPLATE_IDS,
+  APPEARANCE_SCHEMA_VERSION,
+  APPEARANCE_QUICK_BUTTON_MAX_CHARS,
+  DEFAULT_STORED_APPEARANCE,
+  parseAppearanceSelection,
+  resolveAppearance,
+  selectAppearanceTemplate,
+  setAppearanceOverride,
+  resetAppearanceOverride,
+  isAppearanceOverridden,
+  type StoredAppearance,
+  type AppearanceOverrides,
   APPEARANCE_QUICK_BUTTONS_MAX,
   DEFAULT_APPEARANCE,
   appearanceInk,
   appearanceShade,
   parseAppearance,
   parseStoredAppearance,
-  presetAppearance,
   type ChatbotAppearance,
 } from '../plugins/chatbot/src/appearanceContract.js';
 import { createAdminApi } from '../plugins/chatbot/src/adminApi.js';
@@ -24,11 +35,6 @@ import { CHATBOT_SITE, createChatbotHost, postRequest, publicRequest, registerBo
 
 const admin: PluginApiAuth = { userId: 1, admin: true, tokenScope: 'user', accessibleProjects: null };
 const visitor: PluginApiAuth = { userId: 2, admin: false, tokenScope: 'user', accessibleProjects: [] };
-
-const appearanceOf = (overrides: Partial<ChatbotAppearance> = {}): ChatbotAppearance => ({
-  ...DEFAULT_APPEARANCE,
-  ...overrides,
-});
 
 /** The administrator's clock. A write stamps `updated_at` from it, so a test that makes two writes advance
  *  it — which is exactly what makes the second one stale. */
@@ -48,95 +54,128 @@ beforeEach(() => {
   api = adminApi(host);
 });
 
-describe('the appearance a customer configures', () => {
-  it('parses a complete document and keeps every value it was given', () => {
-    const configured = appearanceOf({
-      mode: 'light',
-      position: 'top-left',
-      width: 480,
-      height: 700,
-      radius: 4,
-      colors: { panel: '#ffffff', visitorBubble: '#112233', botBubble: '#f3efec', sendButton: '#ff5236' },
-      intro: '  Dobrý den.  ',
-      avatarUrl: 'https://www.example.cz/logo.svg',
-      quickButtons: ['Chci vyplnit formulář', 'Kde je podatelna?'],
-    });
-    const parsed = parseAppearance(configured);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    // The greeting is trimmed and the colours are normalised, so two documents that mean the same thing are
-    // the same document.
-    expect(parsed.value.intro).toBe('Dobrý den.');
-    expect(parsed.value.colors.panel).toBe('#ffffff');
-    expect(parsed.value.quickButtons).toEqual(['Chci vyplnit formulář', 'Kde je podatelna?']);
+const storedOf = (overrides: AppearanceOverrides = {}): StoredAppearance => ({
+  ...selectAppearanceTemplate('elowen'), overrides,
+});
+
+describe('linked appearance templates', () => {
+  it.each(APPEARANCE_TEMPLATE_IDS)('resolves every complete template: %s', template => {
+    const stored = selectAppearanceTemplate(template);
+    expect(stored).toEqual({ schemaVersion: 2, template, overrides: {} });
+    expect(parseAppearanceSelection(stored)).toEqual({ ok: true, value: stored });
+    const resolved = resolveAppearance(stored);
+    expect(resolved).toEqual(APPEARANCE_TEMPLATES[template]);
+    expect(parseAppearance(resolved)).toEqual({ ok: true, value: resolved });
+    expect(resolved).not.toHaveProperty('template');
+    expect(resolved).not.toHaveProperty('overrides');
   });
 
-  it('refuses an unknown field rather than ignoring it', () => {
-    const parsed = parseAppearance({ ...appearanceOf(), theme: 'midnight' });
-    expect(parsed).toEqual({ ok: false, error: 'appearance has an unknown field "theme"' });
+  it('inherits improvements only where no explicit override exists, even when values match', () => {
+    let stored = storedOf();
+    stored = setAppearanceOverride(stored, 'colors.panel', DEFAULT_APPEARANCE.colors.panel);
+    expect(isAppearanceOverridden(stored, 'colors.panel')).toBe(true);
+    expect(parseAppearanceSelection(stored)).toEqual({ ok: true, value: stored });
+    const original = APPEARANCE_TEMPLATES.elowen.colors;
+    try {
+      APPEARANCE_TEMPLATES.elowen.colors = { ...original, panel: '#111111', launcher: '#222222' };
+      const appearance = resolveAppearance(stored);
+      expect(appearance.colors.panel).toBe(original.panel);
+      expect(appearance.colors.launcher).toBe('#222222');
+      stored = resetAppearanceOverride(stored, 'colors.panel');
+      expect(isAppearanceOverridden(stored, 'colors.panel')).toBe(false);
+      expect(resolveAppearance(stored).colors.panel).toBe('#111111');
+      expect(stored.overrides).toEqual({});
+    } finally { APPEARANCE_TEMPLATES.elowen.colors = original; }
   });
 
-  it('refuses an unknown colour key, a colour that is not #rrggbb and a size outside its bounds', () => {
-    const colourKey = parseAppearance({ ...appearanceOf(), colors: { ...APPEARANCE_PRESETS.dark, link: '#ffffff' } });
-    expect(colourKey.ok).toBe(false);
-    const notAColour = parseAppearance({ ...appearanceOf(), colors: { ...APPEARANCE_PRESETS.dark, panel: 'black' } });
-    expect(notAColour).toEqual({ ok: false, error: '"panel" must be a colour written as #rrggbb' });
-    const tooWide = parseAppearance({ ...appearanceOf(), width: APPEARANCE_BOUNDS.width.max + 1 });
-    expect(tooWide.ok).toBe(false);
-    const notWhole = parseAppearance({ ...appearanceOf(), radius: 8.5 });
-    expect(notWhole.ok).toBe(false);
+  it('switches templates by discarding all overrides and does not mutate a template', () => {
+    const previous = setAppearanceOverride(storedOf(), 'launcher.label', 'Ask us');
+    const next = selectAppearanceTemplate('warm');
+    expect(next.overrides).toEqual({});
+    expect(resolveAppearance(next)).toEqual(APPEARANCE_TEMPLATES.warm);
+    expect(resolveAppearance(previous).launcher.label).toBe('Ask us');
+    const resolved = resolveAppearance(previous);
+    resolved.colors.panel = '#ffffff';
+    resolved.launcher.label = 'Changed';
+    expect(APPEARANCE_TEMPLATES.elowen.launcher.label).toBe('');
+    expect(previous.overrides.launcher?.label).toBe('Ask us');
   });
 
-  it('refuses a version it does not know instead of reading it as its own', () => {
-    expect(parseAppearance({ ...appearanceOf(), schemaVersion: 2 })).toEqual({ ok: false, error: '"schemaVersion" must be 1' });
+  it('refuses unknown versions, templates, keys and icon ids on both boundaries', () => {
+    expect(parseAppearanceSelection({ ...storedOf(), schemaVersion: 1 }).ok).toBe(false);
+    expect(parseAppearanceSelection({ ...storedOf(), template: 'missing' }).ok).toBe(false);
+    expect(parseAppearanceSelection({ ...storedOf(), css: 'body{}' }).ok).toBe(false);
+    expect(parseAppearanceSelection({ ...storedOf(), overrides: { header: { unknown: true } } }).ok).toBe(false);
+    for (const overrides of [{ send: { icon: 'missing' } }, { launcher: { icon: 'missing' } }, { quickButtons: [{ text: 'Ask', icon: 'missing' }] }]) {
+      expect(parseAppearanceSelection({ ...storedOf(), overrides }).ok).toBe(false);
+      expect(parseAppearance({ ...DEFAULT_APPEARANCE, ...overrides }).ok).toBe(false);
+    }
+    expect(parseAppearance({ ...DEFAULT_APPEARANCE, schemaVersion: APPEARANCE_SCHEMA_VERSION + 1 }).ok).toBe(false);
+    expect(parseAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, panel: 'black' } }).ok).toBe(false);
+    expect(parseAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, unknown: '#ffffff' } }).ok).toBe(false);
   });
 
-  it('refuses an avatar that is not an image, and any address that is not http, https or an image', () => {
-    expect(parseAppearance({ ...appearanceOf(), avatarUrl: 'javascript:alert(1)' }).ok).toBe(false);
-    expect(parseAppearance({ ...appearanceOf(), avatarUrl: '/logo.svg' }).ok).toBe(false);
-    expect(parseAppearance({ ...appearanceOf(), avatarUrl: 'data:text/html,<b>x</b>' }).ok).toBe(false);
-    expect(parseAppearance({ ...appearanceOf(), avatarUrl: 'data:image/png;base64,AAA' }).ok).toBe(true);
-    expect(parseAppearance({ ...appearanceOf(), avatarUrl: 'https://www.example.cz/logo.svg' }).ok).toBe(true);
+  it('stores quick buttons as text and nullable curated icons, without silently dropping entries', () => {
+    const quickButtons = [{ text: 'Ask', icon: null }, { text: 'Book', icon: 'calendar' as const }];
+    expect(parseAppearanceSelection(storedOf({ quickButtons }))).toEqual({ ok: true, value: storedOf({ quickButtons }) });
+    const invalid = [
+      ['Ask'], [{ text: 'Ask' }], [{ text: '', icon: null }],
+      [{ text: 'Ask', icon: null }, { text: 'Ask', icon: 'phone' }],
+      [{ text: 'x'.repeat(APPEARANCE_QUICK_BUTTON_MAX_CHARS + 1), icon: null }],
+      Array.from({ length: APPEARANCE_QUICK_BUTTONS_MAX + 1 }, (_, i) => ({ text: String(i), icon: null })),
+    ];
+    for (const buttons of invalid) {
+      expect(parseAppearanceSelection({ ...storedOf(), overrides: { quickButtons: buttons } }).ok).toBe(false);
+      expect(parseAppearance({ ...DEFAULT_APPEARANCE, quickButtons: buttons }).ok).toBe(false);
+    }
   });
 
-  it('treats an empty greeting as "the widget\'s own" rather than as an empty message', () => {
-    const parsed = parseAppearance({ ...appearanceOf(), intro: '   ' });
-    expect(parsed.ok && parsed.value.intro).toBeNull();
+  it.each([
+    ['width', 'width'], ['height', 'height'], ['radius', 'radius'],
+    ['launcher.size', 'launcherSize'], ['launcher.offset', 'launcherOffset'], ['typography.fontSize', 'fontSize'],
+  ] as const)('enforces both endpoints and integer bounds for %s', (path, key) => {
+    const bounds = APPEARANCE_BOUNDS[key];
+    for (const value of [bounds.min, bounds.max]) {
+      const stored = setAppearanceOverride(storedOf(), path, value);
+      expect(parseAppearanceSelection(stored).ok).toBe(true);
+      expect(parseAppearance(resolveAppearance(stored)).ok).toBe(true);
+    }
+    for (const value of [bounds.min - 1, bounds.max + 1, bounds.min + .5, NaN, Infinity, '14', null]) {
+      const stored = setAppearanceOverride(storedOf(), path, value);
+      expect(parseAppearanceSelection(stored).ok).toBe(false);
+      expect(parseAppearance(resolveAppearance(stored)).ok).toBe(false);
+    }
   });
 
-  it('bounds the quick buttons and collapses a repeated one', () => {
-    const many = Array.from({ length: APPEARANCE_QUICK_BUTTONS_MAX + 1 }, (_, index) => `Tlačítko ${index}`);
-    expect(parseAppearance({ ...appearanceOf(), quickButtons: many }).ok).toBe(false);
-    const repeated = parseAppearance({ ...appearanceOf(), quickButtons: ['Dotaz', 'Dotaz'] });
-    expect(repeated.ok && repeated.value.quickButtons).toEqual(['Dotaz']);
-    // A button a visitor could not read or press is refused: it is the text of a message they send.
-    expect(parseAppearance({ ...appearanceOf(), quickButtons: ['   '] }).ok).toBe(false);
-    expect(parseAppearance({ ...appearanceOf(), quickButtons: ['x'.repeat(41)] }).ok).toBe(false);
+  it('validates text, avatar URLs, booleans, font families, shapes and shadows', () => {
+    for (const avatarUrl of ['javascript:alert(1)', '/logo.svg', 'data:text/html,<b>x</b>']) {
+      expect(parseAppearanceSelection(storedOf({ avatarUrl })).ok).toBe(false);
+    }
+    for (const avatarUrl of ['', 'https://example.com/a.png', 'data:image/png;base64,AAA']) {
+      expect(parseAppearanceSelection(storedOf({ avatarUrl })).ok).toBe(true);
+    }
+    for (const [path, value] of [
+      ['header.subtitle', 'x'.repeat(81)], ['launcher.label', 'x'.repeat(25)],
+      ['typography.placeholder', 'x'.repeat(81)], ['header.showAvatar', 'true'],
+      ['typography.fontFamily', 'remote'], ['typography.shadow', 'huge'], ['send.shape', 'triangle'],
+    ] as const) expect(parseAppearanceSelection(setAppearanceOverride(storedOf(), path, value)).ok).toBe(false);
+    const parsed = parseAppearanceSelection(storedOf({ intro: '  Hello  ', colors: { panel: '#AABBCC' } }));
+    expect(parsed.ok && parsed.value.overrides).toEqual({ intro: 'Hello', colors: { panel: '#aabbcc' } });
   });
 
-  it('answers a chatbot nobody has configured with the built-in look, and an unreadable row with a failure', () => {
-    expect(parseStoredAppearance(null)).toEqual(DEFAULT_APPEARANCE);
-    expect(parseStoredAppearance(JSON.stringify(appearanceOf({ mode: 'light' }))).mode).toBe('light');
-    // A row this plugin wrote and can no longer read is CORRUPT, and saying so beats drawing a look nobody
-    // chose — the public route refuses and the widget keeps its own panel.
-    expect(() => parseStoredAppearance('{not json')).toThrow(/not JSON/);
-    expect(() => parseStoredAppearance(JSON.stringify({ schemaVersion: 1, mode: 'dusk' }))).toThrow(/invalid/);
+  it('defaults only an unconfigured NULL row and refuses corrupted storage', () => {
+    expect(parseStoredAppearance(null)).toEqual(DEFAULT_STORED_APPEARANCE);
+    for (const raw of ['', '{bad json', '{"schemaVersion":1}', '{"schemaVersion":9}']) {
+      expect(() => parseStoredAppearance(raw)).toThrow();
+    }
+    expect(parseStoredAppearance(JSON.stringify(storedOf({ intro: 'Hi' })))).toEqual(storedOf({ intro: 'Hi' }));
   });
 
-  it('picks the ink that reads on the colour the customer chose, and shades only within their colour', () => {
+  it('chooses contrasting bubble ink and shades within the configured colour', () => {
     expect(appearanceInk('#ffffff')).toBe('#1b1917');
     expect(appearanceInk('#070707')).toBe('#f7f3f0');
-    expect(appearanceInk('#ff5236')).toBe('#1b1917');
-    expect(appearanceShade('#000000', 'lighter', 0.5)).toBe('#808080');
-    expect(appearanceShade('#ffffff', 'darker', 0.5)).toBe('#808080');
-    expect(appearanceShade('#070707', 'lighter', 0.12)).toMatch(/^#[0-9a-f]{6}$/);
-  });
-
-  it('offers each mode its own colour set, and leaves the rest of the look alone', () => {
-    const light = presetAppearance('light');
-    expect(light.mode).toBe('light');
-    expect(light.colors).toEqual(APPEARANCE_PRESETS.light);
-    expect(light.width).toBe(DEFAULT_APPEARANCE.width);
+    expect(appearanceShade('#000000', 'lighter', .5)).toBe('#808080');
+    expect(appearanceShade('#ffffff', 'darker', .5)).toBe('#808080');
   });
 });
 
@@ -148,18 +187,18 @@ describe('the appearance an administrator saves', () => {
       chatbotUserId: before.chatbot_user_id,
       expectedUpdatedAt: before.updated_at,
       displayName: 'Městský úřad Kolín',
-      appearance: appearanceOf({ intro: 'Dobrý den.', quickButtons: ['Chci vyplnit formulář'] }),
+      appearance: storedOf({ intro: 'Dobrý den.', quickButtons: [{ text: 'Chci vyplnit formulář', icon: null }] }),
     });
 
     expect(answer.status).toBe(200);
-    const view = (answer.body as { bot: { displayName: string; appearance: ChatbotAppearance } }).bot;
+    const view = (answer.body as { bot: { displayName: string; appearance: StoredAppearance } }).bot;
     expect(view.displayName).toBe('Městský úřad Kolín');
-    expect(view.appearance.intro).toBe('Dobrý den.');
-    expect(view.appearance.quickButtons).toEqual(['Chci vyplnit formulář']);
+    expect(view.appearance.overrides.intro).toBe('Dobrý den.');
+    expect(view.appearance.overrides.quickButtons).toEqual([{ text: 'Chci vyplnit formulář', icon: null }]);
     // The row really moved: the same read the page makes before it opens the editor answers the saved look.
     const stored = host.store.listBots()[0]!;
     expect(stored.display_name).toBe('Městský úřad Kolín');
-    expect(parseStoredAppearance(stored.appearance).intro).toBe('Dobrý den.');
+    expect(parseStoredAppearance(stored.appearance).overrides.intro).toBe('Dobrý den.');
   });
 
   it('refuses a malformed appearance with the reason, and writes nothing', async () => {
@@ -169,7 +208,7 @@ describe('the appearance an administrator saves', () => {
       chatbotUserId: before.chatbot_user_id,
       expectedUpdatedAt: before.updated_at,
       displayName: before.display_name,
-      appearance: { ...appearanceOf(), colors: { panel: '#ffffff' } },
+      appearance: { ...storedOf(), overrides: { send: { icon: 'unknown-icon' } } },
     });
     expect(answer.status).toBe(400);
     expect((answer.body as { error: string }).error).toBe('invalid_request');
@@ -183,7 +222,7 @@ describe('the appearance an administrator saves', () => {
       chatbotUserId: before.chatbot_user_id,
       expectedUpdatedAt: before.updated_at,
       displayName: before.display_name,
-      appearance: appearanceOf({ radius: 2 }),
+      appearance: storedOf({ radius: 2 }),
     });
     expect(first.status).toBe(200);
     // A second administrator, holding the row they read before the first one saved.
@@ -193,10 +232,10 @@ describe('the appearance an administrator saves', () => {
       chatbotUserId: before.chatbot_user_id,
       expectedUpdatedAt: before.updated_at,
       displayName: before.display_name,
-      appearance: appearanceOf({ radius: 20 }),
+      appearance: storedOf({ radius: 20 }),
     });
     expect(second.status).toBe(409);
-    expect(parseStoredAppearance(host.store.listBots()[0]!.appearance).radius).toBe(2);
+    expect(parseStoredAppearance(host.store.listBots()[0]!.appearance).overrides.radius).toBe(2);
   });
 
   it('is an administrator\'s surface only, and reports an unknown chatbot', async () => {
@@ -206,7 +245,7 @@ describe('the appearance an administrator saves', () => {
       chatbotUserId: 999,
       expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
       displayName: 'Nikdo',
-      appearance: appearanceOf(),
+      appearance: storedOf(),
     });
     expect(missing.status).toBe(404);
   });
@@ -214,8 +253,8 @@ describe('the appearance an administrator saves', () => {
   it('carries the parsed look in every list read, so the editor never starts from its own guess', async () => {
     registerBot(host);
     const listed = await api.list(admin);
-    const bots = (listed.body as { bots: { appearance: ChatbotAppearance }[] }).bots;
-    expect(bots[0]!.appearance).toEqual(DEFAULT_APPEARANCE);
+    const bots = (listed.body as { bots: { appearance: StoredAppearance }[] }).bots;
+    expect(bots[0]!.appearance).toEqual(DEFAULT_STORED_APPEARANCE);
   });
 });
 
@@ -247,7 +286,7 @@ describe('the appearance a visitor\'s widget reads', () => {
       chatbotUserId: bot.chatbot_user_id,
       expectedUpdatedAt: bot.updated_at,
       displayName: 'Městský úřad',
-      appearance: JSON.stringify(appearanceOf({ mode: 'light', quickButtons: ['Kde je podatelna?'] })),
+      appearance: JSON.stringify(storedOf({ mode: 'light', quickButtons: [{ text: 'Kde je podatelna?', icon: 'question' }] })),
       now: '2026-09-21T12:00:00.000Z',
     });
 
@@ -257,7 +296,9 @@ describe('the appearance a visitor\'s widget reads', () => {
     expect(body.schemaVersion).toBe(1);
     expect(body.name).toBe('Městský úřad');
     expect(body.appearance.mode).toBe('light');
-    expect(body.appearance.quickButtons).toEqual(['Kde je podatelna?']);
+    expect(body.appearance).not.toHaveProperty('template');
+    expect(body.appearance).not.toHaveProperty('overrides');
+    expect(body.appearance.quickButtons).toEqual([{ text: 'Kde je podatelna?', icon: 'question' }]);
     // It is a read of state on a visitor's behalf, so nothing between the two ends may keep a copy.
     expect(answer.headers?.['cache-control']).toBe('no-store');
     expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
