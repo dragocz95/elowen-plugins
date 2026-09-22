@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Boxes, Clock, Copy, ExternalLink, History, Image as ImageIcon, RefreshCw, RotateCcw,
+  Activity, Boxes, Clock, Copy, ExternalLink, History, RefreshCw, RotateCcw,
   Server, ShieldCheck, Trash2, UserMinus, Users,
 } from 'lucide-react';
 import {
@@ -14,11 +14,11 @@ const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`
 
 /** The picture of the published page, with the one control that takes a new one.
  *
- *  It belongs next to the address because it is the page: the drawer already says what the address is and
- *  who may open it, and this is what they will see. The refresh control is the manager's, and the server
- *  rate-limits it, so a second press inside the window comes back as the refusal it is rather than as a
- *  second browser. Nothing here is fetched by the drawer itself: the picture has its own endpoint and its
- *  own version, so a new one arrives as a new address rather than as a stale cache entry. */
+ *  It leads the drawer because it is the page: everything else here only describes the site, while this
+ *  is what they will actually see. The refresh control is the manager's, and the server rate-limits it,
+ *  so a second press inside the window comes back as the refusal it is rather than as a second browser.
+ *  Nothing here is fetched by the drawer itself: the picture has its own endpoint and its own version, so
+ *  a new one arrives as a new address rather than as a stale cache entry. */
 function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
   site: SiteView;
   notice: string | null;
@@ -27,14 +27,14 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
   strings: Record<string, string>;
 }) {
   const { components } = runtime();
-  const { Badge, Button, DetailBlock } = components;
+  const { Badge, Button } = components;
   const preview = site.preview;
   const [refusedVersion, setRefusedVersion] = useState<number | null>(null);
   const picture = preview.version > 0 && refusedVersion !== preview.version;
   const taken = preview.capturedAt ? strings.previewCapturedAt.replace('{time}', relativeTime(preview.capturedAt)) : null;
 
   return (
-    <DetailBlock icon={ImageIcon} title={strings.previewTitle} hint={strings.previewHint}>
+    <section className="flex flex-col gap-2">
       <div className="relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40">
         {picture ? (
             <img
@@ -72,7 +72,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
         ) : null}
       </div>
       {notice ? <p className="text-[11px] leading-tight text-muted-foreground">{notice}</p> : null}
-    </DetailBlock>
+    </section>
   );
 }
 
@@ -213,6 +213,18 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
 
   return (
     <div className="flex flex-col gap-5">
+      <PreviewBlock
+        site={site}
+        notice={detail.data?.previewNotice ?? null}
+        busy={call.isPending}
+        strings={strings}
+        onRefresh={() => runCall({
+          path: `${basePath(siteId)}/preview/refresh`,
+          init: { method: 'POST' },
+          done: strings.previewRefreshed,
+        })}
+      />
+
       {failedAction ? (
         <ErrorState
           message={failedAction.message}
@@ -267,18 +279,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       {canManage
         ? <SiteDomains siteId={site.id} />
         : <ReadOnlySiteAddress url={site.url} strings={strings} />}
-
-      <PreviewBlock
-        site={site}
-        notice={detail.data?.previewNotice ?? null}
-        busy={call.isPending}
-        strings={strings}
-        onRefresh={() => runCall({
-          path: `${basePath(siteId)}/preview/refresh`,
-          init: { method: 'POST' },
-          done: strings.previewRefreshed,
-        })}
-      />
 
       <div className="grid grid-cols-3 divide-x divide-border/70 border-y border-border/70">
         <Metric
