@@ -606,7 +606,7 @@ describe('one chatbot\'s limits', () => {
   it('sets the three main numbers with sliders and keeps the remaining seven behind Advanced', async () => {
     const limits = await openLimits('Městský úřad');
 
-    expect(within(limits).getByRole('slider', { name: strings.limit_dailyTurnLimit! })).toHaveValue('200');
+    expect(within(limits).getByRole('slider', { name: strings.limit_dailyTurnLimit! })).toHaveValue('500');
     expect(within(limits).getByRole('slider', { name: strings.limit_dailyCostMicrousd! }))
       .toHaveValue(String(DEFAULT_LIMITS.dailyCostMicrousd));
     expect(within(limits).getByRole('slider', { name: strings.limit_retentionDays! })).toHaveValue('30');
@@ -614,7 +614,7 @@ describe('one chatbot\'s limits', () => {
 
     fireEvent.click(within(limits).getByRole('button', { name: strings.limitsAdvanced! }));
     const rate = within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
-    expect(rate.value).toBe('30');
+    expect(rate.value).toBe('75');
     fireEvent.change(rate, { target: { value: '60' } });
     expect((within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement).value)
       .toBe('60');
@@ -708,7 +708,7 @@ describe('daily ceiling visibility', () => {
     })));
     renderSection('bots');
     expect(await screen.findByText(label!)).toBeInTheDocument();
-    expect(screen.getByText('9 / 200')).toBeInTheDocument();
+    expect(screen.getByText('9 / 500')).toBeInTheDocument();
     expect(screen.getByText('$0.07 / $10.00')).toBeInTheDocument();
     expect(screen.queryByText('Tokens per day')).not.toBeInTheDocument();
   });
@@ -898,7 +898,7 @@ describe('the pure helpers the drawer reports with', () => {
   });
 
   it('prefills an unset stored limit from the server default', () => {
-    expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe(200);
+    expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe(500);
     expect(limitDraftOf({ ...LIMITS, dailyCostMicrousd: null }).dailyCostMicrousd)
       .toBe(DEFAULT_LIMITS.dailyCostMicrousd);
   });

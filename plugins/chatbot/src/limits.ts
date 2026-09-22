@@ -36,38 +36,39 @@ export const MANDATORY_LIMITS = {
   // Bounds an address trying to talk to one chatbot. The window is a minute, so even 1000 is far past any
   // real visitor; the ceiling exists so a typo cannot produce a number the counter cannot hold.
   rateIpPerMinute: {
-    column: 'rate_ip_per_minute', min: 1, max: 100_000, default: 30, slider: { min: 5, max: 300, step: 5 },
+    column: 'rate_ip_per_minute', min: 1, max: 100_000, default: 75, slider: { min: 5, max: 300, step: 5 },
   },
   // Bounds every visitor of one chatbot together, whatever address they come from.
   rateChatbotPerMinute: {
-    column: 'rate_chatbot_per_minute', min: 1, max: 100_000, default: 60, slider: { min: 10, max: 600, step: 10 },
+    column: 'rate_chatbot_per_minute', min: 1, max: 100_000, default: 150, slider: { min: 10, max: 600, step: 10 },
   },
   // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
   // whole day's budget in a minute.
   rateConversationPerMinute: {
-    column: 'rate_conversation_per_minute', min: 1, max: 10_000, default: 10, slider: { min: 1, max: 60, step: 1 },
+    column: 'rate_conversation_per_minute', min: 1, max: 10_000, default: 25, slider: { min: 1, max: 60, step: 1 },
   },
   // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
   dailyTurnLimit: {
-    column: 'daily_turn_limit', min: 1, max: 10_000_000, default: 200, slider: { min: 10, max: 10_000, step: 10 },
+    column: 'daily_turn_limit', min: 1, max: 10_000_000, default: 500, slider: { min: 10, max: 10_000, step: 10 },
   },
   // How many of this chatbot's turns may run at the same time.
   maxConcurrentTurns: {
-    column: 'max_concurrent_turns', min: 1, max: 64, default: 2, slider: { min: 1, max: 32, step: 1 },
+    column: 'max_concurrent_turns', min: 1, max: 64, default: 5, slider: { min: 1, max: 32, step: 1 },
   },
   // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
   maxQueueDepth: {
-    column: 'max_queue_depth', min: 1, max: 10_000, default: 4, slider: { min: 1, max: 100, step: 1 },
+    column: 'max_queue_depth', min: 1, max: 10_000, default: 10, slider: { min: 1, max: 100, step: 1 },
   },
   // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound; the
   // slider stops at ten minutes, because a visitor who has waited that long has left the page.
   queueTimeoutSeconds: {
-    column: 'queue_timeout_seconds', min: 1, max: 3_600, default: 60, slider: { min: 5, max: 600, step: 5 },
+    column: 'queue_timeout_seconds', min: 1, max: 3_600, default: 150, slider: { min: 5, max: 600, step: 5 },
   },
   // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
   // budget would be one number too many, and the server must never approve an action the widget refuses.
+  // Reading the page counts, and a read precedes every click, so a booking form costs well over a dozen.
   maxActionsPerTurn: {
-    column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 8,
+    column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 20,
     slider: { min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, step: 1 },
   },
   // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.

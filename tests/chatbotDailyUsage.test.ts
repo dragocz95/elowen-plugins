@@ -16,7 +16,7 @@ describe('daily budget read model', () => {
   it.each([
     { admitted: 0, cost: 0, turns: 0, priced: 0, verdict: { ok: true } },
     { admitted: 4, cost: 0.0737, turns: 4, priced: 4, verdict: { ok: true } },
-    { admitted: 200, cost: 0.1, turns: 4, priced: 4, verdict: { ok: false, reason: 'budget_exhausted', ceiling: 'turns' } },
+    { admitted: 500, cost: 0.1, turns: 4, priced: 4, verdict: { ok: false, reason: 'budget_exhausted', ceiling: 'turns' } },
     { admitted: 4, cost: 10, turns: 4, priced: 4, verdict: { ok: false, reason: 'budget_exhausted', ceiling: 'cost' } },
     { admitted: 4, cost: 0.1, turns: 4, priced: 1, verdict: { ok: false, reason: 'budget_unverifiable', ceiling: 'cost' } },
   ])('reports exactly the admission verdict: $verdict', async ({ admitted, cost, turns, priced, verdict }) => {
