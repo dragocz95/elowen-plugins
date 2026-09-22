@@ -91,6 +91,32 @@ describe('the admin routes are admin-only, whatever the manifest says', () => {
   });
 });
 
+describe('what the register offers to create a chatbot from', () => {
+  it('offers accounts of kind chatbot, and never a person', async () => {
+    // The server refuses a person at creation time anyway, but a register that OFFERS one invites an
+    // administrator to fill a form that cannot succeed. Only the kind that may carry a chatbot is listed.
+    const host = createChatbotHost({
+      accounts: [
+        { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
+        { id: 13, username: 'skola-bot', name: 'Škola', avatar: '', isAdmin: false, type: 'chatbot' },
+        { id: 20, username: 'patulka', name: 'Patricie', avatar: '', isAdmin: false, type: 'human' },
+        { id: 21, username: 'sabi', name: 'Sabina', avatar: '', isAdmin: false, type: null },
+        { id: 1, username: 'boss', name: 'Šéf', avatar: '', isAdmin: true, type: 'human' },
+      ],
+    });
+    const { api } = adminApiFor(host);
+
+    const answer = await api.list(ADMIN);
+    expect(answer.status).toBe(200);
+    expect((answer.body as { candidates: { id: number }[] }).candidates.map((candidate) => candidate.id)).toEqual([12, 13]);
+
+    // A chatbot that already has a register row is not offered again, whichever kind it is.
+    registerBot(host, { chatbotUserId: 12 });
+    const after = await api.list(ADMIN);
+    expect((after.body as { candidates: { id: number }[] }).candidates.map((candidate) => candidate.id)).toEqual([13]);
+  });
+});
+
 describe('the plugin\'s own counters', () => {
   it('counts this chatbot\'s turns per UTC day and reports the queue wait of the ones that started', async () => {
     const host = twoChatbots();

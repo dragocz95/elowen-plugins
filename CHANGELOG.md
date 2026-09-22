@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.1.1 - 2026-09-22
+
+- The form for registering a chatbot no longer offers accounts that are not chatbots. It listed every non-administrator account, so people appeared in a list whose choice the server would then refuse; only accounts of kind `chatbot` that do not already carry one are offered.
+
 ## chatbot 0.1.0 - 2026-09-21
 
 - Visitor chatbots for third-party websites. A chatbot is a non-interactive Elowen account of kind `chatbot` bound to exactly one managed Project; a visitor reaches it through one script tag on the customer's own website. Every admitted message starts a real Elowen turn owned by that account through the host relay, and the plugin never calls a model itself. The panel renders inside a shadow root so the customer's styles cannot break it, sends a bounded description of the page when the visitor writes, streams the answer with a cursor a dropped connection can resume from, and can act on the page by filling, selecting, clicking and scrolling. Submitting a form is never done for the visitor: it always asks, and only a real click on the confirmation sends it.

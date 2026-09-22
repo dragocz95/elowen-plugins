@@ -178,10 +178,12 @@ export function createAdminApi(deps: AdminApiDeps) {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
       // Accounts that could carry a chatbot but do not yet: what the page offers when an administrator
-      // registers one. Administrators are excluded because a chatbot must never be one.
+      // registers one. Only the kind that may carry a chatbot is offered, and never one that already has a
+      // register row. The server refuses anything else at creation time anyway, but a register that OFFERS
+      // a person invites an administrator to fill a form that cannot succeed.
       const registered = new Set(store.listBots().map((row) => row.chatbot_user_id));
       const candidates = stores.usersRead.list()
-        .filter((account) => !account.isAdmin && !registered.has(account.id))
+        .filter((account) => account.type === 'chatbot' && !registered.has(account.id))
         .map((account) => ({ id: account.id, username: account.username, type: account.type ?? null }));
       const projects = stores.projects.list()
         .filter((project) => project.executionKind === 'managed' && project.lifecycle !== 'deleting')
