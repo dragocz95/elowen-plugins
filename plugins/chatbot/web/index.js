@@ -823,7 +823,7 @@ var import_react6 = __toESM(require_react(), 1);
 
 // plugins/chatbot/src/appearanceContract.ts
 var APPEARANCE_SCHEMA_VERSION = 2;
-var APPEARANCE_TEMPLATE_IDS = ["elowen", "clean", "mono", "warm"];
+var APPEARANCE_TEMPLATE_IDS = ["elowen", "clean", "mono", "warm", "indigo"];
 var APPEARANCE_MODES = ["light", "dark"];
 var PANEL_POSITIONS = ["bottom-right", "bottom-left", "top-right", "top-left"];
 var SEND_SHAPES = ["circle", "rounded-square"];
@@ -865,7 +865,8 @@ var APPEARANCE_SHADOWS = {
   none: "none",
   soft: "0 12px 32px rgb(0 0 0 / 0.16)",
   medium: "0 18px 48px rgb(0 0 0 / 0.28)",
-  strong: "0 24px 64px rgb(0 0 0 / 0.5)"
+  strong: "0 24px 64px rgb(0 0 0 / 0.5)",
+  floating: "0 42px 110px rgb(15 23 42 / 0.26), 0 18px 42px rgb(15 23 42 / 0.20)"
 };
 var template = (appearance) => ({
   schemaVersion: APPEARANCE_SCHEMA_VERSION,
@@ -878,14 +879,14 @@ var APPEARANCE_TEMPLATES = {
     width: 380,
     height: 560,
     radius: 16,
-    colors: { panel: "#070707", visitorBubble: "#ff5236", botBubble: "#151515", sendButton: "#ff5236", sendIcon: "#1b1917", launcher: "#ff5236" },
+    colors: { header: null, panel: "#0f1012", visitorBubble: "#ff6a4d", botBubble: "#24262b", sendButton: "#ff6a4d", sendIcon: "#171311", launcher: "#ff6a4d" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "arrow", shape: "circle" },
     launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
     header: { subtitle: "", showAvatar: true, showMessageName: true },
-    typography: { fontSize: 14, fontFamily: "system", shadow: "strong", placeholder: "" }
+    typography: { fontSize: 14, fontFamily: "system", shadow: "medium", placeholder: "" }
   }),
   clean: template({
     mode: "light",
@@ -893,7 +894,7 @@ var APPEARANCE_TEMPLATES = {
     width: 400,
     height: 600,
     radius: 20,
-    colors: { panel: "#ffffff", visitorBubble: "#2563eb", botBubble: "#f1f5f9", sendButton: "#2563eb", sendIcon: "#ffffff", launcher: "#2563eb" },
+    colors: { header: null, panel: "#ffffff", visitorBubble: "#1d4ed8", botBubble: "#e2e8f0", sendButton: "#1d4ed8", sendIcon: "#ffffff", launcher: "#1d4ed8" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
@@ -908,7 +909,8 @@ var APPEARANCE_TEMPLATES = {
     width: 320,
     height: 520,
     radius: 4,
-    colors: { panel: "#000000", visitorBubble: "#ffffff", botBubble: "#171717", sendButton: "#ffffff", sendIcon: "#000000", launcher: "#000000" },
+    // A light launcher stays visible on dark host pages even with the monochrome template's shadow disabled.
+    colors: { header: null, panel: "#101010", visitorBubble: "#f5f5f5", botBubble: "#2b2b2b", sendButton: "#f5f5f5", sendIcon: "#111111", launcher: "#d4d4d4" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
@@ -923,21 +925,34 @@ var APPEARANCE_TEMPLATES = {
     width: 400,
     height: 600,
     radius: 28,
-    colors: { panel: "#fffaf0", visitorBubble: "#d88c9a", botBubble: "#f7eadf", sendButton: "#d88c9a", sendIcon: "#1b1917", launcher: "#8fae98" },
+    colors: { header: null, panel: "#fff7ed", visitorBubble: "#b4532d", botBubble: "#f0dac2", sendButton: "#b4532d", sendIcon: "#ffffff", launcher: "#b4532d" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
-    launcher: { icon: "sparkles", size: 60, offset: 24, label: "" },
+    launcher: { icon: "speech-bubble", size: 60, offset: 24, label: "" },
     header: { subtitle: "", showAvatar: true, showMessageName: false },
-    typography: { fontSize: 15, fontFamily: "humanist", shadow: "medium", placeholder: "" }
+    typography: { fontSize: 15, fontFamily: "humanist", shadow: "soft", placeholder: "" }
+  }),
+  indigo: template({
+    mode: "light",
+    position: "bottom-right",
+    width: 477,
+    height: 711,
+    radius: 22,
+    colors: { panel: "#ffffff", header: "#211741", visitorBubble: "#120832", botBubble: "#eceaf1", sendButton: "#211741", sendIcon: "#ffffff", launcher: "#211741" },
+    intro: null,
+    avatarUrl: "",
+    quickButtons: [],
+    send: { icon: "paper-plane", shape: "circle" },
+    // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    header: { subtitle: "", showAvatar: false, showMessageName: false },
+    // Use the local sans stack, never download the reference design's Manrope webfont.
+    typography: { fontSize: 15, fontFamily: "system", shadow: "floating", placeholder: "" }
   })
 };
 var DEFAULT_APPEARANCE = APPEARANCE_TEMPLATES.elowen;
-var APPEARANCE_RAMPS = {
-  dark: { foreground: "#f7f3f0", muted: "#9d948e", border: "#242424", raised: "#151515", field: "#151515", ember: "#ff9a62" },
-  light: { foreground: "#1b1917", muted: "#6f6862", border: "#e2ddd8", raised: "#f7f4f1", field: "#f7f4f1", ember: "#b03a12" }
-};
 var LIGHT_INK = "#f7f3f0";
 var DARK_INK = "#1b1917";
 var HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -965,6 +980,41 @@ function appearanceShade(color, direction, amount = 0.12) {
   const [r, g, b] = channels(color);
   const mix = (value) => value + (target - value) * amount;
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
+}
+function appearanceRamp(appearance) {
+  const panel = appearance.colors.panel;
+  const foreground = relativeLuminance(panel) > Math.sqrt(0.05 * 1.05) - 0.05 ? "#000000" : "#ffffff";
+  const direction = foreground === "#ffffff" ? "lighter" : "darker";
+  const contrast = (a, b) => contrastRatio(relativeLuminance(a), relativeLuminance(b));
+  const surface = (percent) => {
+    for (let step = percent; step > 0; step--) {
+      const fill = appearanceShade(panel, direction, step / 100);
+      if (contrast(fill, foreground) >= 4.5) return fill;
+    }
+    return panel;
+  };
+  const raised = surface(6);
+  const field = surface(10);
+  const surfaces = [panel, raised, field];
+  const ink = (minimum) => {
+    for (let step = 1; step < 100; step++) {
+      const color = appearanceShade(panel, direction, step / 100);
+      if (surfaces.every((fill) => contrast(fill, color) >= minimum)) return color;
+    }
+    return foreground;
+  };
+  const header = appearance.colors.header ?? raised;
+  return {
+    header,
+    headerInk: appearanceInk(header),
+    launcherBorder: appearanceShade(appearance.colors.launcher, appearanceInk(appearance.colors.launcher) === LIGHT_INK ? "lighter" : "darker", 0.45),
+    foreground,
+    muted: ink(4.5),
+    border: ink(3),
+    raised,
+    field,
+    ember: appearance.mode === "dark" ? "#ff9a62" : "#b03a12"
+  };
 }
 function appearanceIcon(id2) {
   return APPEARANCE_ICONS.find((entry) => entry.id === id2);
@@ -1104,7 +1154,7 @@ function readQuickButtons(value) {
   return { ok: true, value: result };
 }
 function parseColors(input, partial) {
-  const keys = ["panel", "visitorBubble", "botBubble", "sendButton", "sendIcon", "launcher"];
+  const keys = ["panel", "header", "visitorBubble", "botBubble", "sendButton", "sendIcon", "launcher"];
   const object2 = plainObject(input, keys, "appearance.colors");
   if (!object2.ok) return object2;
   if (!partial) {
@@ -1114,6 +1164,10 @@ function parseColors(input, partial) {
   const result = {};
   for (const key of keys) {
     if (!(key in object2.value)) continue;
+    if (key === "header" && object2.value[key] === null) {
+      result.header = null;
+      continue;
+    }
     const value = readColor(object2.value[key], key);
     if (!value.ok) return value;
     result[key] = value.value;
@@ -19544,7 +19598,7 @@ function introHtml(input) {
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
 function introUtilities(appearance, onQuickButton) {
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   return {
     "cb-quick": {
       styles: { default: { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px", justifyContent: "center" } }
@@ -19580,7 +19634,7 @@ function introUtilities(appearance, onQuickButton) {
 function chatConfig(input) {
   const { look, strings } = input;
   const appearance = look.appearance;
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === "circle" ? "50%" : "8px";
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
   return {
@@ -19604,7 +19658,7 @@ function chatConfig(input) {
         text: { color: ramp.foreground },
         container: {
           backgroundColor: ramp.field,
-          border: "none",
+          border: `1px solid ${ramp.border}`,
           padding: "10px 12px",
           borderRadius: `${Math.round(appearance.radius / 2)}px`
         }
@@ -19671,7 +19725,7 @@ function styleText(appearance) {
   const GUTTER_PX = appearance.launcher.offset;
   const inset = appearanceViewportInset(appearance);
   const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === "dark" ? "lighter" : "darker");
-  const ramp = APPEARANCE_RAMPS[appearance.mode];
+  const ramp = appearanceRamp(appearance);
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
   const corner = {
@@ -19698,14 +19752,14 @@ function styleText(appearance) {
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
-  border: 1px solid ${appearance.colors.launcher}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
   min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
   box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
 }
 .launcher svg { width: ${appearance.launcher.size - 2}px; height: ${appearance.launcher.size - 2}px; padding: ${Math.round(appearance.launcher.size * 0.28)}px; flex: 0 0 auto; }
 .launcher-label { padding-right: 18px; overflow-wrap: anywhere; }
-.launcher:hover { background: ${launcherHover}; border-color: ${launcherHover}; }
+.launcher:hover { background: ${launcherHover}; }
 .launcher:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
 .panel {
   display: flex; flex-direction: column;
@@ -19716,19 +19770,19 @@ function styleText(appearance) {
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.raised};
+  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.header}; color: ${ramp.headerInk};
 }
 .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
 .header-avatar[hidden], .subtitle[hidden] { display: none; }
-.subtitle { margin: 3px 0 0; color: ${ramp.muted}; font-size: .85em; overflow-wrap: anywhere; }
-.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.foreground}; }
+.subtitle { margin: 3px 0 0; color: ${ramp.headerInk}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.headerInk}; }
 .close {
-  border: 1px solid transparent; background: transparent; color: ${ramp.muted};
+  border: 1px solid transparent; background: transparent; color: ${ramp.headerInk};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
 }
-.close:hover { color: ${ramp.foreground}; border-color: ${ramp.border}; }
-.close:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 1px; }
+.close:hover { border-color: ${ramp.headerInk}; }
+.close:focus-visible { outline: 2px solid ${ramp.headerInk}; outline-offset: 1px; }
 .status { margin: 0; padding: 10px 16px; border-bottom: 1px solid ${ramp.border}; background: ${appearance.colors.panel}; color: ${ramp.muted}; font-size: 13px; line-height: 1.45; }
 .status[hidden] { display: none; }
 .status-error { color: ${ramp.ember}; }
@@ -20178,13 +20232,13 @@ function Icon2({ id: id2 }) {
 }
 function TemplateSwatch({ template: template2 }) {
   const a = APPEARANCE_TEMPLATES[template2];
-  const ramp = APPEARANCE_RAMPS[a.mode];
+  const ramp = appearanceRamp(a);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { "aria-hidden": true, className: "flex h-28 w-full flex-col gap-2 p-2", style: { background: a.colors.panel, borderRadius: a.radius / 2, border: `1px solid ${ramp.border}` }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-2 w-1/2 rounded", style: { background: ramp.muted } }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex w-full rounded p-1.5", style: { background: ramp.header }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-2 w-1/2 rounded", style: { background: ramp.headerInk } }) }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-4 w-3/4 self-start", style: { background: a.colors.botBubble, borderRadius: a.radius / 3 } }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-4 w-1/2 self-end", style: { background: a.colors.visitorBubble, borderRadius: a.radius / 3 } }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "mt-auto flex justify-end gap-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-6 w-6 items-center justify-center rounded-full", style: { background: a.colors.launcher, color: appearanceInk(a.colors.launcher) }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: a.launcher.icon }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-6 w-6 items-center justify-center rounded-full", style: { background: a.colors.launcher, color: appearanceInk(a.colors.launcher), border: `1px solid ${ramp.launcherBorder}` }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: a.launcher.icon }) }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-6 w-6 items-center justify-center", style: { background: a.colors.sendButton, color: a.colors.sendIcon, borderRadius: a.send.shape === "circle" ? "50%" : 4 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: a.send.icon }) })
     ] })
   ] });
@@ -20229,7 +20283,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
   const color = (key, label) => field(
     `colors.${key}`,
     label,
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("input", { id: `${id2}-colors.${key}`, type: "color", "aria-label": label, value: appearance.colors[key], disabled: pending, onChange: (event) => patch(`colors.${key}`, event.target.value), className: "h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" })
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("input", { id: `${id2}-colors.${key}`, type: "color", "aria-label": label, value: appearance.colors[key] ?? appearanceRamp(appearance).header, disabled: pending, onChange: (event) => patch(`colors.${key}`, event.target.value), className: "h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" })
   );
   const scalar = (path, key, label, value) => {
     const text = s.appearancePixels.replace("{value}", String(value));
@@ -20329,6 +20383,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
               scalar("launcher.offset", "launcherOffset", s.appearanceLauncherOffset, appearance.launcher.offset)
             ] })),
             section(s.appearanceHeaderGroup, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(UserRound, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              color("header", s.appearanceColorHeader),
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceNameLabel, hint: s.appearanceNameHint, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Input, { "aria-label": s.appearanceNameLabel, value: name, maxLength: DISPLAY_NAME_MAX_CHARS, disabled: pending, onChange: (event) => setName(event.target.value) }) }),
               textField("header.subtitle", s.appearanceSubtitle, appearance.header.subtitle, APPEARANCE_SUBTITLE_MAX_CHARS),
               toggle("header.showAvatar", s.appearanceShowAvatar, appearance.header.showAvatar),

@@ -1,6 +1,6 @@
 /** Shared appearance contract for storage, the public widget and the administrator preview. */
 export const APPEARANCE_SCHEMA_VERSION = 2;
-export const APPEARANCE_TEMPLATE_IDS = ['elowen', 'clean', 'mono', 'warm'];
+export const APPEARANCE_TEMPLATE_IDS = ['elowen', 'clean', 'mono', 'warm', 'indigo'];
 const APPEARANCE_MODES = ['light', 'dark'];
 const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
 const SEND_SHAPES = ['circle', 'rounded-square'];
@@ -44,6 +44,7 @@ export const APPEARANCE_SHADOWS = {
     soft: '0 12px 32px rgb(0 0 0 / 0.16)',
     medium: '0 18px 48px rgb(0 0 0 / 0.28)',
     strong: '0 24px 64px rgb(0 0 0 / 0.5)',
+    floating: '0 42px 110px rgb(15 23 42 / 0.26), 0 18px 42px rgb(15 23 42 / 0.20)',
 };
 const template = (appearance) => ({
     schemaVersion: APPEARANCE_SCHEMA_VERSION,
@@ -52,16 +53,16 @@ const template = (appearance) => ({
 export const APPEARANCE_TEMPLATES = {
     elowen: template({
         mode: 'dark', position: 'bottom-right', width: 380, height: 560, radius: 16,
-        colors: { panel: '#070707', visitorBubble: '#ff5236', botBubble: '#151515', sendButton: '#ff5236', sendIcon: '#1b1917', launcher: '#ff5236' },
+        colors: { header: null, panel: '#0f1012', visitorBubble: '#ff6a4d', botBubble: '#24262b', sendButton: '#ff6a4d', sendIcon: '#171311', launcher: '#ff6a4d' },
         intro: null, avatarUrl: '', quickButtons: [],
         send: { icon: 'arrow', shape: 'circle' },
         launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
         header: { subtitle: '', showAvatar: true, showMessageName: true },
-        typography: { fontSize: 14, fontFamily: 'system', shadow: 'strong', placeholder: '' },
+        typography: { fontSize: 14, fontFamily: 'system', shadow: 'medium', placeholder: '' },
     }),
     clean: template({
         mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 20,
-        colors: { panel: '#ffffff', visitorBubble: '#2563eb', botBubble: '#f1f5f9', sendButton: '#2563eb', sendIcon: '#ffffff', launcher: '#2563eb' },
+        colors: { header: null, panel: '#ffffff', visitorBubble: '#1d4ed8', botBubble: '#e2e8f0', sendButton: '#1d4ed8', sendIcon: '#ffffff', launcher: '#1d4ed8' },
         intro: null, avatarUrl: '', quickButtons: [],
         send: { icon: 'paper-plane', shape: 'circle' },
         launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
@@ -70,7 +71,8 @@ export const APPEARANCE_TEMPLATES = {
     }),
     mono: template({
         mode: 'dark', position: 'bottom-right', width: 320, height: 520, radius: 4,
-        colors: { panel: '#000000', visitorBubble: '#ffffff', botBubble: '#171717', sendButton: '#ffffff', sendIcon: '#000000', launcher: '#000000' },
+        // A light launcher stays visible on dark host pages even with the monochrome template's shadow disabled.
+        colors: { header: null, panel: '#101010', visitorBubble: '#f5f5f5', botBubble: '#2b2b2b', sendButton: '#f5f5f5', sendIcon: '#111111', launcher: '#d4d4d4' },
         intro: null, avatarUrl: '', quickButtons: [],
         send: { icon: 'arrow', shape: 'rounded-square' },
         launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '' },
@@ -79,12 +81,23 @@ export const APPEARANCE_TEMPLATES = {
     }),
     warm: template({
         mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 28,
-        colors: { panel: '#fffaf0', visitorBubble: '#d88c9a', botBubble: '#f7eadf', sendButton: '#d88c9a', sendIcon: '#1b1917', launcher: '#8fae98' },
+        colors: { header: null, panel: '#fff7ed', visitorBubble: '#b4532d', botBubble: '#f0dac2', sendButton: '#b4532d', sendIcon: '#ffffff', launcher: '#b4532d' },
         intro: null, avatarUrl: '', quickButtons: [],
         send: { icon: 'paper-plane', shape: 'circle' },
-        launcher: { icon: 'sparkles', size: 60, offset: 24, label: '' },
+        launcher: { icon: 'speech-bubble', size: 60, offset: 24, label: '' },
         header: { subtitle: '', showAvatar: true, showMessageName: false },
-        typography: { fontSize: 15, fontFamily: 'humanist', shadow: 'medium', placeholder: '' },
+        typography: { fontSize: 15, fontFamily: 'humanist', shadow: 'soft', placeholder: '' },
+    }),
+    indigo: template({
+        mode: 'light', position: 'bottom-right', width: 477, height: 711, radius: 22,
+        colors: { panel: '#ffffff', header: '#211741', visitorBubble: '#120832', botBubble: '#eceaf1', sendButton: '#211741', sendIcon: '#ffffff', launcher: '#211741' },
+        intro: null, avatarUrl: '', quickButtons: [],
+        send: { icon: 'paper-plane', shape: 'circle' },
+        // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
+        launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+        header: { subtitle: '', showAvatar: false, showMessageName: false },
+        // Use the local sans stack, never download the reference design's Manrope webfont.
+        typography: { fontSize: 15, fontFamily: 'system', shadow: 'floating', placeholder: '' },
     }),
 };
 export const DEFAULT_STORED_APPEARANCE = {
@@ -93,10 +106,6 @@ export const DEFAULT_STORED_APPEARANCE = {
     overrides: {},
 };
 export const DEFAULT_APPEARANCE = APPEARANCE_TEMPLATES.elowen;
-export const APPEARANCE_RAMPS = {
-    dark: { foreground: '#f7f3f0', muted: '#9d948e', border: '#242424', raised: '#151515', field: '#151515', ember: '#ff9a62' },
-    light: { foreground: '#1b1917', muted: '#6f6862', border: '#e2ddd8', raised: '#f7f4f1', field: '#f7f4f1', ember: '#b03a12' },
-};
 const LIGHT_INK = '#f7f3f0';
 const DARK_INK = '#1b1917';
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -126,6 +135,44 @@ export function appearanceShade(color, direction, amount = 0.12) {
     const [r, g, b] = channels(color);
     const mix = (value) => value + (target - value) * amount;
     return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
+}
+/**
+ * Mix the panel toward its contrasting pole in sRGB: raised 6%, field 10%.
+ * Cap those steps near mid-tones so normal text still reaches WCAG 4.5:1.
+ * Muted text and boundaries use the first 1% step reaching 4.5:1 and 3:1
+ * respectively against every chrome surface. All tints retain the panel hue.
+ */
+export function appearanceRamp(appearance) {
+    const panel = appearance.colors.panel;
+    const foreground = relativeLuminance(panel) > Math.sqrt(0.05 * 1.05) - 0.05 ? '#000000' : '#ffffff';
+    const direction = foreground === '#ffffff' ? 'lighter' : 'darker';
+    const contrast = (a, b) => contrastRatio(relativeLuminance(a), relativeLuminance(b));
+    const surface = (percent) => {
+        for (let step = percent; step > 0; step--) {
+            const fill = appearanceShade(panel, direction, step / 100);
+            if (contrast(fill, foreground) >= 4.5)
+                return fill;
+        }
+        return panel;
+    };
+    const raised = surface(6);
+    const field = surface(10);
+    const surfaces = [panel, raised, field];
+    const ink = (minimum) => {
+        for (let step = 1; step < 100; step++) {
+            const color = appearanceShade(panel, direction, step / 100);
+            if (surfaces.every(fill => contrast(fill, color) >= minimum))
+                return color;
+        }
+        return foreground;
+    };
+    const header = appearance.colors.header ?? raised;
+    return {
+        header, headerInk: appearanceInk(header),
+        launcherBorder: appearanceShade(appearance.colors.launcher, appearanceInk(appearance.colors.launcher) === LIGHT_INK ? 'lighter' : 'darker', .45),
+        foreground, muted: ink(4.5), border: ink(3), raised, field,
+        ember: appearance.mode === 'dark' ? '#ff9a62' : '#b03a12',
+    };
 }
 export function appearanceIcon(id) {
     return APPEARANCE_ICONS.find((entry) => entry.id === id);
@@ -296,7 +343,7 @@ function readQuickButtons(value) {
     return { ok: true, value: result };
 }
 function parseColors(input, partial) {
-    const keys = ['panel', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'];
+    const keys = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'];
     const object = plainObject(input, keys, 'appearance.colors');
     if (!object.ok)
         return object;
@@ -309,6 +356,10 @@ function parseColors(input, partial) {
     for (const key of keys) {
         if (!(key in object.value))
             continue;
+        if (key === 'header' && object.value[key] === null) {
+            result.header = null;
+            continue;
+        }
         const value = readColor(object.value[key], key);
         if (!value.ok)
             return value;

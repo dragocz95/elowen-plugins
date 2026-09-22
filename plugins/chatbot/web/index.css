@@ -274,6 +274,9 @@
   .p-1 {
     padding: var(--spacing, 0.25rem);
   }
+  .p-1\.5 {
+    padding: calc(var(--spacing, 0.25rem) * 1.5);
+  }
   .p-2 {
     padding: calc(var(--spacing, 0.25rem) * 2);
   }
