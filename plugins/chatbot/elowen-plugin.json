@@ -9,7 +9,8 @@
   "capabilities": {
     "reads": [
       "db",
-      "stores"
+      "stores",
+      "elowen-cli"
     ]
   },
   "provides": {
