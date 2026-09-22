@@ -83,6 +83,8 @@ The **Chatbots** page has three tabs over one selection, so switching tabs keeps
 
 **Grants are not edited here.** A chatbot's account reaches this plugin's tool only while the account holds the `chatbot` grant, so the dialog that creates a chatbot writes that grant (and the tool grant) alongside core's own account and Project assignment, keeping whatever else the account already had. After that, account grants are edited on the **Users** screen, which owns that rule: this page reports what the account can reach and hands you over rather than keeping a second copy of a permission rule.
 
+**The model is not edited here either.** A visitor's answer comes from the chatbot's own account, so the drawer's model row reads what that account answers on — core's `users.default_exec` — straight from core's account directory, marks it as inherited when the account has none of its own and names the instance default it then follows, and hands the administrator to that account to change it. The plugin stores no model of its own and writes none: core publishes no administrative route for one account's model, and the switch the row offers is the same one the **Users** screen performs.
+
 **Limits.** A newly registered chatbot receives the complete default profile from `src/limits.ts`, so missing numbers do not make it a draft. The main form shows turns per day, the daily spend ceiling and retention first; rate, token, queue, concurrency and page-action limits remain available under Advanced.
 
 ## Operations
