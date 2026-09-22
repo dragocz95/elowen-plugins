@@ -6,7 +6,7 @@ import { LIMIT_FIELDS } from '../src/limits';
 import { apiJson, chatbotApi, jsonRequest, runtime } from './runtime';
 import { formatDateTime } from './format';
 import { OriginsField } from './OriginsField';
-import { LimitsModal, limitDraftOf, readLimitDraft, type LimitDraft } from './LimitsModal';
+import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
 import { AppearanceModal } from './AppearanceModal';
 import type { ChatbotBotView } from './types';
 
@@ -49,15 +49,11 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     setMaySubmitForms(bot.maySubmitForms);
   }, [bot.updatedAt, bot.origins, bot.limits, bot.maySubmitForms]);
 
-  const read = readLimitDraft(limits);
   const originalLimits = limitDraftOf(bot.limits);
   const dirty = origins.join('\n') !== bot.origins.join('\n')
     || LIMIT_FIELDS.some((field) => limits[field] !== originalLimits[field])
     || maySubmitForms !== bot.maySubmitForms;
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
-  const invalid = read.invalid.length > 0;
-  const enableBlocked = invalid || read.missing.length > 0;
-  const saveBlocked = invalid || (bot.status === 'enabled' && read.missing.length > 0);
 
   const save = async (action: 'enable' | 'disable' | null) => {
     setPending(true);
@@ -68,7 +64,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
         expectedUpdatedAt: bot.updatedAt,
         displayName: bot.displayName,
         origins,
-        limits: read.limits,
+        limits,
         maySubmitForms,
         ...(action === null ? {} : { action }),
       }));
@@ -137,7 +133,6 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
           <C.SettingsGroup title={s.limitsTitle} hint={s.limitsHint} icon={Gauge} density="compact">
             <C.SettingsRow
               label={s.limitsEdit}
-              status={enableBlocked ? <C.Badge tone="warning">{s.statusAttention}</C.Badge> : null}
               actions={<C.IconButton icon={ChevronRight} label={s.limitsEdit} disabled={pending} onClick={() => setOpened('limits')} />}
             />
           </C.SettingsGroup>
@@ -166,9 +161,9 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
         {bot.status === 'enabled' ? (
           <C.Button variant="ghost" icon={Power} disabled={pending} onClick={() => setConfirming('disable')}>{s.disableAction}</C.Button>
         ) : (
-          <C.Button variant="outline" icon={Power} disabled={pending || dirty || enableBlocked} onClick={() => setConfirming('enable')}>{s.enableAction}</C.Button>
+          <C.Button variant="outline" icon={Power} disabled={pending || dirty} onClick={() => setConfirming('enable')}>{s.enableAction}</C.Button>
         )}
-        <C.Button variant="accent" icon={dirty ? Save : Check} disabled={pending || !dirty || saveBlocked} onClick={() => void save(null)}>
+        <C.Button variant="accent" icon={dirty ? Save : Check} disabled={pending || !dirty} onClick={() => void save(null)}>
           {pending ? s.saveSaving : s.saveAction}
         </C.Button>
       </C.ModalFooter>

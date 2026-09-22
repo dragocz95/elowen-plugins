@@ -4,10 +4,10 @@ import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json'
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
-import { limitDraftOf, readLimitDraft } from '../plugins/chatbot/web-src/LimitsModal';
+import { limitDraftOf, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
-import { DEFAULT_LIMITS, LIMIT_FIELDS, MANDATORY_LIMITS, type LimitValues } from '../plugins/chatbot/src/limits';
+import { DEFAULT_LIMITS, LIMIT_FIELDS, MANDATORY_LIMITS, isUsableLimit, specOf, type LimitValues } from '../plugins/chatbot/src/limits';
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
@@ -601,43 +601,28 @@ describe('one chatbot\'s limits', () => {
     return await openWindow(strings.limitsEdit!);
   };
 
-  it('shows three main numbers and keeps the remaining eight behind Advanced', async () => {
+  it('sets the three main numbers with sliders and keeps the remaining eight behind Advanced', async () => {
     const limits = await openLimits('Městský úřad');
 
-    expect(within(limits).getByRole('spinbutton', { name: strings.limit_dailyTurnLimit! })).toHaveValue(200);
-    expect(within(limits).getByRole('spinbutton', { name: strings.limit_dailyCostMicrousd! }))
-      .toHaveValue(DEFAULT_LIMITS.dailyCostMicrousd / 1_000_000);
-    expect(within(limits).getByRole('spinbutton', { name: strings.limit_retentionDays! })).toHaveValue(30);
-    expect(within(limits).queryByRole('spinbutton', { name: strings.limit_rateIpPerMinute! })).not.toBeInTheDocument();
+    expect(within(limits).getByRole('slider', { name: strings.limit_dailyTurnLimit! })).toHaveValue('200');
+    expect(within(limits).getByRole('slider', { name: strings.limit_dailyCostMicrousd! }))
+      .toHaveValue(String(DEFAULT_LIMITS.dailyCostMicrousd));
+    expect(within(limits).getByRole('slider', { name: strings.limit_retentionDays! })).toHaveValue('30');
+    expect(within(limits).queryByRole('slider', { name: strings.limit_rateIpPerMinute! })).not.toBeInTheDocument();
 
     fireEvent.click(within(limits).getByRole('button', { name: strings.limitsAdvanced! }));
-    const rate = within(limits).getByRole('spinbutton', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
+    const rate = within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement;
     expect(rate.value).toBe('30');
     fireEvent.change(rate, { target: { value: '60' } });
-    expect(rate.value).toBe('60');
+    expect((within(limits).getByRole('slider', { name: strings.limit_rateIpPerMinute! }) as HTMLInputElement).value)
+      .toBe('60');
   });
 
-  it('will not enable a chatbot whose numbers are not all decided, and names the ones missing', async () => {
-    // The broken chatbot is the draft with no Project, so its blockers already keep it from being enabled.
-    // What this checks is the LIMIT half: clearing a mandatory number disables the action and says which.
-    const limits = await openLimits('Škola');
-    fireEvent.change(within(limits).getByRole('spinbutton', { name: strings.limit_dailyTurnLimit! }), { target: { value: '' } });
-    expect(await within(top()).findByText(strings.limitsMissing!.replace('{fields}', strings.limit_dailyTurnLimit!))).toBeInTheDocument();
-
-    fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
-    expect(within(top()).getByRole('button', { name: strings.enableAction! })).toBeDisabled();
-  });
-
-  it('reports a limit the server would refuse, without pretending it was stored', async () => {
+  it('states every number in the unit the reader thinks in, not the one it is stored in', async () => {
     const limits = await openLimits('Městský úřad');
-    fireEvent.click(within(limits).getByRole('button', { name: strings.limitsAdvanced! }));
-    fireEvent.change(within(limits).getByRole('spinbutton', { name: strings.limit_maxActionsPerTurn! }), { target: { value: '0' } });
-    expect(within(top()).getByText(`${strings.limit_maxActionsPerTurn}: ${strings.limitsRange!.replace('{min}', '1').replace('{max}', '20')}`)).toBeInTheDocument();
-
-    fireEvent.click(within(top()).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
-    expect(within(top()).getByRole('button', { name: strings.saveAction! })).toBeDisabled();
+    // The ceiling is stored in microdollars, and nobody has ever decided to spend one.
+    expect(within(limits).getByText('$10.00')).toBeInTheDocument();
+    expect(within(limits).getByText(`30 ${strings.limitUnit_retentionDays}`)).toBeInTheDocument();
   });
 });
 
@@ -872,25 +857,24 @@ describe('the pure helpers the drawer reports with', () => {
   });
 
   it('prefills an unset stored limit from the server default', () => {
-    expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe('200');
+    expect(limitDraftOf(LIMITS).dailyTurnLimit).toBe(200);
     expect(limitDraftOf({ ...LIMITS, dailyCostMicrousd: null }).dailyCostMicrousd)
-      .toBe(String(DEFAULT_LIMITS.dailyCostMicrousd));
+      .toBe(DEFAULT_LIMITS.dailyCostMicrousd);
   });
 
-  it('judges a box by the server\'s own bounds, and separates "not decided" from "not a number"', () => {
-    const draft = limitDraftOf(LIMITS);
-    expect(readLimitDraft(draft).invalid).toEqual([]);
-    expect(readLimitDraft(draft).missing).toEqual([]);
-    // Cleared mandatory numbers are MISSING — the state that keeps a chatbot from being enabled...
-    const cleared = readLimitDraft({ ...draft, rateIpPerMinute: '', dailyCostMicrousd: '' });
-    expect(cleared.missing).toEqual(['rateIpPerMinute']);
-    expect(cleared.limits.rateIpPerMinute).toBeNull();
-    expect(cleared.limits.dailyCostMicrousd).toBeNull();
-    // ...while a number the server would refuse is INVALID, and never travels as if it were valid.
-    const wrong = readLimitDraft({ ...draft, maxActionsPerTurn: '500' });
-    expect(wrong.invalid).toEqual(['maxActionsPerTurn']);
-    expect(wrong.limits.maxActionsPerTurn).toBeNull();
-    expect(readLimitDraft({ ...draft, retentionDays: '1.5' }).invalid).toEqual(['retentionDays']);
+  it('keeps a stored value the slider would not have offered, and widens that slider to reach it', () => {
+    // A retention of ten years is inside the server's bounds and far outside the span the window offers.
+    // Opening the window must not quietly propose a different number than the one the row holds.
+    const far = limitDraftOf({ ...LIMITS, retentionDays: 3_650, rateIpPerMinute: 1 });
+    expect(far.retentionDays).toBe(3_650);
+    expect(far.rateIpPerMinute).toBe(1);
+    expect(sliderRange('retentionDays', far.retentionDays).max).toBe(3_650);
+    expect(sliderRange('rateIpPerMinute', far.rateIpPerMinute).min).toBe(1);
+    // An ordinary row is served by the practical span, not by the validity bounds.
+    const usual = limitDraftOf(LIMITS);
+    expect(sliderRange('retentionDays', usual.retentionDays))
+      .toEqual(specOf('retentionDays').slider);
+    for (const field of LIMIT_FIELDS) expect(isUsableLimit(usual[field], specOf(field))).toBe(true);
   });
 
   it('bounds the all preset to the 366-day window the chatbot route accepts', () => {
