@@ -103,7 +103,7 @@
       "transcriptNoReply": "K tomuto tahu nebyla zveřejněna žádná odpověď.",
       "transcriptFailed": "Tento tah selhal",
       "statsLoadError": "Statistiky se nepodařilo načíst",
-      "chartTitle": "Objem tahů",
+      "chartTitle": "Tahy a náklady",
       "chartTurns": "Tahy",
       "chartErrors": "Selhání",
       "chartEmpty": "V tomto období žádné tahy",
@@ -284,8 +284,6 @@
       "budgetCostExhausted": "Vyčerpán denní finanční strop",
       "budgetValueUnknown": "Neznámé",
       "budgetNoCeiling": "Bez stropu",
-      "costChartTitle": "Náklady v čase",
-      "costChartHint": "Denní náklady v USD z evidence využití tohoto chatbota za vybrané dny UTC.",
       "costUnknownHint": "Dny s neúplnou cenou zůstávají prázdné, nepočítají se jako bezplatné. Celková cena není známá."
     }
   }

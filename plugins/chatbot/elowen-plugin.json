@@ -152,7 +152,7 @@
       "transcriptNoReply": "No answer was published for this turn.",
       "transcriptFailed": "This turn failed",
       "statsLoadError": "The statistics could not be loaded",
-      "chartTitle": "Turn volume",
+      "chartTitle": "Turns and spend",
       "chartTurns": "Turns",
       "chartErrors": "Failed",
       "chartEmpty": "No turn in this window",
@@ -333,8 +333,6 @@
       "budgetCostExhausted": "Daily spend ceiling reached",
       "budgetValueUnknown": "Unknown",
       "budgetNoCeiling": "No ceiling",
-      "costChartTitle": "Spend over time",
-      "costChartHint": "Daily USD cost from this chatbot's origin usage, over the selected UTC days.",
       "costUnknownHint": "Days with incomplete pricing are left blank, not counted as free. The total cost is unknown."
     }
   }
