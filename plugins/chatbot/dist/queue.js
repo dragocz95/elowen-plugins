@@ -176,21 +176,32 @@ export class ChatbotTurnQueue {
             });
             let sessionId = null;
             let streamedAnswer = '';
+            // Whether what the relay delivered last was more of the CURRENT step's own text. One step writes its
+            // text as a run of deltas; anything else ends that run, so the next delta is the first piece of the
+            // next assistant message and meets the answer at a seam no message of its own carries (see
+            // `pieceAtSeam`).
+            let stepTextOpen = false;
             try {
                 const reply = await relay(source, turn.message, {
                     onEvent: (event) => {
                         const fields = relayEventFields(event);
-                        if (fields.type === 'session' && fields.sessionId) {
-                            sessionId = fields.sessionId;
+                        if (fields.type === 'session') {
+                            if (fields.sessionId)
+                                sessionId = fields.sessionId;
+                            stepTextOpen = false;
                             return;
                         }
                         // Everything else is dropped except the answer's own text. The relay event stream also carries
                         // reasoning, tool activity, file references and internal error text, and none of that may cross
                         // into a log an anonymous visitor reads.
                         if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
-                            this.record(turnId, 'text_delta', { text: fields.delta });
-                            streamedAnswer += fields.delta;
+                            const text = stepTextOpen ? fields.delta : pieceAtSeam(streamedAnswer, fields.delta);
+                            stepTextOpen = true;
+                            this.record(turnId, 'text_delta', { text });
+                            streamedAnswer += text;
+                            return;
                         }
+                        stepTextOpen = false;
                     },
                 });
                 // `undefined` is not an empty answer: the seam documents it as a deliberate silence or a refused
@@ -218,6 +229,26 @@ export class ChatbotTurnQueue {
             this.poke(bot.chatbot_user_id);
         }
     }
+}
+/** One delta as it joins the answer: the first piece of a step carries the separator its seam needs, and
+ *  every other delta is the model's own text untouched. Both are non-empty — the caller keeps only a delta
+ *  that carries text.
+ *
+ *  The answer of a multi-step turn is the text of EVERY step, and the relay delivers each step's text as
+ *  its own run of deltas. The whitespace BETWEEN two assistant messages belongs to neither of them, so this
+ *  seam is the one place the model's own text cannot carry a separator: two pieces that meet on a non-space
+ *  character on both sides reached the visitor glued together — the live
+ *  "…balayage.Otevřel jsem stránku s rezervací.". Exactly one space is inserted there, and nothing at all
+ *  when either side already carries the whitespace the model wrote itself.
+ *
+ *  Only this seam is touched. The deltas INSIDE one step are the model's own chunks of one continuous
+ *  message, so a piece that merely happens to begin on a non-space character continues the text exactly as
+ *  written: a URL, a code span or a number arriving in two chunks stays whole. */
+function pieceAtSeam(assembled, piece) {
+    if (assembled === '')
+        return piece;
+    // A collision: neither the answer so far nor the piece carries whitespace at the seam.
+    return /\s$/.test(assembled) || /^\s/.test(piece) ? piece : ` ${piece}`;
 }
 /** The scheduler a running daemon uses. The turn id a test scheduler keys on is of no interest to a timer. */
 const defaultSchedule = (_turnId, delayMs, fn) => {

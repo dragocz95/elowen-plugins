@@ -197,6 +197,37 @@ export class ChatSession {
     return { name: typeof body.name === 'string' ? body.name : '', appearance: parsed.value };
   }
 
+  /** The chatbot's avatar as BYTES, over the connection the widget already owns.
+   *
+   *  The panel cannot load the owner's image address itself. A customer's Content-Security-Policy decides
+   *  which image hosts their page may reach, and a widget that asked them to add an arbitrary address to it
+   *  would be asking a customer to widen their own security policy on our behalf. What their page already
+   *  allows is this widget's origin on `connect-src`, so the image comes from the public surface — which is
+   *  the same connection, the same credential and the same origin gate as every other read here — and the
+   *  panel renders the bytes from memory.
+   *
+   *  Every refusal answers `null`: no avatar configured, an address this deployment will not fetch, a
+   *  deployment that cannot reach it, an answer that is not an image. `null` is a panel WITHOUT an avatar,
+   *  which is a panel that works, and it is never retried — one ask per page load, and no request at all for
+   *  a look that needs none. */
+  async loadAvatar(): Promise<Blob | null> {
+    let token: string;
+    try {
+      token = await this.ensureToken();
+    } catch {
+      return null;
+    }
+    // The answer is an image rather than a JSON body, which is the one thing about this request that differs
+    // from every other one the widget makes.
+    const response = await this.request(token, 'GET', PUBLIC_PATHS.avatar, null, undefined, false, 'image/*');
+    if (!response || !response.ok) return null;
+    try {
+      return await response.blob();
+    } catch {
+      return null;
+    }
+  }
+
   /** Send one message. `shown` says the panel already displayed it — a submit through the panel's own input
    *  is shown by the panel itself, while a message sent on the visitor's behalf is not. */
   async send(text: string, options: { shown?: boolean } = {}): Promise<void> {
@@ -595,7 +626,8 @@ export class ChatSession {
   // ── requests ──────────────────────────────────────────────────────────────────────────────────────
 
   /** One request to the public surface. Everything the widget sends goes through here, so the credential,
-   *  the content type and the absence of cookies are stated once. */
+   *  the content type and the absence of cookies are stated once. `accept` is the one thing a caller may
+   *  vary: every answer is a JSON body except the avatar's, which is an image. */
   private async request(
     token: string | null,
     method: 'GET' | 'POST',
@@ -603,8 +635,9 @@ export class ChatSession {
     body: Record<string, unknown> | null,
     signal?: AbortSignal,
     keepalive = false,
+    accept = 'application/json',
   ): Promise<Response | null> {
-    const headers: Record<string, string> = { accept: 'application/json' };
+    const headers: Record<string, string> = { accept };
     if (body !== null) headers['content-type'] = 'application/json';
     if (token !== null) headers.authorization = `${VISITOR_AUTHORIZATION_SCHEME} ${token}`;
     try {

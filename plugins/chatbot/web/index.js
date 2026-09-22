@@ -468,6 +468,7 @@ var PUBLIC_SEGMENTS = {
   confirmation: "confirmation",
   conversation: "conversation",
   appearance: "appearance",
+  avatar: "avatar",
   widget: WIDGET_ASSET_NAME
 };
 var PUBLIC_PATHS = {
@@ -477,6 +478,9 @@ var PUBLIC_PATHS = {
   turns: PUBLIC_SEGMENTS.turns,
   conversation: PUBLIC_SEGMENTS.conversation,
   appearance: PUBLIC_SEGMENTS.appearance,
+  /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
+   *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
+  avatar: PUBLIC_SEGMENTS.avatar,
   events: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
   actionResult: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
   actionDecision: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.confirmation}`,
@@ -871,7 +875,12 @@ var APPEARANCE_ICONS = [
   { id: "cart", path: "M3 3h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6 M10 21h.01 M18 21h.01" },
   { id: "person", path: "M20 21a8 8 0 0 0-16 0 M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" },
   { id: "envelope", path: "M3 5h18v14H3V5Z M3 6l9 7 9-7" },
-  { id: "check", path: "m5 12 4 4L19 6" }
+  { id: "check", path: "m5 12 4 4L19 6" },
+  // Friendly marks, so a launcher can read as a person rather than as a channel. Like every icon above they
+  // are one stroked path and they are offered to quick buttons as well as to the launcher.
+  { id: "smile", path: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M9 9.5h.01 M15 9.5h.01 M8 14a6 6 0 0 0 8 0" },
+  { id: "heart", path: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.8-7.8 1-1.1a5.5 5.5 0 0 0 0-7.8Z" },
+  { id: "thumb-up", path: "M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3Z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" }
 ];
 var APPEARANCE_BOUNDS = {
   width: { min: 280, max: 640 },
@@ -901,6 +910,7 @@ var APPEARANCE_SHADOWS = {
   strong: "0 24px 64px rgb(0 0 0 / 0.5)",
   floating: "0 42px 110px rgb(15 23 42 / 0.26), 0 18px 42px rgb(15 23 42 / 0.20)"
 };
+var PRESENCE_DOT_COLOR = "#22c55e";
 var template = (appearance) => ({
   schemaVersion: APPEARANCE_SCHEMA_VERSION,
   ...appearance
@@ -917,7 +927,7 @@ var APPEARANCE_TEMPLATES = {
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "arrow", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: "", showAvatar: true, showMessageName: true },
     typography: { fontSize: 14, fontFamily: "system", shadow: "medium", placeholder: "" }
   }),
@@ -932,7 +942,7 @@ var APPEARANCE_TEMPLATES = {
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: "", showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: "system", shadow: "soft", placeholder: "" }
   }),
@@ -948,7 +958,7 @@ var APPEARANCE_TEMPLATES = {
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "arrow", shape: "rounded-square" },
-    launcher: { icon: "speech-bubble", size: 52, offset: 16, label: "" },
+    launcher: { icon: "speech-bubble", size: 52, offset: 16, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: "", showAvatar: false, showMessageName: true },
     typography: { fontSize: 14, fontFamily: "mono", shadow: "none", placeholder: "" }
   }),
@@ -963,7 +973,7 @@ var APPEARANCE_TEMPLATES = {
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 60, offset: 24, label: "" },
+    launcher: { icon: "speech-bubble", size: 60, offset: 24, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: "", showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: "humanist", shadow: "soft", placeholder: "" }
   }),
@@ -979,7 +989,7 @@ var APPEARANCE_TEMPLATES = {
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
     // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: "", showAvatar: false, showMessageName: false },
     // Use the local sans stack, never download the reference design's Manrope webfont.
     typography: { fontSize: 15, fontFamily: "system", shadow: "floating", placeholder: "" }
@@ -1229,7 +1239,7 @@ function parseSend(input, partial) {
   return { ok: true, value: result };
 }
 function parseLauncher(input, partial) {
-  const keys = ["icon", "size", "offset", "label"];
+  const keys = ["icon", "size", "offset", "label", "presenceDot", "presenceDotColor"];
   const object2 = plainObject(input, keys, "appearance.launcher");
   if (!object2.ok) return object2;
   if (!partial) {
@@ -1254,6 +1264,15 @@ function parseLauncher(input, partial) {
     const label = readString(object2.value.label, "launcher.label", APPEARANCE_LAUNCHER_LABEL_MAX_CHARS);
     if (!label.ok) return label;
     result.label = label.value;
+  }
+  if ("presenceDot" in object2.value) {
+    if (typeof object2.value.presenceDot !== "boolean") return { ok: false, error: '"launcher.presenceDot" must be a boolean' };
+    result.presenceDot = object2.value.presenceDot;
+  }
+  if ("presenceDotColor" in object2.value) {
+    const colour = readColor(object2.value.presenceDotColor, "launcher.presenceDotColor");
+    if (!colour.ok) return colour;
+    result.presenceDotColor = colour.value;
   }
   return { ok: true, value: result };
 }
@@ -19798,7 +19817,7 @@ function chatConfig(input) {
       })
     },
     htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: !appearance.header.showAvatar || appearance.avatarUrl === "" ? void 0 : { ai: { src: appearance.avatarUrl } },
+    avatars: input.avatar === null ? void 0 : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" } } : void 0
   };
 }
@@ -19817,6 +19836,22 @@ function styleText(appearance) {
   };
   const fromTop = appearance.position.startsWith("top");
   const fromLeft = appearance.position.endsWith("left");
+  const dotSize = Math.max(8, Math.round(appearance.launcher.size * 0.32));
+  const dotRing = Math.max(2, Math.round(appearance.launcher.size * 0.04));
+  const presenceDot = appearance.launcher.presenceDot ? `
+.launcher-dot {
+  position: absolute; top: 0; right: 0; width: ${dotSize}px; height: ${dotSize}px; border-radius: 50%;
+  background: ${appearance.launcher.presenceDotColor}; border: ${dotRing}px solid ${appearance.colors.launcher};
+  animation: cb-presence-pulse 2.6s ease-in-out infinite;
+}
+@keyframes cb-presence-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launcher-dot { animation: none; }
+}
+` : "";
   return `
 :host {
   --cb-avail-w: calc(100vw - ${inset.width}px);
@@ -19832,6 +19867,7 @@ function styleText(appearance) {
 }
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
+  position: relative;
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
   border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
@@ -19883,7 +19919,7 @@ function styleText(appearance) {
 .confirm-no { border: 1px solid ${ramp.border}; background: transparent; color: ${ramp.foreground}; }
 .confirm-no:hover { border-color: ${ramp.muted}; }
 .confirm-actions button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-`;
+${presenceDot}`;
 }
 var ChatPanel = class {
   /** The element the widget appended. It carries the attribute the page snapshot excludes, so the panel is
@@ -19893,6 +19929,7 @@ var ChatPanel = class {
   onVisitorMessage;
   onStop;
   onOpen;
+  loadAvatar;
   style;
   panel;
   title;
@@ -19924,12 +19961,18 @@ var ChatPanel = class {
   signals = null;
   answerActive = false;
   pendingConfirmation = null;
+  /** The object URL the panel created for the avatar's bytes, and the ONLY URL it may release. `null` until
+   *  those bytes arrive, and again once they have been replaced or the panel has gone away. */
+  avatarObjectUrl = null;
+  /** Whether the widget has gone away, so a late answer never creates a URL nobody would release. */
+  destroyed = false;
   constructor(options) {
     this.strings = options.strings;
     this.look = options.look;
     this.onVisitorMessage = options.onVisitorMessage;
     this.onStop = options.onStop;
     this.onOpen = options.onOpen;
+    this.loadAvatar = options.loadAvatar;
     this.host = document.createElement("div");
     this.host.setAttribute("data-elowen-chatbot", "root");
     this.host.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;z-index:2147483000;";
@@ -20032,6 +20075,7 @@ var ChatPanel = class {
   applyAppearance(look) {
     this.look = look;
     this.applyChrome();
+    this.requestAvatar();
     if (this.signals !== null) {
       this.redrawPending = true;
       return;
@@ -20124,6 +20168,8 @@ var ChatPanel = class {
     });
   }
   destroy() {
+    this.destroyed = true;
+    this.releaseAvatarObjectUrl();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -20135,7 +20181,13 @@ var ChatPanel = class {
    *  one reconfigured for a new look are configured identically, or the panel a visitor sees and the panel an
    *  administrator previews would be two different things. */
   chatConfig() {
-    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text), onStop: () => this.stopAnswer() });
+    return chatConfig({
+      look: this.look,
+      strings: this.strings,
+      avatar: this.avatarSource(),
+      onQuickButton: (text) => this.sendQuick(text),
+      onStop: () => this.stopAnswer()
+    });
   }
   /** One chat element, configured from the current look. `connect` is what makes this widget answer with its
    *  own transport instead of a service client, and `onComponentRender` is the one moment the library says
@@ -20253,10 +20305,14 @@ var ChatPanel = class {
     const { appearance } = this.look;
     this.subtitle.textContent = appearance.header.subtitle;
     this.subtitle.hidden = appearance.header.subtitle === "";
-    this.avatar.hidden = !appearance.header.showAvatar || appearance.avatarUrl === "";
-    if (this.avatar.hidden) this.avatar.removeAttribute("src");
-    else this.avatar.src = appearance.avatarUrl;
+    this.showAvatar(this.avatarSource());
     this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.presenceDot) {
+      const dot = document.createElement("span");
+      dot.className = "launcher-dot";
+      dot.setAttribute("aria-hidden", "true");
+      this.launcher.append(dot);
+    }
     if (appearance.launcher.label !== "") {
       const label = document.createElement("span");
       label.className = "launcher-label";
@@ -20268,6 +20324,73 @@ var ChatPanel = class {
   }
   titleText() {
     return this.look.name === "" ? this.strings.title : this.look.name;
+  }
+  /** The address this look names, when it names one and the switch that shows it is on. `null` when the
+   *  avatar is off, and the ONE place both the fetch and the drawing read that decision. */
+  configuredAvatar() {
+    const { appearance } = this.look;
+    if (!appearance.header.showAvatar || appearance.avatarUrl === "") return null;
+    return appearance.avatarUrl;
+  }
+  /** The src the look's avatar resolves to for THIS panel.
+   *
+   *  One function, because the header and the message list draw the same image: a second answer here is how
+   *  the two would come to disagree about what the owner configured. */
+  avatarSource() {
+    const configured = this.configuredAvatar();
+    if (configured === null) return null;
+    if (configured.startsWith("data:")) return configured;
+    if (this.loadAvatar !== void 0) return this.avatarObjectUrl;
+    return configured;
+  }
+  /** Ask for the avatar's bytes, whenever the look names an address that has to travel. Once per applied
+   *  look: the widget applies one look per page, and a look that needs no image asks for nothing at all. */
+  requestAvatar() {
+    const loader = this.loadAvatar;
+    const configured = this.configuredAvatar();
+    if (loader === void 0 || this.destroyed) return;
+    if (configured === null || configured.startsWith("data:")) return;
+    loader().then(
+      (bytes) => {
+        if (bytes !== null) this.showAvatarBytes(bytes);
+      },
+      // A refused or failed fetch is a panel WITHOUT an avatar: never a broken image, and never a retry.
+      () => void 0
+    );
+  }
+  /** The avatar's bytes, as the object URL an `<img>` can carry. */
+  showAvatarBytes(bytes) {
+    if (this.destroyed) return;
+    this.releaseAvatarObjectUrl();
+    this.avatarObjectUrl = URL.createObjectURL(bytes);
+    this.applyAvatar();
+  }
+  /** Put the avatar wherever the look's own image goes, now that its bytes are here. The message element is
+   *  rebuilt through the panel's existing path, so the avatars beside the answers take the new source exactly
+   *  the way they take a new look. */
+  applyAvatar() {
+    this.showAvatar(this.avatarSource());
+    if (this.signals !== null) {
+      this.redrawPending = true;
+      return;
+    }
+    if (this.pristineChat()) this.reconfigureChat();
+    else this.redrawChat();
+  }
+  /** Show one source in the header avatar, releasing the object URL the panel created for the previous one.
+   *  `null` is a panel with no avatar, which is a panel that works. */
+  showAvatar(src) {
+    if (src !== this.avatarObjectUrl) this.releaseAvatarObjectUrl();
+    this.avatar.hidden = src === null;
+    if (src === null) this.avatar.removeAttribute("src");
+    else this.avatar.src = src;
+  }
+  /** Give back the one URL this panel owns. Called whenever it is replaced and when the widget goes away, so
+   *  the bytes of an image a panel no longer shows are never held on to. */
+  releaseAvatarObjectUrl() {
+    if (this.avatarObjectUrl === null) return;
+    URL.revokeObjectURL(this.avatarObjectUrl);
+    this.avatarObjectUrl = null;
   }
   setStatus(text, failed) {
     this.status.textContent = text;
@@ -20441,11 +20564,13 @@ function AppearanceModal({ bot, onClose, onChanged }) {
   const select = (path, label, value, options) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.SelectMenu, { label, value, options, disabled: pending, onChange: (value2) => patch(path, value2) }));
   const icons = APPEARANCE_ICONS.map((icon) => ({ value: icon.id, label: s[`appearanceIcon_${icon.id}`], icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Icon2, { id: icon.id }) }));
   const iconPicker = (path, label, value) => select(path, label, value, icons);
-  const color = (key, label) => field(
-    `colors.${key}`,
+  const colorControl = (path, label, value, help) => field(
+    path,
     label,
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("input", { id: `${id2}-colors.${key}`, type: "color", "aria-label": label, value: appearance.colors[key] ?? appearanceRamp(appearance).header, disabled: pending, onChange: (event) => patch(`colors.${key}`, event.target.value), className: "h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" })
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("input", { id: `${id2}-${path}`, type: "color", "aria-label": label, value, disabled: pending, onChange: (event) => patch(path, event.target.value), className: "h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" }),
+    help
   );
+  const color = (key, label) => colorControl(`colors.${key}`, label, appearance.colors[key] ?? appearanceRamp(appearance).header);
   const scalar = (path, key, label, value) => {
     const text = s.appearancePixels.replace("{value}", String(value));
     return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "py-2", children: [
@@ -20461,7 +20586,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Slider, { className: "mt-3", value, ...APPEARANCE_BOUNDS[key], step: 1, disabled: pending, "aria-label": label, "aria-valuetext": text, onChange: (value2) => patch(path, value2) })
     ] });
   };
-  const toggle = (path, label, checked) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Toggle, { label, checked, disabled: pending, onChange: (value) => patch(path, value) }));
+  const toggle = (path, label, checked, help) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Toggle, { label, checked, disabled: pending, onChange: (value) => patch(path, value) }), help);
   const section = (label, icon, children, help, action) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "flex min-w-0 flex-col gap-4 border-t border-border pt-4", children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "text-muted-foreground", children: icon }),
@@ -20533,6 +20658,8 @@ function AppearanceModal({ bot, onClose, onChanged }) {
             section(s.appearanceLauncherGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(MousePointerClick, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               color("launcher", s.appearanceColorLauncher),
               iconPicker("launcher.icon", s.appearanceLauncherIcon, appearance.launcher.icon),
+              toggle("launcher.presenceDot", s.appearancePresenceLabel, appearance.launcher.presenceDot, s.appearancePresenceHint),
+              colorControl("launcher.presenceDotColor", s.appearanceColorPresence, appearance.launcher.presenceDotColor),
               textField("launcher.label", s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS),
               select("position", s.appearancePositionLabel, appearance.position, [
                 { value: "bottom-right", label: s.appearancePositionBottomRight },

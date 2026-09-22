@@ -584,6 +584,7 @@ var {
   ModuleHeader,
   Pager,
   RegisterSearch,
+  Segmented: Segmented2,
   SelectMenu,
   WorkspaceDetailRail: WorkspaceDetailRail2,
   WorkspaceMetric,
@@ -662,9 +663,11 @@ function StatsView() {
   }), [rangeRaw]);
   const window2 = (0, import_react7.useMemo)(() => rangeBounds(range, now), [range, now]);
   const trendDays = (0, import_react7.useMemo)(() => trendDaysForWindow(window2, now), [window2, now]);
-  const usage = useModelUsage(window2);
-  const daily = useUsageByDay(trendDays);
   const me = useMe();
+  const [requestedScope, setRequestedScope] = (0, import_react7.useState)("personal");
+  const scope = me.data?.user?.is_admin === true ? requestedScope : "personal";
+  const usage = useModelUsage(window2, scope);
+  const daily = useUsageByDay(trendDays, scope);
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = (0, import_react7.useState)("");
   const [filter, setFilter] = (0, import_react7.useState)("all");
@@ -723,6 +726,11 @@ function StatsView() {
   const changeUsageFilter = (next) => {
     setFilter(next);
     resetPage();
+  };
+  const changeScope = (next) => {
+    setRequestedScope(next === "instance" ? "instance" : "personal");
+    resetPage();
+    setSelectedExec(null);
   };
   const usageLabels = {
     all: s.filterAll,
@@ -791,7 +799,7 @@ function StatsView() {
       // else); hiding the button is presentation, not access control.
       action: me.data?.user?.is_admin ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost", icon: MapPin, onClick: () => setOriginOpen(true), children: s.originAction }),
-        summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost-danger", icon: Trash2, onClick: () => setResetOpen(true), children: s.reset }) : null
+        scope === "personal" && summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost-danger", icon: Trash2, onClick: () => setResetOpen(true), children: s.reset }) : null
       ] }) : void 0,
       metrics: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
@@ -819,7 +827,21 @@ function StatsView() {
           countLabel: hasError || isLoading ? void 0 : s.searchCount.replace("{count}", String(filtered.length))
         }
       ),
-      filters: filterFields
+      filters: filterFields,
+      actions: me.data?.user?.is_admin === true ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        Segmented2,
+        {
+          nowrap: true,
+          size: "sm",
+          "aria-label": s.scopeLabel,
+          value: scope,
+          onChange: changeScope,
+          options: [
+            { value: "personal", label: s.scopePersonal },
+            { value: "instance", label: s.scopeInstance }
+          ]
+        }
+      ) : void 0
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [

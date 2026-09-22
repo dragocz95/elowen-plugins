@@ -36,6 +36,11 @@ export const APPEARANCE_ICONS = [
   { id: 'person', path: 'M20 21a8 8 0 0 0-16 0 M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z' },
   { id: 'envelope', path: 'M3 5h18v14H3V5Z M3 6l9 7 9-7' },
   { id: 'check', path: 'm5 12 4 4L19 6' },
+  // Friendly marks, so a launcher can read as a person rather than as a channel. Like every icon above they
+  // are one stroked path and they are offered to quick buttons as well as to the launcher.
+  { id: 'smile', path: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M9 9.5h.01 M15 9.5h.01 M8 14a6 6 0 0 0 8 0' },
+  { id: 'heart', path: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.8-7.8 1-1.1a5.5 5.5 0 0 0 0-7.8Z' },
+  { id: 'thumb-up', path: 'M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3Z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3' },
 ] as const satisfies readonly AppearanceIcon[];
 export type AppearanceIconId = (typeof APPEARANCE_ICONS)[number]['id'];
 
@@ -65,6 +70,11 @@ interface LauncherAppearance {
   size: number;
   offset: number;
   label: string;
+  /** A decorative dot on the launcher's corner. Off unless the owner asks for it, and never a statement about
+   *  whether anybody is at the other end: the widget cannot know that, so it draws an ornament and names it
+   *  as one. */
+  presenceDot: boolean;
+  presenceDotColor: string;
 }
 
 interface HeaderAppearance {
@@ -154,6 +164,11 @@ export const APPEARANCE_SHADOWS = {
   floating: '0 42px 110px rgb(15 23 42 / 0.26), 0 18px 42px rgb(15 23 42 / 0.20)',
 } as const;
 
+/** The colour a presence dot starts at. A dot is a small green mark on a page whose colours the customer
+ *  chose, so the one colour that reads as "there is something here" without competing with any accent is what
+ *  every template that does not say otherwise carries. */
+const PRESENCE_DOT_COLOR = '#22c55e';
+
 const template = (appearance: Omit<ChatbotAppearance, 'schemaVersion'>): ChatbotAppearance => ({
   schemaVersion: APPEARANCE_SCHEMA_VERSION,
   ...appearance,
@@ -165,7 +180,7 @@ export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, Chatbot
     colors: { header: null, panel: '#0f1012', visitorBubble: '#ff6a4d', botBubble: '#24262b', sendButton: '#ff6a4d', sendIcon: '#171311', launcher: '#ff6a4d' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'arrow', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: '', showAvatar: true, showMessageName: true },
     typography: { fontSize: 14, fontFamily: 'system', shadow: 'medium', placeholder: '' },
   }),
@@ -174,7 +189,7 @@ export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, Chatbot
     colors: { header: null, panel: '#ffffff', visitorBubble: '#1d4ed8', botBubble: '#e2e8f0', sendButton: '#1d4ed8', sendIcon: '#ffffff', launcher: '#1d4ed8' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: '', showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: 'system', shadow: 'soft', placeholder: '' },
   }),
@@ -184,7 +199,7 @@ export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, Chatbot
     colors: { header: null, panel: '#101010', visitorBubble: '#f5f5f5', botBubble: '#2b2b2b', sendButton: '#f5f5f5', sendIcon: '#111111', launcher: '#d4d4d4' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'arrow', shape: 'rounded-square' },
-    launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '' },
+    launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: '', showAvatar: false, showMessageName: true },
     typography: { fontSize: 14, fontFamily: 'mono', shadow: 'none', placeholder: '' },
   }),
@@ -193,7 +208,7 @@ export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, Chatbot
     colors: { header: null, panel: '#fff7ed', visitorBubble: '#b4532d', botBubble: '#f0dac2', sendButton: '#b4532d', sendIcon: '#ffffff', launcher: '#b4532d' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 60, offset: 24, label: '' },
+    launcher: { icon: 'speech-bubble', size: 60, offset: 24, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: '', showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: 'humanist', shadow: 'soft', placeholder: '' },
   }),
@@ -203,7 +218,7 @@ export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, Chatbot
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
     // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '' },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
     header: { subtitle: '', showAvatar: false, showMessageName: false },
     // Use the local sans stack, never download the reference design's Manrope webfont.
     typography: { fontSize: 15, fontFamily: 'system', shadow: 'floating', placeholder: '' },
@@ -531,7 +546,7 @@ function parseSend(input: unknown, partial: boolean): Parse<Partial<SendAppearan
 }
 
 function parseLauncher(input: unknown, partial: boolean): Parse<Partial<LauncherAppearance>> {
-  const keys = ['icon', 'size', 'offset', 'label'] as const;
+  const keys = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'] as const;
   const object = plainObject(input, keys, 'appearance.launcher');
   if (!object.ok) return object;
   if (!partial) {
@@ -556,6 +571,15 @@ function parseLauncher(input: unknown, partial: boolean): Parse<Partial<Launcher
     const label = readString(object.value.label, 'launcher.label', APPEARANCE_LAUNCHER_LABEL_MAX_CHARS);
     if (!label.ok) return label as Parse<Partial<LauncherAppearance>>;
     result.label = label.value as string;
+  }
+  if ('presenceDot' in object.value) {
+    if (typeof object.value.presenceDot !== 'boolean') return { ok: false, error: '"launcher.presenceDot" must be a boolean' };
+    result.presenceDot = object.value.presenceDot;
+  }
+  if ('presenceDotColor' in object.value) {
+    const colour = readColor(object.value.presenceDotColor, 'launcher.presenceDotColor');
+    if (!colour.ok) return colour as Parse<Partial<LauncherAppearance>>;
+    result.presenceDotColor = colour.value;
   }
   return { ok: true, value: result };
 }

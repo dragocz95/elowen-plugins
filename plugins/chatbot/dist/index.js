@@ -5,6 +5,7 @@ import { TurnEventBroker } from './broker.js';
 import { createCoreSessionBridge } from './coreSessions.js';
 import { migrate } from './db.js';
 import { createAdminApi } from './adminApi.js';
+import { createAvatarFetcher } from './avatarProxy.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS } from './publicRoutes.js';
 import { PUBLIC_MOUNT } from './publicContract.js';
 import { inspectAccount } from './preflight.js';
@@ -98,6 +99,10 @@ export function register(published) {
         broker,
         actions,
         pingIntervalMs: STREAM_PING_INTERVAL_MS,
+        // The owner's avatar, fetched through the host's validated public transport: the address is resolved and
+        // pinned by the host, and the request policy is the avatar module's. Resolved per call, so a deployment
+        // that exposes no transport refuses the avatar instead of failing to load the plugin.
+        avatar: createAvatarFetcher(() => ctx.host.publicHttp()),
         secret,
         tokenTtlSeconds,
         now,

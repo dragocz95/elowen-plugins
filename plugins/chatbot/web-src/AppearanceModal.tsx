@@ -75,8 +75,9 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
     field(path, label, <C.SelectMenu label={label} value={value} options={options} disabled={pending} onChange={value => patch(path, value)} />);
   const icons = APPEARANCE_ICONS.map(icon => ({ value: icon.id, label: s[`appearanceIcon_${icon.id}`], icon: <Icon id={icon.id} /> }));
   const iconPicker = (path: 'send.icon' | 'launcher.icon', label: string, value: AppearanceIconId) => select(path, label, value, icons);
-  const color = (key: keyof typeof appearance.colors, label: string) => field(`colors.${key}`, label,
-    <input id={`${id}-colors.${key}`} type="color" aria-label={label} value={appearance.colors[key] ?? appearanceRamp(appearance).header} disabled={pending} onChange={event => patch(`colors.${key}`, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />);
+  const colorControl = (path: AppearanceOverridePath, label: string, value: string, help?: string) => field(path, label,
+    <input id={`${id}-${path}`} type="color" aria-label={label} value={value} disabled={pending} onChange={event => patch(path, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />, help);
+  const color = (key: keyof typeof appearance.colors, label: string) => colorControl(`colors.${key}`, label, appearance.colors[key] ?? appearanceRamp(appearance).header);
   const scalar = (path: AppearanceOverridePath, key: keyof typeof APPEARANCE_BOUNDS, label: string, value: number) => {
     const text = s.appearancePixels.replace('{value}', String(value));
     return <div className="py-2">
@@ -89,8 +90,8 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
       <C.Slider className="mt-3" value={value} {...APPEARANCE_BOUNDS[key]} step={1} disabled={pending} aria-label={label} aria-valuetext={text} onChange={value => patch(path, value)} />
     </div>;
   };
-  const toggle = (path: 'header.showAvatar' | 'header.showMessageName', label: string, checked: boolean) =>
-    field(path, label, <C.Toggle label={label} checked={checked} disabled={pending} onChange={value => patch(path, value)} />);
+  const toggle = (path: 'header.showAvatar' | 'header.showMessageName' | 'launcher.presenceDot', label: string, checked: boolean, help?: string) =>
+    field(path, label, <C.Toggle label={label} checked={checked} disabled={pending} onChange={value => patch(path, value)} />, help);
   const section = (label: string, icon: ReactNode, children: ReactNode, help?: string, action?: ReactNode) => <section className="flex min-w-0 flex-col gap-4 border-t border-border pt-4">
     <div className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">{icon}</span><h3 className="text-sm font-semibold text-foreground">{label}</h3>{help ? <C.HelpTip>{help}</C.HelpTip> : null}{action}</div>{children}
   </section>;
@@ -146,6 +147,8 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
               {section(s.appearanceLauncherGroup, <MousePointerClick size={18} />, <>
                 {color('launcher', s.appearanceColorLauncher)}
                 {iconPicker('launcher.icon', s.appearanceLauncherIcon, appearance.launcher.icon)}
+                {toggle('launcher.presenceDot', s.appearancePresenceLabel, appearance.launcher.presenceDot, s.appearancePresenceHint)}
+                {colorControl('launcher.presenceDotColor', s.appearanceColorPresence, appearance.launcher.presenceDotColor)}
                 {textField('launcher.label', s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS)}
                 {select('position', s.appearancePositionLabel, appearance.position, [
                   { value: 'bottom-right', label: s.appearancePositionBottomRight }, { value: 'bottom-left', label: s.appearancePositionBottomLeft },

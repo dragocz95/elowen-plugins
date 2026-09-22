@@ -11,7 +11,8 @@
       "db",
       "stores",
       "elowen-cli"
-    ]
+    ],
+    "network": true
   },
   "provides": {
     "platforms": [
@@ -281,6 +282,7 @@
       "appearanceSendGroup": "Send button",
       "appearanceColorSendIcon": "Icon colour",
       "appearanceColorLauncher": "Launcher colour",
+      "appearanceColorPresence": "Dot colour",
       "appearanceSendIcon": "Send icon",
       "appearanceSendShape": "Button shape",
       "appearanceShapeCircle": "Circle",
@@ -290,6 +292,8 @@
       "appearanceLauncherLabel": "Launcher label",
       "appearanceLauncherSize": "Launcher size",
       "appearanceLauncherOffset": "Distance from edge",
+      "appearancePresenceLabel": "Presence dot",
+      "appearancePresenceHint": "A small decorative dot on the launcher's top corner. It is an ornament and says nothing about whether anyone is available to answer.",
       "appearanceHeaderGroup": "Header and names",
       "appearanceSubtitle": "Subtitle",
       "appearanceShowAvatar": "Show avatar",
@@ -328,6 +332,9 @@
       "appearanceIcon_person": "Person",
       "appearanceIcon_envelope": "Envelope",
       "appearanceIcon_check": "Check",
+      "appearanceIcon_smile": "Smile",
+      "appearanceIcon_heart": "Heart",
+      "appearanceIcon_thumb-up": "Thumbs up",
       "budgetTitle": "Daily usage",
       "budgetDay": "{day} · UTC",
       "budgetAvailable": "Within daily ceilings",

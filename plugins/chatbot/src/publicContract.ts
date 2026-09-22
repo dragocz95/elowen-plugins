@@ -107,6 +107,7 @@ export const PUBLIC_SEGMENTS = {
   confirmation: 'confirmation',
   conversation: 'conversation',
   appearance: 'appearance',
+  avatar: 'avatar',
   widget: WIDGET_ASSET_NAME,
 } as const;
 
@@ -118,6 +119,9 @@ export const PUBLIC_PATHS = {
   turns: PUBLIC_SEGMENTS.turns,
   conversation: PUBLIC_SEGMENTS.conversation,
   appearance: PUBLIC_SEGMENTS.appearance,
+  /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
+   *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
+  avatar: PUBLIC_SEGMENTS.avatar,
   events: (turnId: string): string =>
     `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
   actionResult: (turnId: string, actionId: string): string =>

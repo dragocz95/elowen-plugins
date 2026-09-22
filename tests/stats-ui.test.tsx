@@ -92,6 +92,30 @@ describe('StatsView', () => {
     expect(container.querySelector('.control-surface-toolbar')).toBeNull();
   });
 
+  it('lets an administrator switch both usage reads to the whole instance', async () => {
+    renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+
+    const scope = screen.getByRole('radiogroup', { name: strings.scopeLabel });
+    expect(within(scope).getByRole('radio', { name: strings.scopePersonal })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(scope).getByRole('radio', { name: strings.scopeInstance }));
+
+    await waitFor(() => {
+      expect(new URLSearchParams(modelSearch).get('scope')).toBe('instance');
+      expect(new URLSearchParams(daySearch).get('scope')).toBe('instance');
+    });
+  });
+
+  it('does not offer instance scope to a non-admin or send it implicitly', async () => {
+    server.use(http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 2, username: 'reader', is_admin: false } })));
+    renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+
+    expect(screen.queryByRole('radiogroup', { name: strings.scopeLabel })).toBeNull();
+    expect(new URLSearchParams(modelSearch).has('scope')).toBe(false);
+    expect(new URLSearchParams(daySearch).has('scope')).toBe(false);
+  });
+
   it('announces and clears an active usage filter through its chip', async () => {
     const { container } = renderStats();
     await screen.findByRole('figure', { name: strings.tokensByModel });
@@ -237,6 +261,30 @@ describe('StatsView', () => {
     fireEvent.click(confirm);
     await waitFor(() => expect(resetCalls).toBe(1));
     expect(await screen.findByText(strings.resetDone)).toBeTruthy();
+  });
+
+  it('reads usage again after a reset, so the page never shows the spend it just cleared', async () => {
+    let modelReads = 0;
+    let dayReads = 0;
+    server.use(
+      http.get('*/api/usage/by-model', () => { modelReads++; return HttpResponse.json(models); }),
+      http.get('*/api/usage/by-day', () => { dayReads++; return HttpResponse.json(days); }),
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    render(<Wrapper><ToastProvider><StatsView /></ToastProvider></Wrapper>);
+    fireEvent.click(await screen.findByRole('button', { name: strings.reset }));
+    const dialog = await screen.findByRole('dialog', { name: strings.resetTitle });
+    fireEvent.change(
+      within(dialog).getByLabelText(strings.resetConfirmHint.replace('{word}', strings.resetConfirmWord)),
+      { target: { value: strings.resetConfirmWord } },
+    );
+    const [modelsBefore, daysBefore] = [modelReads, dayReads];
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.resetConfirm }));
+    await waitFor(() => expect(resetCalls).toBe(1));
+    await waitFor(() => {
+      expect(modelReads).toBeGreaterThan(modelsBefore);
+      expect(dayReads).toBeGreaterThan(daysBefore);
+    });
   });
 });
 
