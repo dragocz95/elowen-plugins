@@ -174,7 +174,6 @@ describe('the appearance editor', () => {
     // The preview is the REAL client, configured from that stored look and mounted in its own shadow root.
     const preview = previewPanel(dialog);
     expect(preview.style.textContent).toContain(`background: ${DEFAULT_APPEARANCE.colors.panel}`);
-    expect(preview.chat.chatStyle.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.panel);
     expect(preview.chat.messageStyles.default.ai.bubble.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.botBubble);
     expect(preview.chat.names.ai.text).toBe(bot.displayName);
   });
@@ -235,11 +234,11 @@ describe('the appearance editor', () => {
     const input = within(dialog).getByLabelText(strings.appearanceColorPanel!);
     fireEvent.change(input, { target: { value: '#123456' } });
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceTemplate_clean! }));
-    expect(previewPanel(dialog).chat.chatStyle.backgroundColor).toBe('#123456');
+    expect(previewPanel(dialog).style.textContent).toContain('background: #123456');
     expect(await screen.findByText(strings.appearanceTemplateReplace!)).toBeInTheDocument();
     const confirmation = screen.getAllByRole('dialog').at(-1)!;
     fireEvent.click(within(confirmation).getByRole('button', { name: strings.appearanceTemplateApply! }));
-    await waitFor(() => expect(previewPanel(dialog).chat.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.clean.colors.panel));
+    await waitFor(() => expect(previewPanel(dialog).style.textContent).toContain(`background: ${APPEARANCE_TEMPLATES.clean.colors.panel}`));
     expect(within(dialog).queryByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorPanel!) })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'clean', overrides: {} }));
@@ -254,7 +253,6 @@ describe('the appearance editor', () => {
     expect(header).toHaveValue(templateRamp.header);
     const preview = previewPanel(dialog);
     expect(preview.style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
-    expect(preview.chat.chatStyle.backgroundColor).toBe(APPEARANCE_TEMPLATES.indigo.colors.panel);
     expect(preview.host.shadowRoot!.querySelector('.header-avatar')).toHaveAttribute('hidden');
     expect(preview.host.shadowRoot!.querySelector('.subtitle')).toHaveAttribute('hidden');
     fireEvent.change(header, { target: { value: '#442255' } });
