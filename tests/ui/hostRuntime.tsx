@@ -51,7 +51,7 @@ export function ensurePluginUiRuntime(): void {
       DataTable: C.DataTable, DataTableRow: C.DataTableRow, DataTableCell: C.DataTableCell,
       // The register footer, the toolbar's search field and the row's trailing open affordance — the
       // three pieces every plugin register used to hand-roll (API 8).
-      Pager: C.Pager, RegisterSearch: C.RegisterSearch, DataTableChevronCell: C.DataTableChevronCell,
+      PageFilters: C.PageFilters, Pager: C.Pager, RegisterSearch: C.RegisterSearch, DataTableChevronCell: C.DataTableChevronCell,
       EmptyState: C.EmptyState, LoadingState: C.LoadingState, LoadingLine: C.LoadingLine, ErrorState: C.ErrorState,
       ConfirmDialog: C.ConfirmDialog, WorkspaceDetailRail: C.WorkspaceDetailRail,
       AutoSaveStatus: C.AutoSaveStatus, Spinner: C.Spinner, Checkbox: C.Checkbox, ModelIcon: C.ModelIcon,

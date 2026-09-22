@@ -81,7 +81,7 @@ export interface ChatbotRelayControl {
 
 /** The account projection is the host contract. The manifest's core floor guarantees `type`; keeping a
  * second, optional restatement here would let the registry compile against a shape the runtime forbids. */
-export type ChatbotAccountView = PluginUserView;
+export type ChatbotAccountView = PluginUserView & { type: 'human' | 'chatbot' };
 
 export interface ChatbotStores extends Omit<PluginHostStores, 'projects' | 'usersRead'>, ChatbotProjectStores {
   usersRead: Omit<PluginHostStores['usersRead'], 'list'> & { list(): ChatbotAccountView[] };

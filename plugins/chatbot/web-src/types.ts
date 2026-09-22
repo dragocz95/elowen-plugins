@@ -5,7 +5,6 @@
  *  send. It is dependency-free by design, so the browser bundle can import it the way the widget imports
  *  `publicContract`. */
 export type {
-  ChatbotActionRuleView,
   ChatbotAccountOptionView,
   ChatbotBotView,
   ChatbotConversationView,

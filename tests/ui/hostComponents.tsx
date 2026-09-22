@@ -607,7 +607,7 @@ function PageToolbarContribution({ search, filters, actions, children }: PageToo
   return null;
 }
 
-function PageFilters({ fields }: { fields: PageFilterField[] }) {
+export function PageFilters({ fields }: { fields: PageFilterField[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const activeCount = fields.filter((field) => field.active).length;

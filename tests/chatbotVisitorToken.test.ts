@@ -213,11 +213,11 @@ describe('the conversation key', () => {
 
   it('names the chatbot as the acting account and keeps every client-supplied identity out of the source', () => {
     const visitor = newVisitorId();
-    const source = visitorSource({ chatbotUserId: 12, visitorId: visitor, displayName: 'Úřad', instructions: 'Be brief.' });
+    const source = visitorSource({ chatbotUserId: 12, visitorId: visitor, displayName: 'Úřad' });
     expect(source.platform).toBe('chatbot');
     expect(source.channelId).toBe(`12:${visitor}`);
     expect(source.access?.actAsUserId).toBe(12);
-    expect(source.access?.prompt).toBe('Be brief.');
+    expect(source.access?.prompt).toBeUndefined();
     // The sender is the anonymous visitor id this server generated, and nothing about a person is claimed.
     expect(source.userId).toBe(visitor);
     expect(source.userName).toBeUndefined();

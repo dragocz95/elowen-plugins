@@ -85,9 +85,7 @@ const MIGRATIONS = [
     },
   },
   {
-    /** Step 2: the page actions a turn may take on a visitor's page, and the administrator's own rule over
-     *  what may be done where. Two tables and no column on an existing one, so nothing already written is
-     *  rewritten by this step. */
+    /** Step 2: durable page actions approved for a visitor turn. */
     version: 2,
     up(db: { exec(sql: string): void }): void {
       db.exec(`
@@ -117,29 +115,6 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS p_chatbot_actions_pending ON p_chatbot_actions (turn_id, status, expires_at);
 
-        -- What may be done where, per chatbot. A rule is the allowlist of the paths it names: an action a
-        -- matching rule does not list is refused even when the element itself said it could do it. An origin
-        -- with no rule at all is governed by the implicit policy its allowlist entry implies (see
-        -- actionRules.ts), which is what lets a chatbot act usefully before its first rule is written.
-        --
-        -- Nothing writes this table yet: the administrator's editor for it is a later phase, and the tool
-        -- reads it strictly — a table with no writer is a policy nobody has changed, not a policy that
-        -- grants everything.
-        CREATE TABLE IF NOT EXISTS p_chatbot_action_rules (
-          id TEXT PRIMARY KEY,
-          chatbot_user_id INTEGER NOT NULL,
-          origin TEXT NOT NULL,
-          path_prefix TEXT NOT NULL,
-          action TEXT NOT NULL CHECK (
-            action IN ('read', 'focus', 'click', 'fill', 'select', 'scroll', 'request_submit')
-          ),
-          requires_confirmation INTEGER NOT NULL DEFAULT 0
-            CHECK (requires_confirmation IN (0, 1)),
-          max_per_turn INTEGER NOT NULL CHECK (max_per_turn > 0),
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          UNIQUE (chatbot_user_id, origin, path_prefix, action)
-        );
       `);
     },
   },
@@ -251,11 +226,24 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    /** Step 5 removes both retired configuration paths and adds the one remaining page-action decision.
+     *  Existing prompt text and per-path action rules are deliberately discarded. */
+    version: 5,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`
+        DROP TABLE IF EXISTS p_chatbot_action_rules;
+        ALTER TABLE p_chatbot_bots DROP COLUMN prompt;
+        ALTER TABLE p_chatbot_bots ADD COLUMN may_submit_forms INTEGER NOT NULL DEFAULT 1
+          CHECK (may_submit_forms IN (0, 1));
+      `);
+    },
+  },
 ];
 
-/** The numeric limits a chatbot carries. Every one of them is NULL on a freshly registered draft: the
- *  plugin has no default for any of them, and a bot that never had them filled in is a bot nobody may
- *  enable. `readBotLimits` in `./limits.js` is what turns a row into a usable set, or into nothing. */
+/** The numeric limits a chatbot carries. New rows receive the profile from `limits.ts`; nullable columns
+ *  remain part of the schema for legacy and explicit draft states. `readBotLimits` in `./limits.js` turns a
+ *  row into a usable set, or into nothing when a mandatory value is missing or invalid. */
 export interface BotLimitColumns {
   sensitive_mode: number;
   rate_ip_per_minute: number | null;
@@ -276,8 +264,8 @@ export interface BotRow extends BotLimitColumns {
   public_id: string;
   customer_user_id: number | null;
   display_name: string;
-  prompt: string;
   status: 'draft' | 'enabled' | 'disabled';
+  may_submit_forms: number;
   /** The stored appearance as JSON, or NULL for a chatbot nobody has configured yet. Parsed by
    *  `parseStoredAppearance`, never read as text by a caller: the shape and its bounds live in
    *  appearanceContract.ts and nowhere else. */
@@ -378,19 +366,6 @@ export interface ConversationRow {
   delete_after: string;
 }
 
-/** One administrator rule: this action, on this origin and path prefix, needs this confirmation and may
- *  happen at most this often in a turn. */
-export interface ActionRuleRow {
-  id: string;
-  chatbot_user_id: number;
-  origin: string;
-  path_prefix: string;
-  action: string;
-  requires_confirmation: number;
-  max_per_turn: number;
-  created_at: string;
-  updated_at: string;
-}
 
 /** Create the plugin's tables. A no-op outside the daemon process (the host's handle reports that itself). */
 export function migrate(db: PluginDb): void {

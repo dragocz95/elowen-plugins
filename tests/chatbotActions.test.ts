@@ -7,7 +7,6 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { decideAction, targetWouldSubmit, type ActionTarget } from '../plugins/chatbot/src/actions.js';
 import { ACTION_KINDS } from '../plugins/chatbot/src/publicContract.js';
-import { resolveActionRule, type ActionRule } from '../plugins/chatbot/src/actionRules.js';
 import { readRecordedPageState } from '../plugins/chatbot/src/pageState.js';
 import { registerPageActionTool } from '../plugins/chatbot/src/actionsTool.js';
 import { actionRequestPayload, actionResultPayload, eventPayload } from '../plugins/chatbot/src/store.js';
@@ -251,71 +250,6 @@ describe('the page state a turn recorded', () => {
   });
 });
 
-// ── where an action may be performed ──────────────────────────────────────────────────────────────────
-
-const RULE: ActionRule = {
-  origin: CHATBOT_SITE,
-  path_prefix: '/formular',
-  action: 'fill',
-  requires_confirmation: 0,
-  max_per_turn: 3,
-};
-
-const resolve = (input: Partial<Parameters<typeof resolveActionRule>[0]> = {}) => resolveActionRule({
-  rules: [],
-  allowedOrigins: [CHATBOT_SITE],
-  origin: CHATBOT_SITE,
-  path: '/formular',
-  action: 'fill',
-  ceiling: 20,
-  ...input,
-});
-
-describe('where an action may be performed', () => {
-  it('answers an origin with no rule from the allowlist that already admits the visitor', () => {
-    expect(resolve()).toEqual({ ok: true, maxPerTurn: 20 });
-    // …and an origin the chatbot does not answer on is not a place it may act, rules or no rules.
-    expect(resolve({ origin: 'https://evil.example', allowedOrigins: [CHATBOT_SITE] })).toEqual({ ok: false, reason: 'action_not_allowed' });
-    expect(resolve({ rules: [{ ...RULE, origin: 'https://evil.example' }], origin: 'https://evil.example' })).toEqual({ ok: false, reason: 'action_not_allowed' });
-  });
-
-  it('makes the rules of an origin the policy of that origin', () => {
-    // A rule names one action on one path. Everything else that origin could otherwise do is closed: an
-    // administrator who has written rules has said what is allowed there.
-    expect(resolve({ rules: [RULE] })).toEqual({ ok: true, maxPerTurn: 3 });
-    expect(resolve({ rules: [RULE], action: 'click' })).toEqual({ ok: false, reason: 'action_not_allowed' });
-    expect(resolve({ rules: [RULE], path: '/jiny' })).toEqual({ ok: false, reason: 'action_not_allowed' });
-  });
-
-  it('matches a path by its segments, and takes the most specific prefix', () => {
-    const rules: ActionRule[] = [
-      { ...RULE, path_prefix: '/', action: 'scroll' },
-      { ...RULE, path_prefix: '/formular', action: 'fill' },
-      { ...RULE, path_prefix: '/formular/priloha', action: 'select', max_per_turn: 1 },
-    ];
-    // `/formular` covers the page itself and everything under it, and never a sibling whose name merely
-    // starts with the same letters.
-    expect(resolve({ rules, path: '/formular' })).toEqual({ ok: true, maxPerTurn: 3 });
-    expect(resolve({ rules, path: '/formular/2' })).toEqual({ ok: true, maxPerTurn: 3 });
-    expect(resolve({ rules, path: '/formular-evil' })).toEqual({ ok: false, reason: 'action_not_allowed' });
-    // The narrowest place wins: the deeper prefix is the policy for what is inside it, and `scroll` — which
-    // only the root rule allows — is not allowed there.
-    expect(resolve({ rules, path: '/formular/priloha', action: 'select' })).toEqual({ ok: true, maxPerTurn: 1 });
-    expect(resolve({ rules, path: '/formular/priloha', action: 'fill' })).toEqual({ ok: false, reason: 'action_not_allowed' });
-    expect(resolve({ rules, path: '/', action: 'scroll' })).toEqual({ ok: true, maxPerTurn: 3 });
-  });
-
-  it('never raises the plugin ceiling, and never promises a confirmation this version cannot ask for', () => {
-    expect(resolve({ rules: [{ ...RULE, max_per_turn: 500 }], ceiling: 20 })).toEqual({ ok: true, maxPerTurn: 20 });
-    // A rule may demand the visitor's confirmation for an ordinary kind, but a v1 frame can only carry a
-    // confirmation requirement for the kind that IS one — so the action is refused instead of being sent as
-    // a frame the widget drops, which would leave the tool waiting for something nobody performs.
-    expect(resolve({ rules: [{ ...RULE, requires_confirmation: 1 }] })).toEqual({ ok: false, reason: 'confirmation_unavailable' });
-    expect(resolve({ rules: [{ ...RULE, action: 'request_submit', requires_confirmation: 1 }], action: 'request_submit' }))
-      .toEqual({ ok: true, maxPerTurn: 3 });
-  });
-});
-
 // ── the lifecycle of one action ───────────────────────────────────────────────────────────────────────
 
 const NOW_ISO = '2027-01-02T03:04:05.000Z';
@@ -340,9 +274,13 @@ function liveTurn(host: ChatbotHost, options: { visitorId?: string; message?: st
  *  place, so every suite here starts from exactly that. */
 type HostOptions = NonNullable<Parameters<typeof createChatbotHost>[0]>;
 
-async function actionHost(options: { actionTimeoutMs?: number; accounts?: HostOptions['accounts'] } = {}): Promise<ChatbotHost> {
+async function actionHost(options: {
+  actionTimeoutMs?: number;
+  accounts?: HostOptions['accounts'];
+  maySubmitForms?: boolean;
+} = {}): Promise<ChatbotHost> {
   const host = createChatbotHost(options);
-  registerBot(host);
+  registerBot(host, { maySubmitForms: options.maySubmitForms });
   await host.adapter.connect();
   return host;
 }
@@ -373,6 +311,23 @@ function latestAction(host: ChatbotHost, turnId: string) {
 }
 
 describe('the lifecycle of one action', () => {
+  it('allows an action on an allowed origin without any per-path rule', async () => {
+    const host = await actionHost();
+    const turn = liveTurn(host);
+    const pending = ask(host, turn, { kind: 'fill', targetId: 'e0', value: 'Jan' });
+    const row = latestAction(host, turn.turn_id)!;
+    host.actions.reportResult({ turn, actionId: row.id, outcome: 'done', detail: null });
+    await expect(pending).resolves.toMatchObject({ status: 'done', kind: 'fill' });
+  });
+
+  it('refuses form submission when the chatbot switch is off', async () => {
+    const host = await actionHost({ maySubmitForms: false });
+    const turn = liveTurn(host);
+    await expect(ask(host, turn, { kind: 'request_submit', targetId: 'e1' }))
+      .resolves.toEqual({ status: 'refused', reason: 'action_not_allowed' });
+    expect(host.store.actionCountOfTurn(turn.turn_id)).toBe(0);
+  });
+
   it('records the action and the frame that asks for it BEFORE anything is woken', async () => {
     const host = await actionHost();
     const turn = liveTurn(host);
@@ -466,12 +421,7 @@ describe('the lifecycle of one action', () => {
   it('stops approving actions once the turn has spent what it may', async () => {
     const host = await actionHost();
     const turn = liveTurn(host);
-    // One rule for this page, allowing a single action per turn. Nothing writes rules yet, so the row is
-    // seeded the way the administrator's editor will write it.
-    host.db.prepare(`INSERT INTO p_chatbot_action_rules
-                       (id, chatbot_user_id, origin, path_prefix, action, requires_confirmation, max_per_turn, created_at, updated_at)
-                     VALUES (?, 12, ?, '/', 'read', 0, 1, ?, ?)`)
-      .run(randomUUID(), CHATBOT_SITE, NOW_ISO, NOW_ISO);
+    host.setLimits(12, { maxActionsPerTurn: 1 });
 
     const first = ask(host, turn, { kind: 'read', targetId: 'e0' });
     const row = latestAction(host, turn.turn_id)!;
@@ -479,9 +429,8 @@ describe('the lifecycle of one action', () => {
     await expect(first).resolves.toMatchObject({ status: 'done', detail: 'Jan Novák' });
 
     expect(await ask(host, turn, { kind: 'read', targetId: 'e0' })).toEqual({ status: 'refused', reason: 'action_budget_exhausted' });
-    // A kind the rule does not name is refused for the other reason, and a turn of ANOTHER visitor is not
-    // governed by this turn's rules at all.
-    expect(await ask(host, turn, { kind: 'fill', targetId: 'e0', value: 'x' })).toEqual({ status: 'refused', reason: 'action_not_allowed' });
+    expect(await ask(host, turn, { kind: 'fill', targetId: 'e0', value: 'x' }))
+      .toEqual({ status: 'refused', reason: 'action_budget_exhausted' });
   });
 
   it('answers a declined submission as cancelled, and a confirmed one as sent', async () => {

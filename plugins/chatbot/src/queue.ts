@@ -199,7 +199,6 @@ export class ChatbotTurnQueue {
         chatbotUserId: turn.chatbot_user_id,
         visitorId: turn.visitor_id,
         displayName: bot.display_name,
-        instructions: bot.prompt,
       });
 
       let sessionId: string | null = null;

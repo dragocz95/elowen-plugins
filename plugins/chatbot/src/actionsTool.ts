@@ -170,8 +170,6 @@ function refusalSentence(reason: ActionRequestRefusal): string {
       return 'Refused: that is not an action this version can perform.';
     case 'action_not_allowed':
       return 'Refused: this chatbot is not allowed to act on that page.';
-    case 'confirmation_unavailable':
-      return 'Refused: this page requires the visitor\'s confirmation for that action, which this version can only ask for a form submission.';
     default:
       return 'Refused.';
   }
