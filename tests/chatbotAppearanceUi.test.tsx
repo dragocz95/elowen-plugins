@@ -29,6 +29,7 @@ vi.mock('deep-chat', () => {
     getMessages(): { role?: string; text?: string }[] { return this._messages; }
     addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
+    disableSubmitButton(): void { /* renderer stub */ }
     focusInput(): void { /* no focus in jsdom */ }
     /** The panel scrolls a restored transcript to its end through this; jsdom has no layout, so it only has
      *  to exist. */

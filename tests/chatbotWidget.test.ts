@@ -40,6 +40,7 @@ vi.mock('deep-chat', () => {
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     submitUserMessage(content: { text?: string }): void { this._messages.push({ role: 'user', text: content.text }); }
     focusInput(): void { /* no focus in jsdom */ }
+    disableSubmitButton(): void { /* no input validation in the renderer stub */ }
     /** Unit tests cover the visibility gate; the browser regression measures actual scroll geometry. */
     get clientHeight(): number { return this.closest('section')?.hidden ? 0 : 400; }
     scrollToBottom(): void { this.scrolledToBottom += 1; }
@@ -979,6 +980,29 @@ describe('the confirmation a visitor answers', () => {
     expect(instance.isOpen()).toBe(true);
     expect(instance.host.shadowRoot!.querySelector('.confirm-title')!.textContent).toBe('Odeslat?');
     instance.destroy();
+  });
+});
+
+describe('running control independent of local submission', () => {
+  it.each(['finish', 'error', 'stop'] as const)('restores and clears running state on %s', end => {
+    let stopped = 0;
+    const panel = new ChatPanel({strings,look:{name:'Advisor',appearance:DEFAULT_APPEARANCE},onVisitorMessage(){},onStop(){stopped++;}});
+    panel.beginAnswer();
+    document.body.append(panel.host);
+    let chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
+    expect(chat.hasAttribute('data-answer-active')).toBe(true);
+    panel.streamAnswer('Resumed answer');
+    panel.applyAppearance({name:'Updated',appearance:APPEARANCE_TEMPLATES.clean});
+    chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
+    expect(chat.hasAttribute('data-answer-active')).toBe(true);
+    panel.streamAnswer(' continued');
+    expect((chat as unknown as {getMessages():unknown[]}).getMessages()).toEqual([{role:'ai',text:'Resumed answer continued'}]);
+    if (end === 'finish') panel.finishAnswer('Complete');
+    if (end === 'error') panel.error('Unavailable');
+    if (end === 'stop') (chat as unknown as {customButtons:{onClick():void}[]}).customButtons[0]!.onClick();
+    expect(chat.hasAttribute('data-answer-active')).toBe(false);
+    expect(stopped).toBe(end === 'stop' ? 1 : 0);
+    panel.destroy();
   });
 });
 

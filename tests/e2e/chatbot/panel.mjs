@@ -48,7 +48,7 @@ const server = createServer((req, res) => {
       import { DEFAULT_APPEARANCE } from '${appearanceModule}';
       import { widgetStrings } from '${stringsModule}';
       const messages = JSON.parse(localStorage.getItem('transcript') || '[]');
-      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(){panel.beginAnswer();window.submissions=(window.submissions||0)+1;},onStop(){}});
+      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(){panel.beginAnswer();window.submissions=(window.submissions||0)+1;},onStop(){window.stops=(window.stops||0)+1;}});
       document.body.append(panel.host);
       panel.restore(messages);
       window.ready = true;
@@ -174,6 +174,35 @@ try {
     console.log(JSON.stringify({width,resumed,final}));
     await page.screenshot({ path: '/tmp/chatbot-stream-' + width + '.png' });
     assert.deepEqual(errors, []);
+    await page.evaluate(() => panel.beginAnswer());
+    const stopState = await page.evaluate(() => {
+      const chat = panel.host.shadowRoot.querySelector('deep-chat');
+      const stop = chat.shadowRoot.querySelector('.input-button:has([data-cb-stop-icon])');
+      if (!stop) throw new Error('Session stop control is missing');
+      const rect = stop.getBoundingClientRect();
+      const parents = [];
+      for (let el=stop.parentElement;el;el=el.parentElement) {
+        const css=getComputedStyle(el), box=el.getBoundingClientRect();
+        parents.push({id:el.id,overflow:css.overflow,room:[rect.left-box.left,box.right-rect.right,rect.top-box.top,box.bottom-rect.bottom]});
+      }
+      return {active:chat.hasAttribute('data-answer-active'),label:stop.getAttribute('aria-label'),display:getComputedStyle(stop).display,animation:getComputedStyle(stop).animationName,duration:getComputedStyle(stop).animationDuration,icon:getComputedStyle(stop.querySelector('svg')).animationName,iconFilter:getComputedStyle(stop.querySelector('svg')).filter,iconColor:getComputedStyle(stop.querySelector('svg')).color,color:getComputedStyle(stop).color,border:getComputedStyle(stop).border,parents,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
+    });
+    console.log(JSON.stringify({width,stopState}));
+    assert(stopState.active && stopState.display !== 'none');
+    assert.equal(stopState.animation,'stop-pulse');
+    assert.equal(stopState.duration,'1.6s');
+    assert.equal(stopState.icon,'stop-pulse-icon');
+    assert.equal(stopState.iconFilter,'none');
+    assert.equal(stopState.iconColor,stopState.color);
+    for (const parent of stopState.parents) if(parent.overflow !== 'visible') assert(Math.min(...parent.room)>=16, 'The 16px halo must fit inside clipping ancestors');
+    await page.screenshot({path:'/tmp/chatbot-stop-'+width+'.png'});
+    await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
+    assert.equal(await page.evaluate(() => getComputedStyle(panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button:has([data-cb-stop-icon])')).animationName),'none');
+    await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'no-preference'}]);
+    await page.mouse.click(stopState.rect.x+stopState.rect.width/2,stopState.rect.y+stopState.rect.height/2);
+    assert.equal(await page.evaluate(() => window.stops),1);
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').hasAttribute('data-answer-active')),false);
+    assert.deepEqual(errors,[]);
     await page.close();
   }
 } finally {
