@@ -31,13 +31,13 @@ type DirectDnsRecord = {
   value: string;
 };
 
-type DnsRecord = DirectDnsRecord | {
+export type DnsRecord = DirectDnsRecord | {
   name: string;
   type: 'ALIAS/ANAME';
   value: string;
 };
 
-interface DnsRecordPlan {
+export interface DnsRecordPlan {
   state: 'ready' | 'unavailable';
   hostname: string;
   kind: SiteHostname['kind'];

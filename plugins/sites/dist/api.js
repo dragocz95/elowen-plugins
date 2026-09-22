@@ -1,6 +1,7 @@
 import { VISIBILITIES } from './store.js';
 import { canManage, mayOpen, mintTicket, normalizeReturnPath } from './access.js';
 import { SITE_BASE_PATH } from './config.js';
+import { SiteDomainError } from './domains.js';
 const json = (status, body) => ({
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -127,6 +128,35 @@ export function createApiHandlers(deps) {
             return json(403, { error: 'forbidden' });
         if (req.method === 'POST' && action === 'preview' && segments[2] === 'refresh')
             return refreshPreview(target);
+        if (action === 'domains') {
+            const domainId = segments[2] ?? '';
+            const domainAction = segments[3] ?? '';
+            try {
+                if (req.method === 'GET' && domainId === '')
+                    return json(200, await deps.domains.list(target));
+                if (req.method === 'POST' && domainId === '') {
+                    const body = await req.json().catch(() => ({}));
+                    return json(201, { domain: await deps.domains.add(target, body.hostname) });
+                }
+                if (req.method === 'POST' && domainId && domainAction === 'check') {
+                    return json(200, { domain: await deps.domains.check(target, domainId) });
+                }
+                if (req.method === 'POST' && domainId && domainAction === 'primary') {
+                    return json(200, { domain: await deps.domains.makePrimary(target, domainId) });
+                }
+                if (req.method === 'DELETE' && domainId && domainAction === '') {
+                    const removed = await deps.domains.remove(target, domainId);
+                    return json(removed.removed ? 200 : 202, removed);
+                }
+                return json(405, { error: 'method not allowed' });
+            }
+            catch (error) {
+                if (error instanceof SiteDomainError) {
+                    return json(error.status, { error: { code: error.code, params: error.params } });
+                }
+                throw error;
+            }
+        }
         if (req.method === 'PATCH' && action === '')
             return patchSite(req, target);
         if (req.method === 'DELETE' && action === '') {

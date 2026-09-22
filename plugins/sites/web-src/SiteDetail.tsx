@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Boxes, Clock, Copy, ExternalLink, History, Image as ImageIcon, Link2, RefreshCw, RotateCcw,
+  Activity, Boxes, Clock, Copy, ExternalLink, History, Image as ImageIcon, RefreshCw, RotateCcw,
   Server, ShieldCheck, Trash2, UserMinus, Users,
 } from 'lucide-react';
 import {
@@ -8,6 +8,7 @@ import {
   type DirectoryResponse, type SiteDetailResponse, type SiteView, type Visibility,
 } from './runtime.js';
 import { displayStatus, STATUS_STRING, STATUS_TONE, VISIBILITY_ICON, VISIBILITY_ORDER, VISIBILITY_STRING, VISIBILITY_TONE } from './meta.js';
+import { ReadOnlySiteAddress, SiteDomains } from './SiteDomains.js';
 
 const basePath = (siteId: string): string => `/plugins/sites/api/site/${siteId}`;
 
@@ -263,9 +264,9 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         </span>
       </div>
 
-      <DetailBlock icon={Link2} title={strings.address}>
-        <code className="break-all font-mono text-xs text-foreground">{site.url}</code>
-      </DetailBlock>
+      {canManage
+        ? <SiteDomains siteId={site.id} />
+        : <ReadOnlySiteAddress url={site.url} strings={strings} />}
 
       <PreviewBlock
         site={site}

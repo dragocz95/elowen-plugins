@@ -8,8 +8,9 @@ test('the shipped Sites surface contains only static and managed Project proxy p
   const root = new URL('../', import.meta.url);
   const manifest = JSON.parse(readFileSync(new URL('plugins/sites/elowen-plugin.json', root), 'utf8'));
   assert.deepEqual(manifest.provides.tools, [
-    'SiteCreate', 'SitePreview', 'SitePublish', 'SiteGet', 'SiteList', 'SiteUpdate',
-    'SiteRollback', 'SiteShare', 'SiteUnshare', 'SiteDelete',
+    'SiteCreate', 'SitePreview', 'SitePublish', 'SiteGet', 'SiteList',
+    'SiteDomainAdd', 'SiteDomainCheck', 'SiteDomainSetPrimary', 'SiteDomainRemove',
+    'SiteUpdate', 'SiteRollback', 'SiteShare', 'SiteUnshare', 'SiteDelete',
   ]);
   assert.equal(manifest.provides.apiRoutes.includes('conversion'), false);
   const retiredConfigKeys = new Set(['maxAssetMb', 'maxSiteMb', 'releasesKept']);

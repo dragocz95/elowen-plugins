@@ -108,7 +108,21 @@ export class SiteHostnameCoordinator {
     ]);
 
     const nextDnsCheck = dateAfter(this.now(), delayAt(DNS_DELAYS_MS, record.dnsAttempts));
-    this.deps.store.recordHostnameDns(record.id, traffic.state, traffic.observedTargets, nextDnsCheck);
+    if (record.ownershipVerifiedAt === null) {
+      this.deps.store.recordHostnameOwnership(
+        record.id,
+        ownership.state,
+        ownership.observedValues,
+        'detail' in ownership ? ownership.detail ?? null : null,
+      );
+    }
+    this.deps.store.recordHostnameDns(
+      record.id,
+      traffic.state,
+      traffic.observedTargets,
+      nextDnsCheck,
+      traffic.detail ?? null,
+    );
     if (ownership.state === 'ready' && record.ownershipVerifiedAt === null) {
       this.deps.store.verifyHostnameOwnership(record.id);
     }

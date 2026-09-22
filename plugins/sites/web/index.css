@@ -47,11 +47,23 @@
       max-width: 96rem;
     }
   }
+  .mt-1 {
+    margin-top: var(--spacing, 0.25rem);
+  }
+  .mt-2 {
+    margin-top: calc(var(--spacing, 0.25rem) * 2);
+  }
   .mt-auto {
     margin-top: auto;
   }
   .mr-1 {
     margin-right: var(--spacing, 0.25rem);
+  }
+  .mb-2 {
+    margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .block {
+    display: block;
   }
   .flex {
     display: flex;
@@ -68,11 +80,17 @@
   .aspect-\[16\/6\] {
     aspect-ratio: 16/6;
   }
+  .h-24 {
+    height: calc(var(--spacing, 0.25rem) * 24);
+  }
   .h-full {
     height: 100%;
   }
   .w-full {
     width: 100%;
+  }
+  .max-w-full {
+    max-width: 100%;
   }
   .min-w-0 {
     min-width: 0px;
@@ -97,6 +115,9 @@
   }
   .grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .grid-cols-\[auto_minmax\(0\,1fr\)_auto\] {
+    grid-template-columns: auto minmax(0,1fr) auto;
   }
   .flex-col {
     flex-direction: column;
@@ -156,6 +177,9 @@
   }
   .overflow-hidden {
     overflow: hidden;
+  }
+  .rounded {
+    border-radius: var(--radius, 0.5rem);
   }
   .rounded-full {
     border-radius: calc(infinity * 1px);
@@ -220,6 +244,9 @@
       border-color: color-mix(in oklab, var(--color-warning, #edae49) 40%, transparent);
     }
   }
+  .bg-background {
+    background-color: var(--color-background, #000000);
+  }
   .bg-card {
     background-color: var(--color-card, #070707);
   }
@@ -233,6 +260,18 @@
     background-color: color-mix(in srgb, #070707 90%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-card, #070707) 90%, transparent);
+    }
+  }
+  .bg-muted\/20 {
+    background-color: color-mix(in srgb, #0d0d0d 20%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 20%, transparent);
+    }
+  }
+  .bg-muted\/30 {
+    background-color: color-mix(in srgb, #0d0d0d 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 30%, transparent);
     }
   }
   .bg-muted\/40 {
@@ -258,6 +297,12 @@
   }
   .object-top {
     object-position: top;
+  }
+  .p-2 {
+    padding: calc(var(--spacing, 0.25rem) * 2);
+  }
+  .p-3 {
+    padding: calc(var(--spacing, 0.25rem) * 3);
   }
   .p-3\.5 {
     padding: calc(var(--spacing, 0.25rem) * 3.5);
@@ -446,6 +491,17 @@
   @media (prefers-reduced-motion: no-preference) {
     .motion-safe\:animate-pulse {
       animation: var(--animate-pulse, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite);
+    }
+  }
+  @media (width >= 40rem) {
+    .sm\:flex-row {
+      flex-direction: row;
+    }
+    .sm\:items-start {
+      align-items: flex-start;
+    }
+    .sm\:justify-between {
+      justify-content: space-between;
     }
   }
   @container (width >= 38rem) {

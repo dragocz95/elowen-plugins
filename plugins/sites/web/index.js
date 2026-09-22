@@ -67,6 +67,7 @@ var jsonBody = (method, value) => ({
 });
 var SITES_LIST_KEY = ["sites", "list"];
 var siteDetailKey = (siteId) => ["sites", "detail", siteId];
+var siteDomainsKey = (siteId) => ["sites", "domains", siteId];
 var avatarUser = (person) => person;
 var previewImageUrl = (siteId, version) => `/api/plugins/sites/api/site/${encodeURIComponent(siteId)}/preview?v=${version}`;
 var PREVIEW_POLL_MS = 4e3;
@@ -75,20 +76,23 @@ function relativeTime(iso) {
   if (!iso) return "";
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1e3));
-  if (seconds < 90) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 31) return `${days} d ago`;
-  return new Date(then).toISOString().slice(0, 10);
+  const locale = document.documentElement.lang || navigator.language || "en";
+  const deltaSeconds = Math.round((then - Date.now()) / 1e3);
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+  const absoluteSeconds = Math.abs(deltaSeconds);
+  if (absoluteSeconds < 90) return formatter.format(0, "second");
+  const minutes = Math.round(deltaSeconds / 60);
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+  const hours = Math.round(deltaSeconds / 3600);
+  if (Math.abs(hours) < 36) return formatter.format(hours, "hour");
+  const days = Math.round(deltaSeconds / 86400);
+  if (Math.abs(days) < 31) return formatter.format(days, "day");
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(then));
 }
 var formatBytes = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
 
 // plugins/sites/web-src/SitesPage.tsx
-var import_react5 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -248,6 +252,20 @@ var Copy = createLucideIcon("Copy", [
   ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/earth.js
+var Earth = createLucideIcon("Earth", [
+  ["path", { d: "M21.54 15H17a2 2 0 0 0-2 2v4.54", key: "1djwo0" }],
+  [
+    "path",
+    {
+      d: "M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17",
+      key: "1tzkfa"
+    }
+  ],
+  ["path", { d: "M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05", key: "14pb5j" }],
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/external-link.js
 var ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
@@ -298,6 +316,18 @@ var Image = createLucideIcon("Image", [
   ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21", key: "1xmnt7" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/key-round.js
+var KeyRound = createLucideIcon("KeyRound", [
+  [
+    "path",
+    {
+      d: "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z",
+      key: "1s6t7t"
+    }
+  ],
+  ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor", key: "w0ekpg" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/layers.js
 var Layers = createLucideIcon("Layers", [
   [
@@ -324,6 +354,12 @@ var Lock = createLucideIcon("Lock", [
   ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/plus.js
+var Plus = createLucideIcon("Plus", [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "M12 5v14", key: "s699le" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/refresh-cw.js
 var RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
@@ -336,6 +372,13 @@ var RefreshCw = createLucideIcon("RefreshCw", [
 var RotateCcw = createLucideIcon("RotateCcw", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/route.js
+var Route = createLucideIcon("Route", [
+  ["circle", { cx: "6", cy: "19", r: "3", key: "1kj8tv" }],
+  ["path", { d: "M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15", key: "1d8sl" }],
+  ["circle", { cx: "18", cy: "5", r: "3", key: "gq8acd" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/search.js
@@ -362,6 +405,17 @@ var ShieldCheck = createLucideIcon("ShieldCheck", [
     }
   ],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/star.js
+var Star = createLucideIcon("Star", [
+  [
+    "path",
+    {
+      d: "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z",
+      key: "r04s7s"
+    }
+  ]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/trash-2.js
@@ -633,18 +687,487 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
 }
 
 // plugins/sites/web-src/SiteDetail.tsx
+var import_react5 = __toESM(require_react(), 1);
+
+// plugins/sites/web-src/SiteDomains.tsx
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var domainPath = (siteId, suffix = "") => "/plugins/sites/api/site/" + encodeURIComponent(siteId) + "/domains" + suffix;
+var replaceParams = (strings, code, params) => {
+  const template = strings[code] ?? code;
+  const locale = document.documentElement.lang || navigator.language || "en";
+  return Object.entries(params).reduce((text, [key, raw]) => {
+    const parsed = key === "date" || key === "time" ? Date.parse(raw) : Number.NaN;
+    const value = Number.isNaN(parsed) ? raw : new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: key === "time" ? "short" : void 0
+    }).format(new Date(parsed));
+    return text.replaceAll("{" + key + "}", value);
+  }, template);
+};
+var errorCode = (error) => {
+  if (typeof error !== "object" || error === null || !("details" in error)) return null;
+  const details = error.details;
+  if (typeof details !== "object" || details === null || !("error" in details)) return null;
+  const value = details.error;
+  if (typeof value !== "object" || value === null) return null;
+  const code = "code" in value && typeof value.code === "string" ? value.code : null;
+  if (!code) return null;
+  const rawParams = "params" in value && typeof value.params === "object" && value.params !== null ? value.params : {};
+  return {
+    code,
+    params: Object.fromEntries(Object.entries(rawParams).map(([key, item]) => [key, String(item)]))
+  };
+};
+var badgeFor = (domain, strings) => {
+  if (domain.status === "ready") return { label: strings.domainReady, tone: "success" };
+  if (domain.status === "renewal_blocked") return { label: strings.renewalBlocked, tone: "warning" };
+  if (domain.status === "removing") return { label: strings.domainRemoving, tone: "muted" };
+  if (["authority_refused", "rate_limited", "expired", "misdirected"].includes(domain.status)) {
+    return { label: strings.domainAttention, tone: "danger" };
+  }
+  return { label: strings.domainPending, tone: "muted" };
+};
+var stepBadge = (state, strings) => {
+  if (state === "ready") return { label: strings.domainReady, tone: "success" };
+  if (["unavailable", "misdirected", "authority_refused", "rate_limited", "expired"].includes(state)) {
+    return { label: strings.domainAttention, tone: "danger" };
+  }
+  if (state === "renewal_blocked") return { label: strings.renewalBlocked, tone: "warning" };
+  return { label: strings.domainPending, tone: "muted" };
+};
+function RecordRows({ records, strings }) {
+  const { components, utils } = runtime();
+  const { IconButton } = components;
+  if (records.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex min-w-0 flex-col gap-2", children: records.map((record, index) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    "div",
+    {
+      className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border/60 bg-muted/30 p-2",
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "rounded bg-background px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground", children: record.type }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "min-w-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-foreground", children: record.name }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-muted-foreground", children: record.value })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          IconButton,
+          {
+            icon: Copy,
+            label: strings.copy + " " + record.type,
+            onClick: () => utils.copyText(record.value)
+          }
+        )
+      ]
+    },
+    record.type + ":" + record.name + ":" + record.value + ":" + index
+  )) });
+}
+function SetupBody({ domain, strings }) {
+  const { components } = runtime();
+  const { Badge, SettingsRow } = components;
+  const ownershipBadge = stepBadge(domain.ownership.state, strings);
+  const routingBadge = stepBadge(domain.routing.state, strings);
+  const certificateBadge = stepBadge(domain.certificate.state, strings);
+  const ownershipText = replaceParams(strings, domain.ownership.code, domain.ownership.params);
+  const routingText = replaceParams(strings, domain.routing.code, domain.routing.params);
+  const certificateText = replaceParams(strings, domain.certificate.code, domain.certificate.params);
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: strings.domainSetupIntro }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      SettingsRow,
+      {
+        label: strings.ownershipStep,
+        description: ownershipText,
+        icon: KeyRound,
+        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: ownershipBadge.tone, children: ownershipBadge.label }),
+        trailingLayout: "stack",
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings.ownershipHint }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: [domain.ownership.record], strings })
+        ]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      SettingsRow,
+      {
+        label: strings.routingStep,
+        description: routingText,
+        icon: Route,
+        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: routingBadge.tone, children: routingBadge.label }),
+        trailingLayout: "stack",
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings[domain.routing.hint] }),
+          domain.delegatedRootWarning ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mb-2 text-xs leading-relaxed text-muted-foreground", children: strings.delegatedRootHint }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: domain.routing.recommended, strings }),
+          domain.routing.alternatives.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "mt-2", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RecordRows, { records: domain.routing.alternatives, strings }) }) : null
+        ]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      SettingsRow,
+      {
+        label: strings.secureStep,
+        description: certificateText,
+        icon: ShieldCheck,
+        status: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: certificateBadge.tone, children: certificateBadge.label }),
+        trailingLayout: "stack"
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-xs leading-relaxed text-muted-foreground", children: strings.dnsPropagation }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-1 text-[11px] text-muted-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: domain.routing.checkedAt ? strings.lastChecked.replace("{time}", relativeTime(domain.routing.checkedAt)) : strings.notChecked }),
+      domain.routing.nextCheckAt ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: strings.nextCheck.replace("{time}", relativeTime(domain.routing.nextCheckAt)) }) : null,
+      domain.ownership.expiresAt ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: strings.reservationExpires.replace("{time}", relativeTime(domain.ownership.expiresAt)) }) : null
+    ] })
+  ] });
+}
+function SiteDomains({ siteId }) {
+  const { components, hooks, utils } = runtime();
+  const {
+    Badge,
+    Button,
+    ConfirmDialog,
+    DetailBlock,
+    EmptyState,
+    ErrorState,
+    IconButton,
+    Input,
+    LoadingState,
+    Modal,
+    ModalBody,
+    ModalFooter
+  } = components;
+  const strings = hooks.usePluginStrings("sites");
+  const queryClient = hooks.useQueryClient();
+  const { toast } = hooks.useToast();
+  const query = hooks.useQuery({
+    queryKey: siteDomainsKey(siteId),
+    queryFn: () => runtime().api(domainPath(siteId))
+  });
+  const [dialog, setDialog] = (0, import_react4.useState)(null);
+  const [hostname, setHostname] = (0, import_react4.useState)("");
+  const [dialogError, setDialogError] = (0, import_react4.useState)(null);
+  const [removeDomain, setRemoveDomain] = (0, import_react4.useState)(null);
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: siteDomainsKey(siteId) });
+    void queryClient.invalidateQueries({ queryKey: ["sites", "detail", siteId] });
+    void queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
+  };
+  const add = hooks.useMutation({
+    mutationFn: (value) => runtime().api(domainPath(siteId), jsonBody("POST", { hostname: value })),
+    onSuccess: (result) => {
+      setDialogError(null);
+      setHostname("");
+      setDialog({ mode: "setup", domain: result.domain });
+      refresh();
+    },
+    onError: (error) => {
+      const coded = errorCode(error);
+      const message = coded ? replaceParams(strings, coded.code, coded.params) : utils.apiErrorMessage(error);
+      setDialogError(message);
+      toast(message, "error");
+    }
+  });
+  const check = hooks.useMutation({
+    mutationFn: (domain) => runtime().api(
+      domainPath(siteId, "/" + encodeURIComponent(domain.id) + "/check"),
+      { method: "POST" }
+    ),
+    onSuccess: (result) => {
+      setDialogError(null);
+      setDialog({ mode: "setup", domain: result.domain });
+      refresh();
+    },
+    onError: (error) => {
+      const message = utils.apiErrorMessage(error);
+      setDialogError(message);
+      toast(message, "error");
+    }
+  });
+  const primary = hooks.useMutation({
+    mutationFn: (domain) => runtime().api(
+      domainPath(siteId, "/" + encodeURIComponent(domain.id) + "/primary"),
+      { method: "POST" }
+    ),
+    onSuccess: (result) => {
+      if (dialog?.mode === "setup") setDialog({ mode: "setup", domain: result.domain });
+      toast(strings.saved);
+      refresh();
+    },
+    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+  });
+  const remove = hooks.useMutation({
+    mutationFn: (domain) => runtime().api(
+      domainPath(siteId, "/" + encodeURIComponent(domain.id)),
+      { method: "DELETE" }
+    ),
+    onSuccess: (result) => {
+      setRemoveDomain(null);
+      if (result.removed) {
+        if (dialog?.mode === "setup") setDialog(null);
+      } else if (result.domain) {
+        setDialog({ mode: "setup", domain: result.domain });
+      }
+      refresh();
+    },
+    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+  });
+  const open = (url) => window.open(url, "_blank", "noopener,noreferrer");
+  const data = query.data;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Link2, title: strings.addresses, children: [
+      query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "block", height: "h-24" }) : null,
+      query.isError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: strings.domainsLoadFailed, onRetry: () => query.refetch() }) : null,
+      data ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", "data-site-domains": true, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-xs font-medium text-foreground", children: strings.primaryAddress }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "accent", children: data.effectiveUrl ?? strings.noAddress })
+          ] }),
+          data.generated ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "min-w-0", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "block text-xs font-medium text-foreground", children: strings.generatedAddress }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-muted-foreground", children: data.generated.displayHostname }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: strings.generatedAddressHint })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-1", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                IconButton,
+                {
+                  icon: Copy,
+                  label: strings.copyLink,
+                  onClick: () => utils.copyText(data.generated.url)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                IconButton,
+                {
+                  icon: ExternalLink,
+                  label: strings.openSite,
+                  onClick: () => open(data.generated.url)
+                }
+              )
+            ] })
+          ] }) : null
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center justify-between gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-xs font-semibold text-foreground", children: strings.customDomains }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            Button,
+            {
+              variant: "ghost",
+              icon: Plus,
+              onClick: () => {
+                setDialogError(null);
+                setDialog({ mode: "add" });
+              },
+              children: strings.addDomain
+            }
+          )
+        ] }),
+        data.domains.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EmptyState, { title: strings.noCustomDomains, icon: Earth }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "flex min-w-0 flex-col gap-3", children: data.domains.map((domain) => {
+          const badge = badgeFor(domain, strings);
+          return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "div",
+            {
+              className: "flex min-w-0 flex-col gap-3 rounded-lg border border-border/60 p-3",
+              children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "min-w-0", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: domain.displayHostname }),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: badge.tone, children: badge.label }),
+                    domain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "accent", children: strings.primary }) : null
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "mt-1 text-xs leading-relaxed text-muted-foreground", children: domain.status === "removing" ? strings.domainRemoving : replaceParams(strings, domain.statusCode, domain.statusParams) })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex max-w-full flex-wrap items-center gap-1", children: [
+                  domain.canOpen ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                      IconButton,
+                      {
+                        icon: Copy,
+                        label: strings.copyLink,
+                        onClick: () => utils.copyText(domain.url)
+                      }
+                    ),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                      IconButton,
+                      {
+                        icon: ExternalLink,
+                        label: strings.openSite,
+                        onClick: () => open(domain.url)
+                      }
+                    )
+                  ] }) : null,
+                  domain.status === "ready" && !domain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                    Button,
+                    {
+                      variant: "ghost",
+                      icon: Star,
+                      disabled: primary.isPending,
+                      onClick: () => primary.mutate(domain),
+                      children: strings.makePrimary
+                    }
+                  ) : null,
+                  domain.status !== "ready" && domain.removalState === "active" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                    Button,
+                    {
+                      variant: "ghost",
+                      onClick: () => {
+                        setDialogError(null);
+                        setDialog({ mode: "setup", domain });
+                      },
+                      children: strings.continueSetup
+                    }
+                  ) : null,
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                    IconButton,
+                    {
+                      icon: Trash2,
+                      label: strings.removeDomain,
+                      variant: "danger",
+                      onClick: () => setRemoveDomain(domain)
+                    }
+                  )
+                ] })
+              ] })
+            },
+            domain.id
+          );
+        }) })
+      ] }) : null
+    ] }),
+    dialog?.mode === "add" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      Modal,
+      {
+        title: strings.addDomain,
+        description: strings.domainExample,
+        icon: Earth,
+        size: "sm",
+        onClose: () => {
+          if (!add.isPending) setDialog(null);
+        },
+        closeDisabled: add.isPending,
+        "aria-busy": add.isPending ? true : void 0,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalBody, { gap: 4, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "flex flex-col gap-2 text-sm font-medium text-foreground", children: [
+              strings.domainName,
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                Input,
+                {
+                  value: hostname,
+                  onChange: (event) => setHostname(event.target.value),
+                  placeholder: strings.domainExample,
+                  "aria-label": strings.domainName,
+                  autoComplete: "off",
+                  disabled: add.isPending
+                }
+              )
+            ] }),
+            dialogError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { role: "alert", className: "text-sm text-destructive", children: dialogError }) : null
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", disabled: add.isPending, onClick: () => setDialog(null), children: strings.close }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              Button,
+              {
+                variant: "accent",
+                icon: Plus,
+                disabled: add.isPending || hostname.trim() === "",
+                onClick: () => add.mutate(hostname),
+                children: strings.addDomain
+              }
+            )
+          ] })
+        ]
+      }
+    ) : null,
+    dialog?.mode === "setup" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      Modal,
+      {
+        title: strings.domainSetupTitle.replace("{hostname}", dialog.domain.displayHostname),
+        icon: Earth,
+        size: "lg",
+        onClose: () => {
+          if (!check.isPending) setDialog(null);
+        },
+        closeDisabled: check.isPending,
+        "aria-busy": check.isPending ? true : void 0,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalBody, { gap: 4, children: [
+            dialogError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: dialogError }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(SetupBody, { domain: dialog.domain, strings })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              Button,
+              {
+                variant: "ghost-danger",
+                icon: Trash2,
+                onClick: () => setRemoveDomain(dialog.domain),
+                children: strings.removeDomain
+              }
+            ),
+            dialog.domain.status === "ready" && !dialog.domain.isPrimary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              Button,
+              {
+                variant: "ghost",
+                icon: Star,
+                disabled: primary.isPending,
+                onClick: () => primary.mutate(dialog.domain),
+                children: strings.makePrimary
+              }
+            ) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              Button,
+              {
+                variant: "accent",
+                disabled: check.isPending || dialog.domain.removalState === "removing",
+                onClick: () => check.mutate(dialog.domain),
+                children: check.isPending ? strings.checking : strings.checkAgain
+              }
+            )
+          ] })
+        ]
+      }
+    ) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      ConfirmDialog,
+      {
+        open: removeDomain !== null,
+        title: strings.removeDomainTitle.replace("{hostname}", removeDomain?.displayHostname ?? ""),
+        description: strings.removeDomainHint,
+        confirmLabel: strings.removeDomain,
+        confirmVariant: "danger",
+        pending: remove.isPending,
+        onConfirm: () => removeDomain ? remove.mutateAsync(removeDomain) : void 0,
+        onClose: () => {
+          if (!remove.isPending) setRemoveDomain(null);
+        }
+      }
+    )
+  ] });
+}
+function ReadOnlySiteAddress({ url, strings }) {
+  const { components } = runtime();
+  const { DetailBlock } = components;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: url }) });
+}
+
+// plugins/sites/web-src/SiteDetail.tsx
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
 function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
   const { components } = runtime();
   const { Badge, Button, DetailBlock } = components;
   const preview = site.preview;
-  const [refusedVersion, setRefusedVersion] = (0, import_react4.useState)(null);
+  const [refusedVersion, setRefusedVersion] = (0, import_react5.useState)(null);
   const picture = preview.version > 0 && refusedVersion !== preview.version;
   const taken = preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Image, title: strings.previewTitle, hint: strings.previewHint, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40", children: picture ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Image, title: strings.previewTitle, hint: strings.previewHint, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40", children: picture ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "img",
       {
         src: previewImageUrl(site.id, preview.version),
@@ -655,18 +1178,18 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
         className: "absolute inset-0 h-full w-full object-cover object-top"
       },
       preview.version
-    ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "span",
       {
         className: `absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-muted-foreground ${preview.state === "pending" ? "motion-safe:animate-pulse" : ""}`,
         children: preview.state === "pending" ? strings.previewPending : strings.previewNone
       }
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
-      taken ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: taken }) : null,
-      preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "danger", children: strings.previewFailed }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex-1" }),
-      site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
+      taken ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: taken }) : null,
+      preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "danger", children: strings.previewFailed }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "flex-1" }),
+      site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Button,
         {
           variant: "ghost",
@@ -677,7 +1200,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
         }
       ) : null
     ] }),
-    notice ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] leading-tight text-muted-foreground", children: notice }) : null
+    notice ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] leading-tight text-muted-foreground", children: notice }) : null
   ] });
 }
 function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
@@ -698,13 +1221,13 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   const strings = hooks.usePluginStrings("sites");
   const { toast } = hooks.useToast();
   const queryClient = hooks.useQueryClient();
-  const [pendingPublic, setPendingPublic] = (0, import_react4.useState)(false);
-  const [confirmDelete, setConfirmDelete] = (0, import_react4.useState)(false);
-  const [guestPicker, setGuestPicker] = (0, import_react4.useState)(false);
-  const [failedAction, setFailedAction] = (0, import_react4.useState)(null);
-  const [failedGuests, setFailedGuests] = (0, import_react4.useState)(null);
-  const callRef = (0, import_react4.useRef)(false);
-  const guestsRef = (0, import_react4.useRef)(false);
+  const [pendingPublic, setPendingPublic] = (0, import_react5.useState)(false);
+  const [confirmDelete, setConfirmDelete] = (0, import_react5.useState)(false);
+  const [guestPicker, setGuestPicker] = (0, import_react5.useState)(false);
+  const [failedAction, setFailedAction] = (0, import_react5.useState)(null);
+  const [failedGuests, setFailedGuests] = (0, import_react5.useState)(null);
+  const callRef = (0, import_react5.useRef)(false);
+  const guestsRef = (0, import_react5.useRef)(false);
   const detail = hooks.useQuery({
     queryKey: siteDetailKey(siteId),
     queryFn: () => runtime().api(basePath(siteId)),
@@ -712,7 +1235,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     // a register nothing is happening in asks for nothing.
     refetchInterval: (query) => query.state.data?.site.preview.state === "pending" ? PREVIEW_POLL_MS : false
   });
-  const detailRefetch = (0, import_react4.useRef)(detail.refetch);
+  const detailRefetch = (0, import_react5.useRef)(detail.refetch);
   detailRefetch.current = detail.refetch;
   const site = detail.data?.site;
   const members = detail.data?.members ?? [];
@@ -780,11 +1303,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       guestsRef.current = false;
     }
   };
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     onBusyChange?.(callRef.current || guestsRef.current || call.isPending || saveGuests.isPending);
   }, [call.isPending, onBusyChange, saveGuests.isPending]);
-  if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
-  if (!site) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingLine, {});
+  if (detail.isError) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EmptyState, { title: strings.loadFailed, icon: Server });
+  if (!site) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingLine, {});
   const setVisibility = (next) => {
     if (callRef.current) return;
     if (next === "public") {
@@ -806,8 +1329,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       toast(strings.copied);
     }
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-5", children: [
-    failedAction ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-5", children: [
+    failedAction ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ErrorState,
       {
         message: failedAction.message,
@@ -818,7 +1341,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         }
       }
     ) : null,
-    failedGuests ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    failedGuests ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ErrorState,
       {
         message: failedGuests.message,
@@ -829,19 +1352,19 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         }
       }
     ) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-1.5", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: STATUS_TONE[displayedStatus], children: strings[STATUS_STRING[displayedStatus]] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-1.5", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex items-start justify-between gap-3", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-1.5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: STATUS_TONE[displayedStatus], children: strings[STATUS_STRING[displayedStatus]] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Badge, { tone: VISIBILITY_TONE[site.visibility], children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(VisibilityIcon, { size: 10, "aria-hidden": true, className: "mr-1" }),
             strings[VISIBILITY_STRING[site.visibility]]
           ] }),
-          site.projectSlug ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "muted", children: site.projectSlug }) : null
+          site.projectSlug ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "muted", children: site.projectSlug }) : null
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex shrink-0 items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconButton, { icon: Copy, label: strings.copyLink, disabled: site.url === null, onClick: copyAddress }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex shrink-0 items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconButton, { icon: Copy, label: strings.copyLink, disabled: site.url === null, onClick: copyAddress }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             IconButton,
             {
               icon: ExternalLink,
@@ -854,21 +1377,21 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           )
         ] })
       ] }),
-      detail.data?.lastError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-destructive", children: detail.data.lastError }) : null
+      detail.data?.lastError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-destructive", children: detail.data.lastError }) : null
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex flex-col gap-1", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { className: "text-base font-semibold leading-snug text-foreground", children: site.title }),
-      site.summary ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: site.summary }) : null
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-1", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "text-base font-semibold leading-snug text-foreground", children: site.title }),
+      site.summary ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm leading-relaxed text-muted-foreground", children: site.summary }) : null
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-2", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: "sm", name: site.owner.name, user: avatarUser(site.owner) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.columnOwner }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-xs text-foreground", children: site.owner.name })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Avatar, { size: "sm", name: site.owner.name, user: avatarUser(site.owner) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.columnOwner }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-xs text-foreground", children: site.owner.name })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DetailBlock, { icon: Link2, title: strings.address, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "break-all font-mono text-xs text-foreground", children: site.url }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SiteDomains, { siteId: site.id }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReadOnlySiteAddress, { url: site.url, strings }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       PreviewBlock,
       {
         site,
@@ -882,8 +1405,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         })
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Metric,
         {
           icon: Clock,
@@ -892,8 +1415,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           title: site.lastPublishAt ? strings.builtBy.replace("{model}", site.lastPublishModel || "\u2014") : void 0
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Metric, { icon: Activity, label: strings.visits, value: String(visits) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Metric, { icon: Activity, label: strings.visits, value: String(visits) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Metric,
         {
           icon: History,
@@ -902,8 +1425,8 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: ShieldCheck, title: strings.whoCanOpen, hint: strings.sourceNotice, children: [
-      canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: ShieldCheck, title: strings.whoCanOpen, hint: strings.sourceNotice, children: [
+      canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         SelectMenu,
         {
           value: site.visibility,
@@ -911,19 +1434,19 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           label: strings.whoCanOpen,
           options: visibleOptions.map((value) => {
             const Icon2 = VISIBILITY_ICON[value];
-            return { value, label: strings[VISIBILITY_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon2, { size: 16 }) };
+            return { value, label: strings[VISIBILITY_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 16 }) };
           })
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "text-sm text-foreground", children: strings[VISIBILITY_STRING[site.visibility]] }),
-      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.publicDisabled }) : null
+      ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-sm text-foreground", children: strings[VISIBILITY_STRING[site.visibility]] }),
+      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.publicDisabled }) : null
     ] }),
-    canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
-      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: "sm", name: member.name, user: avatarUser(member) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-sm text-foreground", children: member.name })
+    canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
+      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Avatar, { size: "sm", name: member.name, user: avatarUser(member) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-sm text-foreground", children: member.name })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           IconButton,
           {
             icon: UserMinus,
@@ -934,24 +1457,24 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           }
         )
       ] }, member.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost", icon: Users, disabled: call.isPending || saveGuests.isPending, onClick: () => setGuestPicker(true), children: strings.manageGuests }) })
     ] }) : null,
-    site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-sm text-foreground", children: strings.projectPublicationLink.replace("{project}", site.projectSlug ?? "\u2014") }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate(`/projects?project=${site.projectId}`), children: strings.openProject }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
+    site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm text-foreground", children: strings.projectPublicationLink.replace("{project}", site.projectSlug ?? "\u2014") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate(`/projects?project=${site.projectId}`), children: strings.openProject }) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
       const live = release.id === site.currentReleaseId;
-      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex items-center gap-2 text-xs text-foreground", children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex items-center gap-2 text-xs text-foreground", children: [
             relativeTime(release.createdAt),
             " \xB7 ",
             strings.releaseSummary.replace("{files}", String(release.fileCount)).replace("{size}", formatBytes(release.sizeBytes)),
-            live ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Badge, { tone: "success", children: strings.releaseLive }) : null
+            live ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.releaseLive }) : null
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: release.note || release.model })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: release.note || release.model })
         ] }),
-        canManage && !live ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        canManage && !live ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           IconButton,
           {
             icon: RotateCcw,
@@ -966,11 +1489,11 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         ) : null
       ] }, release.id);
     }) }) }),
-    canManage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Trash2, title: strings.deleteTitle, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.deleteHint }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmDelete(true), children: strings.delete }) })
+    canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Trash2, title: strings.deleteTitle, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.deleteHint }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmDelete(true), children: strings.delete }) })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ManageSelectionModal,
       {
         open: guestPicker,
@@ -982,7 +1505,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           label: account.name,
           group: "accounts",
           groupLabel: strings.guestsGroup,
-          icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Avatar, { size: 20, name: account.name, user: avatarUser(account) })
+          icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Avatar, { size: 20, name: account.name, user: avatarUser(account) })
         })),
         countLabel: (count) => strings.guestsCount.replace("{n}", String(count)),
         selected: new Set(members.map((member) => String(member.id))),
@@ -991,7 +1514,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         emptySelectionHint: strings.noGuests
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ConfirmDialog,
       {
         open: pendingPublic,
@@ -1006,7 +1529,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         }
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ConfirmDialog,
       {
         open: confirmDelete,
@@ -1024,17 +1547,17 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
   ] });
 }
 function Metric({ icon: Icon2, label, value, title }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon2, { size: 11, "aria-hidden": true }),
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true }),
       label
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate font-mono text-xs text-foreground", children: value })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate font-mono text-xs text-foreground", children: value })
   ] });
 }
 
 // plugins/sites/web-src/SitesPage.tsx
-var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var SECTIONS = ["mine", "shared"];
 var isVisibilityFilter = (raw) => raw === "all" || VISIBILITY_ORDER.includes(raw);
 var isStatusFilter = (raw) => raw === "all" || STATUS_ORDER.includes(raw);
@@ -1048,14 +1571,14 @@ function SitesRegister({ sites, selectedId, onSelect }) {
     // container and never against the element declaring itself one, so `@container` on the grid would
     // silently leave the column variants resolving against whatever shell happens to be above it — one
     // column wherever no shell declares itself a container, which is exactly what a Project panel is.
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "@container", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "@container", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
       "div",
       {
         role: "list",
         "aria-label": strings.title,
         "data-testid": "sites-register",
         className: "grid grid-cols-1 gap-3 @min-[38rem]:grid-cols-2 @min-[58rem]:grid-cols-3",
-        children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(MotionPresence, { children: sites.map((site) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(MotionLayoutItem, { layoutId: `site-${site.id}`, role: "listitem", className: "min-w-0", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(MotionPresence, { children: sites.map((site) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(MotionLayoutItem, { layoutId: `site-${site.id}`, role: "listitem", className: "min-w-0", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           SiteCard,
           {
             site,
@@ -1104,27 +1627,27 @@ function SitesPage() {
   const [section, setSection] = hooks.usePersistentState("elowen.sites.section", "mine", SECTIONS);
   const [visibility, setVisibility] = hooks.usePersistentState("elowen.sites.visibility", "all", isVisibilityFilter);
   const [status, setStatus] = hooks.usePersistentState("elowen.sites.status", "all", isStatusFilter);
-  const [query, setQuery] = (0, import_react5.useState)("");
-  const [selectedId, setSelectedId] = (0, import_react5.useState)(null);
-  const [detailBusy, setDetailBusy] = (0, import_react5.useState)(false);
-  const mine = (0, import_react5.useMemo)(() => list.data?.mine ?? [], [list.data]);
-  const shared = (0, import_react5.useMemo)(() => list.data?.shared ?? [], [list.data]);
-  const sectionSites = (0, import_react5.useMemo)(
+  const [query, setQuery] = (0, import_react6.useState)("");
+  const [selectedId, setSelectedId] = (0, import_react6.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react6.useState)(false);
+  const mine = (0, import_react6.useMemo)(() => list.data?.mine ?? [], [list.data]);
+  const shared = (0, import_react6.useMemo)(() => list.data?.shared ?? [], [list.data]);
+  const sectionSites = (0, import_react6.useMemo)(
     () => section === "mine" ? mine : shared,
     [section, mine, shared]
   );
-  const filtered = (0, import_react5.useMemo)(() => {
+  const filtered = (0, import_react6.useMemo)(() => {
     const needle = query.trim().toLowerCase();
     return sectionSites.filter((site) => visibility === "all" || site.visibility === visibility).filter((site) => status === "all" || displayStatus(site) === status).filter((site) => matches(site, needle));
   }, [sectionSites, visibility, status, query]);
-  const selected = (0, import_react5.useMemo)(
+  const selected = (0, import_react6.useMemo)(
     () => [...mine, ...shared].find((site) => site.id === selectedId) ?? null,
     [mine, shared, selectedId]
   );
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (selectedId !== null && list.data && selected === null) setSelectedId(null);
   }, [selectedId, list.data, selected]);
-  const summary = (0, import_react5.useMemo)(() => {
+  const summary = (0, import_react6.useMemo)(() => {
     const all = [...mine, ...shared];
     return {
       total: all.length,
@@ -1134,24 +1657,24 @@ function SitesPage() {
     };
   }, [mine, shared]);
   const visibilityOptions = [
-    { value: "all", label: strings.filterAllVisibilities, icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Layers, { size: 14 }) },
+    { value: "all", label: strings.filterAllVisibilities, icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Layers, { size: 14 }) },
     ...VISIBILITY_ORDER.map((value) => {
       const Icon2 = VISIBILITY_ICON[value];
-      return { value, label: strings[VISIBILITY_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 14 }) };
+      return { value, label: strings[VISIBILITY_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { size: 14 }) };
     })
   ];
   const statusOptions = [
-    { value: "all", label: strings.filterAllStatuses, icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Layers, { size: 14 }) },
+    { value: "all", label: strings.filterAllStatuses, icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Layers, { size: 14 }) },
     ...STATUS_ORDER.map((value) => {
       const Icon2 = STATUS_ICON[value];
-      return { value, label: strings[STATUS_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 14 }) };
+      return { value, label: strings[STATUS_STRING[value]], icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { size: 14 }) };
     })
   ];
   const toolbarFilters = [
     {
       id: "visibility",
       label: strings.filterVisibility,
-      control: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SelectMenu, { value: visibility, onChange: setVisibility, options: visibilityOptions, label: strings.filterVisibility }),
+      control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SelectMenu, { value: visibility, onChange: setVisibility, options: visibilityOptions, label: strings.filterVisibility }),
       ...visibility === "all" ? { active: false } : {
         active: true,
         activeLabel: `${strings.filterVisibility}: ${visibilityOptions.find((option) => option.value === visibility)?.label ?? visibility}`,
@@ -1161,7 +1684,7 @@ function SitesPage() {
     {
       id: "status",
       label: strings.filterStatus,
-      control: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SelectMenu, { value: status, onChange: setStatus, options: statusOptions, label: strings.filterStatus }),
+      control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SelectMenu, { value: status, onChange: setStatus, options: statusOptions, label: strings.filterStatus }),
       ...status === "all" ? { active: false } : {
         active: true,
         activeLabel: `${strings.filterStatus}: ${statusOptions.find((option) => option.value === status)?.label ?? status}`,
@@ -1171,12 +1694,12 @@ function SitesPage() {
   ];
   const register = () => {
     if (sectionSites.length === 0) {
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EmptyState, { title: section === "mine" ? strings.empty : strings.emptyShared, icon: Globe });
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: section === "mine" ? strings.empty : strings.emptyShared, icon: Globe });
     }
-    if (filtered.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EmptyState, { title: strings.emptySearch, icon: Search });
-    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SitesRegister, { sites: filtered, selectedId, onSelect: setSelectedId });
+    if (filtered.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EmptyState, { title: strings.emptySearch, icon: Search });
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SitesRegister, { sites: filtered, selectedId, onSelect: setSelectedId });
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
     SpatialWorkspaceLayout,
     {
       hero: {
@@ -1185,11 +1708,11 @@ function SitesPage() {
         count: summary.total,
         description: strings.subtitle,
         mascotState: list.isLoading ? "saving" : list.isError ? "error" : "idle",
-        metrics: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(WorkspaceMetric, { label: strings.metricTotal, value: summary.total, icon: Globe }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(WorkspaceMetric, { label: strings.metricLive, value: summary.live, icon: CircleCheck }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(WorkspaceMetric, { label: strings.metricShared, value: summary.shared, icon: Users }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(WorkspaceMetric, { label: strings.metricPublic, value: summary.published, icon: Layers })
+        metrics: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: strings.metricTotal, value: summary.total, icon: Globe }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: strings.metricLive, value: summary.live, icon: CircleCheck }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: strings.metricShared, value: summary.shared, icon: Users }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceMetric, { label: strings.metricPublic, value: summary.published, icon: Layers })
         ] })
       },
       navigation: {
@@ -1202,7 +1725,7 @@ function SitesPage() {
         ariaLabel: strings.title
       },
       toolbar: {
-        search: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        search: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           RegisterSearch,
           {
             value: query,
@@ -1214,11 +1737,11 @@ function SitesPage() {
         ),
         filters: toolbarFilters
       },
-      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-4", children: register() }) }),
-        selected ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceDocument, { children: list.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, { variant: "cards" }) }) : list.isError ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-4", children: register() }) }),
+        selected ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
           if (!detailBusy) setSelectedId(null);
-        }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           SiteDetail,
           {
             siteId: selected.id,
@@ -1233,17 +1756,17 @@ function SitesPage() {
 }
 
 // plugins/sites/web-src/EnterPage.tsx
-var import_react6 = __toESM(require_react(), 1);
-var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var import_react7 = __toESM(require_react(), 1);
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function EnterPage() {
   const { components, hooks } = runtime();
   const { WorkspacePage, PluginPageHeader, LoadingState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [phase, setPhase] = (0, import_react6.useState)("working");
-  const formRef = (0, import_react6.useRef)(null);
-  const [handoff, setHandoff] = (0, import_react6.useState)(null);
-  const started = (0, import_react6.useRef)(false);
-  (0, import_react6.useEffect)(() => {
+  const [phase, setPhase] = (0, import_react7.useState)("working");
+  const formRef = (0, import_react7.useRef)(null);
+  const [handoff, setHandoff] = (0, import_react7.useState)(null);
+  const started = (0, import_react7.useRef)(false);
+  (0, import_react7.useEffect)(() => {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(window.location.search);
@@ -1262,12 +1785,12 @@ function EnterPage() {
       setHandoff({ action: ticket.action, token: ticket.token });
     }).catch(() => setPhase("denied"));
   }, []);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (handoff) formRef.current?.submit();
   }, [handoff]);
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(WorkspacePage, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PluginPageHeader, { title: strings.title ?? "Sites", icon: Globe }),
-    phase === "working" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(WorkspacePage, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PluginPageHeader, { title: strings.title ?? "Sites", icon: Globe }),
+    phase === "working" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       EmptyState,
       {
         title: strings.emptyShared ?? "You do not have access to this site.",
@@ -1275,36 +1798,36 @@ function EnterPage() {
         icon: Globe
       }
     ),
-    handoff ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("form", { ref: formRef, method: "POST", action: handoff.action, className: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("input", { type: "hidden", name: "t", value: handoff.token }) }) : null
+    handoff ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("form", { ref: formRef, method: "POST", action: handoff.action, className: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("input", { type: "hidden", name: "t", value: handoff.token }) }) : null
   ] });
 }
 
 // plugins/sites/web-src/SitesProjectPanel.tsx
-var import_react7 = __toESM(require_react(), 1);
-var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
+var import_react8 = __toESM(require_react(), 1);
+var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function SitesProjectPanel({ project }) {
   const { components, hooks } = runtime();
   const { WorkspaceDetailRail, LoadingState, ErrorState, EmptyState } = components;
   const strings = hooks.usePluginStrings("sites");
-  const [selectedId, setSelectedId] = (0, import_react7.useState)(null);
-  const [detailBusy, setDetailBusy] = (0, import_react7.useState)(false);
+  const [selectedId, setSelectedId] = (0, import_react8.useState)(null);
+  const [detailBusy, setDetailBusy] = (0, import_react8.useState)(false);
   const list = hooks.useQuery({
     queryKey: SITES_LIST_KEY,
     queryFn: () => runtime().api("/plugins/sites/api/sites")
   });
-  const sites = (0, import_react7.useMemo)(
+  const sites = (0, import_react8.useMemo)(
     () => [...list.data?.mine ?? [], ...list.data?.shared ?? []].filter((site) => site.projectId === project.id),
     [list.data, project.id]
   );
   const selected = sites.find((site) => site.id === selectedId) ?? null;
-  if (list.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState, { variant: "list" });
-  if (list.isError) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() });
-  if (sites.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState, { title: strings.empty, icon: Globe });
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SitesRegister, { sites, selectedId, onSelect: setSelectedId }),
-    selected ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
+  if (list.isLoading) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LoadingState, { variant: "list" });
+  if (list.isError) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(ErrorState, { message: strings.loadFailed, onRetry: () => list.refetch() });
+  if (sites.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(EmptyState, { title: strings.empty, icon: Globe });
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "workspace-master-detail", "data-detail": selected != null, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SitesRegister, { sites, selectedId, onSelect: setSelectedId }),
+    selected ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(WorkspaceDetailRail, { label: strings.detailTitle, closeLabel: strings.close, onClose: () => {
       if (!detailBusy) setSelectedId(null);
-    }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
       SiteDetail,
       {
         siteId: selected.id,

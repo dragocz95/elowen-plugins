@@ -57,6 +57,7 @@ const toRelease = (row) => ({
     dataArchive: row.data_archive,
 });
 const HOSTNAME_KINDS = new Set(['generated', 'custom']);
+const HOSTNAME_OWNERSHIP_STATES = new Set(['unchecked', 'missing', 'mismatch', 'ready', 'unavailable']);
 const HOSTNAME_DNS_STATES = new Set(['unchecked', 'missing', 'misdirected', 'ready', 'unavailable']);
 const HOSTNAME_CERTIFICATE_STATES = new Set([
     'none', 'requested', 'issuing', 'ready', 'authority_refused', 'rate_limited',
@@ -89,12 +90,17 @@ const toHostname = (row) => ({
     kind: enumValue(row.kind, HOSTNAME_KINDS, 'hostname kind'),
     hostname: row.hostname,
     ownershipToken: row.ownership_token,
+    ownershipState: enumValue(row.ownership_state, HOSTNAME_OWNERSHIP_STATES, 'ownership state'),
+    ownershipObserved: observedDnsValues(row.ownership_observed_json),
+    ownershipCheckedAt: row.ownership_checked_at,
+    ownershipErrorDetail: row.ownership_error_detail,
     ownershipVerifiedAt: row.ownership_verified_at,
     ownershipExpiresAt: row.ownership_expires_at,
     dnsState: enumValue(row.dns_state, HOSTNAME_DNS_STATES, 'DNS state'),
     dnsObserved: observedDnsValues(row.dns_observed_json),
     dnsCheckedAt: row.dns_checked_at,
     dnsNextCheckAt: row.dns_next_check_at,
+    dnsErrorDetail: row.dns_error_detail,
     dnsAttempts: row.dns_attempts,
     certificateState: enumValue(row.certificate_state, HOSTNAME_CERTIFICATE_STATES, 'certificate state'),
     certificateRequestedAt: row.certificate_requested_at,
@@ -524,6 +530,21 @@ export class SitesStore {
           ALTER TABLE p_sites_hostnames ADD COLUMN certificate_failures INTEGER NOT NULL DEFAULT 0;
         `),
             },
+            {
+                version: 22,
+                // The setup screen must survive reloads without reinterpreting a generic DNS state. Ownership and
+                // routing observations are separate facts, including bounded resolver details for unavailable checks.
+                up: handle => handle.exec(`
+          ALTER TABLE p_sites_hostnames ADD COLUMN ownership_state TEXT NOT NULL DEFAULT 'unchecked';
+          ALTER TABLE p_sites_hostnames ADD COLUMN ownership_observed_json TEXT NOT NULL DEFAULT '[]';
+          ALTER TABLE p_sites_hostnames ADD COLUMN ownership_checked_at TEXT;
+          ALTER TABLE p_sites_hostnames ADD COLUMN ownership_error_detail TEXT;
+          ALTER TABLE p_sites_hostnames ADD COLUMN dns_error_detail TEXT;
+          UPDATE p_sites_hostnames
+          SET ownership_state = 'ready'
+          WHERE ownership_verified_at IS NOT NULL;
+        `),
+            },
         ]);
         if (hostnameBase !== null && this.db.appliedVersion() >= 20) {
             this.reconcileGeneratedHostnames(hostnameBase);
@@ -750,18 +771,34 @@ export class SitesStore {
             throw error;
         }
     }
+    recordHostnameOwnership(id, state, observed, detail = null) {
+        if (!HOSTNAME_OWNERSHIP_STATES.has(state))
+            throw new Error(`Invalid ownership state: ${state}`);
+        const json = JSON.stringify(observed);
+        observedDnsValues(json);
+        const now = new Date(this.now()).toISOString();
+        const result = this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET ownership_state = ?, ownership_observed_json = ?, ownership_checked_at = ?,
+          ownership_error_detail = ?, updated_at = ?
+      WHERE id = ? AND kind = 'custom' AND removal_requested_at IS NULL
+    `).run(state, json, now, detail?.slice(0, 600) ?? null, now, id);
+        if (result.changes !== 1)
+            throw new Error('The hostname is absent or being removed.');
+    }
     verifyHostnameOwnership(id) {
         const now = new Date(this.now()).toISOString();
         const result = this.db.prepare(`
       UPDATE p_sites_hostnames
-      SET ownership_verified_at = ?, ownership_expires_at = NULL, updated_at = ?
+      SET ownership_state = 'ready', ownership_verified_at = ?, ownership_expires_at = NULL,
+          ownership_error_detail = NULL, updated_at = ?
       WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NULL
         AND ownership_expires_at > ? AND removal_requested_at IS NULL
     `).run(now, now, id, now);
         if (result.changes !== 1)
             throw new Error('The hostname reservation is absent, expired or already verified.');
     }
-    recordHostnameDns(id, state, observed, nextCheckAt = null) {
+    recordHostnameDns(id, state, observed, nextCheckAt = null, detail = null) {
         if (!HOSTNAME_DNS_STATES.has(state))
             throw new Error(`Invalid DNS state: ${state}`);
         const json = JSON.stringify(observed);
@@ -770,9 +807,9 @@ export class SitesStore {
         const result = this.db.prepare(`
       UPDATE p_sites_hostnames
       SET dns_state = ?, dns_observed_json = ?, dns_checked_at = ?, dns_next_check_at = ?,
-          dns_attempts = dns_attempts + 1, updated_at = ?
+          dns_error_detail = ?, dns_attempts = dns_attempts + 1, updated_at = ?
       WHERE id = ? AND removal_requested_at IS NULL
-    `).run(state, json, now, nextCheckAt, now, id);
+    `).run(state, json, now, nextCheckAt, detail?.slice(0, 600) ?? null, now, id);
         if (result.changes !== 1)
             throw new Error('The hostname is absent or being removed.');
     }

@@ -14,6 +14,7 @@ import { SitePreviewImageService } from './previewImage.js';
 import { ProjectPublicationService } from './publication.js';
 import { SiteAddressService } from './address.js';
 import { SiteHostnameCoordinator } from './hostnameCoordinator.js';
+import { SiteDomainService } from './domains.js';
 const SESSION_SECRET_KEY = 'sessionSigningKey';
 const HIT_FLUSH_MS = 60_000;
 const GATEWAY_RECONCILE_MS = 12 * 3600_000;
@@ -96,6 +97,21 @@ export function register(published) {
     });
     const certificateHost = (site) => addresses.generatedHostname(site)?.hostname ?? null;
     const hostnameCoordinator = new SiteHostnameCoordinator({ store, gateway, addresses, logger: ctx.logger });
+    const domains = new SiteDomainService({
+        store,
+        addresses,
+        gateway,
+        coordinator: hostnameCoordinator,
+        appHostname: () => {
+            try {
+                return new URL(config().appBaseUrl).hostname;
+            }
+            catch {
+                return null;
+            }
+        },
+        gatewayHostname: () => typeof ctx.config.gatewayDnsTarget === 'string' ? ctx.config.gatewayDnsTarget : null,
+    });
     const access = {
         accountExists: (userId) => ctx.host.stores().usersRead.list().some((user) => user.id === userId),
         isAdmin: (userId) => ctx.host.stores().usersRead.isAdmin(userId),
@@ -260,6 +276,7 @@ export function register(published) {
         access,
         config,
         addresses,
+        domains,
         previewImages,
         people,
         projectSlug,
@@ -286,7 +303,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'directory', method: 'GET', access: 'user', handler: handlers.directory });
     ctx.registerApiRoute({ path: 'gateway/readiness', method: 'GET', access: 'user', handler: handlers.gatewayReadiness });
     registerTools({
-        ctx, store, access, config, addresses, deleteSite, activateRelease,
+        ctx, store, access, config, addresses, domains, deleteSite, activateRelease,
         publications, people, previews, previewImages,
         certificates: {
             publish: (site) => certificates.publish(site, certificateHost(site)),

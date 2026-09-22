@@ -919,7 +919,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 // driven at all: SiteCreate never disclosed the id SitePublish demanded, and a refusal came back as a
 // successful result, so the agent read "no" as an answer and kept guessing.
 
-const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease } = {}) => {
+const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease, domains } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db, { hostnameBase: gatewayHost });
   const registered = new Map();
@@ -942,12 +942,36 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     control: () => sandboxAvailable ? { activeWorkspace: () => null } : undefined,
     host: { stores: () => ({ projects: { list: () => roots, get: id => roots.find(project => project.id === id) } }) },
   };
+  const addresses = addressesFor(store, gatewayHost);
+  const domainService = domains ?? {
+    list: async (target) => {
+      const generated = store.generatedHostname(target.id);
+      return {
+        siteId: target.id,
+        effectiveUrl: addresses.urlForSite(target),
+        generated: generated ? {
+          id: generated.id,
+          hostname: generated.hostname,
+          displayHostname: generated.hostname,
+          url: addresses.urlForHostname(generated.hostname),
+          effective: true,
+        } : null,
+        primaryHostnameId: target.primaryCustomHostnameId,
+        domains: [],
+      };
+    },
+    add: async () => { throw new Error('domain add is not stubbed in this harness'); },
+    check: async () => { throw new Error('domain check is not stubbed in this harness'); },
+    makePrimary: async () => { throw new Error('domain primary is not stubbed in this harness'); },
+    remove: async () => { throw new Error('domain removal is not stubbed in this harness'); },
+  };
   registerTools({
     ctx,
     store,
     access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
-    addresses: addressesFor(store, gatewayHost),
+    addresses,
+    domains: domainService,
     people: () => new Map(accounts.map((person) => [person.id, person])),
     deleteSite: async (id) => {
       store.beginDelete(id);
@@ -989,6 +1013,67 @@ const answeringTransport = {
 };
 
 const activeManagedProject = [{ id: 7, slug: 'demo', path: '/host/demo', executionKind: 'managed', lifecycle: 'active' }];
+
+const domainToolView = (overrides = {}) => ({
+  id: 'domain-1',
+  hostname: 'www.customer.example',
+  displayHostname: 'www.customer.example',
+  url: 'https://www.customer.example/',
+  kind: 'subdomain',
+  delegatedRootWarning: true,
+  status: 'awaiting_ownership',
+  statusCode: 'ownership_missing',
+  statusParams: {},
+  isPrimary: false,
+  canOpen: false,
+  removalState: 'active',
+  ownership: {
+    state: 'missing', code: 'ownership_missing', params: {}, checkedAt: null,
+    expiresAt: '2026-09-23T06:00:00.000Z',
+    record: { type: 'TXT', name: '_elowen-site.www.customer.example', value: 'elowen-site-verification=secret' },
+  },
+  routing: {
+    state: 'unchecked', code: 'dns_missing', params: { hostname: 'www.customer.example' },
+    hint: 'routingHintSubdomain', planState: 'ready', observed: [], checkedAt: null, nextCheckAt: null,
+    recommended: [{ type: 'CNAME', name: 'www.customer.example', value: 'edge.example.' }],
+    alternatives: [{ type: 'A', name: 'www.customer.example', value: '192.0.2.44' }],
+  },
+  certificate: {
+    state: 'none', code: 'certificate_waiting', params: {}, requestedAt: null, retryAt: null, notAfter: null,
+  },
+  ...overrides,
+});
+
+test('custom-domain tools pass structured service inputs and return the exact server record plan', async (t) => {
+  const calls = [];
+  const domain = domainToolView();
+  const domains = {
+    list: async (target) => ({ siteId: target.id, effectiveUrl: null, generated: null, primaryHostnameId: null, domains: [domain] }),
+    add: async (target, hostname) => { calls.push(['add', target.id, hostname]); return domain; },
+    check: async (target, id) => { calls.push(['check', target.id, id]); return domain; },
+    makePrimary: async (target, id) => { calls.push(['primary', target.id, id]); return { ...domain, isPrimary: true }; },
+    remove: async (target, id) => { calls.push(['remove', target.id, id]); return { removed: true }; },
+  };
+  const h = toolHarness(t, { domains });
+  managedPublication(h.store, { status: 'live' });
+  const claimed = h.store.claimCustomHostname('pub-1', parseSiteHostname(domain.hostname));
+  domain.id = claimed.id;
+
+  const added = await h.call('SiteDomainAdd', { site: 'demo-abc123', hostname: 'WWW.Customer.Example.' });
+  assert.match(added.content[0].text, /TXT _elowen-site\.www\.customer\.example = elowen-site-verification=secret/);
+  assert.match(added.content[0].text, /CNAME www\.customer\.example = edge\.example\./);
+  assert.match(added.content[0].text, /A www\.customer\.example = 192\.0\.2\.44/);
+
+  await h.call('SiteDomainCheck', { site: 'pub-1', domain: domain.hostname });
+  await h.call('SiteDomainSetPrimary', { site: 'pub-1', domain: domain.id });
+  await h.call('SiteDomainRemove', { site: 'pub-1', domain: domain.hostname });
+  assert.deepEqual(calls, [
+    ['add', 'pub-1', 'WWW.Customer.Example.'],
+    ['check', 'pub-1', domain.id],
+    ['primary', 'pub-1', domain.id],
+    ['remove', 'pub-1', domain.id],
+  ]);
+});
 
 test('SiteCreate offers one publication model: a managed Project target port', (t) => {
   const harness = toolHarness(t);

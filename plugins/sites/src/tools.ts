@@ -8,6 +8,7 @@ import { VISIBILITIES } from './store.js';
 import { canManage, mayPublish, type AccessDeps } from './access.js';
 import { SITE_BASE_PATH, type SitesConfig } from './config.js';
 import type { SiteAddressService } from './address.js';
+import { SiteDomainError, type SiteDomainService, type SiteDomainView } from './domains.js';
 import type { ProjectPreviewService } from './preview.js';
 import { publicationPort, type ProjectPublicationService } from './publication.js';
 import type { PreviewRequestCause, PreviewRequestOutcome } from './previewImage.js';
@@ -20,6 +21,7 @@ export interface ToolDeps {
   access: AccessDeps;
   config(): SitesConfig;
   addresses: Pick<SiteAddressService, 'urlForSite' | 'effectiveHostname'>;
+  domains: Pick<SiteDomainService, 'list' | 'add' | 'check' | 'makePrimary' | 'remove'>;
   people(): Map<number, { id: number; username: string; name: string; avatar: string }>;
   previews?: Pick<ProjectPreviewService, 'request'>;
   /** The picture half of the register. A publish asks for one; a refusal is never a publish failure. */
@@ -121,6 +123,33 @@ const requireManaged = (deps: ToolDeps, ref: string, userId: number): Site => {
 };
 
 /** Resolve a person by account name or numeric id, for the sharing tools. */
+const requireDomainId = (deps: ToolDeps, site: Site, ref: string): string => {
+  const wanted = ref.trim().toLowerCase();
+  const domain = deps.store.customHostnames(site.id)
+    .find((entry) => entry.id === ref.trim() || entry.hostname.toLowerCase() === wanted);
+  if (!domain || domain.removalRequestedAt !== null) {
+    throw new ToolError(`No active custom domain on this site matches "${ref.trim()}". Use its hostname or the id from SiteGet.`);
+  }
+  return domain.id;
+};
+
+const domainError = (error: unknown): Error => {
+  if (error instanceof SiteDomainError) {
+    const parameters = Object.keys(error.params).length > 0 ? ` ${JSON.stringify(error.params)}` : '';
+    return new ToolError(`Domain operation refused: ${error.code}.${parameters}`);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+};
+
+const describeDomain = (domain: SiteDomainView): string => [
+  `${domain.hostname} (${domain.id})`,
+  `  status      ${domain.status}`,
+  `  primary     ${domain.isPrimary ? 'yes' : 'no'}`,
+  `  ownership   ${domain.ownership.code}`,
+  `  routing     ${domain.routing.code}`,
+  `  certificate ${domain.certificate.code}`,
+].join('\n');
+
 const requirePerson = (deps: ToolDeps, ref: string): { id: number; name: string } => {
   const wanted = ref.trim();
   const people = [...deps.people().values()];
@@ -494,11 +523,16 @@ export function registerTools(deps: ToolDeps): void {
         // One handshake for the one site being read. A published page that a browser refuses is the single
         // most useful thing this tool can report, and it is only true if it is observed each time.
         const certificate = site.status === 'live' ? await deps.certificates.readiness(site) : null;
+        const addresses = await deps.domains.list(site);
         return text([
           describe(site, deps.addresses.urlForSite(site), projectInfo),
           `  base path  ${SITE_BASE_PATH}`,
           ...(certificate ? [`  certificate ${certificate.state} - ${certificate.detail}`] : []),
           `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
+          '',
+          'Addresses:',
+          `  generated  ${addresses.generated?.url ?? 'unavailable'} (fallback, never redirects)`,
+          ...addresses.domains.map((domain) => describeDomain(domain).split('\n').map((line) => `  ${line}`).join('\n')),
           '',
           site.kind === 'proxy'
             ? `Releases: none. A proxy publication serves whatever the application inside project ${project?.slug ?? site.projectId} is running right now.`
@@ -515,6 +549,7 @@ export function registerTools(deps: ToolDeps): void {
             : null,
           basePath: SITE_BASE_PATH, kind: site.kind, target: site.target,
           guests, currentReleaseId: site.currentReleaseId,
+          addresses,
           ...(certificate ? { certificate } : {}),
           // `projectInfo.path` exists for `describe`, which needs the HOST root to print a host Project's
           // source line. It must not be spread into the structured result: a managed Project is addressed
@@ -530,6 +565,93 @@ export function registerTools(deps: ToolDeps): void {
         });
       } catch (error) {
         throw isRefusal(error) ? error : new Error(String(error));
+      }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteDomainAdd',
+    label: 'Add a custom domain',
+    description: 'Reserve a custom domain for one manageable Site. Elowen returns the exact ownership and traffic DNS records to create; this tool never edits DNS.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      hostname: Type.String({ minLength: 1, maxLength: 253, description: 'One complete hostname without a scheme, path, port or wildcard.' }),
+    }),
+    execute: async (_id, input) => {
+      try {
+        const site = requireManaged(deps, input.site, ownerOf(ctx));
+        const domain = await deps.domains.add(site, input.hostname);
+        return text([
+          `Reserved ${domain.hostname} for "${site.title}".`,
+          `Ownership: ${domain.ownership.record.type} ${domain.ownership.record.name} = ${domain.ownership.record.value}`,
+          ...domain.routing.recommended.map((record) => `Traffic: ${record.type} ${record.name} = ${record.value}`),
+          ...domain.routing.alternatives.map((record) => `Traffic alternative: ${record.type} ${record.name} = ${record.value}`),
+          'Run SiteDomainCheck after the DNS records have been created.',
+        ].join('\n'), { siteId: site.id, domain });
+      } catch (error) {
+        throw domainError(error);
+      }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteDomainCheck',
+    label: 'Check a custom domain',
+    description: 'Run one bounded ownership, routing and certificate check for a custom domain. This bypasses the automatic DNS schedule but never bypasses certificate backoff.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      domain: Type.String({ description: 'Custom domain hostname or opaque id from SiteGet.' }),
+    }),
+    execute: async (_id, input) => {
+      try {
+        const site = requireManaged(deps, input.site, ownerOf(ctx));
+        const domain = await deps.domains.check(site, requireDomainId(deps, site, input.domain));
+        return text(`Checked ${domain.hostname}.\n${describeDomain(domain)}`, { siteId: site.id, domain });
+      } catch (error) {
+        throw domainError(error);
+      }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteDomainSetPrimary',
+    label: 'Make a custom domain primary',
+    description: 'Make one ready custom domain the effective primary address. The generated Elowen address remains available as a non-redirecting fallback.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      domain: Type.String({ description: 'Ready custom domain hostname or opaque id from SiteGet.' }),
+    }),
+    execute: async (_id, input) => {
+      try {
+        const site = requireManaged(deps, input.site, ownerOf(ctx));
+        const domain = await deps.domains.makePrimary(site, requireDomainId(deps, site, input.domain));
+        return text(`${domain.hostname} is now the primary address for "${site.title}".`, { siteId: site.id, domain });
+      } catch (error) {
+        throw domainError(error);
+      }
+    },
+  }));
+
+  ctx.registerTool(defineTool({
+    name: 'SiteDomainRemove',
+    label: 'Remove a custom domain',
+    description: 'Remove one custom domain and its certificate from Elowen. The DNS provider record is left unchanged. Cleanup is durable and retries if the gateway is temporarily unavailable.',
+    parameters: Type.Object({
+      site: Type.String({ description: 'Which site: its slug or id.' }),
+      domain: Type.String({ description: 'Custom domain hostname or opaque id from SiteGet.' }),
+    }),
+    execute: async (_id, input) => {
+      try {
+        const site = requireManaged(deps, input.site, ownerOf(ctx));
+        const domainId = requireDomainId(deps, site, input.domain);
+        const removed = await deps.domains.remove(site, domainId);
+        return removed.removed
+          ? text(`Removed ${input.domain} from "${site.title}". DNS was not changed.`, { siteId: site.id, domainId, removed: true })
+          : text(`Removal of ${input.domain} is recorded and gateway cleanup will retry. DNS was not changed.`, {
+              siteId: site.id, domainId, removed: false, domain: removed.domain,
+            });
+      } catch (error) {
+        throw domainError(error);
       }
     },
   }));

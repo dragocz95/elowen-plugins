@@ -193,7 +193,7 @@
       "author": "Elowen",
       "apiVersion": "2",
       "provides": {
-        "tools": 10,
+        "tools": 14,
         "httpRoutes": 1,
         "apiRoutes": 6
       }

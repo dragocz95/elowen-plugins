@@ -86,8 +86,9 @@ const harness = () => {
     hasCertificate: () => true,
     removeBinding: async () => ({ available: true, active: true, hostnameBase: BASE }),
   };
+  let resolveOwnership = async () => [['elowen-site-verification=ownership-token']];
   const ownershipResolver = {
-    resolveTxt: async () => [['elowen-site-verification=ownership-token']],
+    resolveTxt: (...args) => resolveOwnership(...args),
   };
   const coordinator = () => new SiteHostnameCoordinator({
     store,
@@ -104,6 +105,7 @@ const harness = () => {
     order,
     coordinator,
     setTraffic: (value) => { traffic = value; },
+    setOwnership: (resolver) => { resolveOwnership = resolver; },
     advance: (ms) => { now += ms; },
     ensureCalls: () => ensureCalls,
   };
@@ -120,6 +122,31 @@ test('a disconnected custom-domain request is completed from durable state with 
   assert.equal(current.dnsState, 'ready');
   assert.equal(current.certificateState, 'ready');
   assert.deepEqual(h.order, ['sync', 'ensure']);
+});
+
+test('ownership and resolver failures persist as distinct browser-readable observations', async () => {
+  const scenarios = [
+    {
+      expected: 'missing', detail: null,
+      resolver: async () => { throw Object.assign(new Error('not found'), { code: 'ENOTFOUND' }); },
+    },
+    { expected: 'mismatch', detail: null, resolver: async () => [['wrong-value']] },
+    { expected: 'unavailable', detail: 'resolver timed out', resolver: async () => { throw new Error('resolver timed out'); } },
+  ];
+  for (const scenario of scenarios) {
+    const h = harness();
+    const claimed = h.store.claimCustomHostname(site.id, parseSiteHostname('ownership.customer.example'));
+    h.setOwnership(scenario.resolver);
+    h.setTraffic({ state: 'unavailable', observedTargets: [], detail: 'traffic resolver failed' });
+
+    await h.coordinator().checkCustom(claimed);
+
+    const current = h.store.hostnameById(claimed.id);
+    assert.equal(current.ownershipState, scenario.expected);
+    assert.notEqual(current.ownershipCheckedAt, null);
+    assert.equal(current.ownershipErrorDetail, scenario.detail);
+    assert.equal(current.dnsErrorDetail, 'traffic resolver failed');
+  }
 });
 
 test('DNS backoff remains in the hostname row across coordinator reloads', async () => {

@@ -128,6 +128,21 @@ export class SiteGatewayManager {
             observedTargets: observed.observedTargets,
         };
     }
+    async recordPlan(hostname) {
+        const resolved = this.destination.current();
+        if (!resolved.target) {
+            return {
+                state: 'unavailable',
+                hostname: hostname.ascii,
+                kind: hostname.kind,
+                delegatedRootWarning: hostname.delegatedRootWarning,
+                preferred: [],
+                fallback: [],
+                detail: resolved.error ?? 'The Sites DNS destination is unavailable.',
+            };
+        }
+        return resolved.target.recordPlan(hostname);
+    }
     async verifyHostnameDns(hostname) {
         const resolved = this.destination.current();
         if (!resolved.target) {

@@ -36,6 +36,7 @@ const SURFACES: readonly SurfaceContract[] = [
   { path: 'plugins/github/web-src/GitHubProjectPanel.tsx', mode: 'explicit-save', reason: 'external publish/review/merge actions and mapping form' },
   { path: 'plugins/onedrive/web-src/OneDriveProjectPanel.tsx', mode: 'explicit-save', reason: 'external connection, sync and conflict actions' },
   { path: 'plugins/sites/web-src/SiteDetail.tsx', mode: 'explicit-save', reason: 'publication, guest replacement and destructive site actions' },
+  { path: 'plugins/sites/web-src/SiteDomains.tsx', mode: 'explicit-save', reason: 'domain claims, bounded DNS checks, primary selection and confirmed removal are deliberate lifecycle actions' },
   { path: 'plugins/stats/web-src/ResetUsageModal.tsx', mode: 'explicit-save', reason: 'destructive usage-data reset' },
   { path: 'plugins/skills/web-src/SkillsSettings.tsx', mode: 'explicit-save', reason: 'skill file writes and ownership moves are atomic filesystem actions' },
   { path: 'plugins/editor/web-src/ProjectIconPicker.tsx', mode: 'explicit-save', reason: 'project icon selection is an explicit project mutation' },

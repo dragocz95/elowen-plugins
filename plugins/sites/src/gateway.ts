@@ -9,8 +9,10 @@ import type {
 import { derivedHostnameBase } from './config.js';
 import {
   GatewayDnsTargetService,
+  type DnsRecordPlan,
   type TrafficDnsResolver,
 } from './dns.js';
+import type { SiteHostname } from './hostname.js';
 
 const TOKEN_KEY = 'gatewayToken';
 const PROBE_LABEL_BYTES = 8;
@@ -167,6 +169,22 @@ export class SiteGatewayManager {
       fix,
       observedTargets: observed.observedTargets,
     };
+  }
+
+  async recordPlan(hostname: SiteHostname): Promise<DnsRecordPlan> {
+    const resolved = this.destination.current();
+    if (!resolved.target) {
+      return {
+        state: 'unavailable',
+        hostname: hostname.ascii,
+        kind: hostname.kind,
+        delegatedRootWarning: hostname.delegatedRootWarning,
+        preferred: [],
+        fallback: [],
+        detail: resolved.error ?? 'The Sites DNS destination is unavailable.',
+      };
+    }
+    return resolved.target.recordPlan(hostname);
   }
 
   async verifyHostnameDns(hostname: string) {
