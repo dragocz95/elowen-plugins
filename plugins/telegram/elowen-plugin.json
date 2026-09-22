@@ -1,6 +1,6 @@
 {
   "name": "telegram",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
@@ -104,7 +104,7 @@
         },
         {
           "value": "live",
-          "label": "Stream answer live"
+          "label": "Show the answer as it is written"
         }
       ],
       "hint": "Final posts one complete answer below the live tool trace. Live edits the answer while it is written. Override per chat with /display."
@@ -142,7 +142,7 @@
         },
         {
           "value": "per_tool",
-          "label": "One message per tool"
+          "label": "One message for each tool"
         }
       ],
       "hint": "One live message keeps the chat compact. One message per tool gives every tool call its own editable Telegram message."
@@ -173,7 +173,7 @@
       "label": "Show reasoning",
       "type": "boolean",
       "default": false,
-      "hint": "Stream the model's reasoning into the progress message (extended-thinking models). Off by default — it's usually noise."
+      "hint": "Show the model's reasoning while it answers. Only available with extended-thinking models. Off by default."
     },
     {
       "key": "language",
@@ -224,7 +224,7 @@
       "step": 1048576,
       "placeholder": "5242880",
       "default": 5242880,
-      "hint": "Largest image attachment (bytes) the bot downloads for vision; bigger ones are noted instead."
+      "hint": "Largest image attachment (in bytes) the bot downloads for recognition. Larger files are only recorded."
     },
     {
       "key": "maxImages",
@@ -235,7 +235,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
+      "hint": "How many images from one message the bot sends to the model for recognition."
     },
     {
       "key": "maxUploadImages",
@@ -257,7 +257,7 @@
       "step": 30000,
       "placeholder": "360000",
       "default": 360000,
-      "hint": "How long a pending AskUserQuestion stays open for a button tap or free-text reply before it's dropped as stale. The same window applies to the interactive menus and pickers."
+      "hint": "How long someone can answer a question or interactive menu before it expires."
     },
     {
       "key": "sec_voice",

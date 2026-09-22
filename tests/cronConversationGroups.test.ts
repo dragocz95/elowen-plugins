@@ -71,9 +71,9 @@ function setupRoutes(
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const amy = users.create('amy', 'pw');
-  const bob = users.create('bob', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const amy = users.create('amy', 'human', 'pw');
+  const bob = users.create('bob', 'human', 'pw');
   // cronjob is user-grantable: without the grant the core gate answers 403 before the plugin is reached.
   for (const account of [amy, bob]) users.setGrantedPlugins(account.id, ['cronjob']);
   const table = (rows ?? baseRows)(amy.id, admin.id);

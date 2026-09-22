@@ -7,6 +7,16 @@
 - A skill saved or deleted by a sub-agent now reaches the running Elowen as well. If Elowen cannot apply a change, the tool or page says the skill is saved but not applied yet, instead of reporting success.
 - Requires core 0.28.52, which adds the live skill reload.
 
+## cronjob 0.6.13 - 2026-09-22
+
+- A scheduled job that is running normally is no longer reported as failed while it runs. The plugin is also loaded by the short-lived process that runs a sub-agent turn, and that process closed every in-flight run as interrupted the moment it started, so the history showed a failure for work that had succeeded. Reconciliation of interrupted runs and the pruning of old ones now happen only in the daemon, the one process a run can actually outlive.
+
+## Translations - 2026-09-22
+
+browser 0.4.6, codebase 0.1.8, cronjob 0.6.12, discord 0.3.23, editor 0.5.1, github 0.1.22, image-edit 0.2.9, image-gen 0.2.7, lsp 0.3.1, msteams 0.8.3, onedrive 0.3.1, sites 0.14.10, skills 0.4.13, stats 0.2.8, telegram 0.2.19, todo 0.14.16, voice-bot 0.1.4, whatsapp 0.2.22
+
+- Czech copy rewritten to be shorter, clearer and natural, with established technical terms kept (sub-agent, skill, commit, pull request, embedding, instance, sandbox). Slovak and English are aligned 1:1 with the new Czech.
+
 ## cronjob 0.6.11 - 2026-09-22
 
 - A job's last start now shows just its date under the "Last started" label. The line repeated the label and printed a raw `{t}` placeholder, and the Czech label was not Czech.

@@ -1,10 +1,10 @@
 {
   "name": "discord",
-  "version": "0.3.22",
+  "version": "0.3.23",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
-  "description": "Discord bot: mention it and it answers from Elowen AI. Slash commands (/model, /display, /new, /help), per-channel model and presentation settings, live tool activity with independent answer delivery, status reactions and proactive cron/tick pushes. Server tools: server/channel/member info, list & search members, roles, pins, threads (create/archive/lock/members), channels (create/rename/delete, categories) and message management (delete/purge). Discord roles control admission, trusted-admin context and a room prompt; account permissions come from the linked Elowen account.",
+  "description": "Discord bot: mention it and it replies through Elowen AI. Includes commands (/model, /display, /new, /help), per-channel model and display settings, live tool activity, different ways to deliver replies, status reactions and proactive notifications from cron/tick jobs. Server tools show information about servers, channels and members, search members, and manage roles, pinned messages, threads, channels, categories and messages. Discord roles control access, trusted-admin context and the room prompt. Account permissions come from the linked Elowen account.",
   "entry": "index.mjs",
   "provides": {
     "platforms": [
@@ -56,7 +56,7 @@
       "key": "sec_connection",
       "label": "Connection",
       "type": "section",
-      "hint": "The bot token and where it listens."
+      "hint": "The bot token and the channels where it responds."
     },
     {
       "key": "botToken",
@@ -69,7 +69,7 @@
       "key": "guildId",
       "label": "Guild ID",
       "type": "string",
-      "hint": "Optional: only respond in this server (empty = all servers the bot is in)."
+      "hint": "Optional: the bot only responds in this server. Leave empty to let it respond in every server it belongs to."
     },
     {
       "key": "threadIds",
@@ -81,7 +81,7 @@
       "key": "notifyChannelId",
       "label": "Notification destination",
       "type": "destination",
-      "hint": "Channel or thread where proactive messages (cron/tick results and escalations) are posted. Empty = no proactive pushes."
+      "hint": "Channel or thread for proactive messages, such as cron/tick results and alerts. Leave empty to stop the bot from sending proactive messages."
     },
     {
       "key": "sec_replies",
@@ -115,7 +115,7 @@
           "label": "Live output"
         }
       ],
-      "hint": "Off hides the work trace. Live status updates tool start/completion. Live output also streams bounded Bash progress. Override per channel with /display."
+      "hint": "Choose what appears while the bot works: nothing, tool status, or part of its output. Change the channel setting with /display."
     },
     {
       "key": "answerMode",
@@ -129,10 +129,10 @@
         },
         {
           "value": "live",
-          "label": "Stream answer live"
+          "label": "Show answer as it is written"
         }
       ],
-      "hint": "Final posts one complete answer below the live tool trace. Live edits the answer while it is written. Override per channel with /display."
+      "hint": "Final answer sends one complete message below the live tool activity. Live updates the answer as it is written. Change the channel setting with /display."
     },
     {
       "key": "toolOutput",
@@ -153,7 +153,7 @@
           "label": "Rolling output tail"
         }
       ],
-      "hint": "Controls how much bounded tool output appears below each status. Raw full output is never dumped into Discord."
+      "hint": "Choose how much of the limited tool output appears below each status. The full original output is never sent to Discord."
     },
     {
       "key": "toolMessageMode",
@@ -170,11 +170,11 @@
           "label": "One message per tool"
         }
       ],
-      "hint": "One live message keeps the channel compact. One message per tool gives every tool call its own editable Discord bubble."
+      "hint": "One live message keeps the channel tidy. With one message per tool, each tool call has its own editable Discord message."
     },
     {
       "key": "deleteToolActivityAfterTurn",
-      "label": "Replace tool activity with answer",
+      "label": "Replace tool activity with the answer",
       "type": "boolean",
       "default": false,
       "hint": "Show one live progress message while the agent works, then replace that same message with the final answer. No message is deleted; live-answer and per-tool layouts are overridden."
@@ -198,7 +198,7 @@
       "label": "Show reasoning",
       "type": "boolean",
       "default": false,
-      "hint": "Stream the model's reasoning into the progress bubble (extended-thinking models). Off by default — it's usually noise on Discord."
+      "hint": "Show the model's reasoning while it answers. Only available with extended-thinking models. Off by default."
     },
     {
       "key": "language",
@@ -235,20 +235,20 @@
       "max": 100,
       "step": 1,
       "default": 0,
-      "hint": "How many recent channel messages a BRAND-NEW conversation loads as context (0 = off, max 100). Ongoing conversations never re-fetch."
+      "hint": "How many recent channel messages a brand-new conversation loads as context (0 = off, up to 100). Ongoing conversations do not load the history again."
     },
     {
       "key": "visionModel",
       "label": "Vision model",
       "type": "model",
-      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the channel's normal model."
+      "hint": "Model for messages with images. It must be able to recognize images. An empty field means the channel's usual model."
     },
     {
       "key": "sec_media",
       "label": "Media limits",
       "type": "section",
       "advanced": true,
-      "hint": "Caps on inbound/outbound images and how long a pending question stays open."
+      "hint": "Limits for incoming and outgoing images, and how long a pending question stays open."
     },
     {
       "key": "maxImageBytes",
@@ -259,7 +259,7 @@
       "step": 1048576,
       "placeholder": "5242880",
       "default": 5242880,
-      "hint": "Largest image attachment (bytes) the bot downloads for vision; bigger ones are noted instead."
+      "hint": "Largest image attachment (in bytes) the bot downloads for recognition. Larger files are only noted."
     },
     {
       "key": "maxImages",
@@ -270,7 +270,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
+      "hint": "How many images from one message the bot sends to the model for recognition."
     },
     {
       "key": "maxFileBytes",
@@ -280,7 +280,7 @@
       "max": 26214400,
       "step": 1048576,
       "placeholder": "26214400",
-      "hint": "Largest non-image attachment downloaded into the sender's project; a bigger one is only noted."
+      "hint": "Largest attachment other than images that the bot downloads to the sender's project. Larger files are only recorded."
     },
     {
       "key": "maxFiles",
@@ -290,7 +290,7 @@
       "max": 10,
       "step": 1,
       "placeholder": "5",
-      "hint": "How many non-image attachments from one message are stored in the sender's project."
+      "hint": "Number of attachments other than images stored in the sender's project from one message."
     },
     {
       "key": "maxUploadImages",
@@ -314,14 +314,14 @@
       "label": "Voice provider",
       "type": "provider",
       "providerType": "openai",
-      "hint": "Which configured OpenAI-compatible provider powers voice (Whisper STT + TTS) — reuses that provider's key, no separate key here. Add providers in Settings → Brain. Leave empty to keep voice off."
+      "hint": "Choose a configured OpenAI-compatible provider for voice (Whisper STT + TTS). It uses that provider's key, so no separate key is needed. Add providers in Settings → Brain. Leave the field empty to turn voice off."
     },
     {
       "key": "stt",
       "label": "Transcribe voice messages",
       "type": "boolean",
       "default": false,
-      "hint": "Transcribe incoming voice messages / audio attachments with Whisper so the agent understands them. Needs the OpenAI API key."
+      "hint": "Whisper transcribes incoming voice messages and audio attachments so the agent can understand them. You need an OpenAI API key."
     },
     {
       "key": "sttModel",
@@ -335,7 +335,7 @@
       "label": "Speak replies (default)",
       "type": "boolean",
       "default": false,
-      "hint": "Default for channels: attach a spoken-audio version of replies. Toggle live per channel with /voice. Needs the OpenAI API key."
+      "hint": "Default for channels: attach an audio version of each reply. Turn it on or off per channel with /voice. You need an OpenAI API key."
     },
     {
       "key": "ttsModel",
@@ -355,13 +355,13 @@
       "key": "sec_roles",
       "label": "Role policies",
       "type": "section",
-      "hint": "Map Discord roles to admission, trusted-admin context and a room-specific prompt."
+      "hint": "Assign Discord roles to access, trusted-admin context and a room-specific prompt."
     },
     {
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
-      "hint": "First matching role wins. Users with no mapped role are ignored. The ID is a Discord role ID, or * for every member — keep a * policy last, below the named entries it would otherwise swallow. `admin` enables the shared /model, /reasoning and /context pickers and the room control commands /stop, /stats, /compact and /restart — /restart restarts the daemon for everyone. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "The first matching role applies. Users without an assigned role are ignored. Enter a Discord role ID, or * for all members. Put the * rule after named rules, or it will override them. The `admin` role enables the shared /model, /reasoning and /context menus and the room commands /stop, /stats, /compact and /restart. The /restart command restarts the daemon for everyone. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ]
 }

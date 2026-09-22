@@ -1,17 +1,17 @@
 {
-  "description": "Generovanie obrázkov cez nakonfigurovaného poskytovateľa s API kľúčom alebo cez pripojený účet ChatGPT. Vygenerované obrázky sa zobrazia priamo v chate.",
+  "description": "Generuje obrázky cez poskytovateľa s kľúčom API alebo pripojený účet ChatGPT. Obrázky sa zobrazia priamo v chate.",
   "fields": {
     "provider": {
       "label": "Poskytovateľ",
-      "hint": "Ktorý nakonfigurovaný poskytovateľ obrázky vykreslí: endpoint kompatibilný s OpenAI (prevezme jeho kľúč a základnú URL), alebo pripojený účet ChatGPT. Poskytovateľov pridáte v Nastaveniach → Brain."
+      "hint": "Vyberte poskytovateľa na tvorbu obrázkov: buď rozhranie kompatibilné s OpenAI, ktoré použije svoj kľúč a základnú adresu, alebo pripojený účet ChatGPT. Ďalších poskytovateľov pridáte v Nastaveniach → Brain."
     },
     "model": {
       "label": "Model",
-      "hint": "Obrazový model zvoleného poskytovateľa. Výber ponúka modely povolené pre daného poskytovateľa v Nastaveniach → Modely; najprv tam niektorý povoľte. Prázdna hodnota použije predvolený model poskytovateľa."
+      "hint": "Obrazový model zvoleného poskytovateľa. V Nastaveniach → Modely najprv povoľte model, ktorý chcete použiť. Prázdne pole použije predvolený model poskytovateľa."
     },
     "size": {
       "label": "Veľkosť",
-      "hint": "Výstupné rozlíšenie a pomer strán.",
+      "hint": "Rozlíšenie a pomer strán výsledného obrázka.",
       "options": {
         "1024x1024": "1024×1024 (štvorec)",
         "1536x1024": "1536×1024 (na šírku)",

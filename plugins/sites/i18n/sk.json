@@ -1,12 +1,12 @@
 {
-  "description": "Zverejnite adresu pre aplikáciu bežiacu vo výslovne vybranom spravovanom projekte a majte snímku každej zverejnenej stránky. Každá adresa má vlastné pravidlá viditeľnosti.",
+  "description": "Zverejnite aplikáciu z vybraného spravovaného projektu a prezerajte si jej náhľad. Každý web má vlastné nastavenie viditeľnosti.",
   "fields": {
     "publishing": {
       "label": "Zverejňovanie"
     },
     "defaultVisibility": {
       "label": "Predvolená viditeľnosť",
-      "hint": "Komu je novo založená stránka viditeľná, kým to niekto nezmení. Verejnou sa stránka nikdy nestane sama; potvrdzuje sa to tu v aplikácii.",
+      "hint": "Komu sa nový web zobrazí, kým niekto nezmení nastavenie. Verejne prístupným sa nikdy nestane sám. Verejný prístup treba potvrdiť v aplikácii.",
       "options": {
         "private": "Len vlastníkovi",
         "project": "Ľuďom z projektu",
@@ -14,34 +14,34 @@
       }
     },
     "allowPublicSites": {
-      "label": "Povoliť verejné stránky",
+      "label": "Povoliť verejné weby",
       "hint": "Keď je vypnuté, každá stránka vyžaduje prihlásenie a možnosť zverejnenia zmizne z nastavenia prístupu pri všetkých stránkach."
     },
     "publishers": {
       "label": "Kto smie zverejňovať",
-      "hint": "Či smie agent bežného účtu zakladať a zverejňovať stránky. Otvorenie stránky, ktorú niekto zdieľal, to neovplyvňuje.",
+      "hint": "Či agent bežného účtu smie vytvárať a zverejňovať weby. Možnosť otvoriť zdieľaný web to neovplyvňuje.",
       "options": {
         "everyone": "Každý účet",
-        "admins": "Iba správcovia"
+        "admins": "Iba administrátori"
       }
     },
     "limits": {
       "label": "Limity"
     },
     "maxSitesPerAccount": {
-      "label": "Počet stránok na účet",
-      "hint": "Koľko stránok smie mať jeden účet súčasne."
+      "label": "Webov na účet",
+      "hint": "Koľko webov môže mať jeden účet súčasne."
     },
     "access": {
       "label": "Prístup"
     },
     "sessionTtlHours": {
       "label": "Platnosť prihlásenia",
-      "hint": "Ako dlho zostane návštevník k stránke prihlásený, kým ho prehliadač pošle znova cez prihlásenie. Strata prístupu sa prejaví okamžite bez ohľadu na túto hodnotu, pretože oprávnenie sa overuje pri každej požiadavke."
+      "hint": "Ako dlho zostane návštevník prihlásený, kým ho prehliadač znova vyzve na prihlásenie. Odobratie prístupu sa prejaví okamžite bez ohľadu na túto dobu, pretože oprávnenie sa overuje pri každej požiadavke."
     },
     "gatewayDnsTarget": {
-      "label": "Cieľ DNS pre Sites",
-      "hint": "Názov hostiteľa alebo IP adresa pre verejné DNS Sites. Prázdna hodnota použije názov hostiteľa aplikácie Elowen. Cieľ musí viesť priamo na tento hostiteľ; externá proxy potrebuje vlastnú podporu TLS."
+      "label": "Cieľ DNS pre weby",
+      "hint": "Názov hostiteľa alebo IP adresa pre verejné DNS webov. Ak pole necháte prázdne, použije sa názov hostiteľa aplikácie Elowen. Cieľ musí smerovať priamo na tento počítač. Externá proxy musí podporovať vlastné TLS."
     },
     "contactEmail": {
       "label": "Kontaktný e-mail pre certifikáty",
@@ -49,22 +49,22 @@
     }
   },
   "web": {
-    "label": "Stránky",
+    "label": "Weby",
     "nav": {
-      "": "Stránky"
+      "": "Weby"
     },
     "project": {
-      "sites": "Stránky"
+      "sites": "Weby"
     },
     "strings": {
-      "title": "Stránky",
-      "subtitle": "Stránky, ktoré zverejnil váš agent, a kto ich môže otvoriť.",
-      "mine": "Moje stránky",
+      "title": "Weby",
+      "subtitle": "Weby zverejnené vaším agentom a ľudia, ktorí ich môžu otvoriť.",
+      "mine": "Moje weby",
       "shared": "Zdieľané so mnou",
-      "empty": "Zatiaľ žiadne stránky. Požiadajte agenta, nech nejakú postaví a zverejní.",
-      "emptyShared": "Nikto vám zatiaľ stránku nezdieľal.",
-      "emptySearch": "Tomuto filtru nezodpovedá žiadna stránka.",
-      "loadFailed": "Stránky sa nepodarilo načítať.",
+      "empty": "Zatiaľ tu nie je žiadny web. Požiadajte agenta, aby ho vytvoril a zverejnil.",
+      "emptyShared": "Nikto s vami zatiaľ nezdieľal žiadny web.",
+      "emptySearch": "Filtru neodpovedá žiadny web.",
+      "loadFailed": "Weby sa nepodarilo načítať.",
       "searchPlaceholder": "Hľadať podľa názvu, adresy alebo vlastníka",
       "filterVisibility": "Viditeľnosť",
       "filterStatus": "Stav",
@@ -73,34 +73,34 @@
       "columnOwner": "Vlastník",
       "project": "Projekt",
       "noAddress": "Zatiaľ bez adresy",
-      "previewPending": "Sníma sa stránka…",
-      "previewNone": "Zatiaľ žiadna snímka tejto stránky.",
-      "previewFailed": "Posledná snímka sa nepodarila",
-      "previewCapturedAt": "Snímka {time}",
+      "previewPending": "Vytvára sa snímka…",
+      "previewNone": "Náhľad zatiaľ nie je k dispozícii.",
+      "previewFailed": "Poslednú snímku sa nepodarilo vytvoriť",
+      "previewCapturedAt": "Vytvorené {time}",
       "previewRefresh": "Vytvoriť novú snímku",
-      "previewRefreshed": "Snímka zaradená",
-      "openDetail": "Otvoriť stránku {title}",
+      "previewRefreshed": "Vytvorenie snímky zaradené do frontu",
+      "openDetail": "Otvoriť podrobnosti: {title}",
       "openDetailShort": "Detail",
       "stateHintDegraded": "Zverejnené, ale aplikácia za adresou neodpovedá.",
-      "stateHintFailed": "Posledné zverejnenie zlyhalo. Dôvod nájdete v detaile.",
-      "kindProxy": "Proxy spravovaného projektu",
-      "metricTotal": "Stránok",
+      "stateHintFailed": "Posledné zverejnenie zlyhalo. Dôvod nájdete v podrobnostiach.",
+      "kindProxy": "Web v projekte",
+      "metricTotal": "Webov",
       "metricLive": "Živých",
       "metricShared": "Zdieľaných so mnou",
       "metricPublic": "Verejných",
-      "detailTitle": "Detail stránky",
+      "detailTitle": "Podrobnosti webu",
       "openSite": "Otvoriť",
       "copyLink": "Kopírovať adresu",
       "copied": "Adresa skopírovaná",
-      "builtBy": "Postavil model {model}",
+      "builtBy": "Vytvoril model {model}",
       "neverPublished": "Zatiaľ nezverejnené",
       "statusLive": "Živá",
       "statusDegraded": "Obmedzená",
       "statusDraft": "Rozpracovaná",
       "statusFailed": "Vyžaduje pozornosť",
       "visibilityPrivate": "Len ja",
-      "visibilityProject": "Projekt",
-      "visibilityAuthenticated": "Prihlásení",
+      "visibilityProject": "Pre členov projektu",
+      "visibilityAuthenticated": "Pre prihlásených používateľov",
       "visibilityPublic": "Verejná",
       "openProject": "Otvoriť projekt",
       "copy": "Kopírovať",
@@ -138,7 +138,7 @@
       "routingHintSubdomain": "Pre túto subdoménu je najjednoduchší CNAME. Namiesto neho môžete použiť zobrazený adresný záznam.",
       "delegatedRootHint": "Ak poskytovateľ hlási konflikt CNAME, pretože je táto subdoména koreňom vlastnej zóny DNS, použite ALIAS, ANAME, A alebo AAAA.",
       "secureStep": "Zabezpečené spojenie",
-      "dnsPropagation": "Zmeny DNS môžu trvať. Táto obrazovka ukazuje, čo teraz vidí táto inštancia Elowen; certifikačná autorita môže zmenu vidieť neskôr.",
+      "dnsPropagation": "Zmeny DNS sa môžu prejaviť s oneskorením. Tu vidíte, čo teraz zistila táto inštancia Elowen. Certifikačná autorita môže zmenu zaznamenať neskôr.",
       "checkAgain": "Skontrolovať znova",
       "checking": "Kontrolujem…",
       "domainAutoChecking": "Automaticky kontrolujem…",
@@ -148,16 +148,16 @@
       "ownership_mismatch": "Záznam TXT existuje, ale jeho hodnota nesúhlasí. Nahraďte ju hodnotou uvedenou tu.",
       "ownership_unavailable": "Vlastníctvo sa nepodarilo skontrolovať: {detail}. Skúste to znova.",
       "ownership_ready": "Vlastníctvo domény je overené.",
-      "dns_missing": "Čaká sa, kým sa začne prekladať {hostname}.",
+      "dns_missing": "Čaká sa, kým sa doména {hostname} preloží v DNS.",
       "dns_misdirected": "{hostname} smeruje inam. Elowen teraz vidí: {observed}.",
       "dns_unavailable": "DNS sa nepodarilo skontrolovať: {detail}. Skúste to znova.",
       "dns_ready": "DNS smeruje na tohto hostiteľa Elowen.",
       "certificate_waiting": "O certifikát sa požiada, keď bude pripravené vlastníctvo aj DNS.",
-      "certificate_requested": "Certifikát čaká vo fronte.",
+      "certificate_requested": "Certifikát čaká na vybavenie.",
       "certificate_issuing": "Žiadam o certifikát. Môže to trvať niekoľko minút.",
       "certificate_ready": "HTTPS je pripravené. Certifikát platí do {date}.",
       "authority_refused": "Certifikačná autorita žiadosť odmietla: {detail}. Opravte uvedený problém a potom stav skontrolujte znova.",
-      "gateway_configuration_failed": "Elowen nemohol doménu aktivovať na svojej bráne: {detail}.",
+      "gateway_configuration_failed": "Elowen sa nepodarilo aktivovať doménu na svojej bráne: {detail}.",
       "gateway_not_serving": "Certifikát existuje, ale táto brána ho zatiaľ nepoužíva. Skontrolujte stav znova.",
       "renewal_dns_missing": "Obnova je pozastavená, pretože {hostname} už sem nesmeruje. Súčasný certifikát platí do {date}. Dovtedy obnovte záznam DNS.",
       "renewal_dns_misdirected": "Obnova je pozastavená, pretože {hostname} smeruje inam. Elowen teraz vidí {observed}. Súčasný certifikát platí do {date}.",
@@ -187,16 +187,16 @@
       "removeGuest": "Odobrať",
       "publicWarning": "Stránku bude môcť otvoriť ktokoľvek, kto pozná adresu, a to bez prihlásenia.",
       "publicConfirm": "Zverejniť",
-      "publicDisabled": "Verejné stránky sú na tejto inštancii vypnuté.",
+      "publicDisabled": "Verejné weby sú v tejto inštancii vypnuté.",
       "sourceNotice": "Toto nastavenie riadi zverejnenú adresu. Prístup k aplikácii a jej súborom sa spravuje samostatne v projekte.",
       "deleteTitle": "Zmazať túto stránku",
-      "deleteHint": "Adresa prestane fungovať. Uchované verzie starších súborových publikácií sa odstránia; spravovaný projekt a jeho aplikácia zostanú nedotknuté.",
+      "deleteHint": "Adresa prestane fungovať. Odstránia sa aj uložené verzie starších publikácií zo súborov. Projekt a jeho aplikácia zostanú nezmenené.",
       "delete": "Zmazať stránku",
       "deleted": "Stránka zmazaná",
       "saved": "Uložené",
       "close": "Zavrieť",
       "releaseLive": "Živá",
-      "projectPublicationLink": "Táto publikácia používa transport spravovaného projektu {project}."
+      "projectPublicationLink": "Tento web beží v projekte {project}."
     }
   }
 }

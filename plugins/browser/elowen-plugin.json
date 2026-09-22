@@ -1,9 +1,9 @@
 {
   "name": "browser",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Browser automation for linked accounts. Each account browser keeps an account-private profile on the host, with a virtual display, a VNC live view, exclusive user takeover and an enforcing network proxy around every session.",
+  "description": "Browser automation for linked accounts. Each account has its own private profile on the host, a virtual display and a live VNC view. Only the user can take control. A network proxy that enforces rules protects every session.",
   "entry": "dist/index.js",
   "userGrantable": true,
   "capabilities": {
@@ -76,7 +76,7 @@
       "key": "runtime",
       "label": "Runtime",
       "type": "section",
-      "hint": "Chrome detection and account-level process limits. Browser launch is refused unless the enforcing proxy and Chrome sandbox path are available."
+      "hint": "Chrome detection and process limits for each account. The browser starts only when the enforcing proxy and a safe Chrome sandbox are available."
     },
     {
       "key": "chromeExecutable",
@@ -84,7 +84,7 @@
       "type": "string",
       "advanced": true,
       "placeholder": "Auto-detect",
-      "hint": "Optional absolute path to Chrome or Chromium. Leave empty to use a supported system executable."
+      "hint": "Optional full path to Chrome or Chromium. Leave empty to use a supported system browser."
     },
     {
       "key": "maxActiveUsers",
@@ -98,7 +98,7 @@
         "control": "slider",
         "unit": "accounts"
       },
-      "hint": "Maximum number of account-owned Chrome processes running at once."
+      "hint": "Maximum number of Chrome processes running at once, one for each account."
     },
     {
       "key": "maxSessionsPerUser",
@@ -112,7 +112,7 @@
         "control": "slider",
         "unit": "tabs"
       },
-      "hint": "Maximum number of browser tab sessions one account may keep open in its Chrome process."
+      "hint": "Maximum number of tab sessions one account may keep open in its Chrome process."
     },
     {
       "key": "timeouts",
@@ -145,7 +145,7 @@
         "control": "slider",
         "unit": "min"
       },
-      "hint": "Absolute lifetime of one browser session, including time under user control."
+      "hint": "Total time for one browser session, including time under your control."
     },
     {
       "key": "browserCloseGraceSeconds",
@@ -160,13 +160,13 @@
         "unit": "s"
       },
       "advanced": true,
-      "hint": "How long an account's Chrome process remains available after its last tab closes. The profile stays on disk."
+      "hint": "How long Chrome stays available after the account's last tab closes. The profile stays on disk."
     },
     {
       "key": "streaming",
       "label": "Live view",
       "type": "section",
-      "hint": "Each account's Chrome is drawn on a private virtual display and served over VNC, so a person taking control sends real keyboard and mouse input. Requires Xvfb and x11vnc on the host."
+      "hint": "Each account's Chrome appears on a private virtual display and streams over VNC. When taking control, the user sends real keyboard and mouse input. Xvfb and x11vnc must be installed on the host."
     },
     {
       "key": "maxViewportWidth",
@@ -180,7 +180,7 @@
         "control": "slider",
         "unit": "px"
       },
-      "hint": "The size of the virtual display. The page itself is shorter by the height of Chrome's tab strip and address bar."
+      "hint": "Virtual display size. The page itself is shorter because Chrome's tab strip and address bar take up space."
     },
     {
       "key": "maxViewersPerSession",
@@ -194,7 +194,7 @@
         "control": "slider",
         "unit": "viewers"
       },
-      "hint": "Each viewer receives the whole framebuffer: the VNC server encodes one stream per connection and cannot scale it down for a small window."
+      "hint": "Each viewer gets the full screen image. The VNC server creates a separate stream for each connection and cannot shrink it for a small window."
     },
     {
       "key": "vncDeferMs",
@@ -209,7 +209,7 @@
         "control": "slider",
         "unit": "ms"
       },
-      "hint": "How long the VNC server gathers screen changes before sending them. Measured at 1280×800: 10 ms reacts in 88 ms and costs about 590 kB/s while scrolling, 40 ms costs about 370 kB/s but takes 146 ms to react."
+      "hint": "How long the VNC server gathers screen changes before sending them. Measured at 1280×800: 10 ms reacts in 88 ms and uses about 590 kB/s while scrolling. 40 ms uses about 370 kB/s but reacts in 146 ms."
     },
     {
       "key": "control",
@@ -228,7 +228,7 @@
         "control": "slider",
         "unit": "s"
       },
-      "hint": "User control must heartbeat within this lease. A stale modal cannot extend or release a newer lease."
+      "hint": "User control must confirm it is still active within this interval. An old window cannot extend or release a newer takeover."
     },
     {
       "key": "resourceLimits",
@@ -266,7 +266,7 @@
       "key": "network",
       "label": "Network policy",
       "type": "section",
-      "hint": "All Chrome traffic must pass through a loopback proxy that resolves, approves and pins the destination address before dialing."
+      "hint": "All Chrome traffic must pass through a local proxy. Before connecting, it checks, approves and pins the destination address."
     },
     {
       "key": "proxyConcurrency",
@@ -281,7 +281,7 @@
         "unit": "connections"
       },
       "advanced": true,
-      "hint": "Sockets Chrome may hold open through the proxy at once. One image-heavy page opens dozens across its CDNs, and every request over this limit reaches the page as ERR_TUNNEL_CONNECTION_FAILED with images silently missing. Lower it only to throttle an account deliberately."
+      "hint": "Number of connections Chrome may keep open through the proxy at once. A page with many images can open dozens across different content delivery networks (CDNs). Each request over the limit fails with ERR_TUNNEL_CONNECTION_FAILED, and images do not load. Lower the limit only to deliberately restrict an account."
     },
     {
       "key": "proxyRequestsPerMinute",
@@ -296,7 +296,7 @@
         "unit": "requests"
       },
       "advanced": true,
-      "hint": "Requests per minute across the whole account. A person clicking through a normal site spends several hundred a minute, so a low value shows up as pages that half-load."
+      "hint": "Request limit per minute for the whole account. Normal browsing uses several hundred a minute, so a low limit leaves pages only partly loaded."
     },
     {
       "key": "privateNetworkAllowlist",
@@ -305,7 +305,7 @@
       "advanced": true,
       "risk": "high",
       "placeholder": "dev.internal, 10.20.0.0/16",
-      "hint": "Exact hostnames or CIDRs explicitly allowed for local development. Empty blocks private, loopback, link-local and metadata networks."
+      "hint": "Exact hostnames or CIDR ranges explicitly allowed for local development. An empty list blocks private, loopback, link-local and metadata networks."
     }
   ],
   "web": {
@@ -330,7 +330,7 @@
     "strings": {
       "sessionTitle": "Browser session",
       "accountTitle": "Browser profile",
-      "accountDescription": "Your private Chrome profile keeps browser sign-ins between sessions on this Elowen instance.",
+      "accountDescription": "Your private Chrome profile keeps sign-ins between sessions on this Elowen installation.",
       "settingsTitle": "Browser runtime",
       "settingsDescription": "Live capacity and isolation status for managed Chrome sessions.",
       "closed": "Closed",
@@ -364,7 +364,7 @@
       "action_scroll": "Scrolling",
       "action_paste": "Pasting text",
       "closeConfirmTitle": "Close browser session?",
-      "closeConfirmDescription": "The live view and tab will close. Your browser profile and sign-in data remain stored.",
+      "closeConfirmDescription": "The live view and tab will close. Your browser profile and sign-ins remain stored.",
       "liveCapacity": "Live capacity",
       "liveCapacityHint": "Only counts active Chrome processes and tab sessions. Browser content remains private to its account.",
       "activeAccounts": "active accounts",
@@ -378,10 +378,10 @@
       "chatUnavailable": "Chat live view unavailable",
       "chatLiveView": "Live view in chat",
       "limitsTitle": "Limits",
-      "limitsHint": "The sliders above are enforced before allocating Chrome, a virtual display or a live view connection.",
-      "limitsBody": "Idle and hard timeouts close sessions automatically. Each live view is one VNC connection carrying the whole framebuffer, and only the account holding the takeover lease may send input.",
+      "limitsHint": "The limits above apply before Chrome, a virtual display or a live view connection starts.",
+      "limitsBody": "Sessions close automatically after the idle or maximum time limit. A live view sends the full image over one VNC connection. Only the account that took control can operate the browser.",
       "depsTitle": "Dependencies",
-      "depsHint": "Everything a managed browser session needs before it can start. These checks only read: the sandbox and the DevTools connection are verified by the first managed launch.",
+      "depsHint": "Everything a managed browser session needs to start. These checks only read data. The sandbox and DevTools connection are checked on first managed launch.",
       "depsCounted": "dependencies ready",
       "depReady": "Ready",
       "depAttention": "Attention",
@@ -399,29 +399,29 @@
       "dep_liveview_ready": "This host carries plugin WebSocket routes.",
       "dep_liveview_missing": "This host cannot carry a plugin WebSocket, so sessions run without a live view or user takeover.",
       "dep_liveview_missing_fix": "Update Elowen to a release that offers plugin WebSocket routes.",
-      "dep_chrome_missing": "No supported Chrome or Chromium executable was found on this host.",
-      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or set the executable in this plugin’s settings.",
+      "dep_chrome_missing": "No supported Chrome or Chromium executable was found on this computer.",
+      "dep_chrome_missing_fix": "Install Google Chrome or Chromium, or enter the path to the executable in the plugin settings.",
       "dep_chrome_unusable": "The configured executable is missing or cannot be executed by the daemon account.",
-      "dep_chrome_unusable_fix": "Correct the Chrome executable in this plugin’s settings, or clear it to detect one automatically.",
+      "dep_chrome_unusable_fix": "Correct the path to the Chrome executable in the plugin settings, or clear it to find the file automatically.",
       "dep_control_missing": "puppeteer-core is missing from the daemon runtime, or does not expose launch().",
-      "dep_control_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
-      "dep_proxy_missing": "proxy-chain 3.0 cannot be loaded, so browser launch is refused.",
+      "dep_control_missing_fix": "The plugin uses the same runtime dependencies as the Elowen daemon. Reinstall or update Elowen with these dependencies, then restart the daemon.",
+      "dep_proxy_missing": "The proxy-chain 3.0 library could not be loaded, so the browser cannot start.",
       "dep_proxy_missing_fix": "The plugin shares the Elowen daemon’s runtime dependencies: reinstall or update Elowen with its runtime dependencies, then restart the daemon.",
-      "dep_proxy_unsupported": "The proxy adapter cannot pin DNS per request, so browser launch is refused.",
-      "dep_proxy_unsupported_fix": "Restore the bundled proxy adapter; a browser session may only reach a host the navigation policy resolved.",
+      "dep_proxy_unsupported": "The proxy adapter cannot pin DNS per request, so the browser cannot start.",
+      "dep_proxy_unsupported_fix": "Restore the bundled proxy adapter. A browser session can only reach computers whose address was checked by the navigation rules.",
       "dep_storage_unwritable": "The profile directory cannot be written by the daemon account.",
       "dep_storage_unwritable_fix": "Give the daemon account write access to the plugin data directory, then restart the daemon.",
       "dep_storage_exposed": "The profile directory is readable beyond the daemon account.",
       "dep_storage_exposed_fix": "Restrict the plugin data directory to owner-only access, then restart the daemon.",
       "dep_storage_missing": "The profile directory is no longer the trusted directory the plugin created.",
-      "dep_storage_missing_fix": "Restore the plugin data directory as a real directory owned by the daemon account, then restart the daemon.",
-      "dep_artifacts_missing": "This host has no inline chat artifact bridge, so sessions run without a live card in chat.",
-      "dep_artifacts_missing_fix": "Update Elowen to a release that publishes inline chat artifacts.",
+      "dep_storage_missing_fix": "Restore the plugin data directory as a regular directory owned by the daemon account, then restart the daemon.",
+      "dep_artifacts_missing": "This computer has no connection for displaying content directly in chat. Sessions therefore will not appear as live cards in chat.",
+      "dep_artifacts_missing_fix": "Update Elowen to a release that supports inline chat artifacts.",
       "profileStorage": "Stored browser data",
-      "profileStorageHint": "Cookies and sign-in state live only in your account profile. Live images are never stored.",
+      "profileStorageHint": "Cookies and sign-ins are stored only in your account profile. Live view images are never stored.",
       "storageUsed": "Space used",
       "clearBlocked": "Close every running session before the profile can be cleared.",
-      "sessionsRunning": "Sessions running: {count}",
+      "sessionsRunning": "Running sessions: {count}",
       "clearProfile": "Clear browser data",
       "profileCleared": "Browser data cleared.",
       "liveSessions": "Live sessions",

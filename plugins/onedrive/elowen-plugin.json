@@ -1,9 +1,9 @@
 {
   "name": "onedrive",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
+  "description": "Syncs each project both ways with each person's OneDrive. Files created by the agent appear there without being shared in chat.",
   "entry": "dist/index.js",
   "userGrantable": true,
   "consumesControls": [
@@ -65,7 +65,7 @@
       "label": "Apply deletions from OneDrive",
       "type": "boolean",
       "default": true,
-      "hint": "When someone deletes a mirrored file in OneDrive, move the local copy into the mirror's own trash folder. The file is never removed outright and can always be recovered."
+      "hint": "When someone deletes a mirrored file in OneDrive, its local copy moves to the sync trash. The file is never deleted permanently and can be restored at any time."
     }
   ],
   "web": {
@@ -83,7 +83,7 @@
       "title": "OneDrive",
       "status": "Status",
       "connectCta": "Connect OneDrive",
-      "connectHint": "Mirror this project into your own OneDrive, in both directions.",
+      "connectHint": "Sync this project both ways with your OneDrive.",
       "connectConfirm": "Start mirroring",
       "notLinked": "Your account is not connected to Microsoft.",
       "statusIdle": "In sync",
@@ -100,7 +100,7 @@
       "workspaces": "Sandbox workspaces",
       "workspacesHint": "Each workspace is mirrored into its own folder, separate from the project itself.",
       "conflicts": "Conflicts",
-      "conflictsHint": "Both copies were kept. Choose which one wins; nothing is deleted either way.",
+      "conflictsHint": "Both copies were kept. Choose which one takes precedence; neither is deleted.",
       "close": "Close",
       "keepLocal": "Use the project version",
       "keepRemote": "Use the OneDrive version",
@@ -110,8 +110,8 @@
       "disconnect": "Disconnect",
       "disconnectHint": "Stops mirroring. Files already in OneDrive stay where they are.",
       "mirrorScope": "What is mirrored",
-      "mirrorScopeHint": "Files excluded by the project's .gitignore are skipped. .git, node_modules, .env, private keys and credential files are never mirrored. You can exclude more paths in the plugin settings, but these protections cannot be turned off.",
-      "chooseFolder": "Folder to mirror",
+      "mirrorScopeHint": "Files excluded by the project's .gitignore are not synced. .git, node_modules, .env, private keys and credential files are never synced. You can exclude more paths in the plugin settings. These protections cannot be turned off.",
+      "chooseFolder": "Folder to sync",
       "chooseFolderHint": "The folder you choose is the boundary: its files and subfolders are mirrored in both directions, continuously. The rest of the project is not.",
       "mirrorWholeProject": "Mirror the whole project",
       "mirrorThisFolder": "Mirror this folder",

@@ -1,5 +1,5 @@
 {
-  "description": "Sémantický index kódu: prehľadávajte repozitáre podľa VÝZNAMU, nie podľa presného textu. Rozseká každý prístupný repozitár na bloky, zaindexuje ich ROVNAKÝM embedding modelom ako pamäť (Nastavenia → Pamäť) a uloží vektory do súkromného indexu pre daný repozitár. CodebaseSearch nájde najrelevantnejší kód/dokumentáciu k dotazu v prirodzenom jazyku; CodebaseReindex index inkrementálne obnoví; CodebaseStatus ukáže pokrytie. Dopĺňa textové vyhľadávanie Search z pluginu files.",
+  "description": "Vyhľadávajte v repozitároch kód a dokumentáciu podľa významu, nie podľa presného znenia. Rozdelí prístupné súbory na úseky, každý prevedie pomocou rovnakého embedding modelu ako pamäť a uloží ich do súkromného indexu daného repozitára. Nastavenie nájdete v Nastavenia → Pamäť. CodebaseSearch nájde relevantný kód a dokumentáciu podľa bežného zadania. CodebaseReindex obnovuje index len podľa zmien a CodebaseStatus ukazuje jeho pokrytie. Dopĺňa doslovné vyhľadávanie nástrojom Search v plugine files.",
   "fields": {
     "sec_indexing": {
       "label": "Indexácia",
@@ -7,11 +7,11 @@
     },
     "includeGlobs": {
       "label": "Zahrnúť (globy)",
-      "hint": "Jeden glob na riadok (alebo oddelené čiarkou). Indexujú sa len súbory zodpovedajúce niektorému z nich. Prázdne = zabudovaná sada bežných prípon kódu a markdownu."
+      "hint": "Zadajte jeden vzor na riadok alebo ich oddeľte čiarkami. Zaindexujú sa súbory zodpovedajúce aspoň jednému vzoru. Prázdne pole použije bežné prípony zdrojového kódu a Markdownu."
     },
     "excludeGlobs": {
       "label": "Vylúčiť (globy / priečinky)",
-      "hint": "Priečinky alebo globy, ktoré sa preskočia. Prostý názov (bez lomky/hviezdičky) sa berie ako názov priečinka na vynechanie kdekoľvek v strome."
+      "hint": "Zadajte priečinky alebo vzory, ktoré sa majú preskočiť. Samotný názov bez lomky či hviezdičky sa považuje za názov priečinka a preskočí sa kdekoľvek v projekte."
     },
     "maxFileBytes": {
       "label": "Max. veľkosť súboru (bajty)",
@@ -19,7 +19,7 @@
     },
     "chunkMaxChars": {
       "label": "Veľkosť bloku (znaky)",
-      "hint": "Horná hranica veľkosti bloku pred rozdelením (prednostne delí na prázdnych riadkoch)."
+      "hint": "Najvyšší počet znakov v úseku pred jeho rozdelením. Prednostne sa rozdeľuje na prázdnom riadku."
     },
     "sec_search": {
       "label": "Vyhľadávanie a správanie",
@@ -35,11 +35,11 @@
     },
     "autoReindex": {
       "label": "Automatická reindexácia pri hľadaní",
-      "hint": "Keď je zapnuté, vyhľadávanie lenivo obnoví index repozitára, ak je prázdny alebo zastaraný (s oneskorením), takže CodebaseReindex je zriedka potrebný."
+      "hint": "Pri vyhľadávaní sa automaticky obnoví prázdny alebo zastaraný index repozitára. Obnova sa zlúči, ak príde viac požiadaviek krátko po sebe. CodebaseReindex potom zvyčajne nemusíte spúšťať ručne."
     },
     "reindexEmbedBudget": {
-      "label": "Embeddingov na priechod",
-      "hint": "Max. počet blokov zaindexovaných v jednom priechode, aby sa veľký repozitár rozložil do viacerých priechodov a nezahltil poskytovateľa."
+      "label": "Počet embeddingov na jedno obnovenie",
+      "hint": "Najvyšší počet úsekov prevedených na embeddingy pri jednom obnovení. Veľký repozitár sa rozdelí na viac obnovení, aby sa poskytovateľ nepreťažil."
     },
     "sec_schedule": {
       "label": "Plánovaná reindexácia",
@@ -47,11 +47,11 @@
     },
     "scheduledReindex": {
       "label": "Reindexovať podľa plánu",
-      "hint": "Predvolene vypnuté: časovač míňa u poskytovateľa embeddingov bez dozoru. Zapnite, keď vám bude vyhovovať rozsah a interval nižšie."
+      "hint": "Predvolene je vypnuté. Časovač bez dozoru využíva kapacitu poskytovateľa embeddingov a môže zvýšiť náklady. Zapnite ho, iba ak vám vyhovuje nižšie nastavený rozsah a interval."
     },
     "reindexIntervalMinutes": {
       "label": "Interval (minúty)",
-      "hint": "Ako často beží obnova na pozadí. Jeden tik stojí najviac počet repozitárov × priechodov × embeddingov na priechod."
+      "hint": "Ako často sa index na pozadí obnovuje. Jedno spustenie môže vytvoriť najviac toľko embeddingov, koľko je repozitárov × počet priechodov × embeddingov na priechod."
     },
     "reindexScope": {
       "label": "Ktoré repozitáre",
@@ -63,15 +63,15 @@
     },
     "reindexRepos": {
       "label": "Cesty k repozitárom",
-      "hint": "Jedna absolútna cesta na riadok (alebo oddelené čiarkou). Cesta, ktorá nie je čitateľný priečinok, sa preskočí a zaloguje."
+      "hint": "Zadajte úplné cesty k repozitárom. Cesty môžete zadať po jednej na riadok alebo ich oddeliť čiarkami. Cesty, ktoré nevedú do čitateľného priečinka, sa preskočia a zaznamenajú."
     },
     "reindexMaxPassesPerRepo": {
       "label": "Priechodov na repozitár a tik",
-      "hint": "Horná hranica po sebe idúcich priechodov nad jedným repozitárom v rámci jedného tiku. Repozitár, kde už nie je čo indexovať, skončí skôr — ide teda len o strop najhoršieho prípadu."
+      "hint": "Najvyšší počet priechodov jedného repozitára pri jednom spustení. Ak už nie je čo indexovať, spracovanie sa skončí skôr."
     },
     "sec_model": {
-      "label": "Model pre embeddingy",
-      "hint": "Embedding model sa preberá z Nastavenia → Pamäť (jediný zdroj pravdy) — tu sa žiadny samostatný model nenastavuje. Zmena tohto modelu pri ďalšej reindexácii index prestavia."
+      "label": "Model embeddingov",
+      "hint": "Embedding model sa preberá z Nastavenia → Pamäť. Tu ho nemožno nastaviť samostatne. Po zmene modelu sa pri ďalšom obnovení index vytvorí znova."
     }
   }
 }

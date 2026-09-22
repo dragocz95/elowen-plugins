@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPluginUiBundle, buildPluginUiCss } from 'elowen-plugin-ui-kit/build';
+import { BROWSER_BUNDLES } from './browserBundles.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(root, 'plugins');
@@ -22,15 +23,15 @@ for (const name of readdirSync(pluginsDir)) {
   if (only && name !== only) continue;
   const dir = join(pluginsDir, name);
   if (!statSync(dir).isDirectory()) continue;
-  const src = join(dir, 'web-src');
+  const src = join(dir, BROWSER_BUNDLES.pluginUi.source);
   if (!existsSync(src)) continue;
   const entry = ENTRY_NAMES.map((f) => join(src, f)).find((f) => existsSync(f));
   if (!entry) throw new Error(`[build-web] ${name}: web-src/ exists but has no index.{tsx,ts,jsx,js} entry`);
   // Browser libraries (lucide-react…) resolve from this repo's own node_modules. They are pinned in the
   // lockfile: the same source must produce the same bytes, or the drift check would fail on a dependency
   // bump rather than on a real change.
-  const bundle = join(dir, 'web', 'index.js');
-  const stylesheet = join(dir, 'web', 'index.css');
+  const bundle = join(dir, BROWSER_BUNDLES.pluginUi.output, 'index.js');
+  const stylesheet = join(dir, BROWSER_BUNDLES.pluginUi.output, 'index.css');
   // esbuild writes imported source CSS beside the JS bundle. Start clean so a plugin that removes its last
   // CSS import cannot accidentally carry the previous build forward, then append the generated utility layer.
   rmSync(stylesheet, { force: true });

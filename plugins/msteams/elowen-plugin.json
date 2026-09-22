@@ -1,6 +1,6 @@
 {
   "name": "msteams",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
@@ -71,7 +71,7 @@
     "strings": {
       "title": "Microsoft Teams",
       "workspaceEyebrow": "Microsoft 365",
-      "workspaceIntro": "Manage the Teams bot, known people and their access to Elowen from one place.",
+      "workspaceIntro": "Manage the Teams bot, known people and their access to Elowen in one place.",
       "workspaceReady": "Connected",
       "workspaceSetup": "Setup incomplete",
       "downloadPackage": "Download app package",
@@ -92,7 +92,7 @@
       "accountNone": "No linked account",
       "peopleEmptyTitle": "No people are known yet",
       "peopleEmptyDescription": "People appear here after the bot sees them in a conversation or roster. No Microsoft Graph permission is required.",
-      "peopleNoResults": "No matching people",
+      "peopleNoResults": "No people match the filter",
       "peopleNoResultsDescription": "Change the search or access filter.",
       "badgeMapped": "Configured",
       "badgeInherited": "Fallback access",
@@ -100,10 +100,10 @@
       "chatOpen": "Personal chat",
       "removeAccess": "Remove admission",
       "inheritedTitle": "This person uses the fallback policy",
-      "inheritedDescription": "Create a direct policy to admit this person explicitly or add room instructions.",
+      "inheritedDescription": "Create a direct access policy for this person or add room instructions.",
       "unmappedTitle": "This person has no individual policy",
-      "unmappedDescription": "When organisation member sign-in is enabled, this person can sign in from a personal chat and use their own account access. Otherwise, create a policy before the bot can respond.",
-      "configureAccess": "Configure admission",
+      "unmappedDescription": "If organisation member sign-in is enabled, this person can sign in from a personal chat and use their account access. Otherwise, create a policy so the bot can reply.",
+      "configureAccess": "Configure access",
       "identityTitle": "Microsoft identity",
       "identityConnected": "Connected through Microsoft Entra ID",
       "identityNeedsSignIn": "Needs Microsoft sign-in",
@@ -128,10 +128,10 @@
       "identityVerifiedAt": "Verified: {value}",
       "identitySaving": "Saving identity change…",
       "identityReplaceTitle": "Change linked Elowen account?",
-      "identityReplaceDescription": "This Entra identity will act as @{username}. Existing private memory and plugin credentials follow that account.",
+      "identityReplaceDescription": "This Entra identity will use the @{username} account. Private memory and plugin credentials stay with that account.",
       "identityReplaceConfirm": "Change account",
       "adminLabel": "Teams administrator",
-      "adminHint": "Allows room-administration slash commands and marks the conversation as trusted context. It does not grant account, project, tool or instance-operator access.",
+      "adminHint": "Allows room-administration slash commands and marks the conversation as trusted. It does not grant account, project or tool access, or instance administrator permissions.",
       "promptLabel": "Additional instructions",
       "promptHint": "These instructions are added only to this person's Teams turns.",
       "promptPlaceholder": "For example: Keep answers concise and focus on sales operations.",
@@ -350,7 +350,7 @@
     },
     {
       "key": "m365MaxTransferBytes",
-      "label": "Microsoft file transfer limit",
+      "label": "Microsoft 365 file transfer limit",
       "type": "number",
       "min": 1048576,
       "max": 262144000,
@@ -396,7 +396,7 @@
       "label": "Microsoft Graph lookup",
       "type": "boolean",
       "default": false,
-      "hint": "Off: the bot can only write to people it has already met in Teams. On: an unknown e-mail is resolved against the tenant directory and the Teams app is installed for that person so a chat can be opened. Requires the APPLICATION permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent. Directory avatars additionally use ProfilePhoto.Read.All; without it the workspace falls back to the linked Elowen account avatar."
+      "hint": "Off: the bot can only message people it has already seen in Teams. On: an unknown e-mail is searched in the tenant directory, and the Teams app is installed for that person so a chat can be opened. Requires the application permissions User.ReadBasic.All and TeamsAppInstallation.ReadWriteSelfForUser.All with tenant admin consent. Directory photos also require ProfilePhoto.Read.All. Without it, the linked Elowen account's profile picture is used."
     },
     {
       "key": "graphCatalogAppId",
@@ -454,10 +454,10 @@
         },
         {
           "value": "live",
-          "label": "Stream answer live"
+          "label": "Show answer as it is written"
         }
       ],
-      "hint": "Final posts one reply when the turn ends; live streams the answer into a message as it is written."
+      "hint": "Final sends the completed answer at the end. Live mode updates it as the answer is written."
     },
     {
       "key": "toolOutput",
@@ -495,14 +495,14 @@
           "label": "One message per tool"
         }
       ],
-      "hint": "Single keeps one edited progress message; per-tool posts a message per tool call."
+      "hint": "One message is updated as work progresses. With “One message per tool”, a separate message is sent for each tool call."
     },
     {
       "key": "deleteToolActivityAfterTurn",
       "label": "Replace tool activity with answer",
       "type": "boolean",
       "default": false,
-      "hint": "Show one live progress message while the agent works, then replace that same message with the final answer. No message is deleted; live-answer and per-tool layouts are overridden."
+      "hint": "Show one live progress message while the agent works, then replace it with the final answer. No message is deleted. This overrides live answers and per-tool messages."
     },
     {
       "key": "reactions",
@@ -513,7 +513,7 @@
     },
     {
       "key": "runtimeFooter",
-      "label": "Runtime footer",
+      "label": "Run details footer",
       "type": "boolean",
       "default": true,
       "hint": "Append a small \"model · context %\" line under the final reply."
@@ -568,20 +568,20 @@
       "label": "Read every channel message",
       "type": "boolean",
       "default": false,
-      "hint": "Adds the ChannelMessage.Read.Group resource-specific permission to the downloadable app package, so in a team where the app is installed the bot SEES every channel message instead of only @mentions — that is what fills the history backfill above. A team owner consents when the package is installed or updated in that team (no tenant admin needed), so this setting alone changes nothing until the new package is uploaded and the app updated in the team."
+      "hint": "Adds the ChannelMessage.Read.Group permission to the app package. In a team with the app installed, the bot can see every channel message, not just @mentions, and load the history above. The team owner grants consent when installing or updating the app. No tenant admin is needed. The change takes effect after uploading the new package and updating the app in the team."
     },
     {
       "key": "visionModel",
       "label": "Vision model",
       "type": "model",
-      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the chat's normal model."
+      "hint": "Model for messages with images. It must support images. Leave this field empty to use the regular chat model."
     },
     {
       "key": "sec_media",
       "label": "Media limits",
       "type": "section",
       "advanced": true,
-      "hint": "Caps on inbound/outbound images and how long a pending question stays open."
+      "hint": "Limits for incoming and outgoing images and how long a pending question stays open."
     },
     {
       "key": "maxImageBytes",
@@ -592,7 +592,7 @@
       "step": 1048576,
       "placeholder": "5242880",
       "default": 5242880,
-      "hint": "Largest image attachment (bytes) the bot downloads for vision."
+      "hint": "Largest image attachment in bytes that the bot downloads to process the image."
     },
     {
       "key": "maxImages",
@@ -603,7 +603,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
+      "hint": "How many images from one incoming message the bot sends to the model for processing."
     },
     {
       "key": "maxUploadImages",
@@ -620,13 +620,13 @@
       "key": "sec_roles",
       "label": "Role policies",
       "type": "section",
-      "hint": "Decide which Teams senders the bot admits and optionally add room instructions."
+      "hint": "Decide which Teams senders the bot admits. You can also add room instructions."
     },
     {
       "key": "rolePolicies",
       "label": "Role policies",
       "type": "rolePolicies",
-      "hint": "First matching policy admits the sender. The ID is the sender's Entra object ID (a GUID), their UPN/email, a whole conversation ID (admits everyone in that chat), or * for every sender — keep a * policy last, below the named entries it would otherwise swallow. `admin` enables room-administration slash commands and trusted-room context only. Project and tool permissions always come from the sender's linked Elowen account; an admitted unlinked sender receives the existing sign-in card and no brain turn."
+      "hint": "The first matching policy admits the sender. The ID can be the sender's Entra object ID (GUID), UPN or email, the full conversation ID (admits everyone in that chat), or * for all senders. Put a * policy after specific entries, or it will override them. The `admin` key allows only room-administration slash commands and marks the room context as trusted. Project and tool access always comes from the sender's linked Elowen account. An admitted sender without a linked account sees the existing sign-in card and gets no reply."
     }
   ]
 }

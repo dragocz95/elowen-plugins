@@ -37,7 +37,8 @@ import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
-import { AHEAD_OF_RELEASE_API_VERSION, AHEAD_OF_RELEASE_RUNTIME } from './ui/hostAheadOfRelease';
+import { AHEAD_OF_RELEASE_RUNTIME } from './ui/hostAheadOfRelease';
+import { PLUGIN_UI_API_VERSION } from 'elowen-plugin-ui-kit';
 
 const requireFromHere = createRequire(import.meta.url);
 const packageRoot = dirname(requireFromHere.resolve('elowen/package.json'));
@@ -206,10 +207,8 @@ describe('the stand-in host runtime the UI suites render against', () => {
   });
 
   it('announces the API version the host it targets declares', () => {
-    // The version is a compatibility CEILING (`entry.apiVersion <= host`), so a stand-in claiming a
-    // version ABOVE the host would load bundles the real host would refuse. It is allowed to run ahead
-    // of the pinned package only by the amount hostAheadOfRelease.ts declares and explains.
-    expect(copied.apiVersion).toBe(AHEAD_OF_RELEASE_API_VERSION);
-    expect(AHEAD_OF_RELEASE_API_VERSION).toBeGreaterThanOrEqual(packaged!.apiVersion);
+    // The stand-in, published kit and packaged host must agree on the API version.
+    expect(copied.apiVersion).toBe(PLUGIN_UI_API_VERSION);
+    expect(PLUGIN_UI_API_VERSION).toBe(packaged!.apiVersion);
   });
 });

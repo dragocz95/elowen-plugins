@@ -28,8 +28,8 @@ function setup(enabled: string[]) {
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const amy = users.create('amy', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const amy = users.create('amy', 'human', 'pw');
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled, dataRoot,
     logger: { info: () => {}, warn: () => {}, error: () => {} },

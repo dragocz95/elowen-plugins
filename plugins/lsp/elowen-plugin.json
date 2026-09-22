@@ -1,9 +1,9 @@
 {
   "name": "lsp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
+  "description": "Language server tools help with code: they check types after edits (LspDiagnostics), find definitions and references, show signatures, and list symbols. Results come from the language server for the file, not text search. Elowen supports TypeScript, Pyright, gopls, rust-analyzer, clangd, and more. It can install npm-based servers in its own folder. Turning it off stops all servers and disables the tools.",
   "entry": "dist/index.js",
   "consumesControls": [
     "sandbox"
@@ -74,11 +74,11 @@
       "label": "Live diagnostics",
       "type": "boolean",
       "default": true,
-      "hint": "Type-check edits through language servers. Turning this off stops every running server; the tools stay listed and report that LSP is off. The `/lsp` command flips the same switch."
+      "hint": "Check edits with language servers. Turning this off stops all running servers. The tools stay listed but report that LSP is off. The `/lsp` command switches the same setting."
     },
     {
       "key": "idleTtlMinutes",
-      "label": "Keep warm servers for",
+      "label": "How long to keep servers running",
       "type": "number",
       "min": 0,
       "max": 240,

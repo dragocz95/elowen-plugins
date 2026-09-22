@@ -33,7 +33,7 @@
     "check:web-types": "tsc -p tsconfig.plugins-web.json"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
     "@monaco-editor/react": "^4.7.0",
     "@novnc/novnc": "^1.7.0",
     "@page-agent/page-controller": "1.12.4",
@@ -45,7 +45,7 @@
     "@types/node": "^22.0.0",
     "@types/papaparse": "^5.5.2",
     "baileys": "^7.0.0-rc13",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^13.0.3",
     "botframework-connector": "^4.23.3",
     "deep-chat": "2.5.1",
     "dependency-cruiser": "^17.4.3",
@@ -60,7 +60,7 @@
     "globals": "^17.11.0",
     "grammy": "^1.45.1",
     "ivya": "1.8.2",
-    "jose": "^5.10.0",
+    "jose": "^6.2.12",
     "jsdom": "^25.0.1",
     "knip": "^6.32.3",
     "lucide-react": "^0.460.0",
@@ -72,12 +72,12 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "semver": "^7.8.5",
-    "typebox": "^1.1.38",
+    "typebox": "^1.3.34",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.10",
     "ws": "^8.21.3",
-    "yaml": "^2.9.0",
+    "yaml": "^2.9.1",
     "zod": "^4.4.3"
   },
   "dependencies": {

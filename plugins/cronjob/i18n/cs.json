@@ -1,45 +1,45 @@
 {
-  "description": "Naplánované prompty: opakující se úlohy (\"every 30m\", \"daily 07:30\") a jednorázová probuzení (\"in 20m\", \"at 18:30\"), které běží jako jménem vlastníka. Svou Automation stránku si spravuje každý účet; instance úlohy jen administrátor.",
+  "description": "Plánované prompty: opakované úlohy (\"every 30m\", \"daily 07:30\") a jednorázová probuzení (\"in 20m\", \"at 18:30\"). Osobní plány běží s oprávněními svého vlastníka a výsledek doručí do vlastní konverzace nebo zpět do přímého chatu, kde vznikly. Úlohy pro celou instanci běží s oprávněními jejího vlastníka a hlásí se do oznamovacího kanálu; spravovat je může jen vlastník instance.",
   "fields": {
     "sec_scheduler": {
       "label": "Plánovač",
-      "hint": "Interval kontroly, chování opakování a timeout kontroly guardu."
+      "hint": "Interval kontrol, opakování při chybě a časový limit kontrolního příkazu."
     },
     "tickMs": {
       "label": "Interval kontroly (ms)",
-      "hint": "Jak často se kontrolují splatné úlohy."
+      "hint": "Jak často se kontrolují úlohy, které mají být spuštěny."
     },
     "retryAttempts": {
-      "label": "Počet pokusů o tah",
-      "hint": "Celkový počet pokusů o tah opakující se úlohy při dočasné chybě požadavku — 1 znamená žádný retry, 2 (výchozí) znamená jeden retry."
+      "label": "Počet pokusů",
+      "hint": "Kolik pokusů má opakovaná úloha při dočasném selhání požadavku. Hodnota 1 znamená, že se pokus neopakuje. Výchozí hodnota 2 znamená jeden opakovaný pokus."
     },
     "retryBackoffMs": {
-      "label": "Prodleva před opakováním (ms)",
+      "label": "Prodleva mezi pokusy (ms)",
       "hint": "Pauza před opakováním, aby dočasný problém mohl odeznít."
     },
     "checkTimeoutMs": {
-      "label": "Timeout kontroly (ms)",
-      "hint": "Timeout pro levný guard příkaz \"check\" u úlohy."
+      "label": "Časový limit kontroly (ms)",
+      "hint": "Časový limit kontrolního příkazu `check` u úlohy."
     },
     "checkOutputChars": {
       "label": "Limit výstupu kontroly (znaky)",
-      "hint": "Kolik výstupu z guard příkazu „check“ se předá do tahu mozku. Zvyšte pro collectory, které vytvářejí velká agregovaná data."
+      "hint": "Kolik znaků z výstupu kontrolního příkazu `check` se předá asistentovi. Vyšší hodnotu nastavte, pokud kontrola vrací mnoho souhrnných údajů."
     },
     "cronLookbackMs": {
       "label": "Okno dohledání zmeškaných cron spuštění (ms)",
-      "hint": "Jak daleko zpět hledá pětipolová cron úloha spuštění, které zmeškala během výpadku démona. Dohledá se vždy jen poslední zmeškané spuštění, nikdy nahromaděná fronta. Rozsah 1 hodina až 7 dní, výchozí 24 hodin."
+      "hint": "Jak daleko do minulosti hledá pětipolová cron úloha běh zmeškaný během výpadku démona. Obnoví se pouze poslední zmeškaný běh, ne všechny zmeškané běhy. Rozsah: 1 hodina až 7 dní. Výchozí hodnota: 24 hodin."
     },
     "sec_user_limits": {
-      "label": "Limity pro účet",
-      "hint": "Stropy na to, co smí naplánovat jeden neadministrátorský účet. Instanční úlohy (od administrátora) omezené nejsou."
+      "label": "Limity účtu",
+      "hint": "Limity pro osobní úlohy účtu bez oprávnění administrátora. Úlohy pro celou instanci omezené nejsou."
     },
     "maxJobsPerUser": {
       "label": "Úloh na účet",
-      "hint": "Kolik naplánovaných úloh smí mít jeden neadministrátorský účet současně."
+      "hint": "Kolik naplánovaných úloh může mít účet bez oprávnění administrátora současně."
     },
     "minIntervalMinutes": {
       "label": "Nejkratší interval (minuty)",
-      "hint": "Nejrychlejší opakování, které smí nastavit neadministrátorský účet. Každé spuštění je volání modelu, které platí provozovatel."
+      "hint": "Nejkratší interval opakované úlohy, který může nastavit účet bez oprávnění administrátora. Každé spuštění využívá model a náklady hradí provozovatel."
     }
   },
   "web": {
@@ -72,7 +72,7 @@
       "saveError": "Uložení úlohy se nezdařilo",
       "deleteError": "Smazání úlohy se nezdařilo",
       "runNow": "Spustit teď",
-      "runStarting": "Spouštím…",
+      "runStarting": "Spouštění…",
       "runQueued": "Úloha se právě spouští",
       "runError": "Spuštění úlohy se nezdařilo",
       "helpSchedule": "Pro interval, denní nebo týdenní plán použijte průvodce. Pokročilý režim zachová surový pětipolový cron i existující hodnoty, které průvodce neumí vyjádřit.",
@@ -97,7 +97,7 @@
       "weekdayThu": "Čtvrtek",
       "weekdayFri": "Pátek",
       "weekdaySat": "Sobota",
-      "helpHours": "Volitelné okno celých hodin od 0 do 23. Podporována jsou i okna přes půlnoc, například 22-5; minuty podporovány nejsou.",
+      "helpHours": "Volitelné časové okno v celých hodinách od 0 do 23. Lze nastavit i přes půlnoc, například 22-5. Minuty zadat nelze.",
       "hoursMode": "Režim aktivních hodin",
       "hoursOff": "Celý den",
       "hoursWindow": "Omezené hodiny",
@@ -106,10 +106,10 @@
       "hoursEnd": "Koncová hodina",
       "hoursLegacyHint": "Tato uložená hodnota není okno celých hodin ve formátu H-H a zůstane beze změny, dokud nezvolíte jiný režim:",
       "helpHeader": "Zapnuto = doručená zpráva začíná řádkem „⏰ název úlohy“. Vypněte pro persona zprávy ve vyhrazeném kanálu.",
-      "helpCheck": "Levná shell kontrola před promptem. Prázdný výstup = AI se nespustí (šetří model); výstup se předá asistentovi.",
+      "helpCheck": "Kontrolní příkaz v shellu se spustí před promptem. Pokud nic nevypíše, asistent se nespustí a nespotřebuje volání modelu. Jinak dostane jeho výstup.",
       "helpPrompt": "Co má asistent při každém spuštění udělat.",
-      "helpChannel": "Kam se na Discordu doručí výsledek. Výchozí = notifikační kanál pluginu discord.",
-      "helpModel": "Na kterém modelu úloha poběží. Výchozí = výchozí model serveru.",
+      "helpChannel": "Kanál Discordu, do kterého se doručí výsledek. Výchozí je oznamovací kanál pluginu Discord.",
+      "helpModel": "Model, který úloha použije. Výchozí je model serveru.",
       "metricActive": "Aktivní",
       "workspaceEyebrow": "Automatizace",
       "searchPlaceholder": "Hledat úlohu…",
@@ -119,64 +119,64 @@
       "ownerInstance": "Všichni",
       "ownerSystem": "Systém",
       "ownerMine": "Moje",
-      "ownerFieldHint": "Instanční úloha běží bez účtu a hlásí do svého oznamovacího kanálu. Převzetím poběží s vašimi oprávněními a bude hlásit do vlastní konverzace pojmenované po úloze.",
+      "ownerFieldHint": "Úloha pro celou instanci běží bez účtu a posílá výsledek do oznamovacího kanálu. Pokud ji přiřadíte sobě, poběží s vašimi oprávněními a výsledek se zobrazí v samostatné konverzaci pojmenované podle úlohy.",
       "filterMine": "Moje",
-      "filterInstance": "Instanční",
+      "filterInstance": "Instance",
       "executionProject": "Projekt pro spuštění",
-      "helpExecutionProject": "Soubory a příkazy se zpracují v tomto projektu nezávisle na zařazení konverzace. Spravované projekty vyžadují osobní úlohu. Přihlašovací údaje projektu jsou sdílené s jeho členy.",
+      "helpExecutionProject": "Soubory a příkazy se spouštějí v tomto projektu bez ohledu na zařazení konverzace. Spravované projekty vyžadují osobní úlohu. Přihlašovací údaje projektu sdílejí jeho členové.",
       "executionLegacy": "Dosavadní pravidla spouštění",
       "executionHost": "Správa hostitele",
       "executionUnavailable": "Projekty pro spuštění se nepodařilo načíst.",
       "conversation": "Konverzace",
-      "helpConversation": "Kam je úloha zařazena v seznamu konverzací. Pouze organizace: nemění to, s jakým kontextem úloha běží, na jakém modelu, s jakými oprávněními ani kam se doručí výsledek.",
+      "helpConversation": "Tím určíte, kde se úloha zobrazí v seznamu konverzací. Na její kontext, model, oprávnění ani doručení výsledku to nemá vliv.",
       "conversationManage": "Vybrat konverzaci",
       "conversationRequired": "Vyberte konverzaci. Nová opakovaná úloha se uloží po zařazení.",
       "conversationUnassigned": "Nezařazeno",
       "conversationUnavailable": "Konverzace není dostupná",
-      "conversationUnavailableHint": "Konverzace, do které byla úloha zařazena, už neexistuje. Úloha běží dál podle plánu; vyberte jinou konverzaci pro nové zařazení.",
+      "conversationUnavailableHint": "Konverzace, ke které je úloha přiřazená, už neexistuje. Úloha běží dál podle plánu. Vyberte jinou konverzaci a přiřaďte ji k ní.",
       "conversationOwnerHint": "Zařazená konverzace patří předchozímu vlastníkovi. Vyberte takovou, kterou může použít nový vlastník.",
-      "conversationUnresolvedHint": "Zařazenou konverzaci se právě nepodařilo načíst. Úloha běží dál podle plánu a její zařazení zůstává beze změny.",
-      "conversationDirectoryUnavailable": "Tato instance neumí vypsat konverzace.",
+      "conversationUnresolvedHint": "Zařazenou konverzaci se nepodařilo načíst. Úloha běží dál podle plánu a její zařazení se nemění.",
+      "conversationDirectoryUnavailable": "Tato instance Elowen neumí zobrazit seznam konverzací.",
       "conversationLoading": "Načítání konverzací…",
-      "conversationListError": "Konverzace se nepodařilo načíst. Zkuste to prosím znovu.",
+      "conversationListError": "Konverzace se nepodařilo načíst. Zkuste to znovu.",
       "conversationOwnChat": "Vlastní konverzace",
       "linkUnavailableHint": "Byla smazána, nebo patří jinému účtu. Vyberte úlohu ze seznamu.",
       "workspaceTitle": "Automatizace",
       "calEmptyTitle": "Zatím nic nenaplánováno",
-      "calEmptyHint": "Vytvořte jednorázové probuzení, nebo opakující se úlohu.",
-      "nextRun": "Příště",
-      "nextRunPaused": "Pozastaveno — zapnutí plánuje odkud dnes.",
+      "calEmptyHint": "Vytvořte jednorázovou připomínku nebo opakovanou úlohu.",
+      "nextRun": "Další spuštění",
+      "nextRunPaused": "Pozastaveno. Po opětovném zapnutí se úloha naplánuje od této chvíle.",
       "nextRunUnknown": "Příští spuštění se teď nepodařilo zjistit.",
       "runningSince": "Běží od {t}",
       "lastStarted": "Naposledy spuštěno",
       "badgeOneShot": "Jednorázové",
       "badgeRecurring": "Opakující se",
-      "badgeGuardedHint": "Nejprve se spustí check příkaz; tah AI může být vynechán.",
-      "badgeLateHint": "Čas už uplynul; plánovač to vyřeší na příštím tiku.",
-      "badgeCatchUpHint": "Zmeškaný slot po výpadku se dohone jen jednou.",
-      "badgeDeferredHint": "Aktivní hodiny odsazují spuštění na pozdější čas.",
+      "badgeGuardedHint": "Nejprve se spustí kontrolní příkaz. Asistent pak nemusí odpovídat.",
+      "badgeLateHint": "Čas spuštění už uplynul. Plánovač úlohu zpracuje při další kontrole.",
+      "badgeCatchUpHint": "Po výpadku se zmeškané spuštění zopakuje pouze jednou.",
+      "badgeDeferredHint": "Mimo aktivní dobu se spuštění odloží na později tentýž den.",
       "createOneShot": "Jednorázové",
       "createRecurring": "Opakovaná úloha",
-      "createOneShotTitle": "Naplánovat jednorázové probuzení",
+      "createOneShotTitle": "Naplánovat jednorázovou připomínku",
       "createRecurringTitle": "Vytvořit opakovanou úlohu",
-      "createOneShotSubmit": "Vytvořit jednorázové",
+      "createOneShotSubmit": "Naplánovat jednorázově",
       "createRecurringSubmit": "Vytvořit opakovanou úlohu",
       "createAdvanced": "Pokročilé",
       "createDone": "Úloha byla vytvořena",
-      "createReplayed": "Úloha už existuje — nic nevzniklo dvakrát",
+      "createReplayed": "Úloha už existuje. Duplicitní úloha nevznikla.",
       "createPayloadMismatch": "Tento požadavek už byl použit s jiným obsahem",
       "createError": "Vytvoření úlohy se nezdařilo",
       "date": "Datum",
       "time": "Čas",
-      "hoursTimeZone": "Časy jsou v časovém pásmu plánovače.",
+      "hoursTimeZone": "Časy se řídí časovým pásmem plánovače.",
       "cancel": "Zrušit",
       "pauseLabel": "Pozastavit",
       "pauseLabelOn": "Znovu zapnout",
       "calToday": "Dnes",
-      "saveErrorResponse": "server odmítl odeslání",
+      "saveErrorResponse": "Server požadavek odmítl",
       "close": "Zavřít",
-      "helpCreatePrompt": "Jednoduchý úkol, jasně definovaný objem prvně. Krátce je lépe.",
-      "createPaused": "Vytvořit pozastavené",
+      "helpCreatePrompt": "Napište stručně, co má asistent udělat. Čím kratší zadání, tím lépe.",
+      "createPaused": "Vytvořit pozastavenou úlohu",
       "schedulePreviewNext": "Nejbližší spuštění:",
       "tabCalendar": "Kalendář",
       "tabHistory": "Historie",
@@ -209,11 +209,11 @@
       "runFinishedAt": "Dokončeno",
       "runOpenJob": "Otevřít úlohu",
       "runResultTitle": "Výsledek",
-      "runNoResult": "Tělo výsledku nebylo zaznamenáno.",
-      "runResultGone": "Úplný výsledek přepisu již není dostupný. Zachoval se výše uvedený náhled.",
+      "runNoResult": "Text výsledku se neuložil.",
+      "runResultGone": "Úplný přepis už není dostupný. Náhled výše zůstal zachován.",
       "runFullResult": "Zobrazit úplný výsledek",
       "loading": "Načítání…",
-      "dayNothing": "Tento den nic neproběhlo ani není naplánováno",
+      "dayNothing": "V tento den se nic nespustilo ani není naplánováno.",
       "intervalsTitle": "Opakované úlohy",
       "historyEmpty": "Žádná historie spuštění",
       "historyEmptyHint": "Historie spuštění se zaznamenává od této aktualizace.",
@@ -224,8 +224,8 @@
       "colModel": "Model",
       "dayAddTask": "Naplánovat úlohu na {date}",
       "showResult": "Zobrazit výsledek",
-      "runNoneForDay": "Pro tuto úlohu není k danému dni zaznamenán žádný běh.",
-      "presetLabel": "Rychlý start",
+      "runNoneForDay": "Pro tento den není zaznamenáno žádné spuštění této úlohy.",
+      "presetLabel": "Rychlý začátek",
       "presetHint": "Vyberte výchozí bod; všechna pole zůstanou upravitelná.",
       "presetDigest": "Denní přehled",
       "presetDigestName": "denni-prehled",
@@ -239,9 +239,8 @@
       "presetReminder": "Připomínka",
       "presetReminderName": "pripominka",
       "presetReminderPrompt": "Připomeňte mi níže uvedený úkol a uveďte, v jakém je stavu.",
-      "runLoadError": "Běh se nepodařilo načíst",
-      "historyBranch": "Naplánované úlohy",
-      "paused": "Pozastaveno"
+      "runLoadError": "Spuštění se nepodařilo načíst",
+      "historyBranch": "Naplánované úlohy"
     }
   }
 }
