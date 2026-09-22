@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.14.5",
+  "version": "0.14.6",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
