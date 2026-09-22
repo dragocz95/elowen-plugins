@@ -1,15 +1,15 @@
 {
-  "description": "Zoznam úloh: agent pri viackrokovej práci vedie živý kontrolný zoznam a priebežne vám ho zobrazuje.",
+  "description": "Zoznam úloh: agent priebežne zobrazuje postup pri viackrokovej práci.",
   "web": {
     "strings": {
       "title": "Úlohy",
       "filter": "Filtrovať úlohy",
-      "pending": "Čaká",
+      "pending": "Čaká na začatie",
       "inProgress": "Prebieha",
       "completed": "Hotové",
       "rename": "Premenovať",
       "delete": "Vymazať",
-      "actions": "Akcie úlohy",
+      "actions": "Možnosti úlohy",
       "open": "Otvoriť zoznam úloh",
       "clearCompleted": "Vymazať hotové",
       "clearAll": "Vymazať všetko",
@@ -18,11 +18,11 @@
       "clearCompletedDesc": "Hotové úlohy budú natrvalo odstránené.",
       "clearAllTitle": "Vymazať všetky úlohy?",
       "clearAllDesc": "Všetky úlohy budú natrvalo odstránené.",
-      "empty": "Žiadne úlohy",
+      "empty": "Zatiaľ žiadne úlohy",
       "emptyDesc": "V tejto konverzácii nie sú žiadne úlohy.",
       "unavailable": "Plugin úloh nie je k dispozícii.",
       "railTitle": "Úlohy",
-      "more": "ďalšie"
+      "more": "ďalšie úlohy"
     }
   }
 }

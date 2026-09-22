@@ -1,36 +1,99 @@
 {
-  "description": "Automatizace prohlížeče pro propojené účty. Každý prohlížeč účtu si na hostiteli udržuje soukromý profil, virtuální displej, živý náhled VNC, výhradní převzetí ovládání a vynucující síťovou proxy kolem každé relace.",
+  "description": "Automatizace prohlížeče pro propojené účty. Každý účet má na hostiteli vlastní soukromý profil, virtuální obrazovku a živý náhled přes VNC. Uživatel může výhradně převzít ovládání. Veškeré relace chrání síťová proxy, která vynucuje pravidla.",
   "fields": {
-    "runtime": { "label": "Běhové prostředí", "hint": "Detekce Chrome a limity procesů na úrovni účtů. Prohlížeč se nespustí bez vynucující proxy a bezpečné cesty se sandboxem Chrome." },
-    "chromeExecutable": { "label": "Spustitelný soubor Chrome", "hint": "Volitelná absolutní cesta k Chrome nebo Chromiu. Ponechte prázdné pro automatickou detekci podporovaného systémového prohlížeče." },
-    "maxActiveUsers": { "label": "Aktivní účty", "hint": "Nejvyšší počet procesů Chrome vlastněných účty, které mohou běžet současně." },
-    "maxSessionsPerUser": { "label": "Relace karet na účet", "hint": "Nejvyšší počet relací karet, které smí jeden účet držet ve svém procesu Chrome." },
-    "timeouts": { "label": "Časové limity" },
-    "idleTimeoutMinutes": { "label": "Limit nečinnosti", "hint": "Relace se zavře po této době bez aktivity agenta, uživatele nebo diváka." },
-    "hardSessionLimitMinutes": { "label": "Pevný limit relace", "hint": "Absolutní životnost jedné relace včetně doby, kdy ji ovládáte vy." },
-    "browserCloseGraceSeconds": { "label": "Odklad ukončení procesu", "hint": "Jak dlouho zůstane proces Chrome připravený po zavření poslední karty. Profil zůstává uložený." },
-    "streaming": { "label": "Živý náhled", "hint": "Chrome každého účtu se vykresluje na vlastním virtuálním displeji a přenáší se přes VNC, takže při převzetí ovládání posíláte skutečnou klávesnici a myš. Vyžaduje na hostiteli Xvfb a x11vnc." },
-    "maxViewportWidth": { "label": "Šířka displeje", "hint": "Velikost virtuálního displeje. Samotná stránka je nižší o výšku panelu karet a adresního řádku Chrome." },
-    "maxViewersPerSession": { "label": "Diváci na relaci", "hint": "Každý divák dostává celý obraz: VNC server kóduje jeden přenos na spojení a neumí jej pro menší okno zmenšit." },
-    "vncDeferMs": { "label": "Slučování aktualizací", "hint": "Jak dlouho VNC server shromažďuje změny obrazu, než je odešle. Naměřeno při 1280×800: 10 ms reaguje za 88 ms a stojí přibližně 590 kB/s při posouvání, 40 ms stojí asi 370 kB/s, ale reaguje až za 146 ms." },
-    "control": { "label": "Ovládání" },
-    "takeoverLeaseSeconds": { "label": "Doba převzetí", "hint": "Převzaté ovládání musí v této době poslat heartbeat. Staré okno nemůže prodloužit ani uvolnit novější převzetí." },
-    "resourceLimits": { "label": "Limity prostředků" },
-    "maxChromeRssMb": { "label": "Paměť Chrome na účet" },
-    "maxTargetsPerUser": { "label": "Cíle Chrome na účet", "hint": "Zahrnuje stránky, vyskakovací okna, workery a další cíle Chrome. Nové cíle nad limit se zavřou." },
-    "network": { "label": "Síťová politika", "hint": "Veškerý provoz Chrome musí projít lokální proxy, která cílovou adresu vyřeší, schválí a připne ještě před připojením." },
-    "proxyConcurrency": { "label": "Souběžná spojení proxy", "hint": "Kolik spojení smí mít Chrome současně otevřeno přes proxy. Jedna stránka s množstvím obrázků jich otevře desítky napříč svými CDN a každý požadavek nad limit skončí ve stránce jako ERR_TUNNEL_CONNECTION_FAILED s nenačtenými obrázky. Snižujte jen tehdy, když chcete účet záměrně přiškrtit." },
-    "proxyRequestsPerMinute": { "label": "Požadavky proxy za minutu", "hint": "Počet požadavků za minutu za celý účet. Běžné procházení webu jich spotřebuje několik stovek, takže nízká hodnota se projeví jako stránky, které se načtou jen zpola." },
-    "privateNetworkAllowlist": { "label": "Povolené privátní sítě", "hint": "Přesné názvy hostitelů nebo rozsahy CIDR výslovně povolené pro lokální vývoj. Prázdná hodnota blokuje privátní, loopback, link-local a metadata sítě." }
+    "runtime": {
+      "label": "Běhové prostředí",
+      "hint": "Detekce Chrome a limit počtu procesů pro každý účet. Prohlížeč se spustí jen tehdy, když je dostupná proxy vynucující pravidla a bezpečné spuštění Chrome v sandboxu."
+    },
+    "chromeExecutable": {
+      "label": "Spustitelný soubor Chrome",
+      "hint": "Volitelná úplná cesta k Chrome nebo Chromiu. Nechte prázdné, pokud chcete použít podporovaný systémový prohlížeč."
+    },
+    "maxActiveUsers": {
+      "label": "Aktivní účty",
+      "hint": "Nejvyšší počet procesů Chrome spuštěných současně pro jednotlivé účty."
+    },
+    "maxSessionsPerUser": {
+      "label": "Relace karet na účet",
+      "hint": "Nejvyšší počet relací karet, které může mít jeden účet otevřené ve svém procesu Chrome."
+    },
+    "timeouts": {
+      "label": "Časové limity"
+    },
+    "idleTimeoutMinutes": {
+      "label": "Limit nečinnosti",
+      "hint": "Relace se zavře po této době bez aktivity agenta, uživatele nebo diváka."
+    },
+    "hardSessionLimitMinutes": {
+      "label": "Pevný limit relace",
+      "hint": "Celková doba jedné relace prohlížeče, i když ji ovládáte vy."
+    },
+    "browserCloseGraceSeconds": {
+      "label": "Odklad ukončení procesu",
+      "hint": "Jak dlouho zůstane proces Chrome dostupný po zavření poslední karty účtu. Profil zůstane uložený na disku."
+    },
+    "streaming": {
+      "label": "Živý náhled",
+      "hint": "Chrome každého účtu se zobrazuje na soukromé virtuální obrazovce a přenáší přes VNC. Při převzetí ovládání uživatel zadává skutečné příkazy z klávesnice a myši. Na hostiteli musí být nainstalované Xvfb a x11vnc."
+    },
+    "maxViewportWidth": {
+      "label": "Šířka displeje",
+      "hint": "Rozměry virtuální obrazovky. Samotná stránka je nižší o výšku lišty karet a adresního řádku Chrome."
+    },
+    "maxViewersPerSession": {
+      "label": "Diváci na relaci",
+      "hint": "Každý divák dostává celý obraz obrazovky. Server VNC vytváří pro každé připojení samostatný přenos a neumí ho zmenšit pro malé okno."
+    },
+    "vncDeferMs": {
+      "label": "Slučování aktualizací",
+      "hint": "Jak dlouho server VNC shromažďuje změny obrazu před odesláním. Měření při 1280×800: při 10 ms reaguje za 88 ms a při posouvání spotřebuje asi 590 kB/s. Při 40 ms spotřebuje asi 370 kB/s, ale reaguje až za 146 ms."
+    },
+    "control": {
+      "label": "Ovládání"
+    },
+    "takeoverLeaseSeconds": {
+      "label": "Doba převzetí",
+      "hint": "Ovládání uživatelem musí v tomto intervalu potvrdit, že stále trvá. Zastaralé okno nemůže prodloužit ani uvolnit novější převzetí."
+    },
+    "resourceLimits": {
+      "label": "Limity prostředků"
+    },
+    "maxChromeRssMb": {
+      "label": "Paměť Chrome na účet"
+    },
+    "maxTargetsPerUser": {
+      "label": "Cíle Chrome na účet",
+      "hint": "Zahrnuje stránky, vyskakovací okna, pracovní procesy a další cíle Chrome. Nové cíle nad limit se zavřou."
+    },
+    "network": {
+      "label": "Pravidla sítě",
+      "hint": "Veškerý provoz Chrome musí procházet místní proxy. Ta před připojením ověří cílovou adresu, povolí ji a připne."
+    },
+    "proxyConcurrency": {
+      "label": "Souběžná připojení přes proxy",
+      "hint": "Počet připojení, která může mít Chrome současně otevřená přes proxy. Stránka s mnoha obrázky jich může otevřít desítky k různým sítím pro doručování obsahu (CDN). Každý další požadavek nad limit skončí chybou ERR_TUNNEL_CONNECTION_FAILED a obrázky se tiše nenačtou. Limit snižujte jen tehdy, když chcete účet záměrně omezit."
+    },
+    "proxyRequestsPerMinute": {
+      "label": "Požadavky proxy za minutu",
+      "hint": "Počet požadavků za minutu pro celý účet. Při běžném prohlížení jich vznikne několik set za minutu. Nízký limit proto způsobí, že se stránky načtou jen částečně."
+    },
+    "privateNetworkAllowlist": {
+      "label": "Povolené soukromé sítě",
+      "hint": "Přesné názvy hostitelů nebo rozsahy CIDR výslovně povolené pro místní vývoj. Prázdný seznam blokuje soukromé sítě, adresy zpětné smyčky, link-local a metadata sítě."
+    }
   },
   "web": {
-    "account": { "profile": "Prohlížeč" },
-    "settings": { "runtime": "Stav" },
+    "account": {
+      "profile": "Prohlížeč"
+    },
+    "settings": {
+      "runtime": "Stav"
+    },
     "strings": {
       "sessionTitle": "Relace prohlížeče",
       "accountTitle": "Profil prohlížeče",
-      "accountDescription": "Váš soukromý profil Chrome uchovává přihlášení mezi relacemi na této instanci Elowen.",
-      "settingsTitle": "Běhové prostředí prohlížeče",
+      "accountDescription": "Váš soukromý profil Chrome uchovává přihlášení mezi relacemi v této instanci Elowen.",
+      "settingsTitle": "Prostředí prohlížeče",
       "settingsDescription": "Aktuální kapacita a stav izolace spravovaných relací Chrome.",
       "closed": "Ukončeno",
       "disconnected": "Odpojeno",
@@ -47,18 +110,18 @@
       "closeView": "Zavřít náhled",
       "dismissNarration": "Skrýt zprávu agenta",
       "browserViewport": "Živý náhled prohlížeče",
-      "waitingForUser": "Čeká se na váš vstup",
+      "waitingForUser": "Čeká se na váš pokyn",
       "agentWaiting": "Agent čeká, až mu vrátíte ovládání",
       "noAddress": "Adresa zatím není k dispozici",
       "back": "Zpět",
       "forward": "Vpřed",
       "reload": "Načíst znovu",
-      "action_navigate": "Přechod na adresu",
-      "action_click": "Kliknutí",
-      "action_fill": "Vyplňování pole",
-      "action_key": "Stisk klávesy",
-      "action_scroll": "Posouvání stránky",
-      "action_paste": "Vkládání textu",
+      "action_navigate": "Přechází na adresu",
+      "action_click": "Kliká",
+      "action_fill": "Vyplňuje pole",
+      "action_key": "Stiskává klávesu",
+      "action_scroll": "Posouvá stránku",
+      "action_paste": "Vkládá text",
       "closeConfirmTitle": "Ukončit relaci prohlížeče?",
       "closeConfirmDescription": "Živý náhled a karta se zavřou. Profil prohlížeče a přihlášení zůstanou uložené.",
       "liveCapacity": "Aktuální kapacita",
@@ -74,42 +137,42 @@
       "chatUnavailable": "Živý náhled v chatu není dostupný",
       "chatLiveView": "Živý náhled v chatu",
       "limitsTitle": "Limity",
-      "limitsHint": "Nastavené posuvníky se vynucují před přidělením Chrome, virtuálního displeje nebo spojení živého náhledu.",
-      "limitsBody": "Limit nečinnosti a pevný limit relace prohlížeč automaticky ukončí. Každý živý náhled je jedno spojení VNC s celým obrazem a vstup smí posílat pouze účet, který drží převzetí ovládání.",
+      "limitsHint": "Limity výše se uplatní ještě před spuštěním Chrome, virtuální obrazovky nebo živého náhledu.",
+      "limitsBody": "Relace se automaticky ukončí po uplynutí limitu nečinnosti nebo maximální doby. Živý náhled přenáší celý obraz přes jedno připojení VNC. Ovládat prohlížeč může jen účet, který si převzal ovládání.",
       "depsTitle": "Závislosti",
-      "depsHint": "Vše, co spravovaná relace prohlížeče potřebuje, než se spustí. Tyto kontroly pouze čtou: sandbox a připojení DevTools ověřuje až první spuštění relace.",
+      "depsHint": "Zde najdete vše, co spravovaná relace prohlížeče potřebuje ke spuštění. Kontroly pouze čtou údaje. Sandbox a připojení DevTools se ověří až při prvním spuštění spravované relace.",
       "depsCounted": "závislostí je připraveno",
       "depReady": "Připraveno",
       "depAttention": "Vyžaduje pozornost",
       "depBlocked": "Zablokováno",
       "dep_label_chrome": "Chrome nebo Chromium",
       "dep_label_browser_control": "Knihovna pro ovládání prohlížeče",
-      "dep_label_network_proxy": "Vynucující síťová proxy",
+      "dep_label_network_proxy": "Síťová proxy, která vynucuje pravidla",
       "dep_label_profile_storage": "Úložiště profilů",
       "dep_label_chat_artifacts": "Živý náhled v chatu",
-      "dep_chrome_missing": "Na tomto hostiteli nebyl nalezen podporovaný spustitelný soubor Chrome ani Chromium.",
-      "dep_chrome_missing_fix": "Nainstalujte Google Chrome nebo Chromium, případně zadejte spustitelný soubor v nastavení tohoto pluginu.",
+      "dep_chrome_missing": "Na tomto počítači se nenašel podporovaný spustitelný soubor Chrome ani Chromium.",
+      "dep_chrome_missing_fix": "Nainstalujte Google Chrome nebo Chromium, případně v nastavení pluginu zadejte cestu ke spustitelnému souboru.",
       "dep_chrome_unusable": "Nastavený spustitelný soubor chybí nebo jej účet démona nemůže spustit.",
-      "dep_chrome_unusable_fix": "Opravte spustitelný soubor Chrome v nastavení tohoto pluginu, nebo pole vymažte pro automatickou detekci.",
+      "dep_chrome_unusable_fix": "Opravte cestu ke spustitelnému souboru Chrome v nastavení pluginu, nebo ji smažte, aby se soubor našel automaticky.",
       "dep_control_missing": "Knihovna puppeteer-core v běhovém prostředí démona chybí, nebo neposkytuje launch().",
-      "dep_control_missing_fix": "Plugin sdílí běhové závislosti démona Elowen: přeinstalujte nebo aktualizujte Elowen včetně běhových závislostí a poté restartujte démona.",
-      "dep_proxy_missing": "Knihovnu proxy-chain 3.0 nelze načíst, spuštění prohlížeče je proto odmítnuto.",
-      "dep_proxy_missing_fix": "Plugin sdílí běhové závislosti démona Elowen: přeinstalujte nebo aktualizujte Elowen včetně běhových závislostí a poté restartujte démona.",
-      "dep_proxy_unsupported": "Adaptér proxy neumí připnout DNS pro jednotlivé požadavky, spuštění prohlížeče je proto odmítnuto.",
-      "dep_proxy_unsupported_fix": "Obnovte dodávaný adaptér proxy; relace prohlížeče smí dosáhnout pouze na hostitele, kterého vyhodnotila navigační politika.",
+      "dep_control_missing_fix": "Plugin používá stejné běhové závislosti jako démon Elowen. Přeinstalujte nebo aktualizujte Elowen včetně těchto závislostí a potom démona restartujte.",
+      "dep_proxy_missing": "Knihovnu proxy-chain 3.0 nelze načíst. Spuštění prohlížeče je proto zakázáno.",
+      "dep_proxy_missing_fix": "Plugin používá stejné běhové závislosti jako démon Elowen. Přeinstalujte nebo aktualizujte Elowen včetně těchto závislostí a potom démona restartujte.",
+      "dep_proxy_unsupported": "Adaptér proxy neumí pro každý požadavek připnout ověřenou IP adresu. Prohlížeč proto nelze spustit.",
+      "dep_proxy_unsupported_fix": "Obnovte dodávaný adaptér proxy. Relace prohlížeče smí přistupovat jen k počítačům, jejichž adresu ověřila pravidla navigace.",
       "dep_storage_unwritable": "Účet démona nemůže do adresáře profilů zapisovat.",
       "dep_storage_unwritable_fix": "Udělte účtu démona právo zápisu do datového adresáře pluginu a poté restartujte démona.",
       "dep_storage_exposed": "Adresář profilů je čitelný i mimo účet démona.",
-      "dep_storage_exposed_fix": "Omezte datový adresář pluginu na přístup pouze pro vlastníka a poté restartujte démona.",
-      "dep_storage_missing": "Adresář profilů už není důvěryhodný adresář, který plugin vytvořil.",
-      "dep_storage_missing_fix": "Obnovte datový adresář pluginu jako skutečný adresář vlastněný účtem démona a poté restartujte démona.",
-      "dep_artifacts_missing": "Tento hostitel nemá most pro vložené artefakty chatu, relace proto běží bez živé karty v chatu.",
-      "dep_artifacts_missing_fix": "Aktualizujte Elowen na verzi, která publikuje vložené artefakty chatu.",
+      "dep_storage_exposed_fix": "Nastavte přístup k datovému adresáři pluginu pouze pro vlastníka a potom démona restartujte.",
+      "dep_storage_missing": "Adresář profilů už není původním důvěryhodným adresářem vytvořeným pluginem.",
+      "dep_storage_missing_fix": "Obnovte datový adresář pluginu jako běžný adresář vlastněný účtem démona a potom démona restartujte.",
+      "dep_artifacts_missing": "Tomuto počítači chybí propojení pro zobrazování obsahu přímo v chatu. Relace se proto v chatu nezobrazí jako živá karta.",
+      "dep_artifacts_missing_fix": "Aktualizujte Elowen na verzi, která podporuje vložené artefakty chatu.",
       "profileStorage": "Uložená data prohlížeče",
-      "profileStorageHint": "Cookies a přihlášení jsou pouze ve vašem profilu. Snímky živého náhledu se neukládají.",
+      "profileStorageHint": "Soubory cookie a přihlášení se ukládají pouze do profilu vašeho účtu. Snímky živého náhledu se nikdy neukládají.",
       "storageUsed": "Využité místo",
       "clearBlocked": "Než bude možné profil vymazat, ukončete všechny běžící relace.",
-      "sessionsRunning": "Běží relací: {count}",
+      "sessionsRunning": "Počet spuštěných relací: {count}",
       "clearProfile": "Vymazat data prohlížeče",
       "profileCleared": "Data prohlížeče byla vymazána.",
       "liveSessions": "Aktivní relace",
@@ -117,21 +180,21 @@
       "noSessions": "Neběží žádná relace prohlížeče",
       "noSessionsDescription": "Relace se zde zobrazí, jakmile agent otevře prohlížeč.",
       "sessionPreview": "Náhled relace",
-      "previewPending": "Čekám na obraz této relace",
+      "previewPending": "Čeká se na obraz relace",
       "lastReply": "Poslední odpověď",
       "clearConfirmTitle": "Vymazat data prohlížeče?",
-      "clearConfirmDescription": "Uložené cookies, přihlášení a data webů budou trvale odstraněny. Tuto akci nelze vrátit.",
-      "connectingImage": "Připojuji obraz prohlížeče…",
+      "clearConfirmDescription": "Uložené soubory cookie, přihlášení a data webů budou trvale smazány. Tuto akci nelze vrátit.",
+      "connectingImage": "Připojuje se obraz prohlížeče…",
       "liveViewUnavailable": "Živý náhled není dostupný",
-      "previewStalled": "Náhled se neobnovuje",
+      "previewStalled": "Náhled se neaktualizuje",
       "dep_label_virtual_display": "Virtuální displej",
       "dep_label_live_view": "Přenos živého náhledu",
       "dep_display_ready": "Xvfb a x11vnc jsou nainstalované a spustitelné.",
-      "dep_display_missing": "Spravovaný prohlížeč se vykresluje na soukromém displeji X a tomuto hostiteli chybí to, co jej obsluhuje.",
+      "dep_display_missing": "Spravovaný prohlížeč se zobrazuje na soukromé obrazovce X. Tomuto počítači chybí potřebná služba.",
       "dep_display_missing_fix": "Nainstalujte na tomto hostiteli balíčky Xvfb a x11vnc a poté restartujte démona.",
-      "dep_liveview_ready": "Tento hostitel přenáší WebSocket routy pluginů.",
-      "dep_liveview_missing": "Tento hostitel neumí přenášet WebSocket pluginu, relace proto běží bez živého náhledu a bez převzetí ovládání.",
-      "dep_liveview_missing_fix": "Aktualizujte Elowen na verzi, která nabízí WebSocket routy pluginů."
+      "dep_liveview_ready": "Tento počítač podporuje přenos dat pluginů přes WebSocket.",
+      "dep_liveview_missing": "Tento počítač nepodporuje přenos dat pluginu přes WebSocket. Relace proto nemají živý náhled a nelze v nich převzít ovládání.",
+      "dep_liveview_missing_fix": "Aktualizujte Elowen na verzi, která podporuje přenos dat pluginů přes WebSocket."
     }
   }
 }

@@ -1,9 +1,9 @@
 {
   "name": "codebase",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
+  "description": "Search code and documentation in repositories by meaning, not exact wording. It splits accessible files into chunks, embeds each one with the same model as memory, and stores them in a private index for that repository. Find settings under Settings → Memory. CodebaseSearch finds relevant code and documentation from a plain-language query. CodebaseReindex refreshes the index incrementally, and CodebaseStatus shows its coverage. It complements literal Search in the files plugin.",
   "entry": "index.mjs",
   "consumesControls": [
     "sandbox"
@@ -47,14 +47,14 @@
       "key": "includeGlobs",
       "label": "Include globs",
       "type": "tokenList",
-      "hint": "Files matching at least one glob are indexed. Empty = a built-in set of common code and markdown extensions."
+      "hint": "Enter one pattern per line or separate patterns with commas. Files matching at least one pattern are indexed. Leave the field empty to use common source code and Markdown extensions."
     },
     {
       "key": "excludeGlobs",
       "label": "Exclude globs / dirs",
       "type": "tokenList",
       "placeholder": "node_modules, dist, web-dist, .next, .git, .turbo",
-      "hint": "Directories or globs to skip. A bare name (no slash or star) is treated as a directory name to prune anywhere in the tree."
+      "hint": "Enter folders or patterns to skip. A name without a slash or asterisk is treated as a folder name and skipped anywhere in the project."
     },
     {
       "key": "maxFileBytes",
@@ -76,7 +76,7 @@
       "step": 100,
       "placeholder": "1500",
       "default": 1500,
-      "hint": "Upper bound on a chunk's size before it is split (prefers blank-line boundaries)."
+      "hint": "Maximum length of a chunk before it is split. Splits preferably at a blank line."
     },
     {
       "key": "sec_search",
@@ -111,18 +111,18 @@
       "label": "Auto-reindex on search",
       "type": "boolean",
       "default": true,
-      "hint": "When on, a search lazily refreshes a repo's index if it is empty or stale (debounced), so you rarely need CodebaseReindex."
+      "hint": "Search automatically refreshes an empty or outdated repository index. Refreshes are combined when several requests arrive close together. You usually won't need to run CodebaseReindex manually."
     },
     {
       "key": "reindexEmbedBudget",
-      "label": "Embeds per pass",
+      "label": "Embeddings per refresh",
       "type": "number",
       "min": 1,
       "max": 5000,
       "step": 1,
       "placeholder": "200",
       "default": 200,
-      "hint": "Max chunks embedded in a single indexing pass, so a large repo spreads across passes instead of hammering the provider."
+      "hint": "Maximum number of chunks embedded in one refresh. Large repositories are split across refreshes to avoid overloading the provider."
     },
     {
       "key": "sec_schedule",
@@ -135,7 +135,7 @@
       "label": "Re-index on a schedule",
       "type": "boolean",
       "default": false,
-      "hint": "Off by default: the timer spends the embedding provider unattended. Turn it on once the scope and interval below suit you."
+      "hint": "Off by default. The unattended timer uses the embedding provider and may increase costs. Turn it on only if the scope and interval below suit you."
     },
     {
       "key": "reindexIntervalMinutes",
@@ -146,7 +146,7 @@
       "step": 5,
       "placeholder": "60",
       "default": 60,
-      "hint": "How often the background refresh runs. One tick costs at most repositories × passes × embeds-per-pass chunk embeddings.",
+      "hint": "How often the index refreshes in the background. One run can create at most repositories × passes × embeddings per pass.",
       "visibleWhen": {
         "key": "scheduledReindex",
         "equals": true
@@ -179,7 +179,7 @@
       "type": "tokenList",
       "browse": "directory",
       "placeholder": "/srv/projects/my-app",
-      "hint": "Add absolute repository paths. A path that is not a readable directory is skipped and logged.",
+      "hint": "Enter full paths to repositories, one per line or separated by commas. Paths that do not lead to a readable folder are skipped and logged.",
       "visibleWhen": {
         "key": "reindexScope",
         "equals": "listed"
@@ -195,7 +195,7 @@
       "placeholder": "4",
       "default": 4,
       "advanced": true,
-      "hint": "Upper bound on consecutive passes spent on one repository in a single tick. A repository with nothing left to index stops early, so this only caps the worst case.",
+      "hint": "Maximum number of passes for one repository in a single run. Processing stops sooner if there is nothing left to index.",
       "visibleWhen": {
         "key": "scheduledReindex",
         "equals": true
@@ -205,7 +205,7 @@
       "key": "sec_model",
       "label": "Embedding model",
       "type": "section",
-      "hint": "The embedding model is inherited from Settings → Memory (single source of truth) — there is no separate model to configure here. Switching that model rebuilds the index on the next reindex."
+      "hint": "The embedding model comes from Settings → Memory. It can't be set separately here. After the model changes, the index is rebuilt on the next refresh."
     }
   ]
 }

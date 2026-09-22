@@ -1,10 +1,10 @@
 {
   "name": "whatsapp",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
-  "description": "WhatsApp bot (Baileys): write to it and it answers from Elowen AI. Text commands (/model, /new, /help), a per-chat model picker (numbered text menu you reply to with a number), live streaming replies (edit-in-place with the agent's tool trace), status reactions and proactive cron/tick pushes. Group tools: list & inspect groups, create groups, add/remove members, and send a message to any chat (operator). Each sender (phone number, JID or whole group) maps to allowed Elowen projects + a role prompt. Pair by scanning a QR code or with a pairing code.",
+  "description": "WhatsApp bot (Baileys): message it and it replies through Elowen AI. Text commands (/model, /new, /help), a model picker for each chat (numbered menu, reply with a number), live-updating messages with a tool-call summary, status reactions and proactive notices from cron/tick tasks. Group tools: view and browse groups, create groups, add and remove members, and send messages to any chat (operator). Each sender (phone number, JID or whole group) is assigned allowed Elowen projects and a role prompt. Link the account by scanning a QR code or entering a pairing code.",
   "entry": "index.mjs",
   "provides": {
     "platforms": [
@@ -74,7 +74,7 @@
     },
     {
       "key": "deleteToolActivityAfterTurn",
-      "label": "Replace tool activity with answer",
+      "label": "Replace progress with answer",
       "type": "boolean",
       "default": false,
       "hint": "Show one live progress message while the agent works, then replace that same message with the final answer. No message is deleted."
@@ -98,7 +98,7 @@
       "label": "Show reasoning",
       "type": "boolean",
       "default": false,
-      "hint": "Stream the model's reasoning into the progress message (extended-thinking models). Off by default — it's usually noise."
+      "hint": "Show the model's reasoning while it answers. Only available with extended-thinking models. Off by default."
     },
     {
       "key": "language",
@@ -131,14 +131,14 @@
       "key": "visionModel",
       "label": "Vision model",
       "type": "model",
-      "hint": "Model used for turns that carry image attachments (must support vision). Empty = the chat's normal model."
+      "hint": "Model for messages with image attachments. Must support image processing. Leave empty to use the chat's normal model."
     },
     {
       "key": "sec_media",
       "label": "Media limits",
       "type": "section",
       "advanced": true,
-      "hint": "Caps on inbound/outbound images and how long a pending question stays open."
+      "hint": "Limits for incoming and outgoing images, and how long a pending question stays open."
     },
     {
       "key": "maxImageBytes",
@@ -149,7 +149,7 @@
       "step": 1048576,
       "placeholder": "5242880",
       "default": 5242880,
-      "hint": "Largest image attachment (bytes) the bot downloads for vision; bigger ones are noted instead."
+      "hint": "Largest image attachment (in bytes) the bot downloads for processing. Larger files are only recorded."
     },
     {
       "key": "maxImages",
@@ -160,7 +160,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many image attachments in a single incoming message the bot sends to the vision model."
+      "hint": "How many images from one message the bot sends to the model for recognition."
     },
     {
       "key": "maxUploadImages",
@@ -182,7 +182,7 @@
       "step": 30000,
       "placeholder": "360000",
       "default": 360000,
-      "hint": "How long a pending AskUserQuestion stays open for a numbered reply or free text before it's dropped as stale. The same window applies to the interactive menus."
+      "hint": "How long a pending AskUserQuestion accepts a numbered reply or free text before it expires. The same limit applies to interactive menus."
     },
     {
       "key": "sec_senders",
@@ -194,7 +194,7 @@
       "key": "senderPolicies",
       "label": "Sender policies",
       "type": "rolePolicies",
-      "hint": "First matching sender wins; senders with no mapped policy are ignored. The ID is a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us) — a group ID grants access to everyone in it. A * matches every sender and belongs last, below the named entries it would otherwise swallow. `admin` enables the shared /model, /reasoning and /context pickers and the room control commands /stop, /stats, /compact and /restart — /restart restarts the daemon for everyone. Projects and tool permissions come from the sender's linked Elowen account."
+      "hint": "The first matching sender takes precedence. Senders without an assigned rule are ignored. The ID can be a phone number (420777123456), a JID (…@s.whatsapp.net) or a whole group JID (…@g.us). A group ID gives everyone in the group access to the bot. An asterisk * matches every sender and must come last, or it would override rules for specific senders. The `admin` key enables shared /model, /reasoning and /context menus, as well as chat control commands /stop, /stats, /compact and /restart. The /restart command restarts the daemon for everyone. Projects and tool permissions come from the sender's linked Elowen account."
     }
   ],
   "web": {

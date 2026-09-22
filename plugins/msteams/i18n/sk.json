@@ -3,11 +3,11 @@
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",
-      "hint": "Prihlasovacie údaje Azure Bota. Postup: 1) Entra admin centrum → Registrácie aplikácií → Nová registrácia (jeden tenant) → skopírujte Application (client) ID a ID tenantu, potom Certifikáty a tajné kľúče → Nový tajný kľúč klienta. 2) Azure portál → vytvorte Azure Bot naviazaný na toto App ID; nastavte messaging endpoint na https://<vaša-doména>/hooks/msteams/messages a povoľte kanál Microsoft Teams. 3) Stiahnite balíček aplikácie (tlačidlo vyššie) a nahrajte ho v centre spravovania Teams → Spravovať aplikácie."
+      "hint": "Prihlasovacie údaje Azure Botu."
     },
     "appId": {
       "label": "Microsoft App ID",
-      "hint": "Application (client) ID registrácie aplikácie v Entra — zároveň ID bota v prostriedku Azure Bot."
+      "hint": "ID registrácie aplikácie v Entra, ktoré slúži aj ako ID bota v prostriedku Azure Bot."
     },
     "appPassword": {
       "label": "Tajný kľúč klienta",
@@ -15,7 +15,7 @@
     },
     "tenantId": {
       "label": "ID tenantu",
-      "hint": "Directory (tenant) ID vášho Entra — bot sa overuje voči tomuto tenantu (registrácia pre jeden tenant)."
+      "hint": "ID adresára (tenantu) Entra. Bot sa overuje voči tomuto tenantu, pretože registrácia aplikácie je určená pre jeden tenant."
     },
     "accountLinking": {
       "label": "Prihlásenie k Microsoftu v osobnom chate",
@@ -28,24 +28,24 @@
     "sec_sso": { "label": "Jednotné prihlásenie Microsoft", "hint": "Prihlásenie do webového rozhrania Elowen pomocou účtu Microsoft z tohto tenantu." },
     "ssoEnabled": { "label": "Povoliť prihlásenie cez Microsoft", "hint": "Zobrazí na prihlasovacej stránke možnosť prihlásenia cez Microsoft, ak je správne nastavená verejná adresa presmerovania." },
     "ssoRedirectBase": { "label": "Verejná adresa Elowen", "hint": "Absolútna verejná adresa HTTPS bez cesty, napríklad https://elowen.example.com. V registrácii aplikácie Entra nastavte adresu presmerovania na túto adresu doplnenú o /api/auth/sso/microsoft/callback." },
-    "ssoProvision": { "label": "Zakladanie účtov", "hint": "Určuje, či možno pri prvom prihlásení založiť nový účet. Voľba Celý tenant povolí všetkých aktívnych členov tenantu a vyžaduje aplikačné oprávnenie Microsoft Graph User.Read.All so súhlasom správcu tenantu; bez neho bude založenie účtu odmietnuté.", "options": { "off": "Vypnuté", "tenant": "Celý tenant" } },
-    "ssoLinkByEmail": { "label": "Prepájať existujúce účty podľa e-mailu", "hint": "Pri prvom prihlásení sa môže identita Microsoft prepojiť s práve jedným existujúcim účtom s rovnakým e-mailom. Zodpovedajúci účet môže byť administrátorský. E-mailový claim nie je overený a nemenný identifikátor; trvalá väzba sa po prepojení ukladá podľa Entra object ID." },
+    "ssoProvision": { "label": "Zakladanie účtov", "hint": "Určuje, či možno pri prvom prihlásení vytvoriť nový účet. Voľba Celý tenant povolí všetkých aktívnych členov tenantu a vyžaduje aplikačné oprávnenie Microsoft Graph User.Read.All so súhlasom administrátora tenantu. Bez tohto oprávnenia sa účet nevytvorí.", "options": { "off": "Vypnuté", "tenant": "Celý tenant" } },
+    "ssoLinkByEmail": { "label": "Prepájať existujúce účty podľa e-mailu", "hint": "Pri prvom prihlásení sa identita Microsoftu môže prepojiť práve s jedným existujúcim účtom s rovnakou e-mailovou adresou. Prepojený účet môže mať oprávnenia administrátora. E-mailové tvrdenie nie je overený ani nemenný identifikátor. Trvalá identita sa po prepojení určuje podľa ID objektu Entra." },
     "ssoDefaultProjects": { "label": "Predvolené projekty nových účtov", "hint": "Projekty sa priradia iba pri založení nového účtu." },
     "ssoDefaultModels": { "label": "Povolené modely nových účtov", "hint": "Modely, ktoré smie nový účet používať. Prázdny výber osobný zoznam modelov neobmedzuje." },
     "ssoDefaultModel": { "label": "Preferovaný model nových účtov", "hint": "Preferovaný model nastavený novému účtu. Prázdna hodnota ho nenastaví." },
     "ssoDefaultPlugins": { "label": "Povolené pluginy nových účtov", "hint": "Pluginy s riadeným prístupom, ktoré budú novému účtu povolené." },
-    "ssoAllowedTools": { "label": "Pridelené nástroje nových účtov", "hint": "Nástroje, ktoré bude nový účet smieť používať. Prázdny výber nepridelí žiadny, takže účet nebude mať až do pridelenia správcom k dispozícii žiadny nástroj pluginu." },
-    "ssoDefaultYolo": { "label": "YOLO pre nové účty", "hint": "Predvolený stav novo založených Microsoft účtov. Zapnuté automaticky schvaľuje otázky na nástroje a príkazy v nových konverzáciách; explicitné pravidlá deny zostávajú platné. Existujúce účty sa nikdy nemenia." },
+    "ssoAllowedTools": { "label": "Pridelené nástroje nových účtov", "hint": "Nástroje, ktoré bude nový účet smieť používať. Prázdny výber nepridelí žiadny, takže účet nebude mať žiadny nástroj pluginu, kým mu ho nepridelí administrátor." },
+    "ssoDefaultYolo": { "label": "YOLO pre nové účty", "hint": "Predvolené nastavenie pre novo vytvorené účty Microsoftu. Ak je zapnuté, žiadosti o schválenie nástrojov a príkazov v nových konverzáciách sa schvaľujú automaticky. Výslovné pravidlá zákazu však platia ďalej. Existujúce účty sa nemenia." },
     "sec_m365": { "label": "Nástroje Microsoft 365", "hint": "Delegované nástroje Graph vždy konajú v mene prepojeného účtu Elowen a fungujú všade, kde ich tento účet smie používať, vrátane osobných naplánovaných úloh. Tokeny zostávajú v službe Bot Framework Token Service." },
-    "m365AccessMode": { "label": "Prístup k Microsoft 365", "hint": "Režim iba na čítanie blokuje všetky externé zmeny. Čítanie a zápis aj naďalej najskôr zobrazí náhľad a zmenu vykoná až po výslovnom potvrdení konkrétnej operácie.", "options": { "read_only": "Iba na čítanie", "read_write": "Čítanie a zápis" } },
-    "m365MaxTransferBytes": { "label": "Limit prenosu súborov Microsoft", "hint": "Najväčší súbor, ktorý možno jedným volaním stiahnuť z Microsoft 365 alebo doň nahrať. Väčšie súbory používajú obnoviteľnú reláciu nahrávania Microsoft." },
+    "m365AccessMode": { "label": "Prístup k Microsoft 365", "hint": "Režim Iba na čítanie blokuje všetky zmeny mimo Elowen. V režime Čítanie a zápis sa každá zmena najprv zobrazí v náhľade. Vykoná sa až potom, keď agent výslovne potvrdí konkrétnu operáciu.", "options": { "read_only": "Iba na čítanie", "read_write": "Čítanie a zápis" } },
+    "m365MaxTransferBytes": { "label": "Limit prenosu súborov v Microsoft 365", "hint": "Najväčší súbor, ktorý možno stiahnuť z Microsoft 365 alebo doň nahrať jedným volaním nástroja. Väčšie súbory sa nahrávajú cez obnoviteľnú reláciu." },
     "agentName": {
       "label": "Názov aplikácie v Teams",
       "hint": "Názov aplikácie a bota v stiahnuteľnom balíku — to, čo ľudia vidia v katalógu Teams vašej organizácie a v príkaze /help. Prázdne = Elowen. Vyplňte, ak sa tento názov kryje s inou aplikáciou, ktorá už v katalógu je."
     },
     "productName": {
       "label": "Názov vydavateľa v Teams",
-      "hint": "Vydavateľ uvedený pri balíku aplikácie (údaj developer v manifeste). Prázdne = nastavený názov aplikácie."
+      "hint": "Názov vydavateľa zobrazený pri balíku aplikácie, teda meno vývojára v manifeste. Ak pole necháte prázdne, použije sa nastavený názov aplikácie."
     },
     "appIconPath": {
       "label": "Ikona aplikácie v Teams",
@@ -53,7 +53,7 @@
     },
     "notifyConversationId": {
       "label": "Konverzácia pre oznámenia",
-      "hint": "Kam sa odosielajú proaktívne správy (výsledky cronu/ticku) — ID konverzácie Teams, ktorú bot už videl, alebo človek (e-mail / Entra object ID / zobrazované meno), s ktorým si bot osobný chat založí sám. Prázdne = žiadne proaktívne správy."
+      "hint": "Kam sa posielajú proaktívne správy, napríklad výsledky úloh cron a pravidelných kontrol. Zadajte ID konverzácie Teams, ktorú bot už pozná, alebo e-mail, ID objektu Entra či zobrazované meno človeka. Bot s ním osobný chat založí sám. Prázdne pole znamená, že sa proaktívne správy neposielajú."
     },
     "sec_proactive": {
       "label": "Oslovenie ľudí",
@@ -61,11 +61,11 @@
     },
     "graphLookup": {
       "label": "Vyhľadávanie cez Microsoft Graph",
-      "hint": "Vypnuté: bot môže písať len ľuďom, ktorých už v Teams stretol. Zapnuté: neznámy e-mail sa dohľadá v adresári tenantu a aplikácia Teams sa danému človeku nainštaluje, aby sa dal chat otvoriť. Vyžaduje APLIKAČNÉ oprávnenia User.ReadBasic.All a TeamsAppInstallation.ReadWriteSelfForUser.All so súhlasom správcu tenantu. Fotky z adresára navyše používajú ProfilePhoto.Read.All; bez neho sa zobrazí avatar prepojeného účtu Elowen."
+      "hint": "Vypnuté: bot môže písať len ľuďom, ktorých už v Teams videl. Zapnuté: neznámy e-mail sa vyhľadá v adresári tenantu a človeku sa nainštaluje aplikácia Teams, aby bolo možné otvoriť chat. Vyžaduje aplikačné oprávnenia User.ReadBasic.All a TeamsAppInstallation.ReadWriteSelfForUser.All so súhlasom administrátora tenantu. Fotky z adresára navyše vyžadujú ProfilePhoto.Read.All. Bez neho sa použije profilový obrázok prepojeného účtu Elowen."
     },
     "graphCatalogAppId": {
       "label": "ID aplikácie v katalógu Teams",
-      "hint": "ID aplikácie v katalógu organizácie (centrum spravovania Teams → Spravovať aplikácie → nahraná aplikácia Elowen). Je potrebné na inštaláciu aplikácie používateľovi, ktorý ju ešte nemá; nechajte prázdne, ak aplikáciu rozdáva politika aplikácií Teams."
+      "hint": "ID aplikácie v katalógu Teams vašej organizácie (centrum spravovania Teams → Spravovať aplikácie → nahraná aplikácia Elowen). Je potrebné na inštaláciu aplikácie používateľovi, ktorý ju ešte nemá. Ak sa aplikácia nasadzuje pomocou politík Teams, pole nechajte prázdne."
     },
     "sec_replies": {
       "label": "Odpovede a správanie",
@@ -77,7 +77,7 @@
     },
     "toolActivity": {
       "label": "Aktivita nástrojov",
-      "hint": "Čo ukazuje priebežná správa, kým agent pracuje: nič, stavové riadky nástrojov, alebo stav vrátane živého výstupu.",
+      "hint": "Čo sa zobrazuje v priebežnej správe, kým agent pracuje: nič, stav nástrojov alebo aj ich aktuálny výstup.",
       "options": {
         "off": "Vypnuté",
         "status": "Živý stav",
@@ -86,10 +86,10 @@
     },
     "answerMode": {
       "label": "Doručenie odpovede",
-      "hint": "Finálne odošle jednu odpoveď po skončení; živé streamuje odpoveď do správy priebežne.",
+      "hint": "Finálny režim odošle hotovú odpoveď po skončení. Živý režim ju priebežne upravuje.",
       "options": {
         "final": "Iba finálna odpoveď",
-        "live": "Streamovať odpoveď živo"
+        "live": "Zobrazovať odpoveď priebežne"
       }
     },
     "toolOutput": {
@@ -103,7 +103,7 @@
     },
     "toolMessageMode": {
       "label": "Rozloženie správ nástrojov",
-      "hint": "Jedna správa sa priebežne upravuje; pri voľbe „Správa za každý nástroj“ sa odošle samostatná správa pre každé volanie nástroja.",
+      "hint": "Jedna správa sa priebežne upravuje. Pri voľbe „Správa za každý nástroj“ sa odošle samostatná správa pre každé volanie nástroja.",
       "options": {
         "single": "Jedna živá správa",
         "per_tool": "Správa za každý nástroj"
@@ -111,23 +111,23 @@
     },
     "deleteToolActivityAfterTurn": {
       "label": "Nahradiť priebeh finálnou odpoveďou",
-      "hint": "Počas práce zobrazí jednu živú správu s priebehom a na konci ju prepíše finálnou odpoveďou. Žiadna správa sa nemaže; živé odpovede a rozloženie po nástrojoch sa nepoužijú."
+      "hint": "Počas práce sa zobrazuje jedna živá správa s priebehom a na konci sa nahradí finálnou odpoveďou. Žiadna správa sa nemaže. Živé odpovede a rozloženie správ podľa nástrojov sa nepoužijú."
     },
     "reactions": {
       "label": "Reakcie počas spracovania",
       "hint": "Zobrazuje stav spracovania pomocou reakcií na prichádzajúcej správe."
     },
     "runtimeFooter": {
-      "label": "Riadok s behovými údajmi",
-      "hint": "Pripojí pod finálnu odpoveď malý riadok „model · kontext %“."
+      "label": "Pätička s údajmi o behu",
+      "hint": "Pod finálnu odpoveď pridá krátky riadok „model · kontext %“."
     },
     "showReasoning": {
       "label": "Zobraziť uvažovanie",
-      "hint": "Streamovať uvažovanie modelu do priebežnej správy (modely s rozšíreným myslením). V predvolenom stave vypnuté — zvyčajne ide o šum."
+      "hint": "Zobrazuje uvažovanie modelu v priebežnej správe. Dostupné iba pri modeloch s rozšíreným uvažovaním. Predvolene je vypnuté."
     },
     "language": {
       "label": "Jazyk služobných správ",
-      "hint": "Jazyk vlastných správ bota (chyby, odpovede príkazov). Samotný agent odpovedá jazykom používateľa.",
+      "hint": "Jazyk vlastných správ bota, napríklad chýb a odpovedí na príkazy. Agent odpovedá jazykom používateľa.",
       "options": {
         "en": "Angličtina",
         "cs": "Čeština",
@@ -140,7 +140,7 @@
     },
     "channelMessagesRsc": {
       "label": "Čítať všetky správy v kanáli",
-      "hint": "Pridá do sťahovaného balíčka aplikácie oprávnenie ChannelMessage.Read.Group, takže v tíme, kde je aplikácia nainštalovaná, bot VIDÍ každú správu v kanáli, nielen @zmienky — tým sa plní načítanie histórie vyššie. Súhlas dáva vlastník tímu pri inštalácii alebo aktualizácii balíčka v tom tíme (správca tenantu nie je potrebný), takže samotné zapnutie nič nezmení, kým sa nový balíček nenahrá a aplikácia v tíme neaktualizuje."
+      "hint": "Pridá do balíčka aplikácie oprávnenie ChannelMessage.Read.Group. V tíme s nainštalovanou aplikáciou potom bot vidí všetky správy v kanáli, nielen tie so zmienkou @, a môže načítať uvedenú históriu. Súhlas udeľuje vlastník tímu pri inštalácii alebo aktualizácii aplikácie, administrátor tenantu nie je potrebný. Zmena sa prejaví až po nahratí nového balíčka a aktualizácii aplikácie v tíme."
     },
     "historyLimit": {
       "label": "Načítanie histórie konverzácie",
@@ -148,31 +148,31 @@
     },
     "visionModel": {
       "label": "Model pre obrázky",
-      "hint": "Model použitý pre správy s obrazovými prílohami (musí podporovať videnie). Prázdne = bežný model chatu."
+      "hint": "Model pre správy s obrázkami. Musí vedieť pracovať s obrázkami. Ak pole necháte prázdne, použije sa bežný model chatu."
     },
     "sec_media": {
       "label": "Limity médií",
-      "hint": "Limity prichádzajúcich/odchádzajúcich obrázkov a doba otvorenia čakajúcej otázky."
+      "hint": "Limity prichádzajúcich a odchádzajúcich obrázkov a čas, počas ktorého zostane otvorená čakajúca otázka."
     },
     "maxImageBytes": {
       "label": "Max. veľkosť prichádzajúceho obrázka",
-      "hint": "Najväčšia obrazová príloha (v bajtoch), ktorú bot stiahne pre videnie."
+      "hint": "Najväčšia obrazová príloha v bajtoch, ktorú bot stiahne na spracovanie obrázka."
     },
     "maxImages": {
       "label": "Max. obrázkov na správu",
-      "hint": "Koľko obrazových príloh z jednej prichádzajúcej správy bot odošle modelu pre videnie."
+      "hint": "Počet obrázkov z jednej prichádzajúcej správy, ktoré bot odošle modelu na spracovanie."
     },
     "maxUploadImages": {
       "label": "Max. obrázkov na odpoveď",
       "hint": "Koľko vygenerovaných obrázkov bot pripojí k jednej odchádzajúcej odpovedi."
     },
     "sec_roles": {
-      "label": "Pravidlá rolí",
-      "hint": "Určujú, ktorých odosielateľov v Teams bot prijme, a voliteľne pridávajú pokyny pre miestnosť."
+      "label": "Pravidlá prístupu podľa roly",
+      "hint": "Určujú, ktorým odosielateľom v Teams bot povolí prístup. Môžete tiež pridať pokyny pre miestnosť."
     },
     "rolePolicies": {
-      "label": "Pravidlá rolí",
-      "hint": "Odosielateľa prijme prvé zodpovedajúce pravidlo. ID je Entra object ID odosielateľa (GUID), jeho UPN/e-mail, celé ID konverzácie (prijme všetkých v danom chate), alebo * pre kohokoľvek — pravidlo s * nechajte posledné. Kľúč `admin` povoľuje iba lomkové príkazy na správu miestnosti a dôveryhodný kontext miestnosti. Oprávnenia k projektom a nástrojom vždy určuje prepojený účet Elowen odosielateľa; prijatý neprepojený používateľ dostane existujúcu prihlasovaciu kartu a nespustí sa žiadny brain turn."
+      "label": "Pravidlá prístupu podľa roly",
+      "hint": "Odosielateľa prijme prvé zodpovedajúce pravidlo. ID môže byť Entra object ID odosielateľa (GUID), jeho UPN alebo e-mail, celé ID konverzácie (povolí prístup všetkým v danom chate) alebo * pre všetkých odosielateľov. Pravidlo s * nechajte až za konkrétnymi záznamami, inak by ich prekrylo. Kľúč `admin` povoľuje iba lomkové príkazy na správu miestnosti a označenie jej kontextu ako dôveryhodného. Prístup k projektom a nástrojom vždy určuje účet Elowen prepojený s odosielateľom. Neprepojený odosielateľ s povoleným prístupom uvidí existujúcu prihlasovaciu kartu a asistent mu neodpovie."
     }
   },
   "web": {
@@ -180,14 +180,14 @@
     "strings": {
       "title": "Microsoft Teams",
       "workspaceEyebrow": "Microsoft 365",
-      "workspaceIntro": "Spravujte bota v Teams, známych ľudí a ich prístup k Elowen na jednom mieste.",
+      "workspaceIntro": "Spravujte na jednom mieste bota v Teams, osoby, ktoré pozná, a ich prístup k Elowen.",
       "workspaceReady": "Pripojené",
       "workspaceSetup": "Nastavenie nie je dokončené",
       "downloadPackage": "Stiahnuť balíček aplikácie",
       "metricPeople": "Známi ľudia",
       "metricMapped": "Priamy prístup",
       "metricChats": "Otvorené chaty",
-      "metricAdmins": "Správcovia Teams",
+      "metricAdmins": "Administrátori Teams",
       "peopleTab": "Ľudia a prístup",
       "settingsTab": "Nastavenia",
       "peopleSearch": "Hľadať podľa mena, e-mailu alebo Entra ID…",
@@ -201,29 +201,29 @@
       "accountNone": "Bez prepojeného účtu",
       "peopleEmptyTitle": "Bot zatiaľ nikoho nepozná",
       "peopleEmptyDescription": "Ľudia sa tu objavia po tom, čo ich bot uvidí v konverzácii alebo zozname členov. Oprávnenie Microsoft Graph nie je potrebné.",
-      "peopleNoResults": "Nikto nezodpovedá filtru",
+      "peopleNoResults": "Žiadne zodpovedajúce osoby",
       "peopleNoResultsDescription": "Zmeňte vyhľadávanie alebo filter prístupu.",
       "badgeMapped": "Nastavené",
       "badgeInherited": "Predvolený prístup",
       "badgeUnmapped": "Predvolený prístup",
       "chatOpen": "Osobný chat",
-      "removeAccess": "Odobrať povolenie vstupu",
-      "inheritedTitle": "Táto osoba používa predvolené pravidlo",
-      "inheritedDescription": "Vytvorte priame pravidlo, ak chcete túto osobu prijať výslovne alebo pridať pokyny pre miestnosť.",
-      "unmappedTitle": "Táto osoba nemá vlastné pravidlo",
-      "unmappedDescription": "Pri povolenom prihlásení členov organizácie sa môže prihlásiť a použiť prístup svojho účtu. Inak pred odpoveďou bota vytvorte pravidlo.",
-      "configureAccess": "Nastaviť povolenie vstupu",
+      "removeAccess": "Odobrať prístup",
+      "inheritedTitle": "Táto osoba sa riadi predvoleným pravidlom",
+      "inheritedDescription": "Vytvorte pre túto osobu vlastné pravidlo prístupu alebo pridajte pokyny pre miestnosť.",
+      "unmappedTitle": "Táto osoba nemá vlastné pravidlo prístupu",
+      "unmappedDescription": "Ak je povolené prihlasovanie členov organizácie, táto osoba sa môže prihlásiť v osobnom chate a použiť prístup svojho účtu. Inak vytvorte pravidlo, aby jej bot mohol odpovedať.",
+      "configureAccess": "Nastaviť prístup",
       "identityTitle": "Identita Microsoft",
       "identityConnected": "Prepojené cez Microsoft Entra ID",
       "identityNeedsSignIn": "Vyžaduje prihlásenie k Microsoftu",
       "identityNotLinked": "Neprepojené",
-      "identityLoading": "Overujem reláciu Microsoft…",
+      "identityLoading": "Overovanie relácie Microsoft…",
       "identityForceSignIn": "Vynútiť nové prihlásenie",
       "identityMicrosoftProfile": "Profil Microsoft",
       "identityAccountEnabled": "Aktívny účet",
       "identityAccountDisabled": "Zakázaný účet",
       "identityElowenAccount": "Prepojený účet Elowen",
-      "identityAdmin": "Správca",
+      "identityAdmin": "Administrátor",
       "identityNoElowenAccount": "Táto identita Entra nie je prepojená s účtom Elowen.",
       "identityLinkAccount": "Prepojiť účet Elowen",
       "identityChangeAccount": "Zmeniť prepojený účet",
@@ -237,10 +237,10 @@
       "identityVerifiedAt": "Overené: {value}",
       "identitySaving": "Ukladám zmenu identity…",
       "identityReplaceTitle": "Zmeniť prepojený účet Elowen?",
-      "identityReplaceDescription": "Táto identita Entra bude konať ako @{username}. Súkromná pamäť a prihlasovacie údaje pluginov patria tomuto účtu.",
+      "identityReplaceDescription": "Táto identita Entra bude používať účet @{username}. Súkromná pamäť a prihlasovacie údaje pluginov zostanú priradené k tomuto účtu.",
       "identityReplaceConfirm": "Zmeniť účet",
-      "adminLabel": "Správca Teams",
-      "adminHint": "Povolí lomkové príkazy na správu miestnosti a označí konverzáciu ako dôveryhodný kontext. Neudeľuje oprávnenia účtu, projektov, nástrojov ani operátora inštancie.",
+      "adminLabel": "Administrátor Teams",
+      "adminHint": "Povoľuje lomkové príkazy na správu miestnosti a označí konverzáciu ako dôveryhodnú. Neudeľuje prístup k účtu, projektom, nástrojom ani oprávnenie administrátora inštancie.",
       "promptLabel": "Doplňujúce pokyny",
       "promptHint": "Tieto pokyny sa pridajú iba ku konverzáciám tejto osoby v Teams.",
       "promptPlaceholder": "Napríklad: Odpovedajte stručne a zamerajte sa na obchodnú prevádzku.",

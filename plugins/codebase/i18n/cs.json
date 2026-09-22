@@ -1,77 +1,77 @@
 {
-  "description": "Sémantický index kódu: prohledávejte repozitáře podle VÝZNAMU, ne podle přesného textu. Rozseká každý přístupný repozitář na bloky, zaindexuje je STEJNÝM embedding modelem jako paměť (Nastavení → Paměť) a uloží vektory do soukromého indexu pro daný repozitář. CodebaseSearch najde nejrelevantnější kód/dokumentaci k dotazu v přirozeném jazyce; CodebaseReindex index inkrementálně obnoví; CodebaseStatus ukáže pokrytí. Doplňuje textové vyhledávání Search z pluginu files.",
+  "description": "Vyhledávejte v repozitářích kód a dokumentaci podle významu, ne podle přesného znění. Rozdělí přístupné soubory na úseky, každý převede pomocí stejného embedding modelu jako paměť a uloží je do soukromého indexu daného repozitáře. Nastavení najdete v Nastavení → Paměť. CodebaseSearch najde relevantní kód a dokumentaci podle běžného dotazu. CodebaseReindex obnovuje index jen podle změn a CodebaseStatus ukazuje, jakou část pokrývá. Doplňuje doslovné vyhledávání nástrojem Search v pluginu files.",
   "fields": {
     "sec_indexing": {
-      "label": "Indexace",
+      "label": "Indexování",
       "hint": "Které soubory se indexují a jak se dělí na bloky."
     },
     "includeGlobs": {
-      "label": "Zahrnout (globy)",
-      "hint": "Jeden glob na řádek (nebo oddělené čárkou). Indexují se jen soubory odpovídající některému z nich. Prázdné = vestavěná sada běžných přípon kódu a markdownu."
+      "label": "Zahrnout soubory",
+      "hint": "Zadejte jeden vzor na řádek nebo je oddělte čárkami. Zaindexují se soubory odpovídající alespoň jednomu vzoru. Prázdné pole použije běžné přípony zdrojového kódu a Markdownu."
     },
     "excludeGlobs": {
-      "label": "Vyloučit (globy / složky)",
-      "hint": "Složky nebo globy, které se přeskočí. Prostý název (bez lomítka/hvězdičky) se bere jako název složky k vynechání kdekoli ve stromu."
+      "label": "Vyloučit soubory a složky",
+      "hint": "Zadejte složky nebo vzory, které se mají přeskočit. Samotný název bez lomítka či hvězdičky se bere jako název složky a přeskočí se kdekoli v projektu."
     },
     "maxFileBytes": {
       "label": "Max. velikost souboru (bajty)",
-      "hint": "Větší soubory se přeskočí (přeskakují se i pravděpodobně minifikované soubory s velmi dlouhými řádky)."
+      "hint": "Větší soubory se přeskočí. Totéž platí pro zřejmě minifikované soubory s velmi dlouhými řádky."
     },
     "chunkMaxChars": {
       "label": "Velikost bloku (znaky)",
-      "hint": "Horní hranice velikosti bloku před rozdělením (přednostně dělí na prázdných řádcích)."
+      "hint": "Nejvyšší počet znaků v úseku před jeho rozdělením. Přednostně se rozděluje na prázdném řádku."
     },
     "sec_search": {
       "label": "Vyhledávání a chování",
       "hint": "Jak se výsledky řadí a kdy se index obnovuje."
     },
     "topK": {
-      "label": "Výsledků na vyhledání",
-      "hint": "Výchozí počet shod, které CodebaseSearch vrátí (argument k tento počet přepíše)."
+      "label": "Výsledků na hledání",
+      "hint": "Výchozí počet výsledků. Argument k nástroje CodebaseSearch tuto hodnotu přepíše."
     },
     "relevanceFloor": {
       "label": "Práh relevance",
-      "hint": "Minimální kosinová podobnost, aby se shoda vrátila. Zvyšte pro přísnější výsledky; snižte, pokud vyhledávání vrací prázdno."
+      "hint": "Nejnižší podobnost, při které se výsledek zobrazí. Vyšší hodnota zpřísní výběr, nižší pomůže, pokud se nic nenajde."
     },
     "autoReindex": {
       "label": "Automatická reindexace při hledání",
-      "hint": "Když je zapnuto, vyhledávání líně obnoví index repozitáře, pokud je prázdný nebo zastaralý (s prodlevou), takže CodebaseReindex je zřídka potřeba."
+      "hint": "Při hledání se automaticky obnoví prázdný nebo zastaralý index repozitáře. Obnova se slučuje, pokud přijde více požadavků rychle po sobě. CodebaseReindex pak obvykle nemusíte spouštět ručně."
     },
     "reindexEmbedBudget": {
-      "label": "Embeddingů na průchod",
-      "hint": "Max. počet bloků zaindexovaných v jednom průchodu, aby se velký repozitář rozložil do více průchodů a nezahltil poskytovatele."
+      "label": "Počet embeddingů na jedno obnovení",
+      "hint": "Nejvyšší počet úseků převedených na embeddingy při jednom obnovení. Velký repozitář se rozdělí do více obnovení, aby poskytovatel nebyl přetížen."
     },
     "sec_schedule": {
-      "label": "Plánovaná reindexace",
-      "hint": "Časovač na pozadí, který index obnovuje sám, takže se repozitář větší než jeden průchod postupně doindexuje bez ručního spouštění CodebaseReindex."
+      "label": "Plánované obnovení indexu",
+      "hint": "Index se na pozadí pravidelně obnovuje. Velké repozitáře se tak postupně zpracují bez ručního spouštění CodebaseReindex."
     },
     "scheduledReindex": {
       "label": "Reindexovat podle plánu",
-      "hint": "Výchozí stav je vypnuto: časovač utrácí u poskytovatele embeddingů bez dozoru. Zapněte, až vám bude vyhovovat rozsah a interval níže."
+      "hint": "Ve výchozím nastavení je vypnuto. Časovač bez dozoru využívá kapacitu poskytovatele embeddingů a může zvýšit náklady. Zapněte ho, jen pokud Vám vyhovuje níže nastavený rozsah a interval."
     },
     "reindexIntervalMinutes": {
       "label": "Interval (minuty)",
-      "hint": "Jak často obnova na pozadí běží. Jeden tik stojí nejvýš počet repozitářů × průchodů × embeddingů na průchod."
+      "hint": "Jak často se index na pozadí obnovuje. Jedno spuštění může vytvořit nejvýše tolik embeddingů, kolik je repozitářů × počet průchodů × embeddingů na průchod."
     },
     "reindexScope": {
       "label": "Které repozitáře",
-      "hint": "Zda plán obnovuje všechny repozitáře, které už jsou v indexu, nebo jen ty, které vypíšete.",
+      "hint": "Určete, zda obnovovat všechny indexované repozitáře, nebo jen ty uvedené níže.",
       "options": {
-        "indexed": "Vše, co už je zaindexované",
-        "listed": "Jen cesty vypsané níže"
+        "indexed": "Všechny indexované repozitáře",
+        "listed": "Jen níže uvedené cesty"
       }
     },
     "reindexRepos": {
       "label": "Cesty k repozitářům",
-      "hint": "Jedna absolutní cesta na řádek (nebo oddělené čárkou). Cesta, která není čitelná složka, se přeskočí a zaloguje."
+      "hint": "Zadejte úplné cesty k repozitářům. Cesty můžete zadat po jedné na řádek nebo oddělit čárkami. Cesty, které nevedou do čitelné složky, se přeskočí a zapíší do záznamu."
     },
     "reindexMaxPassesPerRepo": {
       "label": "Průchodů na repozitář a tik",
-      "hint": "Horní hranice po sobě jdoucích průchodů nad jedním repozitářem v rámci jednoho tiku. Repozitář, kde už není co indexovat, skončí dřív — jde tedy jen o strop nejhoršího případu."
+      "hint": "Nejvyšší počet průchodů jednoho repozitáře při jednom spuštění. Pokud už není co indexovat, zpracování skončí dřív."
     },
     "sec_model": {
-      "label": "Model pro embeddingy",
-      "hint": "Embedding model se přebírá z Nastavení → Paměť (jediný zdroj pravdy) — zde se žádný samostatný model nenastavuje. Změna toho modelu při další reindexaci index přestaví."
+      "label": "Embedding model",
+      "hint": "Embedding model se přebírá z Nastavení → Paměť. Zde ho nelze nastavit samostatně. Po změně modelu se při příštím obnovení index vytvoří znovu."
     }
   }
 }

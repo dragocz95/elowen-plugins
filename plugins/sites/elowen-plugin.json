@@ -1,9 +1,9 @@
 {
   "name": "sites",
-  "version": "0.14.9",
+  "version": "0.14.10",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
-  "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
+  "description": "Publish an application from a selected managed Project and preview it. Each site has its own visibility settings.",
   "entry": "dist/index.js",
   "consumesControls": ["sandbox", "browserCapture", "publishedSitesGateway"],
   "provides": {
@@ -83,7 +83,7 @@
           "label": "Any signed-in account"
         }
       ],
-      "hint": "What a newly created site is visible to before anyone changes it. A site never becomes public on its own; that is confirmed here in the app."
+      "hint": "Who can see a new site until someone changes the setting. A site never becomes public on its own; public visibility must be confirmed in the app."
     },
     {
       "key": "allowPublicSites",
@@ -107,7 +107,7 @@
           "label": "Administrators only"
         }
       ],
-      "hint": "Whether an ordinary account's agent may create and publish sites. Opening a site somebody shared is unaffected."
+      "hint": "Whether an ordinary account's agent may create and publish sites. This does not affect opening a shared site."
     },
     {
       "key": "limits",
@@ -135,7 +135,7 @@
       "default": 12,
       "min": 1,
       "max": 720,
-      "hint": "How long a visitor stays signed in to a site before the browser is sent back through the sign-in step. Losing access takes effect immediately regardless of this, because permission is checked on every request."
+      "hint": "How long a visitor stays signed in before the browser asks them to sign in again. Access is revoked immediately regardless of this period, because permission is checked on every request."
     },
     {
       "key": "gatewayDnsTarget",
@@ -171,10 +171,10 @@
     ],
     "strings": {
       "title": "Sites",
-      "subtitle": "Pages your agent published, and who can open them.",
+      "subtitle": "Sites published by your agent, and who can open them.",
       "mine": "My sites",
       "shared": "Shared with me",
-      "empty": "No sites yet. Ask the agent to build one and publish it.",
+      "empty": "No sites yet. Ask the agent to create and publish one.",
       "emptyShared": "Nobody has shared a site with you.",
       "emptySearch": "No site matches this filter.",
       "loadFailed": "The sites could not be loaded.",
@@ -186,17 +186,17 @@
       "columnOwner": "Owner",
       "project": "Project",
       "noAddress": "No address yet",
-      "previewPending": "Taking a picture of the page…",
+      "previewPending": "Taking a screenshot…",
       "previewNone": "No picture of this page yet.",
       "previewFailed": "Last picture failed",
-      "previewCapturedAt": "Pictured {time}",
-      "previewRefresh": "Take a new picture",
-      "previewRefreshed": "Picture queued",
-      "openDetail": "Open {title}",
+      "previewCapturedAt": "Captured {time}",
+      "previewRefresh": "Take a new screenshot",
+      "previewRefreshed": "Screenshot queued",
+      "openDetail": "Open details: {title}",
       "openDetailShort": "Details",
       "stateHintDegraded": "Published, but the application behind it is not answering.",
       "stateHintFailed": "The last publish failed. Open the details for the reason.",
-      "kindProxy": "Managed Project proxy",
+      "kindProxy": "Site in project",
       "metricTotal": "Sites",
       "metricLive": "Live",
       "metricShared": "Shared with me",
@@ -212,8 +212,8 @@
       "statusDraft": "Draft",
       "statusFailed": "Needs attention",
       "visibilityPrivate": "Only me",
-      "visibilityProject": "Project",
-      "visibilityAuthenticated": "Signed in",
+      "visibilityProject": "For Project members",
+      "visibilityAuthenticated": "For signed-in users",
       "visibilityPublic": "Public",
       "openProject": "Open Project",
       "copy": "Copy",
@@ -303,13 +303,13 @@
       "publicDisabled": "Public sites are turned off for this instance.",
       "sourceNotice": "This setting governs the published address. Access to the application and its files is managed separately by the Project.",
       "deleteTitle": "Delete this site",
-      "deleteHint": "The address stops working. Retained legacy file releases are removed; the managed Project and its application are left alone.",
+      "deleteHint": "The address will stop working. Saved versions of older file publications will also be removed. The Project and its application will remain unchanged.",
       "delete": "Delete site",
       "deleted": "Site deleted",
       "saved": "Saved",
       "close": "Close",
       "releaseLive": "Live",
-      "projectPublicationLink": "This publication uses the managed Project {project} transport."
+      "projectPublicationLink": "This site runs in Project {project}."
     }
   }
 }

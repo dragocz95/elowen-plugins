@@ -1,9 +1,9 @@
 {
-  "description": "Telegram bot (grammY): napíšte mu a odpovie z Elowen AI. Slash príkazy (/model, /reasoning, /display, /new, /help), nastavenie modelu a zobrazenia pre každý chat, živá aktivita nástrojov s nezávislým doručením odpovede, stavové reakcie a proaktívne cron/tick oznámenia. Chat nástroje: info o chate/členovi, počet členov, pripnutie/odopnutie, mazanie správ, ban/unban, povýšenie, názov/popis chatu, fórum témy (vytvoriť/upraviť/zavrieť) a odoslanie správy do ľubovoľného chatu (prevádzkovateľ). Každé pravidlo roly mapuje Telegram user ID / @username / chat ID na povolené projekty Elowen a prompt roly.",
+  "description": "Telegramový bot (grammY): napíšte mu a odpovie za Elowen AI. Podporuje príkazy /model, /reasoning, /display, /new a /help, nastavenia modelu a zobrazenia pre jednotlivé chaty, priebežný prehľad práce nástrojov, samostatné doručenie odpovede, stavové reakcie a proaktívne oznámenia z cron úloh. Nástroje pre chaty umožňujú zobraziť informácie o chate a členoch, zistiť počet členov, pripínať a odpínať správy, mazať správy, blokovať a odblokovať členov, povyšovať ich, meniť názov a popis chatu, spravovať témy fóra a poslať správu do ľubovoľného chatu ako operátor. Každé pravidlo roly priraďuje Telegram ID používateľa, @username alebo ID chatu k povoleným projektom Elowen a promptu roly.",
   "fields": {
     "sec_connection": {
       "label": "Pripojenie",
-      "hint": "Token bota a kde počúva."
+      "hint": "Token bota a miesto, kde prijíma správy."
     },
     "sec_replies": {
       "label": "Odpovede a správanie",
@@ -19,11 +19,11 @@
     },
     "sec_roles": {
       "label": "Pravidlá rolí",
-      "hint": "Mapovanie Telegram odosielateľov na povolené projekty, prompt roly a nástroje, ktoré smie bot použiť."
+      "hint": "Priraďte odosielateľov Telegramu k povoleným projektom, promptu roly a nástrojom, ktoré smie bot používať."
     },
     "sec_media": {
       "label": "Limity médií",
-      "hint": "Limity pre prichádzajúce/odchádzajúce obrázky a ako dlho zostáva otvorená čakajúca otázka."
+      "hint": "Limity pre prichádzajúce a odchádzajúce obrázky a dobu, počas ktorej možno odpovedať na čakajúcu otázku."
     },
     "botToken": {
       "label": "Token bota",
@@ -35,7 +35,7 @@
     },
     "notifyChatId": {
       "label": "ID oznamovacieho chatu",
-      "hint": "Kam sa posielajú proaktívne správy (výsledky cronov/tickov, eskalácie) — číselné chat id alebo @channelusername. Prázdne = žiadne proaktívne správy."
+      "hint": "Sem sa posielajú proaktívne správy, napríklad výsledky cron úloh a tickov alebo eskalácie. Zadajte číselné ID chatu alebo @channelusername. Nechajte prázdne, ak proaktívne správy nechcete."
     },
     "respondWithoutMention": {
       "label": "Odpovedať bez zmienky",
@@ -43,22 +43,22 @@
     },
     "toolActivity": {
       "label": "Aktivita nástrojov",
-      "hint": "Vypnuté skryje pracovnú stopu. Živý stav ukazuje spustenie a dokončenie nástrojov. Živý výstup navyše streamuje obmedzený priebeh Bash. Pre chat možno prepísať cez /display.",
+      "hint": "Vypnuté skryje priebeh práce. Živý stav oznamuje spustenie a dokončenie nástrojov. Živý výstup navyše priebežne zobrazuje obmedzený výstup príkazu Bash. Nastavenie pre jednotlivý chat zmeňte príkazom /display.",
       "options": { "off": "Vypnuté", "status": "Živý stav", "live": "Živý výstup" }
     },
     "answerMode": {
       "label": "Doručenie odpovede",
-      "hint": "Finálna odpoveď pošle jednu kompletnú správu pod živú stopu nástrojov. Živo priebežne upravuje vznikajúcu odpoveď. Pre chat možno prepísať cez /display.",
+      "hint": "V režime Len finálna odpoveď sa po priebehu práce zobrazí jedna úplná správa. V živom režime sa odpoveď priebežne upravuje. Nastavenie pre jednotlivý chat zmeňte príkazom /display.",
       "options": { "final": "Len finálna odpoveď", "live": "Živo streamovať odpoveď" }
     },
     "toolOutput": {
       "label": "Detail výstupu nástrojov",
-      "hint": "Určuje, koľko obmedzeného výstupu sa ukáže pod stavom nástroja. Celý raw výstup sa do Telegramu nikdy nevypisuje.",
-      "options": { "hidden": "Len stav", "summary": "Krátke zhrnutie", "tail": "Priebežný koniec výstupu" }
+      "hint": "Určuje, koľko obmedzeného výstupu nástrojov sa zobrazí pod ich stavom. Celý pôvodný výstup sa do Telegramu nikdy neposiela.",
+      "options": { "hidden": "Len stav", "summary": "Krátke zhrnutie", "tail": "Posledná časť výstupu" }
     },
     "toolMessageMode": {
       "label": "Rozloženie správ nástrojov",
-      "hint": "Jedna živá správa udrží chat prehľadný. Jedna správa na nástroj dá každému volaniu vlastnú upravovanú správu v Telegrame.",
+      "hint": "Jedna priebežne aktualizovaná správa udrží chat prehľadný. Pri voľbe jednej správy na nástroj dostane každý nástroj vlastnú upraviteľnú správu v Telegrame.",
       "options": { "single": "Jedna živá správa", "per_tool": "Jedna správa na nástroj" }
     },
     "deleteToolActivityAfterTurn": {
@@ -75,40 +75,40 @@
     },
     "showReasoning": {
       "label": "Zobraziť uvažovanie",
-      "hint": "Streamovať uvažovanie modelu do priebežnej správy (modely s extended thinking). Predvolené = vypnuté — väčšinou je to šum."
+      "hint": "Zobrazovať uvažovanie modelu počas odpovede. Dostupné len pri modeloch s rozšíreným uvažovaním. Predvolene vypnuté."
     },
     "language": {
       "label": "Jazyk služobných správ",
-      "hint": "Jazyk vlastných správ bota (/new, /model, zástupné texty): en (predvolené), cs alebo sk.",
+      "hint": "Jazyk vlastných správ bota (/new, /model a zástupné texty): en (predvolené), cs alebo sk.",
       "options": { "en": "Angličtina", "cs": "Čeština", "sk": "Slovenčina" }
     },
     "visionModel": {
       "label": "Model pre obrázky",
-      "hint": "Model pre správy s obrázkovými prílohami (musí vedieť vision). Prázdne = bežný model chatu."
+      "hint": "Model pre správy s obrázkami. Musí podporovať rozpoznávanie obrázkov. Prázdne = bežný model chatu."
     },
     "maxImageBytes": {
       "label": "Max. veľkosť prichádzajúceho obrázka",
-      "hint": "Najväčšia obrázková príloha (v bajtoch), ktorú bot stiahne pre vision; väčšie len poznamená."
+      "hint": "Najväčšia obrázková príloha v bajtoch, ktorú bot stiahne na rozpoznanie obsahu. Väčšie súbory iba zaznamená."
     },
     "maxImages": {
       "label": "Max. obrázkov na správu",
-      "hint": "Koľko obrázkových príloh z jednej prichádzajúcej správy bot pošle vision modelu."
+      "hint": "Koľko obrázkov z jednej správy bot pošle modelu na rozpoznanie."
     },
     "maxUploadImages": {
       "label": "Max. obrázkov na odpoveď",
       "hint": "Koľko vygenerovaných obrázkov bot pripojí k jednej odchádzajúcej odpovedi."
     },
     "askTimeoutMs": {
-      "label": "Timeout otázky (ms)",
-      "hint": "Ako dlho zostáva čakajúca AskUserQuestion otvorená pre klik na tlačidlo alebo textovú odpoveď, než ju bot zahodí ako zastaranú. Rovnaké okno platí aj pre interaktívne menu a výbery."
+      "label": "Časový limit otázky (ms)",
+      "hint": "Ako dlho možno na otázku AskUserQuestion odpovedať tlačidlom alebo voľným textom, kým nevyprší jej platnosť. Rovnaký limit platí pre interaktívne ponuky a výbery."
     },
     "voiceProvider": {
       "label": "Poskytovateľ hlasu",
-      "hint": "Ktorý nakonfigurovaný OpenAI-kompatibilný poskytovateľ poháňa hlas (Whisper STT + TTS) — použije jeho kľúč, žiadny zvlášť. Poskytovateľov pridáte v Nastavenia → Brain. Prázdne = hlas vypnutý."
+      "hint": "Vyberte nastaveného poskytovateľa kompatibilného s OpenAI pre hlasové funkcie (Whisper STT + TTS). Použije sa jeho kľúč, samostatný kľúč netreba. Poskytovateľov pridáte v Nastavenia → Brain. Nechajte prázdne, ak chcete hlas vypnúť."
     },
     "stt": {
       "label": "Prepisovať hlasové správy",
-      "hint": "Prepísať prichádzajúce hlasové správy / audio prílohy cez Whisper, aby im agent rozumel. Vyžaduje OpenAI API kľúč."
+      "hint": "Whisper prepíše prichádzajúce hlasové správy a zvukové prílohy, aby im agent rozumel. Je potrebný kľúč API OpenAI."
     },
     "sttModel": {
       "label": "Model pre prepis reči",
@@ -116,19 +116,19 @@
     },
     "tts": {
       "label": "Mluvené odpovede (predvolené)",
-      "hint": "Predvolené pre chaty: pripojiť mluvenú audio verziu odpovedí ako hlasovú správu. Živo prepínateľné per chat cez /voice. Vyžaduje OpenAI API kľúč."
+      "hint": "Predvolené pre chaty: k odpovediam sa pripojí ich hlasová verzia ako hlasová správa. V každom chate ju možno zapnúť alebo vypnúť príkazom /voice. Je potrebný kľúč API OpenAI."
     },
     "ttsModel": {
       "label": "Model pre syntézu reči",
-      "hint": "TTS model (predvolené: gpt-4o-mini-tts)."
+      "hint": "Model na prevod textu na reč (predvolený: gpt-4o-mini-tts)."
     },
     "ttsVoice": {
-      "label": "Hlas TTS",
+      "label": "Hlas na prevod textu na reč",
       "hint": "Hlas: alloy, echo, fable, onyx, nova alebo shimmer (predvolené: alloy)."
     },
     "rolePolicies": {
       "label": "Pravidlá rolí",
-      "hint": "Vyhráva prvé zodpovedajúce pravidlo; odosielatelia bez namapovaného pravidla sú ignorovaní. ID je Telegram user ID (123456789), @username, alebo celé chat ID (pri skupinách záporné) — chat ID sprístupní bota všetkým v ňom. Hviezdička * zodpovedá komukoľvek a patrí posledná, nad pomenovanými pravidlami by ich pohltila. Kľúč `admin` povoľuje zdieľané výbery /model, /reasoning a /context a riadiace príkazy miestnosti /stop, /stats, /compact a /restart — /restart reštartuje démona pre všetkých. Projekty a oprávnenia nástrojov sa preberajú z prepojeného účtu Elowen odosielateľa."
+      "hint": "Platí prvé zodpovedajúce pravidlo. Odosielatelia bez priradeného pravidla sa ignorujú. Zadajte Telegram ID používateľa (123456789), @username alebo celé ID chatu. Pri skupinách je ID záporné a jeho zadaním sprístupníte bota všetkým členom. Hviezdička * zodpovedá všetkým odosielateľom, preto ju uveďte až za pomenovanými pravidlami. Kľúč `admin` sprístupní spoločné voľby /model, /reasoning a /context aj riadiace príkazy chatu /stop, /stats, /compact a /restart. Príkaz /restart reštartuje démona všetkým. Projekty a oprávnenia k nástrojom sa preberajú z prepojeného účtu Elowen odosielateľa."
     }
   }
 }
