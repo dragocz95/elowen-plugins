@@ -6,6 +6,7 @@ import { loadPlugins, discoverPlugins } from 'elowen/dist/plugins/loader.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { openDb } from 'elowen/dist/store/db.js';
 import type { PluginPublicHttp } from 'elowen/plugin-api';
+import { createChatbotHost } from './helpers/chatbotHost.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'plugins');
@@ -50,6 +51,7 @@ async function loadEveryRegistryPlugin() {
   // empty rather than green, which is the failure mode we want.
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
+  const chatbotStores = createChatbotHost({ accounts: [] }).stores;
   return loadPlugins({
     dirs: [pluginDir], enabled: names, logger: log, config: CONFIG,
     pluginDb: (plugin: string) => makePluginDb(db, plugin, { canMigrate: true }),
@@ -57,7 +59,7 @@ async function loadEveryRegistryPlugin() {
     resolveProvider: () => ({ apiKey: 'k', baseUrl: 'https://api.example.invalid/v1' }),
     // image-edit captures this enforcing transport at registration; the suite proves registration only,
     // and the throwing request method makes an accidental network call fail immediately.
-    host: { publicHttp: PUBLIC_HTTP },
+    host: { publicHttp: PUBLIC_HTTP, stores: chatbotStores },
   });
 }
 
