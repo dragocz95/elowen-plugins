@@ -92,6 +92,30 @@ describe('StatsView', () => {
     expect(container.querySelector('.control-surface-toolbar')).toBeNull();
   });
 
+  it('lets an administrator switch both usage reads to the whole instance', async () => {
+    renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+
+    const scope = screen.getByRole('radiogroup', { name: strings.scopeLabel });
+    expect(within(scope).getByRole('radio', { name: strings.scopePersonal })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(scope).getByRole('radio', { name: strings.scopeInstance }));
+
+    await waitFor(() => {
+      expect(new URLSearchParams(modelSearch).get('scope')).toBe('instance');
+      expect(new URLSearchParams(daySearch).get('scope')).toBe('instance');
+    });
+  });
+
+  it('does not offer instance scope to a non-admin or send it implicitly', async () => {
+    server.use(http.get('*/api/auth/me', () => HttpResponse.json({ user: { id: 2, username: 'reader', is_admin: false } })));
+    renderStats();
+    await screen.findByRole('figure', { name: strings.tokensByModel });
+
+    expect(screen.queryByRole('radiogroup', { name: strings.scopeLabel })).toBeNull();
+    expect(new URLSearchParams(modelSearch).has('scope')).toBe(false);
+    expect(new URLSearchParams(daySearch).has('scope')).toBe(false);
+  });
+
   it('announces and clears an active usage filter through its chip', async () => {
     const { container } = renderStats();
     await screen.findByRole('figure', { name: strings.tokensByModel });

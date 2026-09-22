@@ -15,13 +15,41 @@ const DAY_MS = 86_400_000;
 const {
   Button, ControlSurfaceDocument, ControlSurfaceRegister, ControlSurfaceState,
   DataTable, DataTableCell, DataTableChevronCell, DataTableRow, DateRangeFilter, EmptyState, ErrorState,
-  LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, SelectMenu, WorkspaceDetailRail,
+  LoadingState, ModelIcon, ModuleHeader, Pager, RegisterSearch, Segmented, SelectMenu, WorkspaceDetailRail,
   WorkspaceMetric, WorkspaceShell,
 } = runtime().components;
-const { useMe, useModelUsage, usePersistentState, usePluginStrings, useTranslation, useUsageByDay } = runtime().hooks;
+const { useMe, usePersistentState, usePluginStrings, useQuery, useTranslation } = runtime().hooks;
 const { buildUsageSummary, DEFAULT_RANGE, isStoredRange, parseRange, rangeBounds, serializeRange } = runtime().utils;
+const { api } = runtime();
 
 type UsageFilter = 'all' | 'costed' | 'cached';
+type UsageScope = 'personal' | 'instance';
+
+const usagePath = (path: string, scope: UsageScope, values: Record<string, string>): string => {
+  const params = new URLSearchParams(values);
+  if (scope === 'instance') params.set('scope', 'instance');
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+};
+
+const useScopedModelUsage = (scope: UsageScope, window: { fromMs: number; toMs: number }) =>
+  useQuery<ModelUsage[]>({
+    queryKey: ['stats', 'usage-by-model', scope,
+      Number.isFinite(window.fromMs) ? window.fromMs : null,
+      Number.isFinite(window.toMs) ? window.toMs : null],
+    queryFn: () => api<ModelUsage[]>(usagePath('/usage/by-model', scope, {
+      ...(Number.isFinite(window.fromMs) ? { from: new Date(window.fromMs).toISOString() } : {}),
+      ...(Number.isFinite(window.toMs) ? { to: new Date(window.toMs).toISOString() } : {}),
+    })),
+    refetchInterval: 30_000,
+  });
+
+const useScopedUsageByDay = (scope: UsageScope, days: number) =>
+  useQuery<DayUsage[]>({
+    queryKey: ['stats', 'usage-by-day', scope, days],
+    queryFn: () => api<DayUsage[]>(usagePath('/usage/by-day', scope, { days: String(days) })),
+    refetchInterval: 60_000,
+  });
 
 /** The page owns whether an opaque filter control is narrowing results; the host owns its panel and chip. */
 const pageFilterField = (
@@ -119,9 +147,11 @@ export function StatsView() {
   }), [rangeRaw]);
   const window = useMemo(() => rangeBounds(range, now), [range, now]);
   const trendDays = useMemo(() => trendDaysForWindow(window, now), [window, now]);
-  const usage = useModelUsage(window);
-  const daily = useUsageByDay(trendDays);
   const me = useMe();
+  const [requestedScope, setRequestedScope] = useState<UsageScope>('personal');
+  const scope = me.data?.user?.is_admin === true ? requestedScope : 'personal';
+  const usage = useScopedModelUsage(scope, window);
+  const daily = useScopedUsageByDay(scope, trendDays);
   const summary = buildUsageSummary(usage.data);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UsageFilter>('all');
@@ -178,6 +208,11 @@ export function StatsView() {
   const resetPage = () => setPage(0);
   const changeRange = (next: typeof range) => { setRangeRaw(serializeRange(next)); resetPage(); };
   const changeUsageFilter = (next: UsageFilter) => { setFilter(next); resetPage(); };
+  const changeScope = (next: string) => {
+    setRequestedScope(next === 'instance' ? 'instance' : 'personal');
+    resetPage();
+    setSelectedExec(null);
+  };
   const usageLabels: Record<UsageFilter, string> = {
     all: s.filterAll,
     costed: s.filterCosted,
@@ -246,7 +281,7 @@ export function StatsView() {
         action: me.data?.user?.is_admin
           ? <>
               <Button variant="ghost" icon={MapPin} onClick={() => setOriginOpen(true)}>{s.originAction}</Button>
-              {summary.hasAnyUsage
+              {scope === 'personal' && summary.hasAnyUsage
                 ? <Button variant="ghost-danger" icon={Trash2} onClick={() => setResetOpen(true)}>{s.reset}</Button>
                 : null}
             </>
@@ -271,6 +306,19 @@ export function StatsView() {
           />
         ),
         filters: filterFields,
+        actions: me.data?.user?.is_admin === true ? (
+          <Segmented
+            nowrap
+            size="sm"
+            aria-label={s.scopeLabel}
+            value={scope}
+            onChange={changeScope}
+            options={[
+              { value: 'personal', label: s.scopePersonal },
+              { value: 'instance', label: s.scopeInstance },
+            ]}
+          />
+        ) : undefined,
       }}>
         <ControlSurfaceDocument>
           {hasError ? (

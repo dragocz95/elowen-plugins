@@ -1,6 +1,6 @@
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { ChangeEvent, ComponentType, ReactNode } from 'react';
-import type { DateRange, DayUsage, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
+import type { DateRange, ModelUsage, ResetUsageResult, UsageByOriginResult, UsageOriginGroup, UsageSummary } from './types';
 
 interface QueryResult<T> {
   data?: T;
@@ -33,8 +33,7 @@ interface StatsRuntime {
   components: Pick<StatsComponents, PublishedNames>;
   hooks: {
     useMe(): QueryResult<{ user?: { id: number; username: string; is_admin: boolean } }>;
-    useModelUsage(window?: { fromMs: number; toMs: number }): QueryResult<ModelUsage[]>;
-    useUsageByDay(days?: number): QueryResult<DayUsage[]>;
+    useQuery<T>(options: Record<string, unknown>): QueryResult<T>;
     /** ADMIN-ONLY on the server: a non-admin caller gets 403 by design. `enabled` keeps a normal
      *  account from firing a request that is meant to fail; it is not the access control. */
     useUsageByOrigin(
@@ -56,6 +55,7 @@ interface StatsRuntime {
     rangeBounds(range: DateRange, now: number): { fromMs: number; toMs: number };
     serializeRange(range: DateRange): string;
   };
+  api<T = unknown>(path: string, init?: RequestInit): Promise<T>;
 }
 
 /** The host components this bundle mounts. Every key must be one the runtime really publishes:
