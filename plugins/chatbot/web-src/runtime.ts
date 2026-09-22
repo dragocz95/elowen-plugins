@@ -370,6 +370,9 @@ interface ChatbotComponents {
     ariaLabel?: string;
   }>;
   Toggle: ComponentType<{ checked: boolean; onChange(checked: boolean): void; label?: string; disabled?: boolean }>;
+  /** The host's "?" mark, for a row this bundle lays out itself instead of handing to `SettingsRow` — the
+   *  limits window, where every row is a slider — so an explanation always sits in the same affordance. */
+  HelpTip: ComponentType<{ children: ReactNode; align?: 'left' | 'right' }>;
   /** The host's scalar slider. Every bounded number on this surface is set with one — the panel's size and
    *  its corner radius, and every rate and ceiling a chatbot serves under — because a number typed into a
    *  box says nothing about where it sits between its two bounds. */

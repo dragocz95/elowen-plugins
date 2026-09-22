@@ -20,6 +20,14 @@ export interface LimitSpec {
   max: number;
   /** The value a newly registered chatbot starts with and the admin form shows for an unset legacy row. */
   default: number;
+  /** What the admin form OFFERS, which is a different question from what the server will believe.
+   *
+   *  `min`/`max` above are the validity bounds: the widest values the enforcement code can work with, and
+   *  what an API payload is judged against. This is the span of the SLIDER that sets the limit, so it stops
+   *  where useful settings stop — a retention of ten years is inside the bounds and is not a policy anybody
+   *  picks by dragging a bar, and offering it would squeeze every realistic value into a few pixels. A
+   *  stored value outside this span is never rewritten: that row's slider widens to reach it. */
+  slider: { min: number; max: number; step: number };
 }
 
 /** The numbers an enabled chatbot MUST have. A bot missing any of them cannot be enabled, and cannot serve
@@ -27,33 +35,60 @@ export interface LimitSpec {
 export const MANDATORY_LIMITS = {
   // Bounds an address trying to talk to one chatbot. The window is a minute, so even 1000 is far past any
   // real visitor; the ceiling exists so a typo cannot produce a number the counter cannot hold.
-  rateIpPerMinute: { column: 'rate_ip_per_minute', min: 1, max: 100_000, default: 30 },
+  rateIpPerMinute: {
+    column: 'rate_ip_per_minute', min: 1, max: 100_000, default: 30, slider: { min: 5, max: 300, step: 5 },
+  },
   // Bounds every visitor of one chatbot together, whatever address they come from.
-  rateChatbotPerMinute: { column: 'rate_chatbot_per_minute', min: 1, max: 100_000, default: 60 },
+  rateChatbotPerMinute: {
+    column: 'rate_chatbot_per_minute', min: 1, max: 100_000, default: 60, slider: { min: 10, max: 600, step: 10 },
+  },
   // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
   // whole day's budget in a minute.
-  rateConversationPerMinute: { column: 'rate_conversation_per_minute', min: 1, max: 10_000, default: 10 },
+  rateConversationPerMinute: {
+    column: 'rate_conversation_per_minute', min: 1, max: 10_000, default: 10, slider: { min: 1, max: 60, step: 1 },
+  },
   // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
-  dailyTurnLimit: { column: 'daily_turn_limit', min: 1, max: 10_000_000, default: 200 },
+  dailyTurnLimit: {
+    column: 'daily_turn_limit', min: 1, max: 10_000_000, default: 200, slider: { min: 10, max: 10_000, step: 10 },
+  },
   // How many of this chatbot's turns may run at the same time.
-  maxConcurrentTurns: { column: 'max_concurrent_turns', min: 1, max: 64, default: 2 },
+  maxConcurrentTurns: {
+    column: 'max_concurrent_turns', min: 1, max: 64, default: 2, slider: { min: 1, max: 32, step: 1 },
+  },
   // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
-  maxQueueDepth: { column: 'max_queue_depth', min: 1, max: 10_000, default: 4 },
-  // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound: a
-  // visitor who has waited that long has left the page.
-  queueTimeoutSeconds: { column: 'queue_timeout_seconds', min: 1, max: 3_600, default: 60 },
+  maxQueueDepth: {
+    column: 'max_queue_depth', min: 1, max: 10_000, default: 4, slider: { min: 1, max: 100, step: 1 },
+  },
+  // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound; the
+  // slider stops at ten minutes, because a visitor who has waited that long has left the page.
+  queueTimeoutSeconds: {
+    column: 'queue_timeout_seconds', min: 1, max: 3_600, default: 60, slider: { min: 5, max: 600, step: 5 },
+  },
   // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
   // budget would be one number too many, and the server must never approve an action the widget refuses.
-  maxActionsPerTurn: { column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 8 },
+  maxActionsPerTurn: {
+    column: 'max_actions_per_turn', min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, default: 8,
+    slider: { min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, step: 1 },
+  },
   // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.
-  retentionDays: { column: 'retention_days', min: 1, max: 3_650, default: 30 },
+  retentionDays: {
+    column: 'retention_days', min: 1, max: 3_650, default: 30, slider: { min: 1, max: 365, step: 1 },
+  },
 } satisfies Record<string, LimitSpec>;
 
-/** The numbers that may be left unset. An absent cost ceiling means "the owner has set no spending ceiling",
- *  which is a decision rather than a missing value; a token ceiling behaves the same way. */
+/** The numbers a row may carry as NULL. A legacy row written before this plugin had defaults means "the owner
+ *  set no ceiling"; the admin form no longer writes that state, because a public chatbot with no spending
+ *  ceiling is not a decision anybody makes deliberately. The cost ceiling is stored in microdollars and read
+ *  in dollars, which is why its slider steps by a million. */
 export const OPTIONAL_LIMITS = {
-  dailyTokenLimit: { column: 'daily_token_limit', min: 1, max: Number.MAX_SAFE_INTEGER, default: 1_000_000 },
-  dailyCostMicrousd: { column: 'daily_cost_microusd', min: 1, max: Number.MAX_SAFE_INTEGER, default: 10_000_000 },
+  dailyTokenLimit: {
+    column: 'daily_token_limit', min: 1, max: Number.MAX_SAFE_INTEGER, default: 1_000_000,
+    slider: { min: 100_000, max: 50_000_000, step: 100_000 },
+  },
+  dailyCostMicrousd: {
+    column: 'daily_cost_microusd', min: 1, max: Number.MAX_SAFE_INTEGER, default: 10_000_000,
+    slider: { min: 1_000_000, max: 100_000_000, step: 1_000_000 },
+  },
 } satisfies Record<string, LimitSpec>;
 
 export type MandatoryLimitField = keyof typeof MANDATORY_LIMITS;
