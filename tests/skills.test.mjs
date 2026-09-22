@@ -33,6 +33,8 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
   const userRemoved = [];
   const promptFragments = [];
   const inputTransforms = [];
+  // Every change the plugin asked the host to apply, in order.
+  const reloads = [];
   // The identity/admin state the host would install around a turn or an API request. It is ambient in
   // the daemon (AsyncLocalStorage); a mutable cell is the same thing for a single-threaded test.
   const session = { identity: null, adminSession: false, contributionUserId: null, toolPolicy: undefined };
@@ -51,6 +53,21 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     }
     return selected;
   };
+  /** The live catalog entries the host hands SkillLoad and ListSkills: the registered (or injected) skills,
+   *  each with the source and owner the registry would report. Both control methods derive from this one
+   *  list, as they do in the daemon. */
+  const catalogEntries = (ownerUserId) => (catalogSkills ?? defaultCatalog)(ownerUserId).map((skill) => {
+    // The real PI loader nests the source under `sourceInfo`; the `test:node` PI stub keeps it flat.
+    const origin = skill.sourceInfo?.source ?? skill.source ?? '';
+    const personal = skill.ownerUserId != null;
+    return {
+      key: null, skill,
+      contributorPlugin: origin.startsWith('elowen-plugin:') ? origin.slice('elowen-plugin:'.length) : 'skills',
+      source: personal ? 'personal' : origin === 'elowen-plugin:skills' ? 'bundled' : origin === 'elowen-user:skills' ? 'instance' : 'plugin',
+      ownerUserId: personal ? skill.ownerUserId : null,
+      enabledForAccount: true, effective: true,
+    };
+  });
   const defaultEntries = (ownerUserId) => {
     const bundledDir = join(pluginDir, 'skills');
     const instanceDir = join(dataRoot, 'skills');
@@ -100,7 +117,17 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     registerInputTransform: (transform) => inputTransforms.push(transform),
     registerApiRoute: (route) => routes.push(route),
     registerUserRemoved: (fn) => userRemoved.push(fn),
-    requestReload,
+    // The host side of a live reload: a `reload` change REPLACES this plugin's registered skills, exactly
+    // as the daemon's registry does, so every later read of the catalog sees the new set.
+    requestReload: (change) => {
+      reloads.push(change);
+      if (change?.mode === 'reload') {
+        skills.splice(0);
+        registeredRoots.clear();
+        for (const { skill, ownerUserId } of change.skills) ctx.registerSkill(skill, ownerUserId === undefined ? {} : { ownerUserId });
+      }
+      requestReload(change);
+    },
     currentIdentity: () => session.identity,
     // WHOSE personal skills the turn may open. The host resolves it per turn from the session and its
     // verified writer, so it is deliberately NOT derived from `identity` here either: the two part company
@@ -109,8 +136,8 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     currentAccess: () => ({ toolPolicy: session.toolPolicy }),
     control: (name) => {
       if (name === 'skillCatalog' && skillCatalogControl) return {
-        visibleSkills: () => (catalogSkills ?? defaultCatalog)(session.contributionUserId),
-        visibleEntries: () => defaultEntries(session.contributionUserId),
+        visibleSkills: () => catalogEntries(session.contributionUserId).map((entry) => entry.skill),
+        visibleEntries: () => catalogEntries(session.contributionUserId),
         canonicalBaseDir: (skill) => catalogCanonicalBaseDir?.(skill) ?? registeredRoots.get(skill) ?? (() => {
           try { return realpathSync(skill.baseDir); } catch { return null; }
         })(),
@@ -128,7 +155,7 @@ function loadPlugin({ dataRoot, requestReload = () => {}, users = () => [], cata
     host: { stores: () => ({ usersRead: { list: users } }) },
   };
   register(ctx);
-  return { skills, tools, routes, userRemoved, promptFragments, inputTransforms, session };
+  return { skills, tools, routes, userRemoved, promptFragments, inputTransforms, session, reloads };
 }
 
 /** Run `fn` as a TURN — the scope `runWithPolicy(policy, fn, { identity })` installs around a tool call.
@@ -904,7 +931,7 @@ test('bundled skills plugin', async (t) => {
   await t.test('CreateSkill writes the skill AND asks the host to apply it live (no restart)', async () => {
     // Regression: before the fix, CreateSkill wrote the file but never triggered a reload, so a freshly
     // created skill only reached the model after a daemon restart / plugins toggle. It must now request a
-    // live reload (drained by the brain once the turn settles) so the skill is available next message.
+    // live reload, which the host applies in place, so the skill is available next message.
     const dataRoot = tmpDir('skills');
     let reloads = 0;
     const reg = loadPlugin({ dataRoot, requestReload: () => { reloads += 1; } });
@@ -1074,6 +1101,41 @@ test('skills plugin creator tools', async (t) => {
   // `scope` used to be optional and default to "instance for an admin". An admin noting down their own
   // way of doing something — in their own chat, where nobody else is — therefore edited every session's
   // prompt on the instance. Being an admin says what someone MAY do, never what they meant.
+  // A save is applied by handing the host the plugin's COMPLETE new skill set, which it swaps into the
+  // running daemon; the old restart interrupted turns and lost open questions for a data change.
+  await t.test('CreateSkill and DeleteSkill hand the host the complete new skill set as a live reload', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot });
+    const names = (change) => change.skills.map(({ skill }) => skill.name);
+
+    await asTurn(reg, OWNER_TURN, () => runTool(reg, 'CreateSkill', { name: 'ship-it', scope: 'instance', description: 'when shipping', content: 'steps' }));
+    await asTurn(reg, turnFor(7), () => runTool(reg, 'CreateSkill', { name: 'mine', scope: 'personal', description: 'my way', content: 'steps' }));
+    assert.equal(reg.reloads.length, 2);
+    assert.ok(reg.reloads.every((change) => change.mode === 'reload'));
+    assert.ok(names(reg.reloads[1]).includes('ship-it'), 'the set is complete, not just the one skill');
+    assert.ok(names(reg.reloads[1]).includes('skill-creation'), 'bundled skills stay in the set');
+    assert.deepEqual(reg.reloads[1].skills.find(({ skill }) => skill.name === 'mine')?.ownerUserId, 7);
+    assert.equal(reg.reloads[1].skills.find(({ skill }) => skill.name === 'ship-it')?.ownerUserId, undefined);
+
+    await asTurn(reg, OWNER_TURN, () => runTool(reg, 'DeleteSkill', { name: 'ship-it' }));
+    assert.equal(reg.reloads.length, 3);
+    assert.equal(reg.reloads[2].mode, 'reload');
+    assert.ok(!names(reg.reloads[2]).includes('ship-it'));
+    assert.ok(names(reg.reloads[2]).includes('mine'));
+  });
+
+  // Ownership comes from the host's live catalog, never from a map the plugin filled at load time: a skill
+  // created after load must open for its owner and stay refused to everybody else.
+  await t.test('SkillLoad opens a personal skill created after load for its owner only', async () => {
+    const dataRoot = tmpDir('pdata');
+    const reg = loadPlugin({ dataRoot });
+    await asTurn(reg, turnFor(7), () => runTool(reg, 'CreateSkill', { name: 'fresh-mine', scope: 'personal', description: 'my way', content: 'fresh steps' }));
+
+    assert.match(asText(await runScopedTool(reg, 'SkillLoad', 7, { name: 'fresh-mine' })), /fresh steps/);
+    assert.doesNotMatch(await refusalOf(runScopedTool(reg, 'SkillLoad', 8, { name: 'fresh-mine' })), /fresh steps/);
+    assert.doesNotMatch(await refusalOf(runScopedTool(reg, 'SkillLoad', null, { name: 'fresh-mine' })), /fresh steps/);
+  });
+
   await t.test('an ADMIN asking for a personal skill gets a personal one, not an instance-wide one', async () => {
     const dataRoot = tmpDir('pdata');
     const reg = loadPlugin({ dataRoot });
@@ -1558,6 +1620,39 @@ test('skills routes', async (t) => {
 
     assert.equal((await app.request(`/plugins/skills/amy-skill?owner=${amy.id}`, del(adminTok))).status, 200);
     assert.equal(existsSync(join(dataRoot, 'skills', 'users', String(amy.id), 'amy-skill.md')), false);
+  });
+
+  // Every HTTP write applies itself the same way the tools do: one live reload carrying the whole set.
+  await t.test('every HTTP write and an account deletion hand the host the complete new skill set', async () => {
+    const { app, users, amy, amyTok, adminTok, plugin } = setup();
+    users.setGrantedPlugins(amy.id, ['skills']);
+    const last = () => plugin.reloads.at(-1);
+    const entryOf = (name) => last().skills.find(({ skill }) => skill.name === name);
+
+    assert.equal((await app.request('/plugins/skills?owner=instance', post(adminTok, skill({ name: 'shared' })))).status, 201);
+    assert.equal(last().mode, 'reload');
+    assert.ok(entryOf('shared'));
+
+    assert.equal((await app.request('/plugins/skills/shared?owner=instance', patch(adminTok, { content: 'v2' }))).status, 200);
+    assert.equal(plugin.reloads.length, 2);
+    assert.ok(entryOf('shared'));
+
+    assert.equal((await app.request(`/plugins/skills/shared/owner?owner=instance`, post(adminTok, { owner: String(amy.id) }))).status, 200);
+    assert.equal(plugin.reloads.length, 3);
+    assert.equal(entryOf('shared')?.ownerUserId, amy.id);
+
+    assert.equal((await app.request('/plugins/skills', post(amyTok, skill({ name: 'amy-own' })))).status, 201);
+    assert.equal(plugin.reloads.length, 4);
+    assert.equal(entryOf('amy-own')?.ownerUserId, amy.id);
+
+    assert.equal((await app.request('/plugins/skills/amy-own', del(amyTok))).status, 200);
+    assert.equal(plugin.reloads.length, 5);
+    assert.equal(entryOf('amy-own'), undefined);
+
+    assert.equal((await app.request(`/users/${amy.id}`, del(adminTok))).status, 200);
+    assert.equal(plugin.reloads.length, 6);
+    assert.equal(entryOf('shared'), undefined, 'the deleted account\'s skills leave the set');
+    assert.ok(plugin.reloads.every((change) => change.mode === 'reload'));
   });
 
   // Nothing can ever reach that folder again, so leaving it behind just keeps one person's private

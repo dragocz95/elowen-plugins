@@ -149,18 +149,18 @@ function refuseSkill(wanted, loadable, manualOnly) {
  *  the list, so this tool can load exactly what the model's available-skills block announced — including
  *  skills contributed by sibling plugins. The control is REQUIRED: silently falling back to this plugin's
  *  local files would recreate the split-brain catalog this tool exists to prevent. */
-function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
+function buildSkillLoadTool(ctx, personalScopeRoot) {
   const logger = ctx.logger;
-  const personal = new Map();
-  for (const [ownerUserId, owned] of personalSkills) personal.set(ownerUserId, indexVisible(owned, logger));
   const visibleCatalog = () => {
     const control = ctx.control?.('skillCatalog');
-    if (!control || typeof control.visibleSkills !== 'function' || typeof control.visibleEntries !== 'function'
-      || typeof control.canonicalBaseDir !== 'function') {
+    if (!control || typeof control.visibleEntries !== 'function' || typeof control.canonicalBaseDir !== 'function') {
       throw new SkillLoadError('The live skill catalog is unavailable, so SkillLoad cannot safely decide which skill belongs to this turn. Continue without it and tell the user.');
     }
     try {
-      return { ...indexVisible(control.visibleSkills(), logger), control };
+      // The entries carry who each skill belongs to, so the host's catalog is the only record of ownership
+      // this tool reads: nothing kept here can go stale when the skill set is replaced in place.
+      const entries = control.visibleEntries();
+      return { ...indexVisible(entries.map((entry) => entry.skill), logger), entries, control };
     } catch (error) {
       logger.warn(`live skill catalog failed: ${error instanceof Error ? error.message : error}`);
       throw new SkillLoadError('The live skill catalog failed, so SkillLoad cannot safely decide which skill belongs to this turn. Continue without it and tell the user.');
@@ -203,7 +203,7 @@ function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
     parameters: Type.Object({ name, args }),
     execute: async (_id, params) => {
       const owner = ctx.currentContributionUserId();
-      const { byName: loadable, manualOnly, control } = visibleCatalog();
+      const { byName: loadable, manualOnly, entries, control } = visibleCatalog();
       const wanted = String(params.name ?? '').trim();
       const skill = loadable.get(wanted);
       if (!skill) throw new SkillLoadError(refuseSkill(wanted, loadable, manualOnly));
@@ -214,7 +214,8 @@ function buildSkillLoadTool(ctx, personalSkills, personalScopeRoot) {
       // the account's store, and its file stays inside that registered base directory. This also preserves
       // the correct directory for relative references in a directory-form skill.
       let directory = control.canonicalBaseDir(skill);
-      if (owner != null && personal.get(owner)?.byName.get(wanted) === skill) {
+      const entry = entries.find((candidate) => candidate.skill === skill);
+      if (owner != null && entry?.source === 'personal' && entry.ownerUserId === owner) {
         const accountRoot = personalScopeRoot(owner);
         directory = accountRoot === null || directory === null ? null : canonicalWithin(accountRoot, directory);
       }
@@ -381,34 +382,39 @@ export function register(ctx) {
     });
   };
 
-  const instanceSkills = [];
-  const personalSkills = new Map();
-  let count = 0;
-  for (const { dir, source } of [
-    { dir: bundledDir, source: 'elowen-plugin:skills' },
-    { dir: instanceDir, source: 'elowen-user:skills' },
-  ]) {
-    for (const skill of loadSkills(dir, source)) {
-      if (dir === instanceDir && isPersonalPath(skill.filePath)) continue; // owned by one account, registered below
-      ctx.registerSkill(skill);
-      instanceSkills.push(skill);
-      count += 1;
+  /** Every skill this plugin contributes, read from disk: bundled and instance-wide ones, then each
+   *  account's personal set. The ONE source for both the boot registration and every live replacement,
+   *  so the two can never disagree about what the plugin holds. */
+  const collectSkills = () => {
+    const registrations = [];
+    for (const { dir, source } of [
+      { dir: bundledDir, source: 'elowen-plugin:skills' },
+      { dir: instanceDir, source: 'elowen-user:skills' },
+    ]) {
+      for (const skill of loadSkills(dir, source)) {
+        if (dir === instanceDir && isPersonalPath(skill.filePath)) continue; // owned by one account, collected below
+        registrations.push({ skill });
+      }
     }
-  }
-  for (const ownerUserId of skillOwnerIds()) {
-    const owned = personalSkillsOf(ownerUserId);
-    personalSkills.set(ownerUserId, owned);
-    for (const skill of owned) {
-      ctx.registerSkill(skill, { ownerUserId });
-      count += 1;
+    for (const ownerUserId of skillOwnerIds()) {
+      for (const skill of personalSkillsOf(ownerUserId)) registrations.push({ skill, ownerUserId });
     }
+    return registrations;
+  };
+  /** Apply a change this plugin just wrote to disk: the host replaces the whole skill set in the running
+   *  daemon, and every conversation reads it from its next message. No restart, no interrupted turn. */
+  const reloadSkills = () => { ctx.requestReload({ mode: 'reload', skills: collectSkills() }); };
+
+  const registrations = collectSkills();
+  for (const { skill, ownerUserId } of registrations) {
+    ctx.registerSkill(skill, ownerUserId === undefined ? undefined : { ownerUserId });
   }
 
   // ONE registered definition, instance-wide. The per-account variants it replaced could only ever be
   // selected by a session's OWNER, which no shared room has — so the loader now carries every set and
   // decides per turn (see buildSkillLoadTool). The core announces skills only when this writer may use the
   // loader, so granting a sibling plugin without granting the skills subsystem never creates a dead catalog.
-  const skillLoader = buildSkillLoadTool(ctx, personalSkills, ownerScopeRoot);
+  const skillLoader = buildSkillLoadTool(ctx, ownerScopeRoot);
   ctx.registerInputTransform?.((input) => transformSkillInput(ctx, input));
   ctx.registerTool(skillLoader, { workspaceSafe: true });
   ctx.registerSystemPromptFragment([
@@ -426,7 +432,7 @@ export function register(ctx) {
   // simply keep one person's private instructions on the operator's disk forever.
   ctx.registerUserRemoved((userId) => {
     const dir = userSkillsDir(userId);
-    if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); ctx.requestReload?.(); }
+    if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); reloadSkills(); }
   });
 
   /** The account behind the current request/turn, or null when there is none (cron, an unlinked sender). */
@@ -781,7 +787,7 @@ export function register(ctx) {
       if (escapesOwnScope(target, file)) return jsonRes({ error: `"${name}" resolves outside that skills directory` }, 409);
       mkdirSync(target.dir, { recursive: true });
       writeFileSync(file, buildSkillBody(applyManagedFields({}, name, description, disableModelInvocation), content), 'utf-8');
-      ctx.requestReload?.(); // skills feed the brain's system prompt — apply live
+      reloadSkills();
       return jsonRes({ ok: true }, 201);
     },
   });
@@ -820,7 +826,7 @@ export function register(ctx) {
       if (description !== cur.description || content !== cur.content) bumpVersion(fm);
       bumpRevision(fm, currentRevision);
       writeFileSync(file, buildSkillBody(fm, content), 'utf-8');
-      ctx.requestReload?.();
+      reloadSkills();
       return jsonRes({ ok: true, revision: skillRevision(fm) });
     },
   });
@@ -835,7 +841,7 @@ export function register(ctx) {
       if (!target.ok) return jsonRes({ error: target.invalid ? 'invalid owner' : 'forbidden' }, target.invalid ? 400 : 403);
       const removed = removeSkill({ name, target: deletionTargetIn(target, name) }, NON_RECURSIVE_DELETE);
       if (removed.error) return jsonRes({ error: removed.error }, removed.status);
-      ctx.requestReload?.();
+      reloadSkills();
       return jsonRes({ ok: true });
     },
   });
@@ -922,7 +928,7 @@ export function register(ctx) {
         ctx.logger.warn(`could not edit moved skill '${name}': ${e instanceof Error ? e.message : e}`);
         return jsonRes({ error: 'the skill could not be updated' }, 500);
       }
-      ctx.requestReload?.(); // it leaves one prompt and enters another — apply live
+      reloadSkills(); // it leaves one catalog and enters another
       return jsonRes({ ok: true, owner: dest.owner, ...(edit ? { revision: skillRevision(readSkillFile(destinationFile).front) } : {}) });
     },
   });
@@ -974,9 +980,9 @@ export function register(ctx) {
         const body = buildSkillBody(applyManagedFields({}, p.name, p.description, false), p.content);
         mkdirSync(dir, { recursive: true });
         writeFileSync(file, body, 'utf-8');
-        // Apply live: the host reloads plugins once the current turn settles (respawning the session), so
-        // the new skill is in the available-skills block from the next message — no restart needed.
-        ctx.requestReload?.();
+        // Applied live: the host replaces the skill set in place, so the new skill is in the
+        // available-skills block from the next message, with no restart.
+        reloadSkills();
         return ok(`Skill "${p.name}" saved (${wantsInstance ? 'instance-wide' : 'personal'}). It is available from your next message.`);
       } catch (e) { return fail(e); }
     },
@@ -1034,11 +1040,11 @@ export function register(ctx) {
           const message = removed.status === 404 ? `no skill named "${p.name}" that you can delete` : removed.error;
           return ok(`Error: ${message}.`);
         }
-        ctx.requestReload?.(); // apply live, same as CreateSkill — the skill leaves the prompt next message
+        reloadSkills(); // the skill leaves the catalog from the next message
         return ok(`Skill "${p.name}" deleted.`);
       } catch (e) { return fail(e); }
     },
   }));
 
-  ctx.logger.info(`registered ${count} skill(s) + loader and management tools`);
+  ctx.logger.info(`registered ${registrations.length} skill(s) + loader and management tools`);
 }
