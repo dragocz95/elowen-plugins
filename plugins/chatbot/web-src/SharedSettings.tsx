@@ -1,5 +1,6 @@
 import { ShieldCheck, Wrench } from 'lucide-react';
 import { runtime, type PluginConfigField } from './runtime';
+import { useChatbots } from './useChatbots';
 
 /** THE SHARED SETTINGS SECTION: what applies to every chatbot at once.
  *
@@ -18,9 +19,12 @@ import { runtime, type PluginConfigField } from './runtime';
  *  retention window and the appearance are fields of ONE chatbot's row (`PATCH /bots`, `PUT /appearance`),
  *  and there is no defaults record behind them for a new chatbot to inherit. Inventing one on this surface
  *  would be inventing a server behaviour that does not exist. */
-export function SharedSettings({ plugin, requiredTools }: { plugin: string; requiredTools: string[] }) {
+export function SharedSettings({ plugin }: { plugin: string }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('chatbot');
+  // The required tools are the register's answer, read from the same cached request every other section
+  // reads: this section states a fact the server already told the page.
+  const { requiredTools } = useChatbots();
   const { locale, t } = hooks.useTranslation();
   const detail = hooks.usePluginDetail(plugin);
   const draft = hooks.usePluginConfigDraft(plugin, {

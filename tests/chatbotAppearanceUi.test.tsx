@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { APPEARANCE_BOUNDS, DEFAULT_APPEARANCE, presetAppearance, type ChatbotAppearance } from '../plugins/chatbot/src/appearanceContract';
 import type { LimitValues } from '../plugins/chatbot/src/limits';
-import { ChatbotPage } from '../plugins/chatbot/web-src/ChatbotPage';
+import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { avatarHint, quickButtonHint } from '../plugins/chatbot/web-src/AppearanceModal';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
 import { detectLocale, widgetStrings } from '../plugins/chatbot/embed-src/strings';
@@ -114,12 +114,14 @@ beforeAll(() => listen());
 afterEach(() => { cleanup(); resetHandlers(); saved.body = null; });
 afterAll(() => close());
 
-/** Open the editor the way an administrator does: a chatbot's row in the register opens its drawer, and
- *  the drawer's footer opens the appearance window over it. The editor is therefore the SECOND dialog on
- *  screen — the drawer it was opened from stays mounted underneath. */
+/** Open the editor the way an administrator does: a chatbot's row in the Chatbots section of
+ *  Settings → Plugins opens its drawer, and the drawer's footer opens the appearance window over it. The
+ *  editor is therefore the SECOND dialog on screen — the drawer it was opened from stays mounted under
+ *  it. */
 async function openEditor(): Promise<HTMLElement> {
   const { wrapper: Wrapper } = createWrapper();
-  render(<Wrapper><ToastProvider><ChatbotPage plugin="chatbot" params={{}} rest={[]} surface="page" /></ToastProvider></Wrapper>);
+  const Bots = CHATBOT_SECTIONS.bots!;
+  render(<Wrapper><ToastProvider><Bots plugin="chatbot" params={{ id: 'bots' }} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
   await screen.findAllByRole('button', { name: strings.newBot! });
   await screen.findByText(bot.displayName);
   fireEvent.click(await screen.findByRole('button', { name: strings.openBot!.replace('{name}', bot.displayName) }));

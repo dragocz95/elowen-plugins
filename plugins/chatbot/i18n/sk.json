@@ -11,8 +11,12 @@
     }
   },
   "web": {
-    "nav": {
-      "": "Chatboti"
+    "label": "Chatboti",
+    "settings": {
+      "bots": "Chatboti",
+      "conversations": "Konverzácie",
+      "statistics": "Štatistiky",
+      "shared": "Spoločné nastavenia"
     },
     "strings": {
       "botsSearch": "Hľadať podľa názvu, účtu alebo verejného ID…",
@@ -226,13 +230,6 @@
       "appearanceSaved": "Vzhľad uložený",
       "appearanceSaveFailed": "Vzhľad sa nepodarilo uložiť",
       "appearanceMaxChars": "Najviac {max} znakov.",
-      "title": "Chatboti",
-      "pageHint": "Chatboti, ktorí odpovedajú návštevníkom webov tretích strán. Každý pracuje v práve jednom spravovanom projekte a jeho konverzácie patria jeho vlastnému účtu.",
-      "sectionsLabel": "Sekcie chatbotov",
-      "sectionBots": "Chatboti",
-      "sectionConversations": "Konverzácie",
-      "sectionStatistics": "Štatistiky",
-      "sectionShared": "Spoločné nastavenia",
       "pickerLabel": "Chatbot",
       "pickerNoBots": "Zatiaľ žiadny chatbot",
       "pickerNoBotsDescription": "Najprv založte chatbota v sekcii Chatboti; tu sa číta, čo ktorý z nich robil.",

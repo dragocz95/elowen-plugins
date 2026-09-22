@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
-import { ChatbotPage } from '../plugins/chatbot/web-src/ChatbotPage';
+import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
 import { limitDraftOf, readLimitDraft, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
@@ -12,16 +12,17 @@ import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } fr
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 
-/** The chatbot page — the plugin's own entry in the main navigation, a deck of four sections — rendered
- *  the way it renders in production: inside the host's own runtime fixture, reaching EVERY component and
- *  every string through `window.ElowenUiRuntime`.
+/** The chatbot admin surface — FOUR sections of Settings → Plugins → Chatbots — rendered the way the host
+ *  renders them: ONE section at a time, with `surface="deck"`, inside the host's own runtime fixture,
+ *  reaching every component and every string through `window.ElowenUiRuntime`.
  *
- *  What this cannot prove is layout: whether the sections read as a column beside the content and as one
- *  scrollable line on a phone is a browser's judgement and is reported as unverified. What it does prove
- *  is that every section is reachable and mounts against the published component contract, that the page
- *  reads only strings its manifest declares, that its loading, error, empty and populated states are all
- *  drawn, that conversations and statistics are scoped to ONE chatbot, and that the page writes back
- *  exactly the grants, rules and numbers it showed. */
+ *  Each section is mounted on its own here because that is how it is mounted in production: the host
+ *  draws the section navigation and the panel, and hands one component the panel to fill. What this
+ *  cannot prove is what that frame looks like — a browser's judgement, reported as unverified. What it
+ *  does prove is that every declared section has a component that mounts against the published contract,
+ *  that the sections read only strings the manifest declares, that their loading, error, empty and
+ *  populated states are all drawn, that conversations and statistics are scoped to ONE chatbot, and that
+ *  the surface writes back exactly the grants, rules and numbers it showed. */
 
 ensurePluginUiRuntime();
 
@@ -119,8 +120,8 @@ setDefaults(
     name: 'chatbot',
     url: '/plugins/chatbot/web/index.js',
     apiVersion: 12,
-    nav: [{ label: 'Chatbots', icon: 'MessagesSquare', route: '' }],
-    settings: [],
+    nav: [],
+    settings: manifest.web.settings,
     strings,
   }])),
   // The plugin's OWN instance configuration, as the host's admin route answers it: the manifest's schema,
@@ -254,23 +255,19 @@ afterEach(() => {
 });
 afterAll(() => close());
 
-function renderPage() {
+/** Mount ONE section exactly as the host mounts it: by the id the manifest advertised, with `surface`
+ *  set to `deck`, because every section of this plugin is placed inside the plugin's detail workspace and
+ *  the panel around it is the host's. */
+function renderSection(id: 'bots' | 'conversations' | 'statistics' | 'shared') {
+  const Section = CHATBOT_SECTIONS[id]!;
   const { wrapper: Wrapper } = createWrapper();
-  return render(<Wrapper><ToastProvider><ChatbotPage plugin="chatbot" params={{}} rest={[]} surface="page" /></ToastProvider></Wrapper>);
+  return render(<Wrapper><ToastProvider><Section plugin="chatbot" params={{ id }} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 }
 
 /** Wait until the page's own copy has arrived. The plugin's strings come from a listing query, so the
  *  first paint renders every label empty and React then REUSES those nodes with text — a control queried
  *  before that lands is a node whose events reach nothing. */
 const settled = () => screen.findAllByRole('button', { name: strings.newBot! });
-
-/** Move to a section the way a reader does. The sections are drawn TWICE — the column beside the content
- *  and the phone's scrollable line — because which of the two is visible is a viewport's decision, made in
- *  CSS. Both carry the same destinations, so a test clicks the first and asserts on both. */
-const openSection = async (label: string): Promise<void> => {
-  fireEvent.click(screen.getAllByRole('button', { name: label })[0]!);
-  await waitFor(() => expect(screen.getAllByRole('button', { name: label })[0]!).toHaveAttribute('aria-current', 'page'));
-};
 
 /** The window on top. A drawer's own rows open further windows, so "the dialog" is always the last one
  *  mounted — every overlay the host draws is portaled to the body in mount order. */
@@ -294,41 +291,31 @@ const openWindow = async (label: string): Promise<HTMLElement> => {
   return top();
 };
 
-describe('the chatbots page', () => {
-  it('offers its four sections in both navigations, with the register open first', async () => {
-    renderPage();
-    await settled();
-    // The page names itself, and every section is a destination on screen rather than an entry hidden
-    // behind a menu: the column has them and so does the phone's line, which is why each is found twice.
-    expect(screen.getByRole('heading', { name: strings.title! })).toBeInTheDocument();
-    for (const label of [strings.sectionBots!, strings.sectionConversations!, strings.sectionStatistics!, strings.sectionShared!]) {
-      expect(screen.getAllByRole('button', { name: label })).toHaveLength(2);
-    }
-    // Exactly one destination is marked, in each of the two navigations, and it is the register.
-    const current = screen.getAllByRole('button', { name: strings.sectionBots! });
-    expect(current.every((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
-    expect(screen.getAllByRole('button', { name: strings.sectionConversations! }).some((b) => b.getAttribute('aria-current') === 'page')).toBe(false);
-    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
+describe('what this plugin contributes to Settings', () => {
+  it('has one component per section the manifest declares, and no others', () => {
+    // The host resolves a section's component by the id its listing advertised. An id declared with no
+    // component renders the host's "section unavailable" notice; a component under an id nobody declares
+    // is never mounted at all. Neither fails at runtime, so it is checked here.
+    expect(Object.keys(CHATBOT_SECTIONS)).toEqual(manifest.web.settings.map((section) => section.id));
   });
 
-  it('shows ONE section at a time', async () => {
-    renderPage();
+  it('draws no frame of its own: the header, the navigation and the document are the host\'s', async () => {
+    renderSection('bots');
     await settled();
     expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
-
-    await openSection(strings.sectionShared!);
-    // The register is gone with its section, not merely scrolled past: a deck reads one section at a time.
-    await waitFor(() => expect(screen.queryByRole('button', { name: strings.openBot!.replace('{name}', 'Městský úřad') })).not.toBeInTheDocument());
-    expect(screen.getByText(strings.sharedRequirementsTitle!)).toBeInTheDocument();
-
-    await openSection(strings.sectionBots!);
-    expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
+    // The workspace tab around this panel names the section, so nothing here repeats it as a heading, and
+    // the way between sections belongs to the host rather than to this bundle.
+    expect(screen.queryByRole('heading', { name: manifest.web.settings[0]!.label })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    // …and a section renders ITS OWN content and nothing of its siblings'.
+    expect(screen.queryByRole('combobox', { name: strings.pickerLabel! })).not.toBeInTheDocument();
+    expect(screen.queryByText(strings.sharedRequirementsTitle!)).not.toBeInTheDocument();
   });
 });
 
 describe('the chatbots section', () => {
   it('lists one row per chatbot and narrows them from the card\'s own search', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
     expect(screen.getByText('Škola')).toBeInTheDocument();
@@ -342,7 +329,7 @@ describe('the chatbots section', () => {
   });
 
   it('shows what an administrator has to fix, in the drawer of the chatbot it is wrong about', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Škola');
     const drawer = await openBot('Škola');
@@ -351,7 +338,7 @@ describe('the chatbots section', () => {
   });
 
   it('warns that a needed tool is missing instead of listing the account\'s whole tool set', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     // The working chatbot reaches the tool its turns need, so nothing is said about tools at all — the
@@ -367,21 +354,21 @@ describe('the chatbots section', () => {
   });
 
   it('keeps what a chatbot DID out of its drawer', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
-    // Conversations and statistics are sections of the page, each with a picker over the same register,
+    // Conversations and statistics are sections of their own, each with a picker over the same register,
     // so the drawer offers no second way into them.
-    expect(within(drawer).queryByRole('button', { name: strings.sectionConversations! })).not.toBeInTheDocument();
-    expect(within(drawer).queryByRole('button', { name: strings.sectionStatistics! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.columnVisitor!)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.spendTitle!)).not.toBeInTheDocument();
     // What it does carry is this chatbot's own configuration.
     expect(within(drawer).getByPlaceholderText(strings.promptPlaceholder!)).toBeInTheDocument();
     expect(within(drawer).getByRole('button', { name: strings.limitsEdit! })).toBeInTheDocument();
   });
 
   it('saves the whole row on an explicit submit, and disables it only after a confirmation', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -403,7 +390,7 @@ describe('the chatbots section', () => {
   });
 
   it('asks before closing a drawer that holds unsaved changes', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -418,7 +405,7 @@ describe('the chatbots section', () => {
   });
 
   it('states the sensitive-data mode as unavailable instead of offering a switch it would refuse', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -432,7 +419,7 @@ describe('the chatbots section', () => {
 
   it('reports a failed load with a retry instead of an empty register', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
-    renderPage();
+    renderSection('bots');
     await settled();
     // The retry action is the HOST's, labelled from its own dictionary — not the plugin's copy.
     await waitFor(() => expect(screen.getByText(strings.botsLoadError!, { exact: false })).toBeInTheDocument());
@@ -441,7 +428,7 @@ describe('the chatbots section', () => {
 
   it('offers creation when there is nothing registered yet, and lists what it created', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
-    renderPage();
+    renderSection('bots');
     await settled();
     expect(await screen.findByText(strings.botsEmptyTitle!)).toBeInTheDocument();
     // ONE way in, in the card's header, where it also is when the register is full.
@@ -454,7 +441,7 @@ describe('the chatbots section', () => {
 
   it('grants a new chatbot account this plugin and the tools its turns need, keeping its other grants', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText(strings.botsEmptyTitle!);
     fireEvent.click(screen.getByRole('button', { name: strings.newBot! }));
@@ -479,7 +466,7 @@ describe('the chatbots section', () => {
 
 describe('one chatbot\'s limits', () => {
   const openLimits = async (name: string) => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText(name);
     await openBot(name);
@@ -532,11 +519,10 @@ describe('one chatbot\'s limits', () => {
 });
 
 describe('the conversations section', () => {
+  /** The conversations section, mounted on its own and settled on the control it owns. */
   const openConversations = async () => {
-    renderPage();
-    await settled();
-    await screen.findByText('Městský úřad');
-    await openSection(strings.sectionConversations!);
+    renderSection('conversations');
+    await screen.findByRole('combobox', { name: strings.pickerLabel! });
   };
 
   it('reads one chatbot at a time, and switches with the picker', async () => {
@@ -584,22 +570,26 @@ describe('the conversations section', () => {
 
   it('says there is nothing to read when no chatbot is registered', async () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
-    renderPage();
-    await settled();
-    await screen.findByText(strings.botsEmptyTitle!);
-    await openSection(strings.sectionConversations!);
+    renderSection('conversations');
     // A picker over nothing is not offered at all: the section says what has to happen first.
     expect(await screen.findByText(strings.pickerNoBots!)).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: strings.pickerLabel! })).not.toBeInTheDocument();
+  });
+
+  it('reports a failed REGISTER read rather than claiming there is no chatbot', async () => {
+    use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
+    renderSection('conversations');
+    // The section cannot know which chatbot to read without the register, and "could not be read" is a
+    // different answer from "none registered" — one of them is a thing to fix.
+    expect(await screen.findByText(strings.botsLoadError!, { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(strings.pickerNoBots!)).not.toBeInTheDocument();
   });
 });
 
 describe('the statistics section', () => {
   const openStats = async () => {
-    renderPage();
-    await settled();
-    await screen.findByText('Městský úřad');
-    await openSection(strings.sectionStatistics!);
+    renderSection('statistics');
+    await screen.findByRole('combobox', { name: strings.pickerLabel! });
   };
 
   it('is a chatbot, a window, a chart and one line of spend', async () => {
@@ -655,10 +645,8 @@ describe('the statistics section', () => {
 
 describe('the shared settings section', () => {
   const openShared = async () => {
-    renderPage();
-    await settled();
-    await screen.findByText('Městský úřad');
-    await openSection(strings.sectionShared!);
+    renderSection('shared');
+    await screen.findByText(strings.sharedRequirementsTitle!);
   };
 
   /** The manifest's one instance-wide field, read from the manifest itself so this test cannot drift from
@@ -705,7 +693,7 @@ describe('the shared settings section', () => {
 
 describe('page-action rules', () => {
   const openRules = async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -714,7 +702,7 @@ describe('page-action rules', () => {
   };
 
   it('says on the drawer that there is no rule, and keeps the author behind its own window', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -786,7 +774,7 @@ describe('page-action rules', () => {
 
 describe('the allowed domains', () => {
   it('states them as a summary, and refuses one the server would reject', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
@@ -804,7 +792,7 @@ describe('the allowed domains', () => {
   });
 
   it('adds one in the window and carries it into the summary', async () => {
-    renderPage();
+    renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');

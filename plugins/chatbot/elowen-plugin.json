@@ -54,11 +54,31 @@
     "css": "web/index.css",
     "requiresApiVersion": 12,
     "adminOnly": true,
-    "nav": [
+    "label": "Chatbots",
+    "settings": [
       {
+        "id": "bots",
         "label": "Chatbots",
+        "icon": "Bot",
+        "placement": "pluginDetail"
+      },
+      {
+        "id": "conversations",
+        "label": "Conversations",
         "icon": "MessagesSquare",
-        "route": ""
+        "placement": "pluginDetail"
+      },
+      {
+        "id": "statistics",
+        "label": "Statistics",
+        "icon": "Activity",
+        "placement": "pluginDetail"
+      },
+      {
+        "id": "shared",
+        "label": "Shared settings",
+        "icon": "SlidersHorizontal",
+        "placement": "pluginDetail"
       }
     ],
     "strings": {
@@ -273,13 +293,6 @@
       "appearanceSaved": "Appearance saved",
       "appearanceSaveFailed": "The appearance could not be saved",
       "appearanceMaxChars": "At most {max} characters.",
-      "title": "Chatbots",
-      "pageHint": "Chatbots answering visitors of third-party websites. Each one works inside exactly one managed Project, and its conversations belong to its own account.",
-      "sectionsLabel": "Chatbot sections",
-      "sectionBots": "Chatbots",
-      "sectionConversations": "Conversations",
-      "sectionStatistics": "Statistics",
-      "sectionShared": "Shared settings",
       "pickerLabel": "Chatbot",
       "pickerNoBots": "No chatbot yet",
       "pickerNoBotsDescription": "Register a chatbot in the Chatbots section first; this reads what one of them did.",

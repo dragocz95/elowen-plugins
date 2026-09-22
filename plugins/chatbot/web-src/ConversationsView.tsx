@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MessagesSquare } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
+import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
 import type { ChatbotBotView, ChatbotConversationView, ChatbotConversationsAnswer, ChatbotTranscriptAnswer } from './types';
 
@@ -20,10 +21,12 @@ const COLUMNS = 'minmax(0,1.5fr) minmax(0,1fr) 4.5rem 7rem 1.25rem';
 const COMPACT_COLUMNS = 'minmax(0,1.5fr) 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 4.5rem 1.25rem';
 
-export function ConversationsSection({ bots }: { bots: ChatbotBotView[] }) {
+export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
+  const register = useChatbots();
+  const bots = register.bots;
 
   const [selected, setSelected] = useState<number | null>(null);
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
@@ -58,8 +61,19 @@ export function ConversationsSection({ bots }: { bots: ChatbotBotView[] }) {
     status === 'done' ? 'success' : status === 'error' ? 'danger' : 'warning';
   const statusLabel = (status: string): string => s[`turnStatus_${status}`] ?? status;
 
+  // The register is this section's own precondition: there is nothing to read from until it arrives, and
+  // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
+  if (register.loadError !== null) {
+    return <C.SettingsGroup><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
+  }
   if (bot === null) {
-    return <C.SettingsGroup><C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={MessagesSquare} /></C.SettingsGroup>;
+    return (
+      <C.SettingsGroup>
+        {register.isLoading
+          ? <C.LoadingState variant="list" />
+          : <C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={MessagesSquare} />}
+      </C.SettingsGroup>
+    );
   }
 
   const body = loadError !== null ? <C.ErrorState message={`${s.conversationsLoadError} — ${loadError}`} onRetry={load} />

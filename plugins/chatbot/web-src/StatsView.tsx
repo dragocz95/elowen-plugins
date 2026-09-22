@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, Coins } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
+import { useChatbots } from './useChatbots';
 import { formatDay, integer, money } from './format';
-import type { ChatbotBotView, ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
+import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
 /** THE STATISTICS SECTION: what one chatbot actually did over a window of days — the chatbot, the window,
  *  the chart, the spend. Nothing else.
@@ -60,10 +61,12 @@ export function chartPoints(days: readonly ChatbotStatsDayView[], from: string, 
   return points;
 }
 
-export function StatsSection({ bots }: { bots: ChatbotBotView[] }) {
+export function StatsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
+  const register = useChatbots();
+  const bots = register.bots;
   const [selected, setSelected] = useState<number | null>(null);
   const [days, setDays] = useState<string>('30');
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
@@ -103,8 +106,19 @@ export function StatsSection({ bots }: { bots: ChatbotBotView[] }) {
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
   ];
 
+  // The register is this section's own precondition: there is nothing to count until it arrives, and
+  // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
+  if (register.loadError !== null) {
+    return <C.SettingsGroup><C.ErrorState message={`${s.botsLoadError} — ${register.loadError}`} onRetry={register.reload} /></C.SettingsGroup>;
+  }
   if (bot === null) {
-    return <C.SettingsGroup><C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={Activity} /></C.SettingsGroup>;
+    return (
+      <C.SettingsGroup>
+        {register.isLoading
+          ? <C.LoadingState variant="block" />
+          : <C.EmptyState title={s.pickerNoBots} description={s.pickerNoBotsDescription} icon={Activity} />}
+      </C.SettingsGroup>
+    );
   }
 
   return (

@@ -3,7 +3,7 @@ import { Bot, Plus, Search, Settings2 } from 'lucide-react';
 import { runtime } from './runtime';
 import { BotDetail, statusText } from './BotDetail';
 import { CreateBotDialog } from './CreateBotDialog';
-import type { ChatbotBotView, ChatbotsAnswer } from './types';
+import { useChatbots } from './useChatbots';
 
 /** THE CHATBOTS SECTION: the register, and one chatbot's configuration in the drawer its row opens.
  *
@@ -12,21 +12,17 @@ import type { ChatbotBotView, ChatbotsAnswer } from './types';
  *  how every settings surface in this app treats a record it configures — the register says which records
  *  exist, and the record itself is read and written in one place.
  *
- *  The register's own controls live in the card header: the search over it and the creation action. */
-export function BotsSection({ plugin, answer, loadError, onReload, onChanged }: {
-  plugin: string;
-  answer: ChatbotsAnswer | null;
-  loadError: string | null;
-  onReload(): void;
-  onChanged(bot: ChatbotBotView): void;
-}) {
+ *  The register's own controls live in the card header: the search over it and the creation action. The
+ *  host draws everything around this: the section navigation, the panel and the settings document. */
+export function BotsSection({ plugin }: { plugin: string }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings('chatbot');
+  const register = useChatbots();
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const bots = answer?.bots ?? [];
+  const { answer, bots, loadError } = register;
   const needle = search.trim().toLowerCase();
   const visible = bots.filter((bot) => {
     if (needle === '') return true;
@@ -37,8 +33,8 @@ export function BotsSection({ plugin, answer, loadError, onReload, onChanged }: 
   // the reader to another chatbot's drawer.
   const open = bots.find((bot) => bot.chatbotUserId === openId) ?? null;
 
-  const body = loadError !== null ? <C.ErrorState message={`${s.botsLoadError} — ${loadError}`} onRetry={onReload} />
-    : answer === null ? <C.LoadingState variant="list" />
+  const body = loadError !== null ? <C.ErrorState message={`${s.botsLoadError} — ${loadError}`} onRetry={register.reload} />
+    : answer === undefined ? <C.LoadingState variant="list" />
       : bots.length === 0 ? (
         // No second creation button here: the card's header carries it in every state, and one card
         // offering the same action twice is two things to read where there is one thing to do.
@@ -97,13 +93,13 @@ export function BotsSection({ plugin, answer, loadError, onReload, onChanged }: 
           // never the previous one's state under a new heading.
           key={open.chatbotUserId}
           bot={open}
-          requiredTools={answer?.requiredTools ?? []}
-          onChanged={onChanged}
+          requiredTools={register.requiredTools}
+          onChanged={register.upsert}
           unknownError={s.saveFailed}
           onClose={() => setOpenId(null)}
         />
       )}
-      {creating && answer !== null ? (
+      {creating && answer !== undefined ? (
         <CreateBotDialog
           plugin={plugin}
           requiredTools={answer.requiredTools}
@@ -111,7 +107,7 @@ export function BotsSection({ plugin, answer, loadError, onReload, onChanged }: 
           candidates={answer.candidates}
           onClose={() => setCreating(false)}
           onCreated={(bot) => {
-            onChanged(bot);
+            register.upsert(bot);
             setOpenId(bot.chatbotUserId);
           }}
         />

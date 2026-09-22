@@ -110,6 +110,17 @@ interface ChatbotHooks {
    *  this surface in the reader's own locale; `t` supplies the host's words for the host's own controls. */
   useTranslation(): { locale: string; t: HostDictionary };
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
+  /** The host's react-query, reached through the runtime so this bundle shares the HOST's one client and
+   *  its cache. That is what lets four independently mounted sections read ONE register: a bundle that
+   *  imported the library itself would get a second client over an empty cache, and each section would
+   *  fetch and hold an answer of its own. */
+  useQuery<T>(options: {
+    queryKey: readonly unknown[];
+    queryFn(): Promise<T>;
+  }): { data?: T; isLoading: boolean; isError: boolean; error: unknown; refetch(): unknown };
+  useQueryClient(): {
+    setQueryData<T>(queryKey: readonly unknown[], updater: (current: T | undefined) => T | undefined): void;
+  };
   /** ADMIN-ONLY on the server: a non-admin caller is refused by design. `enabled` only keeps a request
    *  that is meant to fail from being fired; it is not the access control. */
   useUsageByOrigin(
@@ -362,8 +373,9 @@ export interface ChatbotRuntime {
   navigate(href: string): void;
 }
 
-/** The plugin's own page, as the host mounts a registered route. */
-export type ChatbotPageComponent = ComponentType<{
+/** One settings section of this plugin, with the props the host mounts it with. Reached inside
+ *  Settings → Plugins → Chatbots, so `surface` is `deck` and the panel around it is the host's. */
+export type ChatbotSettingsSection = ComponentType<{
   plugin: string;
   params: Record<string, string>;
   rest: string[];
@@ -377,7 +389,7 @@ interface HostWindow {
   ElowenUiRuntime?: unknown;
   __elowenRegisterPluginUi?(plugin: string, registration: {
     requiresApiVersion: number;
-    pages: Record<string, ChatbotPageComponent>;
+    settings: Record<string, ChatbotSettingsSection>;
   }): void;
 }
 
@@ -387,14 +399,21 @@ export function runtime(): ChatbotRuntime {
   return value;
 }
 
-/** The chatbot admin surface is ONE page of the main navigation, at the manifest's own `nav` route.
+/** The chatbot admin surface is FOUR settings sections and no page at all.
  *
- *  It registers no settings section: everything this plugin configures — the chatbots themselves and the
- *  one instance-wide record — is read and written inside that page, which carries its own sections. The
- *  version must equal the manifest's `web.requiresApiVersion`; the host gates the load on the manifest's
- *  copy and the mount on this one. */
-export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, pages });
+ *  Every section is declared in the manifest with `placement: "pluginDetail"`, so the host offers them
+ *  inside Settings → Plugins → Chatbots and draws the section navigation, the panel and the settings
+ *  document around each one. The ids here must be the manifest's ids: the host looks a section's
+ *  component up by the id the listing advertised, and an id that matches nothing renders the
+ *  "section unavailable" notice instead.
+ *
+ *  `ownsPageFrame` is deliberately absent. It names sections that draw their OWN page frame, and these
+ *  draw none: the frame is the host's, which is what makes them read as Settings.
+ *
+ *  The version must equal the manifest's `web.requiresApiVersion`; the host gates the load on the
+ *  manifest's copy and the mount on this one. */
+export function registerChatbotUi(settings: Record<string, ChatbotSettingsSection>): void {
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 12, settings });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

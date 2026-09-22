@@ -1,65 +1,23 @@
-import type { ReactNode } from 'react';
-import { Activity, Bot, MessagesSquare, SlidersHorizontal } from 'lucide-react';
 import { BotsSection } from './BotsSection';
 import { ConversationsSection } from './ConversationsView';
 import { StatsSection } from './StatsView';
 import { SharedSettings } from './SharedSettings';
-import type { DeckSection } from './SectionDeck';
-import type { ChatbotBotView, ChatbotsAnswer } from './types';
+import type { ChatbotSettingsSection } from './runtime';
 
-/** WHAT THIS PAGE IS MADE OF, in one place.
+/** WHAT THIS PLUGIN CONTRIBUTES TO SETTINGS, in one place: four sections, keyed by the ids the manifest
+ *  declares in `web.settings`.
  *
- *  Four sections, each one an id, a name, a glyph and what it renders. The page picks one and the deck
- *  draws the rest as the way between them; neither of them knows what any section contains, and no
- *  section knows how it is reached. Adding, renaming or reordering a section is an edit to this list.
+ *  The host looks a section's component up by the id its listing advertised, so these keys and the
+ *  manifest's ids are ONE contract — an id here the manifest does not declare is a component nothing ever
+ *  mounts, and an id there that is missing here renders the host's "section unavailable" notice.
+ *  `tests/workspace-page-registration.test.ts` checks the two against each other.
  *
- *  The `id`, `label` and `icon` of each entry are exactly the shape the host's `WorkspaceShell`
- *  navigation takes, so the list is handed to it unchanged. */
-
-export const SECTION_IDS = ['bots', 'conversations', 'statistics', 'shared'] as const;
-export type SectionId = (typeof SECTION_IDS)[number];
-
-export interface ChatbotSection extends DeckSection {
-  id: SectionId;
-  content: ReactNode;
-}
-
-export function chatbotSections(input: {
-  plugin: string;
-  strings: Record<string, string>;
-  answer: ChatbotsAnswer | null;
-  loadError: string | null;
-  onReload(): void;
-  onChanged(bot: ChatbotBotView): void;
-}): ChatbotSection[] {
-  const { plugin, strings: s, answer, loadError, onReload, onChanged } = input;
-  const bots = answer?.bots ?? [];
-  return [
-    {
-      id: 'bots',
-      label: s.sectionBots,
-      icon: Bot,
-      content: (
-        <BotsSection plugin={plugin} answer={answer} loadError={loadError} onReload={onReload} onChanged={onChanged} />
-      ),
-    },
-    {
-      id: 'conversations',
-      label: s.sectionConversations,
-      icon: MessagesSquare,
-      content: <ConversationsSection bots={bots} />,
-    },
-    {
-      id: 'statistics',
-      label: s.sectionStatistics,
-      icon: Activity,
-      content: <StatsSection bots={bots} />,
-    },
-    {
-      id: 'shared',
-      label: s.sectionShared,
-      icon: SlidersHorizontal,
-      content: <SharedSettings plugin={plugin} requiredTools={answer?.requiredTools ?? []} />,
-    },
-  ];
-}
+ *  Every section is mounted on its own, with `surface="deck"`, inside the panel the host draws for it.
+ *  None of them draws a header, a navigation or a document surface of its own: those are the host's, and
+ *  taking them from the host is what makes this read exactly like `/settings?cat=brain`. */
+export const CHATBOT_SECTIONS: Record<string, ChatbotSettingsSection> = {
+  bots: ({ plugin }) => <BotsSection plugin={plugin} />,
+  conversations: () => <ConversationsSection />,
+  statistics: () => <StatsSection />,
+  shared: ({ plugin }) => <SharedSettings plugin={plugin} />,
+};

@@ -34,7 +34,7 @@ interface Registration {
 
 interface ManifestWeb {
   requiresApiVersion?: number;
-  nav?: { route: string }[];
+  nav?: unknown;
   adminOnly?: boolean;
   settings?: { id: string; placement?: 'page' | 'pluginDetail' }[];
 }
@@ -83,24 +83,27 @@ describe('single-surface plugin workspace registration', () => {
     expectSoleSection('skills', 'skills', 'plugin');
   });
 
-  /** Chatbots is the other shape: a plugin whose surface IS its product, so it keeps an entry in the main
-   *  navigation and one page behind it. The page carries its own sections, which makes the pair below the
-   *  whole contract — a nav route with no page registered for it is a menu entry that opens nothing, and a
-   *  page registered at a route the manifest does not advertise is a page nothing leads to. */
-  it('registers Chatbots as one navigation page and no settings section', async () => {
+  /** Chatbots is the other shape a settings plugin can take: SEVERAL sections, all of them offered inside
+   *  Settings → Plugins → Chatbots and none of them in the main navigation. The host resolves each one by
+   *  the id its listing advertised, so the manifest's ids and the bundle's keys are one contract that
+   *  nothing checks at runtime: a declared id with no component renders the host's "section unavailable"
+   *  notice, and a component under an undeclared id is never mounted at all. */
+  it('registers Chatbots as four Settings → Plugins sections and no page', async () => {
     await import('../plugins/chatbot/web-src/index');
     const call = register.mock.calls.find(([name]) => name === 'chatbot');
     expect(call, 'chatbot\'s bundle registered no plugin UI').toBeDefined();
     const registration = call![1] as Registration;
     const web = manifestWeb('chatbot');
 
-    expect(web.nav?.map((entry) => entry.route)).toEqual(['']);
-    expect(web.settings).toBeUndefined();
-    // The page is registered at the manifest's own route, and the bundle contributes nothing to Settings.
-    expect(Object.keys(registration.pages ?? {})).toEqual(['']);
-    expect(Object.keys(registration.settings ?? {})).toEqual([]);
-    // `ownsPageFrame` names SETTINGS sections that draw their own page frame. A page always owns its
-    // frame, so declaring anything here would name an id that matches nothing.
+    // Out of the main navigation entirely: these are sections of Settings, not a world of their own.
+    expect(web.nav).toBeUndefined();
+    expect(Object.keys(registration.pages ?? {})).toEqual([]);
+    // Every section is placed in the plugin's detail workspace, and every id has its component.
+    expect(web.settings?.map((section) => section.id)).toEqual(['bots', 'conversations', 'statistics', 'shared']);
+    expect(web.settings?.every((section) => section.placement === 'pluginDetail')).toBe(true);
+    expect(Object.keys(registration.settings ?? {})).toEqual(web.settings?.map((section) => section.id));
+    // `ownsPageFrame` names sections that draw their OWN page frame. These draw none: the frame, the
+    // section navigation and the document are the host's, which is what makes them read as Settings.
     expect(registration.ownsPageFrame).toBeUndefined();
     expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
     expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
