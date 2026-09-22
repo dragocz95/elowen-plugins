@@ -3,7 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
-import { blockerText } from '../plugins/chatbot/web-src/BotDetail';
+import { blockerText, modelSourceText } from '../plugins/chatbot/web-src/BotDetail';
+import { AUTH_TRANSITION_EVENT } from '../plugins/chatbot/web-src/accountSwitch';
 import { limitDraftOf, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
@@ -31,6 +32,13 @@ const strings = (manifest as { web: { strings: Record<string, string> } }).web.s
 const SITE = 'https://www.example.cz';
 const REQUIRED_TOOL = 'ChatbotPageAction';
 
+/** The model each fixture chatbot is answered by, and what decided it. The three sources get three unlike
+ *  values on purpose: a row that showed one where another belongs, or that called the allow-list case
+ *  inheritance, cannot pass against them. */
+const PICKED_MODEL = 'elowen:anthropic/claude-sonnet-4';
+const DEFAULT_MODEL = 'anthropic/claude-haiku-4';
+const FORCED_MODEL = 'relay/kimi-k2';
+
 /** The limits the server reports for the fixture chatbot: every field, null where the owner has not decided.
  *  Written the way the API reports it, so the form is exercised against the shape it really receives. */
 const LIMITS: LimitValues = { ...DEFAULT_LIMITS };
@@ -46,6 +54,7 @@ const bot = {
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
   projects: [{ id: 4, slug: 'ured' }],
+  model: { exec: PICKED_MODEL, source: 'preference' as const },
   blockers: [] as string[],
   insecureOrigins: [] as string[],
   limits: LIMITS,
@@ -61,6 +70,7 @@ const broken = {
   displayName: 'Škola',
   status: 'draft' as const,
   projects: [],
+  model: { exec: DEFAULT_MODEL, source: 'instance' as const },
   blockers: ['no_project', 'account_not_chatbot'],
 };
 
@@ -74,6 +84,7 @@ const second = {
   origins: ['https://www.skola.cz'],
   projects: [{ id: 5, slug: 'skola' }],
   account: { username: 'skola-bot', type: 'chatbot' as const, isAdmin: false },
+  model: { exec: FORCED_MODEL, source: 'allowed' as const },
 };
 
 const botsBody = (bots = [bot, broken, second]) => ({
@@ -102,7 +113,8 @@ const asked: {
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
-} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [] };
+  impersonate: number[];
+} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -198,9 +210,18 @@ setDefaults(
     { name: REQUIRED_TOOL, label: 'Act on the visitor page', icon: null, plugin: 'chatbot', group: 'plugin', state: 'allowed', toggleable: true },
     { name: 'MemorySearch', label: 'Search memory', icon: null, plugin: null, group: 'memory', state: 'inherited', toggleable: false },
   ].map((tool) => Number(params.id) === bot.chatbotUserId ? tool : { ...tool, state: 'unavailable', toggleable: false }))),
+  // Core's own account directory, which only the creation dialog reads — for the grants an account already
+  // holds, so that creating a chatbot adds to them rather than replacing them. The model row is NOT read
+  // from here: core resolves a model on the plugin's own server side.
   http.get('/api/users', () => HttpResponse.json([
     { id: 15, username: 'novy-bot', granted_plugins: ['stats'], allowed_tools: ['MemorySearch'] },
   ])),
+  // The host's own switch-to-account route, which is what the model row's action calls.
+  http.post('/api/auth/impersonate', async ({ request }) => {
+    const body = await request.json() as { userId?: number };
+    asked.impersonate.push(Number(body.userId));
+    return HttpResponse.json({ ok: true });
+  }),
   http.post('/api/users', () => HttpResponse.json({ id: 15, username: 'novy-bot' }, { status: 201 })),
   http.post('/api/users/:id/projects', () => HttpResponse.json({ ok: true })),
   http.patch('/api/users/:id', async ({ request }) => {
@@ -241,6 +262,7 @@ afterEach(() => {
   asked.userPatch = [];
   asked.botPatch = [];
   asked.configPatch = [];
+  asked.impersonate = [];
 });
 afterAll(() => close());
 
@@ -468,6 +490,121 @@ describe('the chatbots section', () => {
     // What it does carry is this chatbot's own configuration.
     expect(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! })).toBeInTheDocument();
     expect(within(drawer).getByRole('button', { name: strings.limitsEdit! })).toBeInTheDocument();
+  });
+
+  it('states the account\'s own pick as the model, and as what decided it', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    expect(within(drawer).getByText(strings.detailModel!)).toBeInTheDocument();
+    // The model core resolves for this account, carried in the plugin's own payload: the one its turns run on.
+    expect(within(drawer).getByText(PICKED_MODEL)).toBeInTheDocument();
+    // …and where that came from. The account stored this pick itself, so neither of the other two sources is
+    // named anywhere in this row.
+    expect(within(drawer).getByText(strings.detailModelSourcePreference!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.detailModelSourceInstance!)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.detailModelSourceAllowed!)).not.toBeInTheDocument();
+    // No other chatbot's model is anywhere near this drawer either.
+    expect(within(drawer).queryByText(DEFAULT_MODEL)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(FORCED_MODEL)).not.toBeInTheDocument();
+    // The row reports; it does not edit. The model is not a control on this surface, and the only way to
+    // change it is the account that owns it.
+    expect(within(drawer).queryByRole('combobox', { name: strings.detailModel! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('textbox', { name: strings.detailModel! })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole('switch', { name: strings.detailModel! })).not.toBeInTheDocument();
+  });
+
+  it('states the instance default as inherited when the account chose nothing', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Škola');
+    const drawer = await openBot('Škola');
+
+    expect(within(drawer).getByText(strings.detailModel!)).toBeInTheDocument();
+    // The account chose nothing, so the row names the model that answers instead AND says it came from the
+    // instance rather than from this account.
+    expect(within(drawer).getByText(DEFAULT_MODEL)).toBeInTheDocument();
+    expect(within(drawer).getByText(strings.detailModelSourceInstance!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.detailModelSourcePreference!)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(PICKED_MODEL)).not.toBeInTheDocument();
+  });
+
+  it('states the allow-list as the source, and never calls that inheritance', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Gymnázium');
+    const drawer = await openBot('Gymnázium');
+
+    // The instance default is not permitted to this account, so a model from its own allow-list answers.
+    // That is not a default the account inherited, and the row must not report it as one.
+    expect(within(drawer).getByText(FORCED_MODEL)).toBeInTheDocument();
+    expect(within(drawer).getByText(strings.detailModelSourceAllowed!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.detailModelSourceInstance!)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.detailModelSourcePreference!)).not.toBeInTheDocument();
+  });
+
+  it('states no model when core names none, rather than a default nobody read', async () => {
+    // An account core cannot answer for. The payload carries no model, and the row says that instead of
+    // showing the instance default, which would be a confident claim about a fact no one read.
+    use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([
+      { ...bot, account: null, model: null, blockers: ['account_unknown'] },
+    ]))));
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    expect(within(drawer).getByText(strings.detailModel!)).toBeInTheDocument();
+    expect(within(drawer).getByText(strings.detailModelUnnamed!)).toBeInTheDocument();
+    expect(within(drawer).queryByText(PICKED_MODEL)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(DEFAULT_MODEL)).not.toBeInTheDocument();
+    // The action still belongs to the account, which is where a model is set whether or not one is named.
+    expect(within(drawer).getByRole('button', { name: strings.detailModelChange! })).toBeInTheDocument();
+  });
+
+  it('hands the administrator to the account whose model it states, through the host\'s own switch', async () => {
+    const phases: string[] = [];
+    const watch = (event: Event) => { phases.push((event as CustomEvent<{ phase: string }>).detail.phase); };
+    window.addEventListener(AUTH_TRANSITION_EVENT, watch);
+    try {
+      renderSection('bots');
+      await settled();
+      await screen.findByText('Gymnázium');
+      const drawer = await openBot('Gymnázium');
+
+      fireEvent.click(within(drawer).getByRole('button', { name: strings.detailModelChange! }));
+      // The account the row is about, entered through the host's own route — core decides who may enter it.
+      await waitFor(() => expect(asked.impersonate).toEqual([second.chatbotUserId]));
+      // …and announced the way every account-scoped surface expects: the previous account is torn down
+      // BEFORE the session changes, and the tab is told when the new identity is the one in the cookie.
+      expect(phases).toEqual(['start', 'commit']);
+    } finally {
+      window.removeEventListener(AUTH_TRANSITION_EVENT, watch);
+    }
+  });
+
+  it('reports a refused switch and keeps the account the reader was in', async () => {
+    const phases: string[] = [];
+    const watch = (event: Event) => { phases.push((event as CustomEvent<{ phase: string }>).detail.phase); };
+    window.addEventListener(AUTH_TRANSITION_EVENT, watch);
+    use(http.post('/api/auth/impersonate', () => HttpResponse.json({ error: 'forbidden' }, { status: 403 })));
+    try {
+      renderSection('bots');
+      await settled();
+      await screen.findByText('Městský úřad');
+      const drawer = await openBot('Městský úřad');
+
+      fireEvent.click(within(drawer).getByRole('button', { name: strings.detailModelChange! }));
+      // The server's own word for it, in the drawer's own error line, and the transition rolled back so a
+      // sibling tab is not left waiting for an identity that never arrived.
+      expect(await within(drawer).findByText('forbidden')).toBeInTheDocument();
+      expect(phases).toEqual(['start', 'rollback']);
+      expect(within(drawer).getByText(PICKED_MODEL)).toBeInTheDocument();
+    } finally {
+      window.removeEventListener(AUTH_TRANSITION_EVENT, watch);
+    }
   });
 
   it('saves the whole row on an explicit submit, and disables it only after a confirmation', async () => {
@@ -884,6 +1021,19 @@ describe('the allowed domains', () => {
 });
 
 describe('the pure helpers the drawer reports with', () => {
+  it('names the source of a model in three distinct ways, and never as inheritance for the allow-list', () => {
+    const copy = {
+      detailModelSourcePreference: 'picked',
+      detailModelSourceInstance: 'inherited',
+      detailModelSourceAllowed: 'allowed',
+    };
+    expect(modelSourceText({ exec: PICKED_MODEL, source: 'preference' }, copy)).toBe('picked');
+    expect(modelSourceText({ exec: DEFAULT_MODEL, source: 'instance' }, copy)).toBe('inherited');
+    // The allow-list case is a model the account MAY run, not a default it fell back to: the two must not
+    // share a word, because only one of them is inheritance.
+    expect(modelSourceText({ exec: FORCED_MODEL, source: 'allowed' }, copy)).toBe('allowed');
+  });
+
   it('turns blocker codes into the copy an administrator acts on', () => {
     expect(blockerText(['several_projects'], 3, { detailProjectSeveral: '{count} projects' })).toEqual(['3 projects']);
     expect(blockerText(['project_being_deleted'], 1, { detailProjectNone: 'none' })).toEqual(['none']);

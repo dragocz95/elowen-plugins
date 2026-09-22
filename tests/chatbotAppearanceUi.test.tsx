@@ -80,6 +80,7 @@ const bot: ChatbotBotView = {
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
   projects: [{ id: 4, slug: 'ured' }],
+  model: { exec: 'elowen:anthropic/claude-sonnet-4', source: 'preference' as const },
   blockers: [],
   insecureOrigins: [],
   limits: LIMITS,

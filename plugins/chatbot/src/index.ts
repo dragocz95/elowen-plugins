@@ -95,6 +95,7 @@ export function register(published: PluginContext): void {
     publicBaseUrl: () => ctx.publicWebUrl(),
     now,
     erase: (input) => eraseConversations(retentionDeps, input),
+    warn,
   });
 
   // The public route is registered AHEAD of any configuration or readiness check, so an instance whose

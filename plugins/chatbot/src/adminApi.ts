@@ -14,6 +14,7 @@ import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import type {
   ChatbotBotView,
   ChatbotConversationsAnswer,
+  ChatbotModelView,
   ChatbotStatsAnswer,
   ChatbotTranscriptAnswer,
 } from './adminContract.js';
@@ -35,6 +36,9 @@ export interface AdminApiDeps {
    *  built here: deleting a transcript in core needs a credential only the running daemon can mint, and this
    *  surface decides WHO may ask for it, not how it is done. */
   erase: (input: { chatbotUserId: number; limit: number }) => Promise<{ deleted: number; kept: number }>;
+  /** Where a read the host REFUSED is reported. The register still answers the rest of its rows; the reason
+   *  core gave lands here rather than being dressed up as a model. */
+  warn: (message: string) => void;
 }
 
 interface Reply {
@@ -76,8 +80,25 @@ export function percentileMs(samples: readonly number[], fraction: number): numb
 const embedSnippetFor = (baseUrl: string | null, publicId: string): string | null =>
   baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
 
+/** The model this chatbot's visitors are answered by, from core's own composed answer for the account — the
+ *  same rules a spawn applies, so the row can never promise a model the turn would not really run. This
+ *  plugin has no model of its own to report and no route to write one: it asks, and states the answer.
+ *
+ *  A REFUSAL is a state of its own rather than a failure of this register. Core throws for an account that
+ *  may run no configured model at all, and one mis-granted account must not take the whole register down
+ *  with it: the refusal is reported as "core named no model" — which is exactly what is true — and core's
+ *  own message goes to the daemon log, where an operator can act on it. */
+function modelOf(stores: ChatbotStores, chatbotUserId: number, warn: (message: string) => void): ChatbotModelView | null {
+  try {
+    return stores.usersRead.effectiveChatExec(chatbotUserId);
+  } catch (reason) {
+    warn(`chatbot: no model could be named for account ${chatbotUserId} (${reason instanceof Error ? reason.message : String(reason)})`);
+    return null;
+  }
+}
+
 export function createAdminApi(deps: AdminApiDeps) {
-  const { store, stores, now } = deps;
+  const { store, stores, now, warn } = deps;
 
   const viewOf = (row: BotRow): ChatbotBotView => {
     const { facts, blockers } = inspectAccount(stores, row.chatbot_user_id);
@@ -98,6 +119,7 @@ export function createAdminApi(deps: AdminApiDeps) {
         isAdmin: facts.account.isAdmin,
       },
       projects: facts.projects.map((project) => ({ id: project.id, slug: project.slug })),
+      model: modelOf(stores, row.chatbot_user_id, warn),
       blockers,
       insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
       limits: storedLimits(row),

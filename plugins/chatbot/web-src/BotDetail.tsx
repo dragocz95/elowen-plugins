@@ -9,7 +9,17 @@ import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
 import { BudgetUsage } from './BudgetUsage';
 import { AppearanceModal } from './AppearanceModal';
-import type { ChatbotBotView } from './types';
+import { switchToAccount } from './accountSwitch';
+import type { ChatbotBotView, ChatbotModelView } from './types';
+
+/** What decided the model this chatbot's visitors are answered by, in the row's own words. Three sources,
+ *  three statements: the account's own pick, the instance default it fell back to, and — the case that must
+ *  never be called inheritance — a model the account's allow-list forced it onto. Exported because naming the
+ *  source IS the row's whole claim, and the one place that claim is made. */
+export function modelSourceText(model: ChatbotModelView, s: Record<string, string>): string {
+  if (model.source === 'preference') return s.detailModelSourcePreference;
+  return model.source === 'instance' ? s.detailModelSourceInstance : s.detailModelSourceAllowed;
+}
 
 export function blockerText(blockers: string[], projectCount: number, s: Record<string, string>): string[] {
   return blockers.map((blocker) => {
@@ -40,6 +50,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
   const [limits, setLimits] = useState<LimitDraft>(() => limitDraftOf(bot.limits));
   const [maySubmitForms, setMaySubmitForms] = useState(bot.maySubmitForms);
   const [pending, setPending] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<'enable' | 'disable' | 'discard' | null>(null);
   const [opened, setOpened] = useState<'limits' | 'appearance' | null>(null);
@@ -88,6 +99,19 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     }
   };
 
+  /** Enter this chatbot's own account, which is where its model is changed. The host runs the switch and
+   *  takes the page over from there; a refusal is reported here like any other failed action. */
+  const switchAccount = async () => {
+    setError(null);
+    setSwitching(true);
+    try {
+      await switchToAccount(bot.chatbotUserId);
+    } catch (reason) {
+      setError(utils.apiErrorMessage(reason) || s.detailModelSwitchFailed);
+      setSwitching(false);
+    }
+  };
+
   const leave = () => { if (dirty) setConfirming('discard'); else onClose(); };
 
   return (
@@ -111,6 +135,34 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
             <C.SettingsRow label={s.detailAccount} status={bot.account === null ? '—' : `@${bot.account.username}`} />
             <C.SettingsRow label={s.detailProject} status={bot.projects.length === 1 ? bot.projects[0]!.slug : '—'} />
             <C.SettingsRow label={s.detailUpdated} status={formatDateTime(bot.updatedAt, locale)} />
+            {/* The model the visitor's answer comes from, as core resolves it for the account, plus what
+                decided it. It belongs to the ACCOUNT, so this row states it and hands the reader to that
+                account — the one place that can change it, and the only one: this page has no model of its
+                own to write and no route to write it through.
+                A model core did not name is stated in the same place as the others, not left as a blank the
+                reader has to interpret: the payload's null is a fact — an account core does not know, an
+                instance with no provider, or an account permitted no configured model — and the row says so. */}
+            <C.SettingsRow
+              label={s.detailModel}
+              status={(
+                <span className="flex min-w-0 items-center gap-2">
+                  <C.Badge tone={bot.model?.source === 'allowed' ? 'accent' : 'muted'}>
+                    {bot.model === null ? s.detailModelUnnamed : modelSourceText(bot.model, s)}
+                  </C.Badge>
+                  {bot.model === null ? null : (
+                    <span className="truncate font-mono" title={bot.model.exec}>{bot.model.exec}</span>
+                  )}
+                </span>
+              )}
+              actions={(
+                <C.IconButton
+                  icon={ChevronRight}
+                  label={s.detailModelChange}
+                  disabled={pending || switching}
+                  onClick={() => void switchAccount()}
+                />
+              )}
+            />
           </C.SettingsGroup>
 
           <OriginsField origins={origins} insecure={bot.insecureOrigins} disabled={pending} onChange={setOrigins} />

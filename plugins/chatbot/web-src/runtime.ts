@@ -456,4 +456,7 @@ export const chatbotApi = {
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports
    *  what the account can reach rather than keeping an opinion of its own about it. */
   accountTools: (userId: number): string => `/users/${userId}/tools`,
+  /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
+   *  and the only way to a setting that belongs to the account rather than to the chatbot. */
+  impersonate: (): string => '/auth/impersonate',
 } as const;
