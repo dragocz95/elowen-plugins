@@ -1,14 +1,8 @@
-import { ACTION_KINDS, MESSAGE_MAX_BYTES, PAGE_SNAPSHOT_MAX_ELEMENTS, PAGE_STATE_LABEL, PAGE_STATE_MAX_BYTES, SNAPSHOT_ID_PATTERN, TARGET_ID_PATTERN, } from './publicContract.js';
-const MARKER = `\n\n${PAGE_STATE_LABEL}\n`;
+import { ACTION_KINDS, PAGE_SNAPSHOT_MAX_ELEMENTS, PAGE_CONTEXT_LABEL, PAGE_STATE_MAX_BYTES, SNAPSHOT_ID_PATTERN, TARGET_ID_PATTERN, } from './publicContract.js';
+const MARKER = `\n\n${PAGE_CONTEXT_LABEL}\n`;
 const MAX_TARGETS = PAGE_SNAPSHOT_MAX_ELEMENTS;
 const refuse = (error) => ({ ok: false, error });
-export function readRecordedPageState(message) {
-    if (Buffer.byteLength(message, 'utf8') > MESSAGE_MAX_BYTES)
-        return refuse('the message is larger than the hook accepts');
-    const marker = message.lastIndexOf(MARKER);
-    if (marker === -1)
-        return refuse('this turn recorded no page state');
-    const json = message.slice(marker + MARKER.length);
+export function readRecordedPageState(json) {
     if (Buffer.byteLength(json, 'utf8') > PAGE_STATE_MAX_BYTES)
         return refuse('the page state is larger than a snapshot may be');
     let parsed;
@@ -27,6 +21,8 @@ export function readRecordedPageState(message) {
     const url = readUrl(state.url);
     if (!url.ok)
         return url;
+    if (typeof state.aria !== 'string' || typeof state.title !== 'string' || typeof state.truncated !== 'boolean')
+        return refuse('the snapshot is missing its aria text or metadata');
     const targets = readTargets(state.targets);
     if (!targets.ok)
         return targets;
@@ -49,6 +45,8 @@ function readUrl(raw) {
         return { ok: false, error: 'the page is not an http(s) page' };
     if (url.origin === 'null' || url.host === '')
         return { ok: false, error: 'the page state carries no origin' };
+    if (url.username || url.password)
+        return { ok: false, error: 'the page state carries URL credentials' };
     if (url.search !== '' || url.hash !== '')
         return { ok: false, error: 'the page state carries a query or a fragment' };
     return { ok: true, value: { origin: url.origin, path: url.pathname } };
@@ -84,4 +82,19 @@ function readTargets(raw) {
         targets.push({ id, caps: caps });
     }
     return { ok: true, value: targets };
+}
+/** Metadata only. A snapshot must come from an explicit, settled snapshot action, never this message. */
+export function readPageContext(message) {
+    const marker = message.lastIndexOf(MARKER);
+    if (marker === -1)
+        return { ok: false, error: 'no page metadata' };
+    try {
+        const parsed = JSON.parse(message.slice(marker + MARKER.length));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+            return { ok: false, error: 'invalid page metadata' };
+        return readUrl(('url' in parsed) ? parsed.url : null);
+    }
+    catch {
+        return { ok: false, error: 'invalid page metadata' };
+    }
 }

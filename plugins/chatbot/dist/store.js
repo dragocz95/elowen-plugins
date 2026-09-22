@@ -593,6 +593,26 @@ export class ChatbotStore {
             return this.action(input.actionId);
         });
     }
+    latestPageAction(turnId) {
+        return this.stmt("SELECT * FROM p_chatbot_actions WHERE turn_id = ? AND action IN ('snapshot', 'navigate') ORDER BY rowid DESC LIMIT 1").get(turnId) ?? null;
+    }
+    pendingActions(turnId) {
+        return this.stmt("SELECT * FROM p_chatbot_actions WHERE turn_id = ? AND status IN ('pending', 'confirmation_required', 'confirmed') ORDER BY rowid").all(turnId);
+    }
+    createHandoff(input) {
+        this.db.transaction(() => {
+            this.stmt('DELETE FROM p_chatbot_handoffs WHERE expires_at <= ? OR action_id = ?').run(input.now, input.actionId);
+            this.stmt('INSERT INTO p_chatbot_handoffs (code_hash, action_id, origin, expires_at) VALUES (?, ?, ?, ?)').run(input.hash, input.actionId, input.origin, input.expiresAt);
+        });
+    }
+    consumeHandoff(hash, origin, now, chatbotUserId) {
+        const row = this.stmt(`DELETE FROM p_chatbot_handoffs WHERE code_hash = ? AND origin = ? AND expires_at > ?
+      AND action_id IN (SELECT a.id FROM p_chatbot_actions a JOIN p_chatbot_turns t ON t.turn_id = a.turn_id
+        JOIN p_chatbot_visitors v ON v.visitor_id = t.visitor_id
+        WHERE t.chatbot_user_id = ? AND v.revoked_at IS NULL AND a.status = 'pending' AND a.expires_at > ?)
+      RETURNING action_id`).get(hash, origin, now, chatbotUserId, now);
+        return row?.action_id ?? null;
+    }
     action(actionId) {
         return this.stmt('SELECT * FROM p_chatbot_actions WHERE id = ?').get(actionId) ?? null;
     }
@@ -601,8 +621,8 @@ export class ChatbotStore {
      *  decision nobody gave, an action already reported, one that expired — is refused rather than
      *  overwritten, so the row always describes one thing that really happened. */
     settleActionResult(input) {
-        const changed = this.stmt("UPDATE p_chatbot_actions SET status = ?, result_json = ?, completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmed')")
-            .run(input.status, input.result, input.now, input.actionId);
+        const changed = this.stmt("UPDATE p_chatbot_actions SET status = ?, result_json = ?, completed_at = ? WHERE id = ? AND (status IN ('pending', 'confirmed') OR (status = 'confirmation_required' AND ? = 'error'))")
+            .run(input.status, input.result, input.now, input.actionId, input.status);
         return changed.changes > 0 ? this.action(input.actionId) : null;
     }
     /** Record the visitor's own answer to a confirmation, or refuse because it was already answered. It is the
@@ -619,7 +639,7 @@ export class ChatbotStore {
      *  expire: a confirmed action belongs to the visitor and their browser, and closing it would erase a
      *  decision they really made. */
     expireAction(actionId, now) {
-        const changed = this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmation_required')")
+        const changed = this.stmt("UPDATE p_chatbot_actions SET status = 'expired', completed_at = ? WHERE id = ? AND status IN ('pending', 'confirmation_required', 'confirmed')")
             .run(now, actionId);
         return changed.changes > 0 ? this.action(actionId) : null;
     }

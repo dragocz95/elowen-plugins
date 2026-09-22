@@ -455,9 +455,10 @@ var import_react7 = __toESM(require_react(), 1);
 var WIDGET_ASSET_NAME = "widget.js";
 var MESSAGE_MAX_BYTES = 8 * 1024;
 var VISITOR_TEXT_MAX_BYTES = 2 * 1024;
-var PAGE_STATE_MAX_BYTES = MESSAGE_MAX_BYTES - VISITOR_TEXT_MAX_BYTES - 256;
+var PAGE_STATE_MAX_BYTES = 32 * 1024;
 var WIDGET_MAX_ACTIONS_PER_TURN = 20;
 var PUBLIC_SEGMENTS = {
+  handoff: "handoff",
   visitors: "visitors",
   refresh: "refresh",
   turns: "turns",
@@ -470,6 +471,7 @@ var PUBLIC_SEGMENTS = {
   widget: WIDGET_ASSET_NAME
 };
 var PUBLIC_PATHS = {
+  handoff: PUBLIC_SEGMENTS.handoff,
   visitors: PUBLIC_SEGMENTS.visitors,
   refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
   turns: PUBLIC_SEGMENTS.turns,
@@ -481,6 +483,7 @@ var PUBLIC_PATHS = {
   widget: PUBLIC_SEGMENTS.widget
 };
 var ACTION_REFUSALS = [
+  "navigation_not_allowed",
   "unknown_action",
   "stale_snapshot",
   "unknown_target",
@@ -491,6 +494,7 @@ var ACTION_REFUSALS = [
   "action_budget_exhausted"
 ];
 var PAGE_FAILURE_DETAILS = [
+  "navigation_failed",
   "target_gone",
   "no_form",
   "form_invalid",
@@ -1412,7 +1416,9 @@ var CS = {
   confirmDeclined: "Odesl\xE1n\xED bylo zru\u0161eno.",
   confirmUnavailable: "Potvrzen\xED se nepoda\u0159ilo odeslat, proto se formul\xE1\u0159 neodeslal. Zkuste to pros\xEDm znovu.",
   actionFailed: "Akci na str\xE1nce se nepoda\u0159ilo prov\xE9st.",
-  actionStale: "Obsah str\xE1nky se mezit\xEDm zm\u011Bnil. Napi\u0161te pros\xEDm zpr\xE1vu znovu."
+  actionStale: "P\u016Fvodn\xED str\xE1nka ji\u017E nen\xED aktu\xE1ln\xED. Akce na n\xED nebyla provedena.",
+  navigating: "Otev\xEDr\xE1m str\xE1nku. Konverzace bude pokra\u010Dovat po na\u010Dten\xED.",
+  navigationFailed: "Str\xE1nku nebo konverzaci se nepoda\u0159ilo obnovit. Otev\u0159ete pros\xEDm p\u016Fvodn\xED str\xE1nku."
 };
 var SK = {
   launcher: "Otvori\u0165 chat",
@@ -1432,7 +1438,9 @@ var SK = {
   confirmDeclined: "Odoslanie bolo zru\u0161en\xE9.",
   confirmUnavailable: "Potvrdenie sa nepodarilo odosla\u0165, preto sa formul\xE1r neodoslal. Sk\xFAste to pros\xEDm znova.",
   actionFailed: "Akciu na str\xE1nke sa nepodarilo vykona\u0165.",
-  actionStale: "Obsah str\xE1nky sa medzit\xFDm zmenil. Nap\xED\u0161te pros\xEDm spr\xE1vu znova."
+  actionStale: "P\xF4vodn\xE1 str\xE1nka u\u017E nie je aktu\xE1lna. Akcia na nej nebola vykonan\xE1.",
+  navigating: "Otv\xE1ram str\xE1nku. Konverz\xE1cia bude pokra\u010Dova\u0165 po na\u010D\xEDtan\xED.",
+  navigationFailed: "Str\xE1nku alebo konverz\xE1ciu sa nepodarilo obnovi\u0165. Otvorte pros\xEDm p\xF4vodn\xFA str\xE1nku."
 };
 var EN = {
   launcher: "Open chat",
@@ -1452,7 +1460,9 @@ var EN = {
   confirmDeclined: "Sending was cancelled.",
   confirmUnavailable: "The confirmation could not be delivered, so the form was not sent. Please try again.",
   actionFailed: "That action could not be performed on the page.",
-  actionStale: "The page has changed since. Please send your message again."
+  actionStale: "The original page is no longer current. The action was not performed on it.",
+  navigating: "Opening the page. The conversation will continue after loading.",
+  navigationFailed: "The page or conversation could not be restored. Please open the original page."
 };
 var BY_LOCALE = { cs: CS, sk: SK, en: EN };
 function detectLocale(...candidates) {

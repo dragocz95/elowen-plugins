@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { decideAction, isActionKind } from './actions.js';
-import { readRecordedPageState } from './pageState.js';
+import { readRecordedPageState, readPageContext } from './pageState.js';
 import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload } from './store.js';
 import { hashToken, sameHash } from './token.js';
@@ -34,16 +34,19 @@ export class PageActionService {
     /** Decide one action and, if it survives the decision, ask the visitor's page to do it. */
     async request(input) {
         const { store, warn } = this.deps;
-        const state = readRecordedPageState(input.turn.message);
-        if (!state.ok) {
-            warn(`chatbot: turn ${input.turn.turn_id} was asked for a page action but recorded no usable page state (${state.error})`);
-            return { status: 'refused', reason: 'no_page_state' };
-        }
-        const page = state.value;
-        // The kind is checked before any policy decision: an unknown name has no action this version can perform.
         if (!isActionKind(input.request.kind))
             return this.refuse(input, 'unknown_action');
         const kind = input.request.kind;
+        const metadata = readPageContext(input.turn.message);
+        if (!metadata.ok)
+            return this.refuse(input, 'no_page_state');
+        const latest = store.latestPageAction(input.turn.turn_id);
+        const recorded = latest?.action === 'snapshot' && latest.status === 'done'
+            ? readRecordedPageState(actionResultPayload(latest).detail ?? '') : null;
+        if (kind !== 'snapshot' && !recorded?.ok)
+            return this.refuse(input, 'no_page_state');
+        const page = recorded?.ok ? recorded.value
+            : { ...metadata.value, snapshotId: '', targets: [] };
         // The per-turn ceiling is the CHATBOT's own number, and it is the only one: the widget refuses at its own
         // hard limit whatever the server approves, so a server number above that would approve actions no page
         // would perform, and a number invented here would be a budget the owner never set. A chatbot whose limits
@@ -59,6 +62,17 @@ export class PageActionService {
         }
         if (kind === 'request_submit' && bot.may_submit_forms !== 1) {
             return this.refuse(input, 'action_not_allowed');
+        }
+        if (kind === 'navigate') {
+            try {
+                const url = new URL(input.request.value ?? '');
+                if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password
+                    || !store.originsOf(input.chatbotUserId).includes(url.origin))
+                    return this.refuse(input, 'navigation_not_allowed');
+            }
+            catch {
+                return this.refuse(input, 'invalid_value');
+            }
         }
         const decision = decideAction({
             request: input.request,
@@ -81,6 +95,12 @@ export class PageActionService {
             return { ok: false, reason: 'not_found' };
         if (!this.live(row))
             return { ok: false, reason: 'expired' };
+        if (input.outcome === 'done' && row.action === 'snapshot') {
+            const parsed = readRecordedPageState(input.detail ?? '');
+            if (!parsed.ok || parsed.value.origin !== input.origin
+                || !this.deps.store.originsOf(input.turn.chatbot_user_id).includes(parsed.value.origin))
+                return { ok: false, reason: 'invalid_result' };
+        }
         // A denial is the page refusing what the plugin approved. It is recorded as the failure it is, and the
         // widget's own word for it is kept in the result rather than folded into the status: nothing downstream
         // then has to reconstruct which of the two happened.
@@ -176,17 +196,7 @@ export class PageActionService {
         info(`chatbot: action ${actionId} (${action.kind}) requested for turn ${input.turn.turn_id}${input.sessionId === undefined ? '' : ` in ${input.sessionId}`}`);
         return this.awaitOutcome(row);
     }
-    /** Wait for the row to reach a state that answers the tool.
-     *
-     *  Every state change is a wake-up and the row itself is re-read, so nothing here has to remember what it
-     *  was waiting for — and the one timeout is spent per STATE the page has to answer in, not once for the
-     *  whole call: an action the visitor has confirmed has left the plugin's hands, and their browser is doing
-     *  the work.
-     *
-     *  A page that never answers is closed as expired. A CONFIRMED action that is never reported is answered
-     *  as submitted: the visitor's decision really happened, a page that navigates away never reports back,
-     *  and saying that the form went out is more honest than pretending the plugin knows nothing — while a
-     *  report that does arrive still refines the row. */
+    /** Wait for a recorded result. Confirmation alone is never evidence that the browser performed it. */
     async awaitOutcome(created) {
         for (;;) {
             const row = this.deps.store.action(created.id) ?? created;
@@ -202,10 +212,6 @@ export class PageActionService {
             // The wait ran out. `row` was read before it and is re-read only through a CAS: every state this plugin
             // writes goes through a guarded UPDATE followed by a wake-up with nothing awaited in between, so the
             // state the row held when the timer fired is still the state the CAS decides against.
-            if (row.status === 'confirmed') {
-                this.deps.warn(`chatbot: action ${row.id} was confirmed by the visitor and the page never reported what it did`);
-                return this.fromRow(row, 'submitted', null);
-            }
             this.deps.warn(`chatbot: action ${row.id} was never answered by the page and expired`);
             // The CAS decides, and what it returns is the row as it really is now: a state that moved anyway is
             // answered by the row, never by this call's expectation of it.
@@ -220,7 +226,7 @@ export class PageActionService {
                 case 'error':
                     return this.fromResult(closed);
                 case 'confirmed':
-                    return this.fromRow(closed, 'submitted', null);
+                    return this.fromRow(closed, 'expired', null);
                 case 'cancelled':
                     return this.fromRow(closed, 'cancelled', null);
             }

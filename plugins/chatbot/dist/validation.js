@@ -2,7 +2,7 @@ import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
 import { parseAppearanceSelection } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf } from './limits.js';
-import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
+import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PAGE_STATE_MAX_BYTES, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
@@ -53,7 +53,7 @@ export function isPublicId(value) {
     return PUBLIC_ID_PATTERN.test(value);
 }
 // ── public hook payloads ─────────────────────────────────────────────────────────────────────────────
-/** `POST v1/visitors`: the chatbot is named by its public id, which is public by design. Authority comes
+/** `POST v2/visitors`: the chatbot is named by its public id, which is public by design. Authority comes
  *  from the allowed `Origin`, the trusted request origin and the chatbot being enabled — never from this
  *  field. */
 export function validateTokenIssuance(body) {
@@ -70,7 +70,7 @@ export function validateTokenIssuance(body) {
         return { ok: false, error: '"bot" is not a public id' };
     return { ok: true, value: { bot: bot.value } };
 }
-/** `POST v1/turns`. The visitor token is the authority and is read from the request headers, never from
+/** `POST v2/turns`. The visitor token is the authority and is read from the request headers, never from
  *  the body, so the body cannot claim to be someone else. */
 export function validateTurnSubmission(body) {
     const outer = strictObject(body, ['schemaVersion', 'clientTurnId', 'message'], ['schemaVersion', 'clientTurnId', 'message']);
@@ -94,7 +94,7 @@ export function validateTurnSubmission(body) {
     return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value } };
 }
 // ── page action reports ───────────────────────────────────────────────────────────────────────────────
-/** `POST v1/turns/:turnId/actions/:actionId/result`. What the visitor's page did with an action the server
+/** `POST v2/turns/:turnId/actions/:actionId/result`. What the visitor's page did with an action the server
  *  approved.
  *
  *  `detail` means two different things and is validated as two. A page that FAILED or was REFUSED may only
@@ -102,7 +102,7 @@ export function validateTurnSubmission(body) {
  *  an unrecognized string dressed as one would be a page putting words in the plugin's mouth. The value a
  *  `read` found is the page's own text, so it is bounded rather than recognized — and it is handed to the
  *  model as page data, never as a reason. */
-export function validateActionResult(body) {
+export function validateActionResult(body, kind) {
     const outer = strictObject(body, ['schemaVersion', 'outcome', 'detail'], ['schemaVersion', 'outcome']);
     if (!outer.ok)
         return outer;
@@ -117,7 +117,7 @@ export function validateActionResult(body) {
     }
     if (outer.value.detail === undefined)
         return { ok: true, value: { outcome: outcome.value, detail: null } };
-    const detail = readString(outer.value, 'detail', RESULT_DETAIL_MAX_CHARS);
+    const detail = readString(outer.value, 'detail', kind === 'snapshot' && outcome.value === 'done' ? PAGE_STATE_MAX_BYTES : RESULT_DETAIL_MAX_CHARS);
     if (!detail.ok)
         return detail;
     if (outcome.value !== 'done' && !PAGE_FAILURE_DETAILS.includes(detail.value)) {
@@ -125,7 +125,7 @@ export function validateActionResult(body) {
     }
     return { ok: true, value: { outcome: outcome.value, detail: detail.value } };
 }
-/** `POST v1/turns/:turnId/actions/:actionId/confirmation`. The visitor's own answer, carrying the nonce the
+/** `POST v2/turns/:turnId/actions/:actionId/confirmation`. The visitor's own answer, carrying the nonce the
  *  server issued with the action: the nonce is what makes it good for one action and one submission, and a
  *  caller that does not hold it is not the page this action was sent to. */
 export function validateActionDecision(body) {

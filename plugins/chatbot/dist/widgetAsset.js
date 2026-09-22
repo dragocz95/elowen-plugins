@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { PUBLIC_SCHEMA_VERSION } from './publicContract.js';
 /** How long a browser may reuse the script without asking again.
  *
  *  Deliberately short and `must-revalidate` rather than the immutable caching a hashed asset usually gets:
@@ -10,7 +11,7 @@ import { readFileSync } from 'node:fs';
 export const WIDGET_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 /** The URL the repository's build writes the bundle to, resolved against the compiled module. From
  *  `dist/widgetAsset.js` and from `src/widgetAsset.ts` alike this lands on the plugin's `embed/`. */
-const WIDGET_ASSET_URL = new URL('../embed/widget.v1.js', import.meta.url);
+const WIDGET_ASSET_URL = new URL(`../embed/widget.v${PUBLIC_SCHEMA_VERSION}.js`, import.meta.url);
 let cached = null;
 /** Read the built bundle. A missing or empty asset is an error rather than an empty script: a customer
  *  whose page loads nothing can never be told why, and a silently empty widget looks like a working one. */

@@ -5,6 +5,7 @@ import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLim
 import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './validation.js';
 import { parseStoredAppearance } from './appearanceContract.js';
 import { utcDay } from './budget.js';
+import { PUBLIC_MOUNT, WIDGET_ASSET_NAME } from './publicContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 /** How many conversations one page of the register holds, and how many turns one transcript read returns.
  *  Both are bounded reads on purpose: this surface is a register and a transcript, not an export. */
@@ -33,7 +34,7 @@ export function percentileMs(samples, fraction) {
     const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
     return sorted[index];
 }
-const embedSnippetFor = (baseUrl, publicId) => baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/v1/widget.js" data-chatbot="${publicId}" async></script>`;
+const embedSnippetFor = (baseUrl, publicId) => baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
 export function createAdminApi(deps) {
     const { store, stores, now } = deps;
     const viewOf = (row) => {
