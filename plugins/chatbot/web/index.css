@@ -155,6 +155,9 @@
   .resize-y {
     resize: vertical;
   }
+  .grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -205,6 +208,9 @@
   }
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
+  }
+  .gap-x-2 {
+    column-gap: calc(var(--spacing, 0.25rem) * 2);
   }
   :where(.divide-y > :not(:last-child)) {
     --tw-divide-y-reverse: 0;
@@ -261,6 +267,9 @@
   }
   .bg-card {
     background-color: var(--color-card, #070707);
+  }
+  .bg-destructive {
+    background-color: var(--color-destructive, #e94d42);
   }
   .bg-muted\/40 {
     background-color: color-mix(in srgb, #0d0d0d 40%, transparent);

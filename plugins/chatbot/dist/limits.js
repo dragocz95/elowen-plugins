@@ -49,10 +49,6 @@ export const MANDATORY_LIMITS = {
  *  ceiling is not a decision anybody makes deliberately. The cost ceiling is stored in microdollars and read
  *  in dollars, which is why its slider steps by a million. */
 export const OPTIONAL_LIMITS = {
-    dailyTokenLimit: {
-        column: 'daily_token_limit', min: 1, max: Number.MAX_SAFE_INTEGER, default: 1_000_000,
-        slider: { min: 100_000, max: 50_000_000, step: 100_000 },
-    },
     dailyCostMicrousd: {
         column: 'daily_cost_microusd', min: 1, max: Number.MAX_SAFE_INTEGER, default: 10_000_000,
         slider: { min: 1_000_000, max: 100_000_000, step: 1_000_000 },
@@ -84,7 +80,6 @@ export function storedLimits(row) {
         rateChatbotPerMinute: read('rateChatbotPerMinute'),
         rateConversationPerMinute: read('rateConversationPerMinute'),
         dailyTurnLimit: read('dailyTurnLimit'),
-        dailyTokenLimit: read('dailyTokenLimit'),
         dailyCostMicrousd: read('dailyCostMicrousd'),
         maxConcurrentTurns: read('maxConcurrentTurns'),
         maxQueueDepth: read('maxQueueDepth'),
@@ -129,7 +124,6 @@ export function readBotLimits(row) {
         rateChatbotPerMinute: values.rateChatbotPerMinute,
         rateConversationPerMinute: values.rateConversationPerMinute,
         dailyTurnLimit: values.dailyTurnLimit,
-        dailyTokenLimit: values.dailyTokenLimit,
         dailyCostMicrousd: values.dailyCostMicrousd,
         maxConcurrentTurns: values.maxConcurrentTurns,
         maxQueueDepth: values.maxQueueDepth,

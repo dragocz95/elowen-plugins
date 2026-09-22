@@ -236,6 +236,13 @@ const MIGRATIONS = [
       `);
         },
     },
+    {
+        /** Step 6: tokens are informational, never an admission ceiling. Discard the retired setting. */
+        version: 6,
+        up(db) {
+            db.exec('ALTER TABLE p_chatbot_bots DROP COLUMN daily_token_limit;');
+        },
+    },
 ];
 /** Create the plugin's tables. A no-op outside the daemon process (the host's handle reports that itself). */
 export function migrate(db) {

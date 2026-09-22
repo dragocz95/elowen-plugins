@@ -1,9 +1,10 @@
 import { newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
-import { LIMIT_FIELDS, incompleteValues, missingLimits, storedLimits } from './limits.js';
+import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLimits } from './limits.js';
 import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './validation.js';
 import { parseStoredAppearance } from './appearanceContract.js';
+import { utcDay } from './budget.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 /** How many conversations one page of the register holds, and how many turns one transcript read returns.
  *  Both are bounded reads on purpose: this surface is a register and a transcript, not an export. */
@@ -14,14 +15,13 @@ const TRANSCRIPT_MAX_TURNS = 200;
  *  request can never ask the daemon to walk the whole history of an account for a chart nobody can read. */
 const STATS_DEFAULT_DAYS = 30;
 const STATS_MAX_DAYS = 366;
-const utf8Day = (date) => date.toISOString().slice(0, 10);
 /** One UTC day, or null when the caller's value is not a date at all. The stats route takes days, not
  *  timestamps, because every counter below is keyed by the UTC day the plugin already groups by. */
 const readDay = (value) => {
     if (typeof value !== 'string' || value.trim() === '')
         return null;
     const parsed = Date.parse(`${value}T00:00:00.000Z`);
-    return Number.isFinite(parsed) ? utf8Day(new Date(parsed)) : null;
+    return Number.isFinite(parsed) ? utcDay(parsed) : null;
 };
 /** The nearest-rank percentile of a small sample. Nearest-rank rather than an interpolation: with a
  *  handful of turns per day, "the 95th percentile" is a real turn's own wait, and an interpolated number
@@ -58,6 +58,7 @@ export function createAdminApi(deps) {
             blockers,
             insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
             limits: storedLimits(row),
+            budget: store.dailyBudget(row.chatbot_user_id, readBotLimits(row), utcDay(now().getTime())),
             missingLimits: missingLimits(row),
             sensitiveMode: row.sensitive_mode === 1,
         };
@@ -284,8 +285,7 @@ export function createAdminApi(deps) {
                 },
             };
         },
-        /** This chatbot's own admission counters over a window of UTC days. No spend here: tokens and cost are
-         *  read from core's `usage_by_origin` rollup by the page, which is the only place that counter exists. */
+        /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */
         async stats(auth, query) {
             const refusal = requireAdmin(auth);
             if (refusal)
@@ -296,11 +296,11 @@ export function createAdminApi(deps) {
             const bot = requireBot(chatbotUserId);
             if (isRefusal(bot))
                 return bot;
-            const today = utf8Day(now());
+            const today = utcDay(now().getTime());
             const requestedTo = readDay(query.to);
             const toDay = requestedTo ?? today;
             const requestedFrom = readDay(query.from);
-            const fromDay = requestedFrom ?? utf8Day(new Date(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * 86_400_000));
+            const fromDay = requestedFrom ?? utcDay(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * 86_400_000);
             // A window the caller got backwards is a mistake to report, not a range to silently swap.
             if (fromDay > toDay)
                 return { status: 400, body: { error: 'invalid_request', detail: '"from" must not be after "to"' } };
@@ -317,6 +317,10 @@ export function createAdminApi(deps) {
                     from: fromDay,
                     to: toDay,
                     days: store.dailyTurns({ chatbotUserId, fromDay, toDay }),
+                    spend: Array.from({ length: spanDays }, (_, index) => {
+                        const day = utcDay(Date.parse(`${fromDay}T00:00:00.000Z`) + index * 86_400_000);
+                        return { day, usage: store.usageFor(chatbotUserId, day) };
+                    }),
                     totals: store.turnTotals({ chatbotUserId, fromDay, toDay }),
                     queueWait: {
                         samples: waits.length,
