@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { satisfies } from 'semver';
 import { describe, expect, it } from 'vitest';
+import { BROWSER_BUNDLES } from '../scripts/browserBundles.mjs';
 
 /** Does every plugin here actually LOAD against the daemon's dependency tree?
  *
@@ -33,11 +34,12 @@ const plugins = readdirSync(join(registryRoot, 'plugins'), { withFileTypes: true
 /** Bare specifiers (not relative, not node: builtins) imported anywhere under a plugin's own files. */
 function bareImports(pluginDir: string): string[] {
   const found = new Set<string>();
+  const browserDirs = new Set(Object.values(BROWSER_BUNDLES).flatMap(({ source, output }) => [source, output]));
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      // `web`/`web-src` are the BROWSER bundle: esbuild inlines react and friends at build time, so its
-      // imports are never resolved by the daemon and are not runtime dependencies of the plugin.
-      if (entry.name === 'node_modules' || entry.name === 'web' || entry.name === 'web-src') continue;
+      // The build scripts bundle these browser sources and commit their output; their imports do not
+      // resolve through the daemon's node_modules when the plugin runs.
+      if (entry.name === 'node_modules' || browserDirs.has(entry.name)) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
       if (!/\.(mjs|js|ts|tsx)$/.test(entry.name)) continue;
@@ -92,6 +94,15 @@ describe('every plugin imports cleanly against the daemon it will run inside', (
     // The import is the assertion: a missing dependency, a dropped subpath export or a breaking major
     // all surface here as a real resolution error rather than as a passing name check.
     await expect(import(entry)).resolves.toBeDefined();
+  });
+
+  it('checks chatbot server imports without treating browser bundles as daemon code', () => {
+    const imports = bareImports(join(registryRoot, 'plugins', 'chatbot'));
+    expect(imports).toContain('typebox');
+    expect(imports).not.toContain('ivya/aria');
+    expect(imports).not.toContain('@page-agent/page-controller');
+    expect(imports).not.toContain('deep-chat');
+    expect(imports).not.toContain('remarkable');
   });
 
   it.each(plugins)('%s only imports packages the daemon actually declares', (name) => {

@@ -14,10 +14,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { BROWSER_BUNDLES } from './browserBundles.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const entry = join(root, 'plugins', 'chatbot', 'embed-src', 'index.ts');
-const bundle = join(root, 'plugins', 'chatbot', 'embed', 'widget.v2.js');
+const entry = join(root, 'plugins', 'chatbot', BROWSER_BUNDLES.chatbotEmbed.source, 'index.ts');
+const bundle = join(root, 'plugins', 'chatbot', BROWSER_BUNDLES.chatbotEmbed.output, 'widget.v2.js');
 
 /** The IIFE is the script the customer's `<script src>` loads, so the bundle defines no module system and
  *  leaves exactly one global behind (`window.ElowenChatbot`), which the widget itself owns and deletes on
