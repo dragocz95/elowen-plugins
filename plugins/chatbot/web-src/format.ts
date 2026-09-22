@@ -16,7 +16,7 @@ export const formatDateTime = (value: string, locale: string): string => {
  *  counter here is keyed by — so it is parsed as a UTC midnight rather than as a local one. */
 export const formatDay = (day: string, locale: string): string => {
   const date = new Date(`${day}T00:00:00.000Z`);
-  return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
+  return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
 };
 
 export const integer = (value: number, locale: string): string => new Intl.NumberFormat(locale).format(value);

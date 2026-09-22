@@ -31,6 +31,7 @@ export function useChatbots(): ChatbotRegister {
   const client = hooks.useQueryClient();
   const query = hooks.useQuery<ChatbotsAnswer>({
     queryKey: CHATBOTS_KEY,
+    refetchInterval: 30_000,
     queryFn: () => apiJson<ChatbotsAnswer>(chatbotApi.bots()),
   });
 

@@ -202,6 +202,7 @@ export class ChatbotTurnQueue {
       });
 
       let sessionId: string | null = null;
+      let streamedAnswer = '';
       try {
         const reply = await relay(source, turn.message, {
           onEvent: (event) => {
@@ -215,6 +216,7 @@ export class ChatbotTurnQueue {
             // into a log an anonymous visitor reads.
             if (fields.type === 'text' && typeof fields.delta === 'string' && fields.delta !== '') {
               this.record(turnId, 'text_delta', { text: fields.delta });
+              streamedAnswer += fields.delta;
             }
           },
         });
@@ -227,7 +229,10 @@ export class ChatbotTurnQueue {
           return;
         }
 
-        this.record(turnId, 'done', { text: reply });
+        // Core returns only the last assistant message of a multi-step turn. The terminal frame must
+        // instead reconcile to every public text delta we recorded, including text before page actions.
+        // A relay without text events still has its returned answer; an undefined reply remains a refusal.
+        this.record(turnId, 'done', { text: streamedAnswer || reply });
         store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
       } catch (error) {
         // The internal detail stays in the daemon log; the visitor gets a stable code.

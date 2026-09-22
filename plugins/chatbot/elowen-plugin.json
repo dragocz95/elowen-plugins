@@ -108,7 +108,6 @@
       "limit_rateChatbotPerMinute": "Requests to this chatbot per minute",
       "limit_rateConversationPerMinute": "Requests in one conversation per minute",
       "limit_dailyTurnLimit": "Turns per day",
-      "limit_dailyTokenLimit": "Tokens per day",
       "limit_dailyCostMicrousd": "Daily spend ceiling",
       "limit_maxConcurrentTurns": "Turns running at once",
       "limit_maxQueueDepth": "Turns waiting in the queue",
@@ -161,7 +160,6 @@
       "spendLine": "{turns} turns · {tokens} tokens · {cost}",
       "spendLoadError": "The account spend could not be loaded",
       "spendEmptyTitle": "No spend recorded",
-      "spendTrackingSince": "The spend rollup tracks from {day}; earlier turns have no recorded origin.",
       "newBot": "New chatbot",
       "createTitle": "New chatbot",
       "createModeLabel": "Account",
@@ -253,7 +251,6 @@
       "limitHint_rateChatbotPerMinute": "Requests across this chatbot per minute.",
       "limitHint_rateConversationPerMinute": "Turns in one visitor conversation per minute.",
       "limitHint_dailyTurnLimit": "Turns admitted per UTC day.",
-      "limitHint_dailyTokenLimit": "Tokens charged to this account per UTC day.",
       "limitHint_dailyCostMicrousd": "USD per UTC day; stored internally as micro-USD.",
       "limitHint_maxConcurrentTurns": "Turns that may run at the same time.",
       "limitHint_maxQueueDepth": "Turns that may wait for a free slot.",
@@ -325,7 +322,20 @@
       "appearanceIcon_cart": "Cart",
       "appearanceIcon_person": "Person",
       "appearanceIcon_envelope": "Envelope",
-      "appearanceIcon_check": "Check"
+      "appearanceIcon_check": "Check",
+      "budgetTitle": "Daily usage",
+      "budgetDay": "{day} · UTC",
+      "budgetAvailable": "Within daily ceilings",
+      "budgetMissing": "Limits are not configured",
+      "budgetUnknown": "New messages refused: cost cannot be verified",
+      "budgetTurnsExhausted": "Daily turn ceiling reached",
+      "budgetCostExhausted": "Daily spend ceiling reached",
+      "budgetValueUnknown": "Unknown",
+      "budgetNoCeiling": "No ceiling",
+      "budgetHint": "Admitted messages and recorded spend for this chatbot reset at 00:00 UTC. Tokens are informational and never refuse a message. The next message is refused when either ceiling is reached; turns already running may settle above the spend ceiling.",
+      "costChartTitle": "Spend over time",
+      "costChartHint": "Daily USD cost from this chatbot's origin usage, over the selected UTC days.",
+      "costUnknownHint": "Days with incomplete pricing are left blank, not counted as free. The total cost is unknown."
     }
   }
 }

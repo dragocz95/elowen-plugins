@@ -151,19 +151,11 @@ describe('turns admitted today', () => {
 });
 
 describe('what the chatbot spent', () => {
-  it('refuses the turn once the day has used its tokens', async () => {
-    host.setLimits(12, { dailyTokenLimit: 1_000 });
-    spend({ turns: 3, tokens: 999, costUsd: 0 });
+  it('admits a cheap cache-heavy turn regardless of its token volume', async () => {
+    spend({ turns: 9, tokens: 1_090_000, costUsd: 0.0737 });
+    host.db.prepare('UPDATE usage_by_origin SET cache_read = total, output = 0 WHERE day = ? AND user_id = 12').run(DAY);
     const issued = await issueToken(host);
-    const token = issued.body.token as string;
-    const accepted = await submit(token, UUID);
-    expect(accepted.status).toBe(202);
-    await settledTurn(host, (accepted.body as { turnId: string }).turnId);
-
-    // Core's rollup catches up with the turns that just ran: the ceiling is now reached.
-    spend({ turns: 4, tokens: 1_000, costUsd: 0 });
-    expect(await submit(token, '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c55'))
-      .toMatchObject({ status: 429, body: { error: 'budget_exhausted' } });
+    expect((await submit(issued.body.token as string, UUID)).status).toBe(202);
   });
 
   it('refuses the turn once the day has cost its ceiling, in the unit the ceiling is stated in', async () => {
@@ -205,27 +197,27 @@ describe('what the chatbot spent', () => {
   });
 
   it('accepts an empty day as nothing spent, which is a fact rather than a guess', async () => {
-    host.setLimits(12, { dailyCostMicrousd: 1_000_000, dailyTokenLimit: 100 });
+    host.setLimits(12, { dailyCostMicrousd: 1_000_000 });
     const issued = await issueToken(host);
     expect((await submit(issued.body.token as string, UUID)).status).toBe(202);
   });
 
   it('counts the chatbot\'s own origin only', async () => {
-    host.setLimits(12, { dailyTokenLimit: 10 });
+    host.setLimits(12, { dailyCostMicrousd: 1_000_000 });
     // Spend of the SAME account, attributed to somewhere else: it is not this chatbot's traffic, and reading
     // it as such would charge a website for somebody else's turns.
-    spend({ turns: 5, tokens: 5_000, origin: 'ip' });
-    spend({ turns: 5, tokens: 5_000, userId: 99, origin: 'platform:chatbot' });
+    spend({ turns: 5, tokens: 5_000, costUsd: 10, origin: 'ip' });
+    spend({ turns: 5, tokens: 5_000, costUsd: 10, userId: 99, origin: 'platform:chatbot' });
     const issued = await issueToken(host);
     expect((await submit(issued.body.token as string, UUID)).status).toBe(202);
   });
 
   it('refuses rather than serves when the spend row cannot be read', async () => {
-    host.setLimits(12, { dailyTokenLimit: 10 });
+    host.setLimits(12, { dailyCostMicrousd: 1_000_000 });
     // A hand-edited row, or a core whose column changed shape: this plugin does not know what it means, and a
     // number it cannot read must not become a budget it can pass.
     spend({ turns: 1, tokens: 500 });
-    host.db.prepare('UPDATE usage_by_origin SET total = ? WHERE day = ? AND user_id = 12').run('many', DAY);
+    host.db.prepare('UPDATE usage_by_origin SET cost = ? WHERE day = ? AND user_id = 12').run('many', DAY);
     const issued = await issueToken(host);
     expect(await submit(issued.body.token as string, UUID)).toMatchObject({ status: 429, body: { error: 'budget_unverifiable' } });
   });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Activity, ChevronDown, ChevronUp, Clock, Coins, Gauge, Hourglass, Layers, ListOrdered, MousePointerClick,
+  Activity, ChevronDown, ChevronUp, Clock, Coins, Gauge, Hourglass, ListOrdered, MousePointerClick,
   Timer, Trash2, Users, type LucideIcon,
 } from 'lucide-react';
 import { LIMIT_FIELDS, specOf, type LimitField, type LimitValues } from '../src/limits';
@@ -46,7 +46,6 @@ const ADVANCED_FIELDS: LimitField[] = [
   'rateIpPerMinute',
   'rateChatbotPerMinute',
   'rateConversationPerMinute',
-  'dailyTokenLimit',
   'maxConcurrentTurns',
   'maxQueueDepth',
   'queueTimeoutSeconds',
@@ -60,7 +59,6 @@ const ICONS: Record<LimitField, LucideIcon> = {
   rateIpPerMinute: Users,
   rateChatbotPerMinute: Gauge,
   rateConversationPerMinute: Timer,
-  dailyTokenLimit: Layers,
   maxConcurrentTurns: ListOrdered,
   maxQueueDepth: Hourglass,
   queueTimeoutSeconds: Clock,

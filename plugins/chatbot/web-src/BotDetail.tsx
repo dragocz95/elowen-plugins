@@ -7,6 +7,7 @@ import { apiJson, chatbotApi, jsonRequest, runtime } from './runtime';
 import { formatDateTime } from './format';
 import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
+import { BudgetUsage } from './BudgetUsage';
 import { AppearanceModal } from './AppearanceModal';
 import type { ChatbotBotView } from './types';
 
@@ -128,6 +129,10 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
                 actions={<C.IconButton icon={ClipboardCopy} label={s.embedCopy} onClick={() => void copySnippet()} />}
               />
             )}
+          </C.SettingsGroup>
+
+          <C.SettingsGroup title={s.budgetTitle} icon={Gauge}>
+            <div className="settings-group__panel"><BudgetUsage bot={bot} /></div>
           </C.SettingsGroup>
 
           <C.SettingsGroup title={s.limitsTitle} hint={s.limitsHint} icon={Gauge} density="compact">

@@ -216,6 +216,28 @@ describe('the visitor;s own conversation', () => {
 });
 
 describe('the turn event stream', () => {
+  it('keeps both assistant steps across a page action in the terminal frame and restored transcript', async () => {
+    const turn = manualTurn(host);
+    const turnId = await submitTurn(host, token);
+    await until(() => turn.started(), 'the relay to start');
+    const before = 'Zjistím otevírací dobu…\n\n';
+    const after = '**Otevírací doba**\n\n- Pondělí: 9–17\n- Úterý: 9–17';
+    turn.emit({ type: 'text', delta: before });
+    turn.emit({ type: 'tool_start', delta: 'private page-action arguments' });
+    host.store.appendEvent(turnId, 'action_request', { action: 'read', snapshotId: 'page-1', targetId: 'e1' }, new Date().toISOString());
+    turn.emit({ type: 'tool_end', delta: 'private page-action result' });
+    turn.emit({ type: 'text', delta: after });
+    // Exactly what the host returns: ONLY the final assistant message.
+    turn.finish(after);
+    expect(await settledTurn(host, turnId)).toBe('done');
+    const events = host.store.events(turnId);
+    const shown = events.filter((event) => event.type === 'text_delta').map((event) => JSON.parse(event.data).text).join('');
+    expect(shown).toBe(before + after);
+    expect(JSON.parse(events.find((event) => event.type === 'done')!.data).text).toBe(shown);
+    expect(await conversation(host, token)).toMatchObject({ body: { turns: [{ reply: shown }] } });
+    expect(JSON.stringify(events)).not.toContain('private page-action');
+  });
+
   it('replays the whole log, and closes once the turn has ended', async () => {
     const turnId = await submitTurn(host, token);
     expect(await settledTurn(host, turnId)).toBe('done');
@@ -261,17 +283,19 @@ describe('the turn event stream', () => {
 
     turn.emit({ type: 'text', delta: 'Dobrý' });
     expect(await reader.next()).toMatchObject({ seq: 2, type: 'text_delta', data: { text: 'Dobrý' } });
+    turn.emit({ type: 'text', delta: ' den.' });
+    expect(await reader.next()).toMatchObject({ seq: 3, type: 'text_delta', data: { text: ' den.' } });
     turn.finish('Dobrý den.');
     for (;;) {
       const frame = await reader.next();
       if (frame === null) break;
       if (frame.type === 'ping') continue;
-      expect(frame).toMatchObject({ seq: 3, type: 'done', data: { text: 'Dobrý den.' } });
+      expect(frame).toMatchObject({ seq: 4, type: 'done', data: { text: 'Dobrý den.' } });
       break;
     }
     // The answer and the closing event are durable even though the client is only now reading them.
     expect(await settledTurn(fast.host, turnId)).toBe('done');
-    expect(fast.host.store.events(turnId).map((event) => event.type)).toEqual(['accepted', 'text_delta', 'done']);
+    expect(fast.host.store.events(turnId).map((event) => event.type)).toEqual(['accepted', 'text_delta', 'text_delta', 'done']);
   });
 
   it('loses nothing when the page goes away mid-answer, and hands the missing frames to the reconnect', async () => {

@@ -533,7 +533,7 @@ export class ChatPanel implements ChatView {
     if (this.signals) return void this.signals.onResponse({ text });
     // An answer that arrives with no panel submission behind it — a turn resumed after a reload — is written
     // through the panel's own message list instead, which is the same path a notice would take.
-    this.writeAnswer(this.answer, false);
+    this.writeAnswer(this.answer);
   }
 
   finishAnswer(text: string): void {
@@ -542,16 +542,16 @@ export class ChatPanel implements ChatView {
     this.answer = text === '' ? this.answer : text;
     const signals = this.signals;
     this.signals = null;
-    this.answerIndex = null;
     this.clearStatus();
     if (signals === null) {
-      this.writeAnswer(this.answer, true);
+      this.writeAnswer(this.answer);
     } else {
       // The overwrite is what the visitor ends up reading, so the response is only closed once it has been
       // taken: a response closed first keeps whatever the last delta left behind.
       const written = signals.onResponse({ text: this.answer, overwrite: true });
       void Promise.resolve(written).then(() => signals.onClose(), () => signals.onClose());
     }
+    this.answerIndex = null;
     this.flushRedraw();
   }
 
@@ -749,14 +749,15 @@ export class ChatPanel implements ChatView {
 
   /** A message written through the panel's own message list, for content that arrives outside a submit: a
    *  restored turn, a notice, an answer resumed after a reload. */
-  private writeAnswer(text: string, update: boolean): void {
+  private writeAnswer(text: string): void {
     const message = { role: 'ai', text };
-    if (!update || this.answerIndex === null) {
+    if (this.answerIndex === null) {
       this.draw(message);
-      this.answerIndex = this.ready ? this.chat.getMessages().length - 1 : null;
+      this.answerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       return;
     }
-    this.chat.updateMessage({ text }, this.answerIndex);
+    if (this.ready) this.chat.updateMessage({ text }, this.answerIndex);
+    else this.queued[this.answerIndex] = message;
   }
 }
 

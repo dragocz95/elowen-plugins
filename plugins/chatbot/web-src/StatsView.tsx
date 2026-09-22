@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { knownCost } from '../src/budget';
 import { Activity, Coins } from 'lucide-react';
 import { apiJson, chatbotApi, runtime, type DateRange, type PageFilterField } from './runtime';
 import { BotPicker } from './BotPicker';
@@ -6,7 +7,6 @@ import { useChatbots } from './useChatbots';
 import { formatDay, integer, money } from './format';
 import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
-const USAGE_ROW_LIMIT = 500;
 const STATS_MAX_DAYS = 366;
 const PAGE_SIZE = 20;
 const DAY_MS = 86_400_000;
@@ -101,12 +101,16 @@ export function StatsSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const usage = hooks.useUsageByOrigin(
-    'pair',
-    { fromMs: window.fromMs, toMs: window.toMs },
-    { limit: USAGE_ROW_LIMIT, enabled: chatbotUserId !== null },
-  );
-  const spend = chatbotUserId === null ? null : (usage.data?.rows ?? []).find((row) => row.userId === chatbotUserId) ?? null;
+  const spend = answer === null ? null : answer.spend.reduce<{ turns: number; tokens: number | null; cost: number | null }>((sum, { usage }) => {
+    const cost = knownCost(usage);
+    return {
+      turns: sum.turns + (usage?.turns ?? 0),
+      tokens: sum.tokens === null || usage?.tokens == null ? null : sum.tokens + usage.tokens,
+      cost: sum.cost === null || cost === null ? null : sum.cost + cost,
+    };
+  }, { turns: 0, tokens: 0, cost: 0 });
+  const costPoints = answer === null ? [] : answer.spend.map(({ day, usage }) => ({ label: day, cost: knownCost(usage) }));
+  const unknownCost = costPoints.some((point) => point.cost === null);
   const points = answer === null ? [] : chartPoints(answer.days, answer.from, answer.to);
   const pageCount = Math.max(1, Math.ceil(points.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pageCount - 1);
@@ -157,6 +161,7 @@ export function StatsSection() {
         {...heading}
         actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}
       >
+        <div className="settings-group__panel flex min-w-0 flex-col gap-3">
         <C.PageFilters fields={filters} />
         {loadError !== null ? <C.ErrorState message={`${s.statsLoadError} — ${loadError}`} onRetry={load} />
           : answer === null ? <C.LoadingState variant="block" />
@@ -165,7 +170,7 @@ export function StatsSection() {
                 <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
                 <div className="mt-4 flex flex-col gap-3">
                   <h3 className="text-sm font-semibold">{s.statsTableTitle}</h3>
-                  <C.DataTable ariaLabel={s.statsTableTitle} columns="minmax(8rem,1fr) 7rem 7rem 7rem" compactColumns="minmax(0,1fr) 5rem 5rem">
+                  <C.DataTable ariaLabel={s.statsTableTitle} columns="minmax(8rem,1fr) 7rem 7rem 7rem" compactColumns="minmax(0,1fr) 5rem 5rem" mobileColumns="minmax(0,1fr) 3rem 3.5rem">
                     <C.DataTableRow header>
                       <C.DataTableCell header>{s.statsColumnDay}</C.DataTableCell>
                       <C.DataTableCell header className="text-right">{s.chartTurns}</C.DataTableCell>
@@ -193,6 +198,18 @@ export function StatsSection() {
                 </div>
               </>
             )}
+        </div>
+      </C.SettingsGroup>
+
+      <C.SettingsGroup title={s.costChartTitle} description={s.costChartHint} icon={Coins}>
+        <div className="settings-group__panel">
+          {loadError !== null ? <p className="text-xs text-destructive">{s.spendLoadError}</p>
+            : answer === null ? <C.LoadingState variant="block" />
+              : <>
+                <C.TimeSeriesChart data={costPoints} series={[{ key: 'cost', label: s.spendTitle, colour: 'var(--color-chart-3)', variant: 'bar', format: (value) => money(value, locale) }]} height={200} ariaLabel={s.costChartTitle} emptyText={s.spendEmptyTitle} />
+                {unknownCost ? <p className="mt-2 text-xs text-muted-foreground">{s.costUnknownHint}</p> : null}
+              </>}
+        </div>
       </C.SettingsGroup>
 
       <C.SettingsGroup density="compact">
@@ -200,16 +217,15 @@ export function StatsSection() {
           label={s.spendTitle}
           icon={Coins}
           description={s.spendHint}
-          hint={usage.data?.trackingSince == null ? undefined : s.spendTrackingSince.replace('{day}', formatDay(usage.data.trackingSince, locale))}
-          status={usage.isLoading ? <C.LoadingLine layout="inline" />
-            : usage.isError ? <span className="text-xs text-destructive">{s.spendLoadError}</span>
-              : spend === null ? <span className="text-xs text-muted-foreground">{s.spendEmptyTitle}</span>
+          status={loadError !== null ? <span className="text-xs text-destructive">{s.spendLoadError}</span>
+            : spend === null ? <C.LoadingLine layout="inline" />
+              : spend.turns === 0 && spend.cost === 0 ? <span className="text-xs text-muted-foreground">{s.spendEmptyTitle}</span>
                 : (
                   <span className="font-mono text-xs tabular-nums">
                     {s.spendLine
                       .replace('{turns}', integer(spend.turns, locale))
-                      .replace('{tokens}', integer(spend.tokens, locale))
-                      .replace('{cost}', money(spend.cost, locale))}
+                      .replace('{tokens}', spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale))
+                      .replace('{cost}', spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale))}
                   </span>
                 )}
         />

@@ -13,7 +13,7 @@ import type {
 } from './db.js';
 import { CHATBOT_PLATFORM } from './adapter.js';
 import { DEFAULT_LIMITS, readBotLimits, type BotLimits, type LimitValues } from './limits.js';
-import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay, type OriginUsage } from './budget.js';
+import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay, type OriginUsage, type DailyBudget } from './budget.js';
 import {
   chatbotScopeKey,
   conversationScopeKey,
@@ -111,10 +111,10 @@ export class ChatbotStore {
       this.stmt(`INSERT INTO p_chatbot_bots
                    (chatbot_user_id, public_id, customer_user_id, display_name, status, may_submit_forms,
                     rate_ip_per_minute, rate_chatbot_per_minute, rate_conversation_per_minute,
-                    daily_turn_limit, daily_token_limit, daily_cost_microusd,
+                    daily_turn_limit, daily_cost_microusd,
                     max_concurrent_turns, max_queue_depth, queue_timeout_seconds,
                     max_actions_per_turn, retention_days, created_at, updated_at)
-                 VALUES (?, ?, NULL, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                 VALUES (?, ?, NULL, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           input.chatbotUserId,
           input.publicId,
@@ -124,7 +124,6 @@ export class ChatbotStore {
           limits.rateChatbotPerMinute,
           limits.rateConversationPerMinute,
           limits.dailyTurnLimit,
-          limits.dailyTokenLimit,
           limits.dailyCostMicrousd,
           limits.maxConcurrentTurns,
           limits.maxQueueDepth,
@@ -163,7 +162,7 @@ export class ChatbotStore {
       const result = this.stmt(`UPDATE p_chatbot_bots SET
                                   display_name = ?, updated_at = ?, sensitive_mode = 0, may_submit_forms = ?,
                                   rate_ip_per_minute = ?, rate_chatbot_per_minute = ?, rate_conversation_per_minute = ?,
-                                  daily_turn_limit = ?, daily_token_limit = ?, daily_cost_microusd = ?,
+                                  daily_turn_limit = ?, daily_cost_microusd = ?,
                                   max_concurrent_turns = ?, max_queue_depth = ?, queue_timeout_seconds = ?,
                                   max_actions_per_turn = ?, retention_days = ?
                                 WHERE chatbot_user_id = ? AND updated_at = ?`)
@@ -175,7 +174,6 @@ export class ChatbotStore {
           limits.rateChatbotPerMinute,
           limits.rateConversationPerMinute,
           limits.dailyTurnLimit,
-          limits.dailyTokenLimit,
           limits.dailyCostMicrousd,
           limits.maxConcurrentTurns,
           limits.maxQueueDepth,
@@ -561,15 +559,11 @@ export class ChatbotStore {
     if (existing) return { ok: false, reason: 'duplicate', turn: existing };
 
     const day = utcDay(input.nowMs);
-    const usage = this.usageFor(input.chatbotUserId, day);
-    // A usage row this plugin cannot read is not an empty one. Nothing below may decide a budget from it.
-    if (!usage) return { ok: false, reason: 'budget_unverifiable' };
-    const today = this.budgetDay(input.chatbotUserId, day);
-    const verdict = decideBudget({ limits: input.limits, admittedTurns: today.admitted_turns, usage });
+    const { verdict } = this.dailyBudget(input.chatbotUserId, input.limits, day);
     if (!verdict.ok) {
-      return verdict.reason === 'budget_unverifiable'
-        ? { ok: false, reason: 'budget_unverifiable' }
-        : { ok: false, reason: 'budget_exhausted', retryAfterSeconds: secondsUntilNextUtcDay(input.nowMs) };
+      return verdict.reason === 'budget_exhausted'
+        ? { ok: false, reason: 'budget_exhausted', retryAfterSeconds: secondsUntilNextUtcDay(input.nowMs) }
+        : { ok: false, reason: verdict.reason };
     }
     // One conversation, one turn: a second message while the first is still queued or running is refused
     // rather than queued behind it, because its answer would arrive after the visitor had been told something
@@ -602,6 +596,13 @@ export class ChatbotStore {
       .get(window.scope, window.key, window.startedAt) as RateWindowRow;
   }
 
+  /** The admin display and admission share the same counters and refusal rule. */
+  dailyBudget(chatbotUserId: number, limits: BotLimits | null, day: string): DailyBudget {
+    const usage = this.usageFor(chatbotUserId, day);
+    const admittedTurns = this.budgetDay(chatbotUserId, day).admitted_turns;
+    return { day, admittedTurns, usage, verdict: decideBudget({ limits, admittedTurns, usage }) };
+  }
+
   /** Today's spend for one chatbot, from CORE's own rollup: the only place origin-attributed spend exists in
    *  this codebase. Nothing here reads `brain_messages`, and no second ledger is kept.
    *
@@ -616,10 +617,10 @@ export class ChatbotStore {
     const turns = countOf(row.turns);
     const tokens = countOf(row.total);
     const costedTurns = countOf(row.costed_turns);
-    if (turns === null || tokens === null || costedTurns === null) return null;
+    if (turns === null || costedTurns === null) return null;
     // Core leaves `cost` NULL for a bucket whose turns reported no price at all, and keeps it NULL on purpose.
     // Anything that is neither a finite number nor NULL is a value this plugin will not spend against.
-    if (row.cost !== null && (typeof row.cost !== 'number' || !Number.isFinite(row.cost))) return null;
+    if (row.cost !== null && (typeof row.cost !== 'number' || !Number.isFinite(row.cost) || row.cost < 0)) return null;
     return { turns, tokens, costUsd: row.cost === null ? null : row.cost, costedTurns };
   }
 

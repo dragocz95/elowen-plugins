@@ -49,6 +49,7 @@ const bot = {
   blockers: [] as string[],
   insecureOrigins: [] as string[],
   limits: LIMITS,
+  budget: { day: '2026-09-21', admittedTurns: 9, usage: { turns: 9, tokens: 1_090_000, costUsd: 0.0737, costedTurns: 9 }, verdict: { ok: true } },
   missingLimits: [] as string[],
   sensitiveMode: false,
 };
@@ -181,6 +182,7 @@ setDefaults(
       chatbotUserId,
       from,
       to,
+      spend: [{ day: to, usage: chatbotUserId === second.chatbotUserId ? { turns: 0, tokens: 0, costUsd: null, costedTurns: 0 } : { turns: 9, tokens: 1234, costUsd: 12.5, costedTurns: 9 } }],
       days: chatbotUserId === second.chatbotUserId
         ? [{ day: to, turns: 1, done: 1, errors: 0 }]
         : [{ day: to, turns: 9, done: 8, errors: 1 }],
@@ -601,7 +603,7 @@ describe('one chatbot\'s limits', () => {
     return await openWindow(strings.limitsEdit!);
   };
 
-  it('sets the three main numbers with sliders and keeps the remaining eight behind Advanced', async () => {
+  it('sets the three main numbers with sliders and keeps the remaining seven behind Advanced', async () => {
     const limits = await openLimits('Městský úřad');
 
     expect(within(limits).getByRole('slider', { name: strings.limit_dailyTurnLimit! })).toHaveValue('200');
@@ -694,6 +696,24 @@ describe('the conversations section', () => {
   });
 });
 
+describe('daily ceiling visibility', () => {
+  it.each([
+    { verdict: { ok: true }, label: strings.budgetAvailable },
+    { verdict: { ok: false, reason: 'budget_exhausted', ceiling: 'turns' }, label: strings.budgetTurnsExhausted },
+    { verdict: { ok: false, reason: 'budget_exhausted', ceiling: 'cost' }, label: strings.budgetCostExhausted },
+    { verdict: { ok: false, reason: 'budget_unverifiable', ceiling: 'cost' }, label: strings.budgetUnknown },
+  ])('shows the server verdict in the register: $label', async ({ verdict, label }) => {
+    use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json({
+      ...botsBody(), bots: [{ ...bot, budget: { ...bot.budget, verdict } }],
+    })));
+    renderSection('bots');
+    expect(await screen.findByText(label!)).toBeInTheDocument();
+    expect(screen.getByText('9 / 200')).toBeInTheDocument();
+    expect(screen.getByText('$0.07 / $10.00')).toBeInTheDocument();
+    expect(screen.queryByText('Tokens per day')).not.toBeInTheDocument();
+  });
+});
+
 describe('the statistics section', () => {
   const openStats = async () => {
     renderSection('statistics');
@@ -713,10 +733,9 @@ describe('the statistics section', () => {
     expect(asked.stats).toEqual([bot.chatbotUserId]);
 
     // The spend is ONE line, from the instance's rollup for this account, over the same window.
-    expect(screen.getByText(strings.spendTitle!)).toBeInTheDocument();
+    expect(screen.getAllByText(strings.spendTitle!).length).toBeGreaterThan(0);
     expect(await screen.findByText('9 turns · 1,234 tokens · $12.50')).toBeInTheDocument();
-    const [from, to] = asked.usage[0]!.split('|');
-    expect(new Date(from!).getTime()).toBeLessThan(new Date(to!).getTime());
+    expect(asked.usage).toEqual([]);
 
     // Another window is another read, over a range the reader chose.
     fireEvent.click(rangeTrigger);
@@ -741,12 +760,29 @@ describe('the statistics section', () => {
       from: url.searchParams.get('from'),
       to: url.searchParams.get('to'),
       days: [],
+      spend: [],
       totals: { turns: 0, done: 0, errors: 0, queued: 0, running: 0 },
       queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
     })));
     await openStats();
     expect(await screen.findByText(strings.statsTableTitle!)).toBeInTheDocument();
     expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+  });
+
+  it('keeps incomplete daily pricing unknown in the chart and total', async () => {
+    use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => HttpResponse.json({
+      chatbotUserId: bot.chatbotUserId,
+      from: url.searchParams.get('from'),
+      to: url.searchParams.get('to'),
+      days: [],
+      spend: [{ day: url.searchParams.get('to'), usage: { turns: 2, tokens: 1090000, costUsd: 0.07, costedTurns: 1 } }],
+      totals: { turns: 0, done: 0, errors: 0, queued: 0, running: 0 },
+      queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
+    })));
+    await openStats();
+    expect(await screen.findByText(strings.costUnknownHint!)).toBeInTheDocument();
+    expect(screen.getByText('2 turns · 1,090,000 tokens · Unknown')).toBeInTheDocument();
+    expect(screen.queryByText('$0.07')).not.toBeInTheDocument();
   });
 
   it('reports a failed counters read with the retry the host owns', async () => {

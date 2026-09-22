@@ -239,6 +239,13 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    /** Step 6: tokens are informational, never an admission ceiling. Discard the retired setting. */
+    version: 6,
+    up(db: { exec(sql: string): void }): void {
+      db.exec('ALTER TABLE p_chatbot_bots DROP COLUMN daily_token_limit;');
+    },
+  },
 ];
 
 /** The numeric limits a chatbot carries. New rows receive the profile from `limits.ts`; nullable columns
@@ -250,7 +257,6 @@ export interface BotLimitColumns {
   rate_chatbot_per_minute: number | null;
   rate_conversation_per_minute: number | null;
   daily_turn_limit: number | null;
-  daily_token_limit: number | null;
   daily_cost_microusd: number | null;
   max_concurrent_turns: number | null;
   max_queue_depth: number | null;

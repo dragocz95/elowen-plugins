@@ -4,9 +4,10 @@ import type { ChatbotStore } from './store.js';
 import { newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
-import { LIMIT_FIELDS, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
+import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
 import { validateAppearanceWrite, validateBotCreate, validateBotPatch } from './validation.js';
 import { parseStoredAppearance } from './appearanceContract.js';
+import { utcDay } from './budget.js';
 import type { ChatbotStores } from './coreSeams.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import type {
@@ -20,10 +21,8 @@ import type {
  *  and its Project assignment belong to the core admin API, and this route only registers a bot for an
  *  account that already exists as one.
  *
- *  Everything a reader sees here is either the plugin's own configuration or a COUNT over the plugin's own
- *  rows. Spend is the one thing this plugin cannot read: the only origin-attributed spend in this codebase
- *  is core's `usage_by_origin` rollup, and the admin page reads it from the core usage route for the chatbot
- *  account. No query here, and none on the page, ever counts spend by scanning messages. */
+ *  Configuration and admissions belong to this plugin. Spend is read from core's `usage_by_origin`
+ *  through the same store projection admission uses. No query computes spend by scanning messages. */
 
 export interface AdminApiDeps {
   store: ChatbotStore;
@@ -49,14 +48,12 @@ const TRANSCRIPT_MAX_TURNS = 200;
 const STATS_DEFAULT_DAYS = 30;
 const STATS_MAX_DAYS = 366;
 
-const utf8Day = (date: Date): string => date.toISOString().slice(0, 10);
-
 /** One UTC day, or null when the caller's value is not a date at all. The stats route takes days, not
  *  timestamps, because every counter below is keyed by the UTC day the plugin already groups by. */
 const readDay = (value: string | undefined): string | null => {
   if (typeof value !== 'string' || value.trim() === '') return null;
   const parsed = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(parsed) ? utf8Day(new Date(parsed)) : null;
+  return Number.isFinite(parsed) ? utcDay(parsed) : null;
 };
 
 /** The nearest-rank percentile of a small sample. Nearest-rank rather than an interpolation: with a
@@ -97,6 +94,7 @@ export function createAdminApi(deps: AdminApiDeps) {
       blockers,
       insecureOrigins: origins.filter((origin) => !isUsableOrigin(origin)),
       limits: storedLimits(row),
+      budget: store.dailyBudget(row.chatbot_user_id, readBotLimits(row), utcDay(now().getTime())),
       missingLimits: missingLimits(row),
       sensitiveMode: row.sensitive_mode === 1,
     };
@@ -315,8 +313,7 @@ export function createAdminApi(deps: AdminApiDeps) {
       };
     },
 
-    /** This chatbot's own admission counters over a window of UTC days. No spend here: tokens and cost are
-     *  read from core's `usage_by_origin` rollup by the page, which is the only place that counter exists. */
+    /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */
     async stats(auth: PluginApiAuth, query: Record<string, string>): Promise<Reply> {
       const refusal = requireAdmin(auth);
       if (refusal) return refusal;
@@ -325,11 +322,11 @@ export function createAdminApi(deps: AdminApiDeps) {
       const bot = requireBot(chatbotUserId);
       if (isRefusal(bot)) return bot;
 
-      const today = utf8Day(now());
+      const today = utcDay(now().getTime());
       const requestedTo = readDay(query.to);
       const toDay = requestedTo ?? today;
       const requestedFrom = readDay(query.from);
-      const fromDay = requestedFrom ?? utf8Day(new Date(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * 86_400_000));
+      const fromDay = requestedFrom ?? utcDay(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * 86_400_000);
       // A window the caller got backwards is a mistake to report, not a range to silently swap.
       if (fromDay > toDay) return { status: 400, body: { error: 'invalid_request', detail: '"from" must not be after "to"' } };
       const spanDays = Math.round((Date.parse(`${toDay}T00:00:00.000Z`) - Date.parse(`${fromDay}T00:00:00.000Z`)) / 86_400_000) + 1;
@@ -345,6 +342,10 @@ export function createAdminApi(deps: AdminApiDeps) {
           from: fromDay,
           to: toDay,
           days: store.dailyTurns({ chatbotUserId, fromDay, toDay }),
+          spend: Array.from({ length: spanDays }, (_, index) => {
+            const day = utcDay(Date.parse(`${fromDay}T00:00:00.000Z`) + index * 86_400_000);
+            return { day, usage: store.usageFor(chatbotUserId, day) };
+          }),
           totals: store.turnTotals({ chatbotUserId, fromDay, toDay }),
           queueWait: {
             samples: waits.length,

@@ -60,7 +60,6 @@
       "limit_rateChatbotPerMinute": "Požadavků na tohoto chatbota za minutu",
       "limit_rateConversationPerMinute": "Požadavků v jedné konverzaci za minutu",
       "limit_dailyTurnLimit": "Tahů za den",
-      "limit_dailyTokenLimit": "Tokenů za den",
       "limit_dailyCostMicrousd": "Denní strop útraty",
       "limit_maxConcurrentTurns": "Souběžně běžících tahů",
       "limit_maxQueueDepth": "Tahů čekajících ve frontě",
@@ -113,7 +112,6 @@
       "spendLine": "{turns} tahů · {tokens} tokenů · {cost}",
       "spendLoadError": "Útratu účtu se nepodařilo načíst",
       "spendEmptyTitle": "Žádná útrata",
-      "spendTrackingSince": "Souhrn útraty sleduje data od {day}; dřívější tahy nemají zaznamenaný zdroj.",
       "newBot": "Nový chatbot",
       "createTitle": "Nový chatbot",
       "createModeLabel": "Účet",
@@ -205,7 +203,6 @@
       "limitHint_rateChatbotPerMinute": "Požadavky na tohoto chatbota za minutu.",
       "limitHint_rateConversationPerMinute": "Tahy v jedné konverzaci za minutu.",
       "limitHint_dailyTurnLimit": "Tahy přijaté za jeden den UTC.",
-      "limitHint_dailyTokenLimit": "Tokeny účtované tomuto účtu za den UTC.",
       "limitHint_dailyCostMicrousd": "USD za den UTC; interně se ukládá v mikrodolarech.",
       "limitHint_maxConcurrentTurns": "Tahy, které smějí běžet současně.",
       "limitHint_maxQueueDepth": "Tahy, které smějí čekat na volné místo.",
@@ -277,7 +274,20 @@
       "appearanceIcon_cart": "Košík",
       "appearanceIcon_person": "Osoba",
       "appearanceIcon_envelope": "Obálka",
-      "appearanceIcon_check": "Zaškrtnutí"
+      "appearanceIcon_check": "Zaškrtnutí",
+      "budgetTitle": "Dnešní čerpání",
+      "budgetDay": "{day} · UTC",
+      "budgetAvailable": "Denní stropy nevyčerpány",
+      "budgetMissing": "Limity nejsou nastaveny",
+      "budgetUnknown": "Nové zprávy odmítány: cenu nelze ověřit",
+      "budgetTurnsExhausted": "Vyčerpán denní počet zpráv",
+      "budgetCostExhausted": "Vyčerpán denní finanční strop",
+      "budgetValueUnknown": "Neznámé",
+      "budgetNoCeiling": "Bez stropu",
+      "budgetHint": "Přijaté zprávy a zaznamenané náklady tohoto chatbota se počítají od 00:00 UTC. Tokeny jsou pouze informativní a zprávy neblokují. Po dosažení některého stropu se další zpráva odmítne; již běžící odpovědi mohou finanční strop překročit.",
+      "costChartTitle": "Náklady v čase",
+      "costChartHint": "Denní náklady v USD z evidence využití tohoto chatbota za vybrané dny UTC.",
+      "costUnknownHint": "Dny s neúplnou cenou zůstávají prázdné, nepočítají se jako bezplatné. Celková cena není známá."
     }
   }
 }
