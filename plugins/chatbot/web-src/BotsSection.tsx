@@ -44,7 +44,7 @@ export function BotsSection({ plugin, openBotId, onOpenBot }: {
                       />
                     </span>
                   </div>
-                  <BudgetUsage bot={bot} compact />
+                  <BudgetUsage bot={bot} />
                 </C.EntityRow>
               ))}
             </C.EntityList>

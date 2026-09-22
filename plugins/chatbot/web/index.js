@@ -806,7 +806,7 @@ function knownCost(usage) {
 
 // plugins/chatbot/web-src/BudgetUsage.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
-function BudgetUsage({ bot, compact = false }) {
+function BudgetUsage({ bot }) {
   const { hooks, components: C } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const { locale } = hooks.useTranslation();
@@ -842,8 +842,7 @@ function BudgetUsage({ bot, compact = false }) {
           indicatorClassName: value >= limit ? "bg-destructive" : void 0
         }
       )
-    ] }, label)) }),
-    compact ? null : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-xs text-muted-foreground", children: s.budgetHint })
+    ] }, label)) })
   ] });
 }
 
@@ -20853,7 +20852,7 @@ function BotsSection({ plugin, openBotId, onOpenBot }) {
         }
       ) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(BudgetUsage, { bot, compact: true })
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(BudgetUsage, { bot })
   ] }, bot.chatbotUserId)) });
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(

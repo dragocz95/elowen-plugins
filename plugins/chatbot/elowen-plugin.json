@@ -332,7 +332,6 @@
       "budgetCostExhausted": "Daily spend ceiling reached",
       "budgetValueUnknown": "Unknown",
       "budgetNoCeiling": "No ceiling",
-      "budgetHint": "Admitted messages and recorded spend for this chatbot reset at 00:00 UTC. Tokens are informational and never refuse a message. The next message is refused when either ceiling is reached; turns already running may settle above the spend ceiling.",
       "costChartTitle": "Spend over time",
       "costChartHint": "Daily USD cost from this chatbot's origin usage, over the selected UTC days.",
       "costUnknownHint": "Days with incomplete pricing are left blank, not counted as free. The total cost is unknown."

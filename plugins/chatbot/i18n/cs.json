@@ -284,7 +284,6 @@
       "budgetCostExhausted": "Vyčerpán denní finanční strop",
       "budgetValueUnknown": "Neznámé",
       "budgetNoCeiling": "Bez stropu",
-      "budgetHint": "Přijaté zprávy a zaznamenané náklady tohoto chatbota se počítají od 00:00 UTC. Tokeny jsou pouze informativní a zprávy neblokují. Po dosažení některého stropu se další zpráva odmítne; již běžící odpovědi mohou finanční strop překročit.",
       "costChartTitle": "Náklady v čase",
       "costChartHint": "Denní náklady v USD z evidence využití tohoto chatbota za vybrané dny UTC.",
       "costUnknownHint": "Dny s neúplnou cenou zůstávají prázdné, nepočítají se jako bezplatné. Celková cena není známá."

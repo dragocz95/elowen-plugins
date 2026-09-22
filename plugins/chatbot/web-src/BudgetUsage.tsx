@@ -4,7 +4,7 @@ import { formatDay, integer, money } from './format';
 import { runtime } from './runtime';
 
 /** A read of the admission rule, not a second decision made in the browser. */
-export function BudgetUsage({ bot, compact = false }: { bot: ChatbotBotView; compact?: boolean }) {
+export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
   const { hooks, components: C } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
@@ -43,7 +43,6 @@ export function BudgetUsage({ bot, compact = false }: { bot: ChatbotBotView; com
           </div>
         ))}
       </div>
-      {compact ? null : <p className="text-xs text-muted-foreground">{s.budgetHint}</p>}
     </div>
   );
 }
