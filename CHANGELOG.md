@@ -1,5 +1,9 @@
 # Changelog
 
+## stats 0.2.7 - 2026-09-22
+
+- Administrators can switch Statistics to the whole instance; the page reads both scopes through the host usage hooks, so a usage reset refreshes it.
+
 ## sites 0.14.9 - 2026-09-22
 
 - Checking a custom domain on demand no longer races the automatic check. One record is checked once, whoever asked: a second request joins the running check instead of starting its own, so the certificate authority is never asked twice for the same hostname, and a check that arrives after the domain was already verified reports success instead of a server error.

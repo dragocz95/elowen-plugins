@@ -200,13 +200,13 @@
     },
     {
       "name": "stats",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "2",
       "provides": {},
-      "requiresCore": "0.28.50"
+      "requiresCore": "0.28.51"
     },
     {
       "name": "telegram",
