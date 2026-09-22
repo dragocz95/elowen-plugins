@@ -17,6 +17,7 @@ import {
   EVENTS_AFTER_QUERY,
   PUBLIC_PATHS,
   PUBLIC_SCHEMA_VERSION,
+  VISITOR_CREDENTIAL_ERRORS,
   VISITOR_TEXT_MAX_BYTES,
   VISITOR_AUTHORIZATION_SCHEME,
   WIDGET_MAX_ACTIONS_PER_TURN,
@@ -144,14 +145,8 @@ export class ChatSession {
       try { await this.ensureToken(); } catch { this.deps.view.error(this.strings.errorUnavailable); return; }
     }
     if (this.token === null) return;
-    let conversation = await this.getConversation();
-    // A token that has expired is not a lost conversation: it is rotated for the same visitor, and only a
-    // rotation that is itself refused leaves the browser to start a new one.
-    if (!conversation && this.token !== null) {
-      await this.refreshToken();
-      conversation = await this.getConversation();
-    }
-    if (!conversation) return;
+    const conversation = await this.getConversation();
+    if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
     const messages: { role: 'user' | 'ai'; text: string }[] = [];
     for (const turn of conversation.turns) {
       if (typeof turn.message !== 'string') continue;
@@ -229,7 +224,7 @@ export class ChatSession {
     const clientTurnId = newClientTurnId();
     const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, composed.message));
     if (!reply || reply.status !== 202) {
-      this.handleSendFailure(reply);
+      await this.handleSendFailure(reply);
       return;
     }
     const body = await readJson(reply);
@@ -276,9 +271,10 @@ export class ChatSession {
       }
       if (this.destroyed || aborter.signal.aborted) return;
 
-      if (response && response.status === 401) {
+      if (await invalidCredential(response)) {
         const refreshed = await this.refreshToken();
-        if (refreshed) continue;
+        // A new visitor cannot read a turn owned by the old visitor. Never retry it under that identity.
+        if (refreshed === 'rotated' && attempt < RECONNECT_ATTEMPTS) continue;
         this.deps.view.error(this.strings.errorUnavailable);
         return;
       }
@@ -524,7 +520,7 @@ export class ChatSession {
       const response = await this.request(null, 'POST', PUBLIC_PATHS.handoff,
         { schemaVersion: PUBLIC_SCHEMA_VERSION, bot: this.deps.publicId, code });
       const body = response?.ok ? await readJson(response) : null;
-      if (typeof body?.token !== 'string') { this.handoffFailed = true; this.forgetToken(); this.deps.view.error(this.strings.navigationFailed); throw new Error('Navigation handoff refused'); }
+      if (typeof body?.token !== 'string') { this.handoffFailed = true; this.deps.view.error(this.strings.navigationFailed); throw new Error('Navigation handoff refused'); }
       this.rememberToken(body.token);
     }
     if (this.token !== null) return this.token;
@@ -537,32 +533,33 @@ export class ChatSession {
     return token;
   }
 
-  /** Rotate the visitor's token for the SAME visitor, so a conversation outlives a token's lifetime without
-   *  the widget ever choosing an identity. A refused rotation falls back to a new token, which starts a new
-   *  conversation rather than silently reusing one the server no longer honours. */
-  private async refreshToken(): Promise<boolean> {
-    if (this.token !== null) {
-      const rotated = await this.request(this.token, 'POST', PUBLIC_PATHS.refresh, schemaVersionBody());
-      if (rotated && rotated.ok) {
-        const body = await readJson(rotated);
-        if (typeof body?.token === 'string') {
-          this.rememberToken(body.token);
-          return true;
-        }
-      }
+  /** Called only after an explicit credential rejection. The refresh route accepts live tokens only:
+   *  expiry cannot be rotated there. A transient or unreadable refresh refusal still keeps the credential;
+   *  only its explicit invalid-credential response permits starting a new visitor. */
+  private async refreshToken(): Promise<'rotated' | 'replaced' | false> {
+    const rotated = await this.request(this.token, 'POST', PUBLIC_PATHS.refresh, schemaVersionBody());
+    if (rotated?.ok) {
+      const body = await readJson(rotated);
+      if (typeof body?.token !== 'string' || body.token === '') return false;
+      this.rememberToken(body.token);
+      return 'rotated';
     }
+    if (!await invalidCredential(rotated)) return false;
     this.forgetToken();
     try {
       await this.ensureToken();
-      return true;
+      return 'replaced';
     } catch {
       return false;
     }
   }
 
-  private async getConversation(): Promise<{ turns: ConversationTurn[]; activeTurnId: string | null } | null> {
+  private async getConversation(retryCredential = true): Promise<{ turns: ConversationTurn[]; activeTurnId: string | null } | null> {
     const response = await this.request(this.token, 'GET', PUBLIC_PATHS.conversation, null);
-    if (!response || !response.ok) return null;
+    if (!response || !response.ok) {
+      if (retryCredential && await invalidCredential(response) && await this.refreshToken()) return this.getConversation(false);
+      return null;
+    }
     const body = await readJson(response);
     if (!body || !Array.isArray(body.turns)) return null;
     const turns: ConversationTurn[] = [];
@@ -616,12 +613,8 @@ export class ChatSession {
     }
   }
 
-  private handleSendFailure(response: Response | null): void {
-    if (response && response.status === 401) {
-      this.forgetToken();
-      this.deps.view.error(this.strings.errorUnavailable);
-      return;
-    }
+  private async handleSendFailure(response: Response | null): Promise<void> {
+    if (await invalidCredential(response)) await this.refreshToken();
     // A refused or unavailable chatbot is the same thing to a visitor: nobody is there to answer. A budget
     // or rate refusal is deliberately not distinguished either — a visitor cannot act on the difference.
     this.deps.view.error(this.strings.errorUnavailable);
@@ -659,6 +652,13 @@ export class ChatSession {
       // Nothing to do: the value was never stored.
     }
   }
+}
+
+/** Status alone is not evidence: gateways and unavailable deployments can also return 401. */
+async function invalidCredential(response: Response | null): Promise<boolean> {
+  if (response?.status !== 401) return false;
+  const body = await readJson(response);
+  return body?.error === VISITOR_CREDENTIAL_ERRORS.required || body?.error === VISITOR_CREDENTIAL_ERRORS.invalid;
 }
 
 interface ConversationTurn {
