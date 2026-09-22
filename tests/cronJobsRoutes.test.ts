@@ -28,8 +28,8 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
   // `noUsers` is SETUP MODE: before the first account exists the API is unauthenticated by design.
-  const admin = opts.noUsers ? { id: 0 } : users.create('admin', 'pw');
-  const amy = opts.noUsers ? { id: 0 } : users.create('amy', 'pw');
+  const admin = opts.noUsers ? { id: 0 } : users.create('admin', 'human', 'pw');
+  const amy = opts.noUsers ? { id: 0 } : users.create('amy', 'human', 'pw');
   // The '/plugins/cronjob/jobs' surface is served by the REAL cronjob plugin (root mounts) now.
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,

@@ -19,15 +19,19 @@ import { stubConversationDirectory } from './helpers/conversationDirectory.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-const BASE = Date.parse('2026-09-15T08:00:00Z');
+// Keep run fixtures inside the journal's detail-retention window.
+const BASE = Date.now() - 60 * 60 * 1_000;
+const LOCAL_DATE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(BASE);
 
 function setup() {
   const dataRoot = mkdtempSync(join(tmpdir(), 'cron-runs-')); roots.push(dataRoot);
   const db = openDb(':memory:');
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const amy = users.create('amy', 'pw');
-  const bob = users.create('bob', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const amy = users.create('amy', 'human', 'pw');
+  const bob = users.create('bob', 'human', 'pw');
   users.setGrantedPlugins(amy.id, ['cronjob']);
   users.setGrantedPlugins(bob.id, ['cronjob']);
   const journal = openRunJournal(makePluginDb(db, 'cronjob', { canMigrate: true }), { now: () => BASE });
@@ -66,7 +70,7 @@ function setup() {
       schedule: 'daily 10:00',
       trigger: patch.trigger ?? 'schedule',
       slotMs: patch.slotMs ?? BASE,
-      localDate: patch.localDate ?? '2026-09-15',
+      localDate: patch.localDate ?? LOCAL_DATE,
       localTime: patch.localTime ?? '10:00',
       timezone: 'Europe/Prague',
       startedMs: patch.startedMs ?? BASE,
@@ -104,7 +108,7 @@ describe('cron runs route', () => {
       });
     }
     const response = await app.request(
-      '/plugins/cronjob/api/runs?date=2026-09-15&outcome=ok&q=morning&limit=100&offset=0',
+      `/plugins/cronjob/api/runs?date=${LOCAL_DATE}&outcome=ok&q=morning&limit=100&offset=0`,
       auth(amy.id),
     );
     expect(response.status).toBe(200);
@@ -119,11 +123,11 @@ describe('cron runs route', () => {
     for (let index = 0; index < 55; index += 1) {
       add({ claimKey: `page-${index}`, startedMs: BASE + index, finishedMs: BASE + index + 1 });
     }
-    const firstResponse = await app.request('/plugins/cronjob/api/runs?date=2026-09-15&limit=50', auth(amy.id));
+    const firstResponse = await app.request(`/plugins/cronjob/api/runs?date=${LOCAL_DATE}&limit=50`, auth(amy.id));
     const first = await firstResponse.json() as { runs: { id: string }[]; nextCursor: string };
     add({ claimKey: 'newer', startedMs: BASE + 10_000, finishedMs: BASE + 10_001 });
     const secondResponse = await app.request(
-      `/plugins/cronjob/api/runs?date=2026-09-15&limit=50&cursor=${encodeURIComponent(first.nextCursor)}`,
+      `/plugins/cronjob/api/runs?date=${LOCAL_DATE}&limit=50&cursor=${encodeURIComponent(first.nextCursor)}`,
       auth(amy.id),
     );
     const second = await secondResponse.json() as { runs: { id: string }[] };
