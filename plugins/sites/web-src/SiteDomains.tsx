@@ -156,9 +156,12 @@ function StepRow({ icon: Icon, title, badge, done, spin, text, help, last, muted
   );
 }
 
-function SetupBody({ domain, strings }: {
+function SetupBody({ domain, strings, secondsToNextCheck, checking }: {
   domain: SiteDomainView;
   strings: Record<string, string>;
+  /** Seconds left of the window's own schedule, or null when it is not watching. */
+  secondsToNextCheck: number | null;
+  checking: boolean;
 }) {
   const { components } = runtime();
   const { HelpTip } = components;
@@ -167,9 +170,9 @@ function SetupBody({ domain, strings }: {
     .filter((line) => line !== '')
     .join(' ');
   const meta = [
-    domain.routing.checkedAt
-      ? strings.lastChecked.replace('{time}', relativeTime(domain.routing.checkedAt))
-      : strings.notChecked,
+    checking || secondsToNextCheck === null
+      ? strings.checking
+      : strings.nextCheckIn.replace('{seconds}', String(secondsToNextCheck)),
     domain.ownership.expiresAt
       ? strings.reservationExpires.replace('{time}', relativeTime(domain.ownership.expiresAt))
       : '',
@@ -387,17 +390,36 @@ export function SiteDomains({ siteId }: { siteId: string }) {
     : data?.domains.find((entry) => entry.id === setupId) ?? null;
   const watching = setupDomain !== null && awaitingDomain(setupDomain);
 
-  // The interval must not be restarted by every render, and the mutation object is new on each one, so
-  // the timer reaches it through a ref instead of listing it as a dependency.
+  // One schedule owns both the countdown the visitor reads and the moment the check fires, so the two can
+  // never disagree. A second clock would drift against the first and show a countdown that ends on nothing.
+  const [nextCheckAt, setNextCheckAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  // The mutation object is new on every render; the timer reaches it through a ref so that the schedule
+  // below is not restarted by each one.
   const checkRef = useRef(check);
   checkRef.current = check;
+
   useEffect(() => {
-    if (!watching || setupId === null) return undefined;
-    const timer = window.setInterval(() => {
-      if (!checkRef.current.isPending) checkRef.current.mutate({ id: setupId, manual: false });
-    }, DOMAIN_CHECK_POLL_MS);
+    if (!watching || setupId === null) {
+      setNextCheckAt(null);
+      return undefined;
+    }
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [watching, setupId]);
+
+  useEffect(() => {
+    if (!watching || setupId === null || nextCheckAt === null || now < nextCheckAt) return;
+    // A check that is still in flight keeps its slot: the next second re-enters here and fires it then.
+    if (checkRef.current.isPending) return;
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    checkRef.current.mutate({ id: setupId, manual: false });
+  }, [now, nextCheckAt, watching, setupId]);
+
+  const secondsToNextCheck = nextCheckAt === null
+    ? null
+    : Math.max(0, Math.ceil((nextCheckAt - now) / 1000));
 
   return (
     <>
@@ -596,7 +618,14 @@ export function SiteDomains({ siteId }: { siteId: string }) {
             {dialogError ? <ErrorState message={dialogError} /> : null}
             {setupDomain.status === 'ready'
               ? <ConnectedBody domain={setupDomain} strings={strings} />
-              : <SetupBody domain={setupDomain} strings={strings} />}
+              : (
+                <SetupBody
+                  domain={setupDomain}
+                  strings={strings}
+                  secondsToNextCheck={secondsToNextCheck}
+                  checking={check.isPending}
+                />
+              )}
           </ModalBody>
           <ModalFooter>
             <Button
@@ -617,12 +646,18 @@ export function SiteDomains({ siteId }: { siteId: string }) {
               </Button>
             ) : null}
             {watching ? (
+              // The button neither changes its label nor greys out while an automatic check runs: that
+              // happens every few seconds on its own, and a control that blinks with it looks broken.
+              // Pressing it brings the next check forward instead of adding a second one.
               <Button
                 variant="accent"
-                disabled={check.isPending}
-                onClick={() => check.mutate({ id: setupDomain.id, manual: true })}
+                onClick={() => {
+                  if (check.isPending) return;
+                  setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+                  check.mutate({ id: setupDomain.id, manual: true });
+                }}
               >
-                {check.isPending ? strings.checking : strings.checkAgain}
+                {strings.checkAgain}
               </Button>
             ) : (
               <Button variant="accent" onClick={() => setDialog(null)}>{strings.close}</Button>

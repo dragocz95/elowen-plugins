@@ -789,13 +789,13 @@ function StepRow({ icon: Icon2, title, badge, done, spin, text, help, last, mute
     ] })
   ] });
 }
-function SetupBody({ domain, strings }) {
+function SetupBody({ domain, strings, secondsToNextCheck, checking }) {
   const { components } = runtime();
   const { HelpTip } = components;
   const watching = awaitingDomain(domain);
   const routingHelp = [strings[domain.routing.hint], domain.delegatedRootWarning ? strings.delegatedRootHint : ""].filter((line) => line !== "").join(" ");
   const meta = [
-    domain.routing.checkedAt ? strings.lastChecked.replace("{time}", relativeTime(domain.routing.checkedAt)) : strings.notChecked,
+    checking || secondsToNextCheck === null ? strings.checking : strings.nextCheckIn.replace("{seconds}", String(secondsToNextCheck)),
     domain.ownership.expiresAt ? strings.reservationExpires.replace("{time}", relativeTime(domain.ownership.expiresAt)) : ""
   ].filter((line) => line !== "");
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", children: [
@@ -992,15 +992,26 @@ function SiteDomains({ siteId }) {
   const setupId = dialog?.mode === "setup" ? dialog.domainId : null;
   const setupDomain = setupId === null ? null : data?.domains.find((entry) => entry.id === setupId) ?? null;
   const watching = setupDomain !== null && awaitingDomain(setupDomain);
+  const [nextCheckAt, setNextCheckAt] = (0, import_react4.useState)(null);
+  const [now, setNow] = (0, import_react4.useState)(() => Date.now());
   const checkRef = (0, import_react4.useRef)(check);
   checkRef.current = check;
   (0, import_react4.useEffect)(() => {
-    if (!watching || setupId === null) return void 0;
-    const timer = window.setInterval(() => {
-      if (!checkRef.current.isPending) checkRef.current.mutate({ id: setupId, manual: false });
-    }, DOMAIN_CHECK_POLL_MS);
+    if (!watching || setupId === null) {
+      setNextCheckAt(null);
+      return void 0;
+    }
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    const timer = window.setInterval(() => setNow(Date.now()), 1e3);
     return () => window.clearInterval(timer);
   }, [watching, setupId]);
+  (0, import_react4.useEffect)(() => {
+    if (!watching || setupId === null || nextCheckAt === null || now < nextCheckAt) return;
+    if (checkRef.current.isPending) return;
+    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+    checkRef.current.mutate({ id: setupId, manual: false });
+  }, [now, nextCheckAt, watching, setupId]);
+  const secondsToNextCheck = nextCheckAt === null ? null : Math.max(0, Math.ceil((nextCheckAt - now) / 1e3));
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(DetailBlock, { icon: Link2, title: strings.addresses, children: [
       query.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(LoadingState, { variant: "block", height: "h-24" }) : null,
@@ -1178,7 +1189,15 @@ function SiteDomains({ siteId }) {
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalBody, { gap: 4, children: [
             dialogError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ErrorState, { message: dialogError }) : null,
-            setupDomain.status === "ready" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ConnectedBody, { domain: setupDomain, strings }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(SetupBody, { domain: setupDomain, strings })
+            setupDomain.status === "ready" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ConnectedBody, { domain: setupDomain, strings }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              SetupBody,
+              {
+                domain: setupDomain,
+                strings,
+                secondsToNextCheck,
+                checking: check.isPending
+              }
+            )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(ModalFooter, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -1200,14 +1219,22 @@ function SiteDomains({ siteId }) {
                 children: strings.makePrimary
               }
             ) : null,
-            watching ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              Button,
-              {
-                variant: "accent",
-                disabled: check.isPending,
-                onClick: () => check.mutate({ id: setupDomain.id, manual: true }),
-                children: check.isPending ? strings.checking : strings.checkAgain
-              }
+            watching ? (
+              // The button neither changes its label nor greys out while an automatic check runs: that
+              // happens every few seconds on its own, and a control that blinks with it looks broken.
+              // Pressing it brings the next check forward instead of adding a second one.
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                Button,
+                {
+                  variant: "accent",
+                  onClick: () => {
+                    if (check.isPending) return;
+                    setNextCheckAt(Date.now() + DOMAIN_CHECK_POLL_MS);
+                    check.mutate({ id: setupDomain.id, manual: true });
+                  },
+                  children: strings.checkAgain
+                }
+              )
             ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Button, { variant: "accent", onClick: () => setDialog(null), children: strings.close })
           ] })
         ]
