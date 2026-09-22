@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { http, HttpResponse, listen, use, setDefaults, resetHandlers, close } from './ui/http';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ToastProvider, createWrapper } from './ui/hostHooks';
 import { SiteDetail } from '../plugins/sites/web-src/SiteDetail';
+import { DOMAIN_CHECK_POLL_MS } from '../plugins/sites/web-src/runtime';
 import manifest from '../plugins/sites/elowen-plugin.json' with { type: 'json' };
 
 ensurePluginUiRuntime();
@@ -280,4 +281,86 @@ describe('custom domains in Site detail', () => {
     expect(within(dialog).getByText('edge.example.')).toBeVisible();
     release();
   });
+
+  it('reports a refused Check again as a sentence, not as the transport error', async () => {
+    const refused = domain('awaiting_ownership', 'ownership_missing');
+    use(http.post('/api/plugins/sites/api/site/:id/domains/:domain/check', () =>
+      HttpResponse.json({ error: { code: 'claim_expired', params: {} } }, { status: 404 })));
+    mount(site, domainResponse([refused]));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue setup' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Connect ' + refused.hostname });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Check again' }));
+
+    expect(await within(dialog).findByText(strings.claim_expired)).toBeVisible();
+    // The host's message for a failed request is the technical string that used to stand here: it names
+    // the request and its status, never the reason the server gave.
+    expect(within(dialog).queryByText(/on \/plugins\/sites\/api\//)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the host message for a refusal the server did not name', async () => {
+    const waiting = domain('awaiting_ownership', 'ownership_missing');
+    use(http.post('/api/plugins/sites/api/site/:id/domains/:domain/check', () =>
+      HttpResponse.json({ error: 'forbidden' }, { status: 403 })));
+    mount(site, domainResponse([waiting]));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue setup' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Connect ' + waiting.hostname });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Check again' }));
+
+    // A failure with no code on it is still reported, through the host's own message for it.
+    expect(await within(dialog).findByText('forbidden')).toBeVisible();
+  });
+
+  it('reports a refused Make primary as the same sentence, and never reports a failure two ways', async () => {
+    const ready = domain('ready', 'certificate_ready', { isPrimary: false });
+    use(http.post('/api/plugins/sites/api/site/:id/domains/:domain/primary', () =>
+      HttpResponse.json({ error: { code: 'claim_expired', params: {} } }, { status: 404 })));
+
+    mount(site, domainResponse([ready]));
+    fireEvent.click(await screen.findByRole('button', { name: 'Make primary' }));
+
+    expect(await screen.findByText(strings.claim_expired)).toBeVisible();
+    // Add read a refusal in the reader's words and the other three read it as the host's raw message.
+    // Exactly one call may reach for that raw message — the shared one every action goes through — so a
+    // second way of reporting the same failure cannot reappear at a call site.
+    const source = readFileSync('plugins/sites/web-src/SiteDomains.tsx', 'utf8');
+    expect(source.match(/apiErrorMessage/g) ?? []).toHaveLength(1);
+  });
+
+  it('refreshes the register from the server after an automatic check fails', async () => {
+    const pending = domain('awaiting_ownership', 'ownership_missing');
+    let lists = 0;
+    let checks = 0;
+    use(http.post('/api/plugins/sites/api/site/:id/domains/:domain/check', () => {
+      checks += 1;
+      return HttpResponse.json({ error: { code: 'claim_expired', params: {} } }, { status: 404 });
+    }));
+    // The domain the reader has just removed: the register drops it the moment the server stops listing it.
+    mount(site, domainResponse([pending]), () => {
+      lists += 1;
+      return HttpResponse.json(domainResponse(lists === 1 ? [pending] : []));
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue setup' }));
+    await screen.findByRole('dialog', { name: 'Connect ' + pending.hostname });
+    expect(lists).toBe(1);
+
+    // The dialog's own schedule is what fires an automatic check. Only Date is faked, so the countdown
+    // keeps ticking on real timers and the next tick lands past the slot the schedule had set.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + DOMAIN_CHECK_POLL_MS + 5_000);
+      await waitFor(() => expect(checks).toBe(1), { timeout: 3_000 });
+      await waitFor(() => expect(lists).toBe(2), { timeout: 3_000 });
+      await waitFor(() => expect(screen.queryByText(pending.hostname)).not.toBeInTheDocument(), { timeout: 3_000 });
+
+      // Nothing is left to watch, so the schedule has nothing more to ask about.
+      vi.setSystemTime(Date.now() + DOMAIN_CHECK_POLL_MS + 5_000);
+      await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 1_200); }); });
+      expect(checks).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
 });
