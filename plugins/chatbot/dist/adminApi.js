@@ -34,6 +34,8 @@ export function percentileMs(samples, fraction) {
     const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
     return sorted[index];
 }
+// Keep this URL stable: widgetAssetHeaders requires ETag revalidation on every page load.
+// Per-load query strings would discard the cached body and defeat the cheap 304 path.
 const embedSnippetFor = (baseUrl, publicId) => baseUrl === null ? null : `<script src="${baseUrl}/hooks/chatbot/${PUBLIC_MOUNT}/${WIDGET_ASSET_NAME}" data-chatbot="${publicId}" async></script>`;
 export function createAdminApi(deps) {
     const { store, stores, now } = deps;

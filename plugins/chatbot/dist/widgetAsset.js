@@ -1,14 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { PUBLIC_SCHEMA_VERSION } from './publicContract.js';
-/** How long a browser may reuse the script without asking again.
- *
- *  Deliberately short and `must-revalidate` rather than the immutable caching a hashed asset usually gets:
- *  the customer's snippet carries no build hash, and a customer cannot be asked to edit their site because
- *  the panel had a bug. Five minutes bounds how long a fix waits behind a cache while still keeping the
- *  bytes off the wire in the common case, because an unchanged asset answers `304` and the browser keeps
- *  what it holds. */
-export const WIDGET_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
+/** The stable embed URL must revalidate on every load. `no-cache` permits storing the bytes, unlike
+ *  `no-store`: an unchanged strong ETag returns a bodyless 304, while a new build downloads once.
+ *  Customers do not need to regenerate their snippet for compatible fixes. */
+export const WIDGET_CACHE_CONTROL = 'public, no-cache, must-revalidate';
 /** The URL the repository's build writes the bundle to, resolved against the compiled module. From
  *  `dist/widgetAsset.js` and from `src/widgetAsset.ts` alike this lands on the plugin's `embed/`. */
 const WIDGET_ASSET_URL = new URL(`../embed/widget.v${PUBLIC_SCHEMA_VERSION}.js`, import.meta.url);
