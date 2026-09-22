@@ -41,24 +41,6 @@ export class SiteAddressService {
         const hostname = this.effectiveHostname(site);
         return hostname === null ? null : this.urlForHostname(hostname);
     }
-    urlForBinding(site, bindingId) {
-        const binding = this.bindings().find((entry) => entry.id === bindingId && entry.siteId === site.id);
-        return binding ? this.urlForHostname(binding.hostname) : null;
-    }
-    allAddresses(site) {
-        const effective = this.effectiveHostname(site);
-        const records = [
-            ...(this.generatedHostname(site) ? [this.generatedHostname(site)] : []),
-            ...this.activeCustomHostnames(site),
-        ];
-        return records.map((record) => ({
-            id: record.id,
-            hostname: record.hostname,
-            url: this.urlForHostname(record.hostname),
-            generated: record.kind === 'generated',
-            effective: record.hostname === effective,
-        }));
-    }
     bindings(now = Date.now(), excludedSiteIds = new Set()) {
         const bindings = [];
         for (const site of this.deps.store.allSites()) {

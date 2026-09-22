@@ -712,6 +712,10 @@ var errorCode = (error) => {
     params: Object.fromEntries(Object.entries(rawParams).map(([key, item]) => [key, String(item)]))
   };
 };
+var failureMessage = (strings, error) => {
+  const coded = errorCode(error);
+  return coded ? replaceParams(strings, coded.code, coded.params) : runtime().utils.apiErrorMessage(error);
+};
 var badgeFor = (domain, strings) => {
   if (domain.status === "ready") return { label: strings.domainReady, tone: "success" };
   if (domain.status === "renewal_blocked") return { label: strings.renewalBlocked, tone: "warning" };
@@ -931,8 +935,7 @@ function SiteDomains({ siteId }) {
       refresh();
     },
     onError: (error) => {
-      const coded = errorCode(error);
-      const message = coded ? replaceParams(strings, coded.code, coded.params) : utils.apiErrorMessage(error);
+      const message = failureMessage(strings, error);
       setDialogError(message);
       toast(message, "error");
     }
@@ -948,8 +951,9 @@ function SiteDomains({ siteId }) {
       refresh();
     },
     onError: (error, input) => {
-      const message = utils.apiErrorMessage(error);
+      const message = failureMessage(strings, error);
       setDialogError(message);
+      refresh();
       if (input.manual) toast(message, "error");
     }
   });
@@ -962,7 +966,7 @@ function SiteDomains({ siteId }) {
       toast(strings.saved);
       refresh();
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error) => toast(failureMessage(strings, error), "error")
   });
   const remove = hooks.useMutation({
     mutationFn: (domain) => runtime().api(
@@ -978,7 +982,7 @@ function SiteDomains({ siteId }) {
       }
       refresh();
     },
-    onError: (error) => toast(utils.apiErrorMessage(error), "error")
+    onError: (error) => toast(failureMessage(strings, error), "error")
   });
   const open = (url) => window.open(url, "_blank", "noopener,noreferrer");
   const data = query.data;

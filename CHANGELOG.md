@@ -1,5 +1,12 @@
 # Changelog
 
+## sites 0.14.9 - 2026-09-22
+
+- Checking a custom domain on demand no longer races the automatic check. One record is checked once, whoever asked: a second request joins the running check instead of starting its own, so the certificate authority is never asked twice for the same hostname, and a check that arrives after the domain was already verified reports success instead of a server error.
+- A domain waiting to be removed no longer occupies one of the ten slots a website has, so replacing a domain works even while the gateway is briefly unavailable.
+- Every refusal in the domain panel is now stated in the reader's own language, as adding a domain already did, and a failed automatic check refreshes the register instead of asking about a domain that is gone.
+- The retired `rate_limited` certificate state, an unread ownership observation stored with every domain, and four helpers with no caller were removed; stored rows are migrated.
+
 ## sites 0.14.8 - 2026-09-22
 
 - Opening a website now leads with the picture of the page itself, at the very top of the detail and without a heading above it. The page is what a reader recognises a site by, so it comes before the words about it.

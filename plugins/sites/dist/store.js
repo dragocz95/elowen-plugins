@@ -60,10 +60,9 @@ const HOSTNAME_KINDS = new Set(['generated', 'custom']);
 const HOSTNAME_OWNERSHIP_STATES = new Set(['unchecked', 'missing', 'mismatch', 'ready', 'unavailable']);
 const HOSTNAME_DNS_STATES = new Set(['unchecked', 'missing', 'misdirected', 'ready', 'unavailable']);
 const HOSTNAME_CERTIFICATE_STATES = new Set([
-    'none', 'requested', 'issuing', 'ready', 'authority_refused', 'rate_limited',
-    'renewal_blocked', 'expired',
+    'none', 'requested', 'issuing', 'ready', 'authority_refused', 'renewal_blocked', 'expired',
 ]);
-const CUSTOM_HOSTNAME_LIMIT = 10;
+export const CUSTOM_HOSTNAME_LIMIT = 10;
 const OWNERSHIP_RESERVATION_MS = 24 * 60 * 60 * 1000;
 const enumValue = (value, allowed, field) => {
     if (!allowed.has(value))
@@ -91,7 +90,6 @@ const toHostname = (row) => ({
     hostname: row.hostname,
     ownershipToken: row.ownership_token,
     ownershipState: enumValue(row.ownership_state, HOSTNAME_OWNERSHIP_STATES, 'ownership state'),
-    ownershipObserved: observedDnsValues(row.ownership_observed_json),
     ownershipCheckedAt: row.ownership_checked_at,
     ownershipErrorDetail: row.ownership_error_detail,
     ownershipVerifiedAt: row.ownership_verified_at,
@@ -545,6 +543,83 @@ export class SitesStore {
           WHERE ownership_verified_at IS NOT NULL;
         `),
             },
+            {
+                version: 23,
+                // Rebuild the hostname table once so persisted rows lose the unused ownership observation and the
+                // retired certificate state cannot survive in either data or the table constraint.
+                up: handle => handle.exec(`
+          CREATE TABLE p_sites_hostnames_next (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('generated', 'custom')),
+            hostname TEXT NOT NULL,
+            ownership_token TEXT,
+            ownership_verified_at TEXT,
+            ownership_expires_at TEXT,
+            ownership_state TEXT NOT NULL DEFAULT 'unchecked',
+            ownership_checked_at TEXT,
+            ownership_error_detail TEXT,
+            dns_state TEXT NOT NULL CHECK (dns_state IN ('unchecked', 'missing', 'misdirected', 'ready', 'unavailable')),
+            dns_observed_json TEXT NOT NULL DEFAULT '[]',
+            dns_checked_at TEXT,
+            dns_next_check_at TEXT,
+            dns_error_detail TEXT,
+            dns_attempts INTEGER NOT NULL DEFAULT 0,
+            certificate_state TEXT NOT NULL CHECK (certificate_state IN (
+              'none', 'requested', 'issuing', 'ready', 'authority_refused',
+              'renewal_blocked', 'expired'
+            )),
+            certificate_requested_at TEXT,
+            certificate_error_code TEXT,
+            certificate_error_detail TEXT,
+            certificate_retry_at TEXT,
+            certificate_not_after TEXT,
+            certificate_failures INTEGER NOT NULL DEFAULT 0,
+            removal_requested_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (
+              (kind = 'generated' AND ownership_token IS NULL AND ownership_verified_at IS NULL AND ownership_expires_at IS NULL)
+              OR
+              (kind = 'custom' AND ownership_token IS NOT NULL AND (
+                (ownership_verified_at IS NULL AND ownership_expires_at IS NOT NULL)
+                OR ownership_verified_at IS NOT NULL
+              ))
+            )
+          );
+          INSERT INTO p_sites_hostnames_next (
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            ownership_state, ownership_checked_at, ownership_error_detail,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at, dns_error_detail, dns_attempts,
+            certificate_state, certificate_requested_at, certificate_error_code, certificate_error_detail,
+            certificate_retry_at, certificate_not_after, certificate_failures, removal_requested_at,
+            created_at, updated_at
+          )
+          SELECT
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            ownership_state, ownership_checked_at, ownership_error_detail,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at, dns_error_detail, dns_attempts,
+            CASE certificate_state WHEN 'rate_limited' THEN 'authority_refused' ELSE certificate_state END,
+            certificate_requested_at,
+            CASE certificate_error_code WHEN 'rate_limited' THEN 'authority_refused' ELSE certificate_error_code END,
+            certificate_error_detail, certificate_retry_at, certificate_not_after, certificate_failures,
+            removal_requested_at, created_at, updated_at
+          FROM p_sites_hostnames;
+          DROP TABLE p_sites_hostnames;
+          ALTER TABLE p_sites_hostnames_next RENAME TO p_sites_hostnames;
+          CREATE UNIQUE INDEX idx_p_sites_hostnames_hostname
+            ON p_sites_hostnames (hostname COLLATE NOCASE);
+          CREATE UNIQUE INDEX idx_p_sites_hostnames_generated
+            ON p_sites_hostnames (site_id) WHERE kind = 'generated';
+          CREATE INDEX idx_p_sites_hostnames_site ON p_sites_hostnames (site_id);
+          CREATE INDEX idx_p_sites_hostnames_ownership_expiry ON p_sites_hostnames (ownership_expires_at);
+          CREATE INDEX idx_p_sites_hostnames_dns_next_check ON p_sites_hostnames (dns_next_check_at);
+          CREATE INDEX idx_p_sites_hostnames_certificate_retry ON p_sites_hostnames (certificate_retry_at);
+          CREATE INDEX idx_p_sites_hostnames_removal ON p_sites_hostnames (removal_requested_at);
+        `),
+            },
         ]);
         if (hostnameBase !== null && this.db.appliedVersion() >= 20) {
             this.reconcileGeneratedHostnames(hostnameBase);
@@ -735,8 +810,11 @@ export class SitesStore {
                 if (!site || site.status === 'deleting') {
                     throw new HostnameClaimError('site_unavailable', 'The Site is unavailable for a hostname claim.');
                 }
-                const count = this.db.prepare("SELECT COUNT(*) AS count FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom'")
-                    .get(siteId);
+                const count = this.db.prepare(`
+          SELECT COUNT(*) AS count
+          FROM p_sites_hostnames
+          WHERE site_id = ? AND kind = 'custom' AND removal_requested_at IS NULL
+        `).get(siteId);
                 if (count.count >= CUSTOM_HOSTNAME_LIMIT) {
                     throw new HostnameClaimError('hostname_limit', `A Site may have at most ${CUSTOM_HOSTNAME_LIMIT} custom hostnames.`);
                 }
@@ -771,18 +849,15 @@ export class SitesStore {
             throw error;
         }
     }
-    recordHostnameOwnership(id, state, observed, detail = null) {
+    recordHostnameOwnership(id, state, detail = null) {
         if (!HOSTNAME_OWNERSHIP_STATES.has(state))
             throw new Error(`Invalid ownership state: ${state}`);
-        const json = JSON.stringify(observed);
-        observedDnsValues(json);
         const now = new Date(this.now()).toISOString();
         const result = this.db.prepare(`
       UPDATE p_sites_hostnames
-      SET ownership_state = ?, ownership_observed_json = ?, ownership_checked_at = ?,
-          ownership_error_detail = ?, updated_at = ?
+      SET ownership_state = ?, ownership_checked_at = ?, ownership_error_detail = ?, updated_at = ?
       WHERE id = ? AND kind = 'custom' AND removal_requested_at IS NULL
-    `).run(state, json, now, detail?.slice(0, 600) ?? null, now, id);
+    `).run(state, now, detail?.slice(0, 600) ?? null, now, id);
         if (result.changes !== 1)
             throw new Error('The hostname is absent or being removed.');
     }
@@ -795,8 +870,17 @@ export class SitesStore {
       WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NULL
         AND ownership_expires_at > ? AND removal_requested_at IS NULL
     `).run(now, now, id, now);
-        if (result.changes !== 1)
-            throw new Error('The hostname reservation is absent, expired or already verified.');
+        if (result.changes === 1)
+            return;
+        const verified = this.db.prepare(`
+      SELECT 1
+      FROM p_sites_hostnames
+      WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NOT NULL
+        AND removal_requested_at IS NULL
+    `).get(id);
+        if (verified)
+            return;
+        throw new Error('The hostname reservation is absent, expired or being removed.');
     }
     recordHostnameDns(id, state, observed, nextCheckAt = null, detail = null) {
         if (!HOSTNAME_DNS_STATES.has(state))
@@ -826,7 +910,7 @@ export class SitesStore {
                 throw new Error('A custom hostname must have verified ownership and ready DNS before its certificate is ready.');
             }
             const now = new Date(this.now()).toISOString();
-            const failure = update.state === 'authority_refused' || update.state === 'rate_limited';
+            const failure = update.state === 'authority_refused';
             this.db.prepare(`
         UPDATE p_sites_hostnames
         SET certificate_state = ?,

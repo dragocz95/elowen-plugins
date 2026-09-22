@@ -122,28 +122,6 @@ export const probeGatewayCertificate = (hostname, endpoint = GATEWAY_ENDPOINT) =
         settle({ reachable: false, covered: false, detail: `the local sites gateway did not answer a TLS handshake: ${messageOf(error)}` });
     });
 });
-/** Which live sites the gateway sweep must ask for on this pass.
- *
- *  One place, because the sweep and the cheap "is anything pending" guard in front of it have to agree: a
- *  guard that answered no to a site the sweep would have issued is how an explicit request goes unanswered
- *  until the twelve-hour renewal.
- *
- *  An explicit request outranks the `issued` skip, which would otherwise ignore a republication whose
- *  certificate needs reinstating in the gateway config. It deliberately does NOT outrank the backoff: that
- *  exists because the authority counts FAILED validations per hostname per hour against a budget every site
- *  on the instance shares, and the caller most likely to ask again in a loop is exactly the agent whose
- *  publish just reported a failure. A backed-off site reports its recorded reason instead. */
-export function sitesDueForCertificate(sites, options) {
-    return sites.filter((site) => {
-        if (site.status !== 'live')
-            return false;
-        if (!options.mayAttempt(site.slug))
-            return false;
-        if (site.certificateRequestedAt != null)
-            return true;
-        return options.all || !options.issued.has(site.slug);
-    });
-}
 /** Read the certificate facts one site row carries, for a listing that must not open a socket per site.
  *
  *  A list of sites paid a TLS handshake each to say anything about certificates, so it said nothing at all —

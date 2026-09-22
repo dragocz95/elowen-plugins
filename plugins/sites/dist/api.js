@@ -308,10 +308,6 @@ export function createApiHandlers(deps) {
         if (req.auth.userId === null)
             return json(403, { error: 'no access' });
         const address = deps.addresses.urlForHostname(binding.hostname);
-        // No address means no gateway, and a ticket is only useful as a form post TO that address. Minting
-        // one anyway would burn a single-use token against a form the page could not submit.
-        if (address === null)
-            return json(503, { error: 'published sites are not available on this instance' });
         const minted = mintTicket();
         deps.store.putTicket(minted.tokenHash, {
             siteId: target.id,

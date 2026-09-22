@@ -9,6 +9,7 @@ export class SiteHostnameCoordinator {
     deps;
     ownershipResolver;
     probe;
+    customChecks = new Map();
     constructor(deps) {
         this.deps = deps;
         const resolver = new Resolver({ timeout: 5_000, tries: 2 });
@@ -80,7 +81,22 @@ export class SiteHostnameCoordinator {
             });
         }
     }
-    async checkCustom(record, renew = false) {
+    checkCustom(record, renew = false) {
+        const running = this.customChecks.get(record.id);
+        if (running)
+            return running;
+        const check = this.runCustomCheck(record, renew);
+        this.customChecks.set(record.id, check);
+        check.then(() => {
+            if (this.customChecks.get(record.id) === check)
+                this.customChecks.delete(record.id);
+        }, () => {
+            if (this.customChecks.get(record.id) === check)
+                this.customChecks.delete(record.id);
+        });
+        return check;
+    }
+    async runCustomCheck(record, renew) {
         if (record.kind !== 'custom' || record.removalRequestedAt !== null || !record.ownershipToken)
             return;
         const [ownership, traffic] = await Promise.all([
@@ -91,7 +107,7 @@ export class SiteHostnameCoordinator {
         ]);
         const nextDnsCheck = dateAfter(this.now(), delayAt(DNS_DELAYS_MS, record.dnsAttempts));
         if (record.ownershipVerifiedAt === null) {
-            this.deps.store.recordHostnameOwnership(record.id, ownership.state, ownership.observedValues, 'detail' in ownership ? ownership.detail ?? null : null);
+            this.deps.store.recordHostnameOwnership(record.id, ownership.state, 'detail' in ownership ? ownership.detail ?? null : null);
         }
         this.deps.store.recordHostnameDns(record.id, traffic.state, traffic.observedTargets, nextDnsCheck, traffic.detail ?? null);
         if (ownership.state === 'ready' && record.ownershipVerifiedAt === null) {

@@ -1,6 +1,6 @@
 import { ownershipTxtRecord } from './dns.js';
 import { parseSiteHostname, SiteHostnameError } from './hostname.js';
-import { HostnameClaimError, } from './store.js';
+import { CUSTOM_HOSTNAME_LIMIT, HostnameClaimError, } from './store.js';
 export class SiteDomainError extends Error {
     status;
     code;
@@ -25,8 +25,6 @@ const codeParams = (code, record) => {
         case 'authority_refused':
         case 'gateway_configuration_failed':
             return { detail: bounded(code === 'ownership_unavailable' ? record.ownershipErrorDetail : code === 'dns_unavailable' ? record.dnsErrorDetail : record.certificateErrorDetail) };
-        case 'rate_limited':
-            return { time: record.certificateRetryAt ?? '' };
         case 'certificate_ready':
             return { date: record.certificateNotAfter ?? '' };
         case 'renewal_dns_missing':
@@ -64,7 +62,6 @@ const routingCode = (state) => {
 const certificateCode = (record) => {
     if (record.certificateErrorCode && [
         'authority_refused',
-        'rate_limited',
         'gateway_configuration_failed',
         'gateway_not_serving',
         'renewal_dns_missing',
@@ -78,7 +75,6 @@ const certificateCode = (record) => {
         case 'issuing': return 'certificate_issuing';
         case 'ready': return 'certificate_ready';
         case 'authority_refused': return 'authority_refused';
-        case 'rate_limited': return 'rate_limited';
         case 'renewal_blocked': return record.dnsState === 'misdirected' ? 'renewal_dns_misdirected' : 'renewal_dns_missing';
         case 'expired': return 'certificate_expired';
         default: return 'certificate_waiting';
@@ -93,8 +89,6 @@ const domainStatus = (record, ownership, routing, certificate) => {
         return { status: 'renewal_blocked', code: certificate };
     if (record.certificateState === 'ready')
         return { status: 'ready', code: certificate };
-    if (certificate === 'rate_limited')
-        return { status: 'rate_limited', code: certificate };
     if (certificate === 'authority_refused' || certificate === 'gateway_configuration_failed') {
         return { status: 'authority_refused', code: certificate };
     }
@@ -218,7 +212,7 @@ export class SiteDomainService {
                 const code = error.code === 'domain_claimed'
                     ? 'domain_claimed'
                     : error.code === 'hostname_limit' ? 'domain_limit' : 'claim_expired';
-                throw new SiteDomainError(error.code === 'domain_claimed' ? 409 : 400, code, code === 'domain_limit' ? { count: 10 } : {});
+                throw new SiteDomainError(error.code === 'domain_claimed' ? 409 : 400, code, code === 'domain_limit' ? { count: CUSTOM_HOSTNAME_LIMIT } : {});
             }
             throw error;
         }

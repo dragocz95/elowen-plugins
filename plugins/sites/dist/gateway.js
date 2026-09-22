@@ -69,9 +69,6 @@ export class SiteGatewayManager {
     bindingStatuses() {
         return this.status?.bindings ?? [];
     }
-    issuedHostnames() {
-        return this.bindingStatuses().filter((binding) => binding.present).map((binding) => binding.hostname);
-    }
     hasCertificate(hostname) {
         return this.bindingStatuses().some((binding) => binding.hostname === hostname && binding.present);
     }

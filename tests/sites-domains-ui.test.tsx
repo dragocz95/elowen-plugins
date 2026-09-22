@@ -171,7 +171,9 @@ describe('custom domains in Site detail', () => {
     mount();
     expect(await screen.findByText(generated.displayHostname)).toBeVisible();
     expect(screen.getByText('Addresses')).toBeVisible();
-    expect(screen.getByText('This address stays available as a fallback and does not redirect.')).toBeVisible();
+    // What the fallback means sits behind the shared help mark beside the heading rather than as a line
+    // of text under it, so the register reads as one list of addresses.
+    expect(screen.getByTitle('This address stays available as a fallback and does not redirect.')).toBeVisible();
     expect(screen.getByText('No custom domain has been added.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Add domain' })).toBeVisible();
   });
@@ -272,9 +274,14 @@ describe('custom domains in Site detail', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Connect ' + pendingDomain.hostname });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Check again' }));
-    expect(await within(dialog).findByRole('button', { name: 'Checking…' })).toBeDisabled();
+    // A running check says so in the status line, while the control keeps its own label and stays
+    // pressable: the automatic check runs every few seconds, and a button blinking with it looks broken.
+    expect(await within(dialog).findByText(/Checking…/)).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Check again' })).toBeEnabled();
+    // The card the reader is acting on stays on screen with its record intact. A domain still proving
+    // ownership shows that step only; the routing records arrive with the step that needs them.
     expect(within(dialog).getByText('Ownership')).toBeVisible();
-    expect(within(dialog).getByText('edge.example.')).toBeVisible();
+    expect(within(dialog).getByText('elowen-site-verification=awaiting_ownership')).toBeVisible();
     release();
   });
 
