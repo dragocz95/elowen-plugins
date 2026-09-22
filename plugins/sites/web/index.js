@@ -1247,13 +1247,13 @@ function EnterPage() {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(window.location.search);
-    const slug = params.get("site") ?? "";
+    const binding = params.get("binding") ?? "";
     const returnPath = params.get("r") ?? "";
-    if (!slug) {
+    if (!binding) {
       setPhase("denied");
       return;
     }
-    void runtime().api("/plugins/sites/api/ticket", jsonBody("POST", { slug, r: returnPath })).then((data) => {
+    void runtime().api("/plugins/sites/api/ticket", jsonBody("POST", { binding, r: returnPath })).then((data) => {
       const ticket = data;
       if (!ticket?.token || !ticket?.action) {
         setPhase("denied");

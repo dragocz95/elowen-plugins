@@ -5,7 +5,7 @@ import type { Site, SiteHostnameRecord, SitesStore } from './store.js';
  *
  *  `ready` is the only state that licenses calling the address usable HTTPS, and it is only ever reached
  *  by observing the certificate the gateway actually serves. */
-export type SiteCertificateState = 'ready' | 'pending' | 'error';
+type SiteCertificateState = 'ready' | 'pending' | 'error';
 
 export interface SiteCertificateReadiness {
   state: SiteCertificateState;
@@ -22,7 +22,7 @@ export interface GatewayCertificateObservation {
 }
 
 /** One address the gateway's TLS listener can be reached at. */
-export interface GatewayEndpoint {
+interface GatewayEndpoint {
   host: string;
   port: number;
 }
@@ -199,7 +199,7 @@ export function sitesDueForCertificate<T extends {
  *  the last attempt failed, and neither fact establishes that the gateway is serving the certificate now.
  *  Only an observed handshake licenses that word, which is what {@link SiteCertificateService.readiness}
  *  does for the one site a reader asked about. */
-export type RecordedCertificateState = 'error' | 'requested' | 'unrecorded';
+type RecordedCertificateState = 'error' | 'requested' | 'unrecorded';
 
 export interface RecordedCertificate {
   state: RecordedCertificateState;

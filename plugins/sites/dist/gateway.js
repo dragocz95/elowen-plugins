@@ -1,375 +1,209 @@
 import { randomBytes } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
-import { canonicalDnsAddress, derivedHostnameBase, resolveGatewayDnsTarget } from './config.js';
-const GATEWAY_TOKEN_KEY = 'gatewayToken';
-const DNS_TIMEOUT_MS = 5_000;
-const MIN_BACKOFF_MS = 60_000;
-const MAX_BACKOFF_MS = 3600_000;
-const normalizedHost = (value) => value.trim().replace(/\.+$/, '').toLowerCase();
-const fqdn = (value) => `${normalizedHost(value)}.`;
-const negativeDnsError = (error) => {
-    const code = typeof error === 'object' && error !== null && 'code' in error
-        ? String(error.code)
-        : '';
-    return code === 'ENODATA' || code === 'ENOTFOUND' || code === 'EAI_NONAME';
-};
-/** Owns the one conversation with the root broker: the shared marker token, per-site certificates, and
- *  the check that the wildcard DNS record this whole feature stands on actually exists.
- *
- *  There are no credentials here and no provisioning form. A certificate is obtained over HTTP-01, which
- *  needs nothing but the wildcard record already resolving to this machine, so the only thing that can
- *  be missing is that record — and the only useful thing to do about it is say so precisely. */
+import { derivedHostnameBase } from './config.js';
+import { GatewayDnsTargetService, } from './dns.js';
+const TOKEN_KEY = 'gatewayToken';
+const PROBE_LABEL_BYTES = 8;
+const READINESS_DNS_SAMPLES = 2;
+const unavailableStatus = (detail, hostnameBase) => ({
+    available: false,
+    active: false,
+    hostnameBase,
+    detail,
+});
 export class SiteGatewayManager {
     ctx;
-    current = {
-        available: false,
-        active: false,
-        hostnameBase: null,
-        detail: 'the published-sites gateway has not been checked yet',
-    };
-    cachedToken = null;
-    reconciling = null;
-    nextAttempt = new Map();
-    backoffMs = new Map();
-    resolver;
+    status = null;
+    inFlight = null;
+    destination;
     randomLabel;
-    dnsCheck = { state: 'unavailable', observedTargets: [], detail: 'DNS has not been checked yet.' };
     constructor(ctx, deps = {}) {
         this.ctx = ctx;
-        const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: 2 });
-        this.resolver = deps.resolver ?? {
+        const resolver = deps.resolver ?? new Resolver({ timeout: 5_000, tries: 2 });
+        const trafficResolver = {
             resolveCname: (hostname) => resolver.resolveCname(hostname),
             resolve4: (hostname) => resolver.resolve4(hostname),
             resolve6: (hostname) => resolver.resolve6(hostname),
         };
-        this.randomLabel = deps.randomLabel ?? (() => `elowen-${randomBytes(6).toString('hex')}`);
+        this.destination = new GatewayDnsTargetService({
+            configured: () => this.ctx.config.gatewayDnsTarget,
+            fallbackHostname: () => this.appHostname(),
+            resolver: trafficResolver,
+        });
+        this.randomLabel = deps.randomLabel ?? (() => `elowen-probe-${randomBytes(PROBE_LABEL_BYTES).toString('hex')}`);
     }
-    /** Whether sites can be served at all right now, as of the last reconcile. */
-    isActive() {
-        return this.current.active;
+    control() {
+        return this.ctx.control('publishedSitesGateway');
     }
-    status() {
-        return this.current;
+    appHostname() {
+        const web = this.ctx.publicWebUrl();
+        if (!web)
+            return null;
+        try {
+            return new URL(web).hostname.toLowerCase();
+        }
+        catch {
+            return null;
+        }
     }
-    /** The base every site hostname is built on. The broker answers it wherever it exists, because it derives
-     *  it from trusted install metadata — NOT from the last reconcile. A tool call runs in a forked runner
-     *  that never reconciles, and a site's address must be the same fact there as in the daemon. Whether the
-     *  address currently WORKS is a separate question, answered by `isActive`.
-     *
-     *  A forked runner holds no broker at all, and answering null there made every site in it addressless: the
-     *  same instance reported an address from the daemon and "no HTTPS domain" from a tool. The fallback
-     *  recomputes the broker's own rule from the app URL the plugin context carries in BOTH processes, so the
-     *  answer is one fact rather than a property of which process asked. It grants nothing: naming a hostname
-     *  is not issuing a certificate, and every privileged operation below still goes through the control. */
     hostnameBase() {
-        return this.brokerHostnameBase() ?? derivedHostnameBase(this.ctx.publicWebUrl());
+        return this.control()?.hostnameBase() ?? derivedHostnameBase(this.ctx.publicWebUrl());
     }
-    /** Whether THIS process can ask for a certificate at all.
-     *
-     *  The privileged broker is withheld from a forked tool runner on purpose, so a publish arriving there has
-     *  to route its request through the daemon rather than pretend it issued anything. Asked of the registry
-     *  rather than inferred from the process, so the answer is the real capability. */
-    hasBroker() {
-        return this.ctx.control('publishedSitesGateway') !== undefined;
+    reservedHostnames() {
+        return this.control()?.reservedHostnames() ?? [];
     }
     gatewayToken() {
-        if (this.cachedToken)
-            return this.cachedToken;
-        const bag = this.ctx.instanceSecrets();
-        const existing = bag.get(GATEWAY_TOKEN_KEY)?.value;
-        if (existing) {
-            this.cachedToken = existing;
-            return existing;
-        }
-        const minted = randomBytes(32).toString('base64url');
-        try {
-            bag.set(GATEWAY_TOKEN_KEY, minted);
-            this.cachedToken = minted;
-        }
-        catch {
-            this.cachedToken = bag.get(GATEWAY_TOKEN_KEY)?.value ?? minted;
-        }
-        return this.cachedToken;
+        const existing = this.ctx.instanceSecrets().get(TOKEN_KEY);
+        if (existing)
+            return existing.value;
+        const token = randomBytes(32).toString('base64url');
+        this.ctx.instanceSecrets().set(TOKEN_KEY, token);
+        return token;
     }
-    /** The record an operator must create for this instance. Its value and readiness expectation are the
-     *  same parsed target, so the UI can never instruct one destination while validation checks another. The
-     *  name is the SAME base sites are addressed at, for the same reason: a record naming a base no site is
-     *  served from is a wildcard an operator creates and nothing ever uses. */
+    hasBroker() {
+        return this.control() !== undefined;
+    }
+    isActive() {
+        return this.status?.active === true;
+    }
+    bindingStatuses() {
+        return this.status?.bindings ?? [];
+    }
+    issuedHostnames() {
+        return this.bindingStatuses().filter((binding) => binding.present).map((binding) => binding.hostname);
+    }
+    hasCertificate(hostname) {
+        return this.bindingStatuses().some((binding) => binding.hostname === hostname && binding.present);
+    }
     requiredRecord() {
         const base = this.hostnameBase();
-        const { target } = this.dnsTarget();
-        if (!base || !target)
-            return null;
-        return {
-            name: `*.${base}`,
-            type: target.kind === 'hostname' ? 'CNAME' : target.kind === 'ipv4' ? 'A' : 'AAAA',
-            value: target.kind === 'hostname' ? `${target.value}.` : target.value,
-        };
+        const target = this.destination.current().target;
+        return base && target ? target.requiredRecord(`*.${base}`) : null;
     }
-    brokerHostnameBase() {
-        return this.ctx.control('publishedSitesGateway')?.hostnameBase() ?? null;
-    }
-    appHost() {
-        const url = this.ctx.publicWebUrl();
-        if (!url)
-            return null;
-        try {
-            return new URL(url).hostname;
-        }
-        catch {
-            return null;
-        }
-    }
-    dnsTarget() {
-        const configured = this.ctx.config.gatewayDnsTarget;
-        return resolveGatewayDnsTarget(configured, this.appHost());
-    }
-    reconcile() {
-        if (this.reconciling)
-            return this.reconciling;
-        const run = this.reconcileNow().finally(() => { this.reconciling = null; });
-        this.reconciling = run;
-        return run;
-    }
-    async answer(query) {
-        try {
-            return { values: await query(), missing: false, error: null };
-        }
-        catch (error) {
-            if (negativeDnsError(error))
-                return { values: [], missing: true, error: null };
-            return { values: [], missing: false, error: error instanceof Error ? error.message : String(error) };
-        }
-    }
-    async cnameTargets(probe, expectedHost) {
-        const pending = [probe];
-        const visited = new Set();
-        const observed = new Set();
-        const errors = [];
-        for (let depth = 0; pending.length > 0 && depth < 8; depth += 1) {
-            const current = normalizedHost(pending.shift() ?? '');
-            if (!current || visited.has(current))
-                continue;
-            visited.add(current);
-            const answer = await this.answer(() => this.resolver.resolveCname(fqdn(current)));
-            if (answer.error)
-                errors.push(answer.error);
-            for (const raw of answer.values) {
-                const target = normalizedHost(raw);
-                if (!target)
-                    continue;
-                observed.add(target);
-                if (target === expectedHost)
-                    return { reachesTarget: true, observed: [...observed], errors };
-                if (!visited.has(target))
-                    pending.push(target);
-            }
-        }
-        return { reachesTarget: false, observed: [...observed], errors };
-    }
-    async sampledAddresses(hostname) {
-        const ipv4 = new Set();
-        const ipv6 = new Set();
-        const errors = [];
-        let answered = false;
-        for (let sample = 0; sample < 2; sample += 1) {
-            const [v4, v6] = await Promise.all([
-                this.answer(() => this.resolver.resolve4(fqdn(hostname))),
-                this.answer(() => this.resolver.resolve6(fqdn(hostname))),
-            ]);
-            // Canonical on the way in, so a compressed answer and an expanded configured address compare equal.
-            for (const value of v4.values) {
-                const address = canonicalDnsAddress(value);
-                if (address)
-                    ipv4.add(address.value);
-            }
-            for (const value of v6.values) {
-                const address = canonicalDnsAddress(value);
-                if (address)
-                    ipv6.add(address.value);
-            }
-            answered = answered || v4.values.length > 0 || v6.values.length > 0;
-            if (v4.error)
-                errors.push(v4.error);
-            if (v6.error)
-                errors.push(v6.error);
-        }
-        return { ipv4, ipv6, answered, errors };
-    }
-    /** Prove that a random wildcard label reaches this instance, either through a CNAME chain or through
-     *  flattened A/AAAA answers. Every query is absolute so a host search domain cannot change the result. */
-    async checkWildcard(base, target) {
-        const probe = normalizedHost(`${this.randomLabel()}.${base}`);
-        const cname = await this.cnameTargets(probe, target.value);
-        if (cname.reachesTarget)
-            return { state: 'ready', observedTargets: cname.observed };
-        const [probeAddresses, targetAddresses] = await Promise.all([
-            this.sampledAddresses(probe),
-            target.kind === 'hostname'
-                ? this.sampledAddresses(target.value)
-                : Promise.resolve({
-                    ipv4: new Set(target.kind === 'ipv4' ? [target.value] : []),
-                    ipv6: new Set(target.kind === 'ipv6' ? [target.value] : []),
-                    answered: true,
-                    errors: [],
-                }),
-        ]);
-        const ipv4Matches = [...probeAddresses.ipv4].some((address) => targetAddresses.ipv4.has(address));
-        const ipv6Matches = [...probeAddresses.ipv6].some((address) => targetAddresses.ipv6.has(address));
-        const observedTargets = [...new Set([
-                ...cname.observed,
-                ...probeAddresses.ipv4,
-                ...probeAddresses.ipv6,
-            ])].slice(0, 8);
-        if (ipv4Matches || ipv6Matches)
-            return { state: 'ready', observedTargets };
-        if (!probeAddresses.answered && cname.observed.length === 0) {
-            const errors = [...cname.errors, ...probeAddresses.errors];
-            return errors.length > 0
-                ? { state: 'unavailable', observedTargets, detail: errors[0] }
-                : { state: 'missing', observedTargets };
-        }
-        const errors = [...cname.errors, ...probeAddresses.errors, ...targetAddresses.errors];
-        if (errors.length > 0)
-            return { state: 'unavailable', observedTargets, detail: errors[0] };
-        return { state: 'misdirected', observedTargets };
-    }
-    async reconcileNow() {
-        const gateway = this.ctx.control('publishedSitesGateway');
-        if (!gateway) {
-            this.current = { available: false, active: false, hostnameBase: null, detail: 'this daemon has no published-sites gateway broker' };
-            return this.current;
-        }
-        const base = gateway.hostnameBase();
+    async checkGatewayDns() {
+        const base = this.hostnameBase();
+        const resolved = this.destination.current();
         if (!base) {
-            this.dnsCheck = { state: 'unavailable', observedTargets: [], detail: 'The gateway hostname is unavailable.' };
-            this.current = await gateway.status();
-            return this.current;
+            return { ok: false, status: 'unavailable', detail: 'This Elowen installation has no HTTPS domain available for published sites.' };
         }
-        const destination = this.dnsTarget();
-        if (!destination.target) {
-            this.dnsCheck = {
-                state: 'unavailable',
-                observedTargets: [],
-                detail: destination.error ?? 'The Sites DNS destination is unavailable.',
+        if (!resolved.target) {
+            return { ok: false, status: 'unavailable', detail: resolved.error ?? 'The Sites DNS destination is not configured.' };
+        }
+        const probe = `${this.randomLabel()}.${base}`;
+        const observed = await resolved.target.verifyHostname(probe, READINESS_DNS_SAMPLES);
+        const required = resolved.target.requiredRecord(`*.${base}`);
+        const fix = [
+            { label: 'Type', value: required.type },
+            { label: 'Name', value: required.name },
+            { label: 'Value', value: required.value },
+        ];
+        if (observed.state === 'ready') {
+            return { ok: true, status: 'ready', detail: 'The published-sites gateway is active.' };
+        }
+        if (observed.state === 'missing') {
+            return {
+                ok: false,
+                status: 'missing',
+                detail: `The wildcard *.${base} does not resolve yet.`,
+                hint: 'Create this DNS record at the registrar that controls the domain.',
+                fix,
+                observedTargets: observed.observedTargets,
             };
-            this.current = { available: false, active: false, hostnameBase: base, detail: this.dnsCheck.detail };
-            return this.current;
         }
-        this.dnsCheck = await this.checkWildcard(base, destination.target);
-        if (this.dnsCheck.state !== 'ready') {
-            // Fail loudly and stay failed. Serving the pages from the app's own origin instead would put
-            // agent-authored script next to the app's session cookie, so there is nothing to fall back to.
-            const observed = this.dnsCheck.observedTargets.length > 0
-                ? ` Observed: ${this.dnsCheck.observedTargets.join(', ')}.`
-                : '';
-            const detail = this.dnsCheck.state === 'missing'
-                ? `*.${base} does not resolve, so no site can be addressed or given a certificate.`
-                : this.dnsCheck.state === 'misdirected'
-                    ? `*.${base} resolves, but not to ${destination.target.value}.${observed}`
-                    : `DNS verification for *.${base} could not complete: ${this.dnsCheck.detail ?? 'resolver unavailable'}.`;
-            this.current = { available: false, active: false, hostnameBase: base, detail };
-            return this.current;
+        if (observed.state === 'misdirected') {
+            return {
+                ok: false,
+                status: 'misdirected',
+                detail: `The wildcard *.${base} resolves, but not to ${required.value}.`,
+                hint: 'Replace the wildcard record at the registrar with the required destination.',
+                fix,
+                observedTargets: observed.observedTargets,
+            };
         }
-        // Make the gateway live before anything asks for a certificate: HTTP-01 is answered by a port-80
-        // block that has to be serving already.
-        this.current = await gateway.syncSites({ gatewayToken: this.gatewayToken() });
-        return this.current;
+        return {
+            ok: false,
+            status: 'unavailable',
+            detail: `DNS lookup could not complete: ${observed.detail ?? 'unknown resolver failure'}`,
+            fix,
+            observedTargets: observed.observedTargets,
+        };
     }
-    /** Which sites already hold a certificate, as of the last gateway sync. */
-    issuedSlugs() {
-        return this.current.active ? this.current.slugs ?? [] : [];
+    async verifyHostnameDns(hostname) {
+        const resolved = this.destination.current();
+        if (!resolved.target) {
+            return { state: 'unavailable', observedTargets: [], detail: resolved.error ?? 'The Sites DNS destination is unavailable.' };
+        }
+        return resolved.target.verifyHostname(hostname, READINESS_DNS_SAMPLES);
     }
-    /** Whether a certificate for this site may be attempted right now.
-     *
-     *  A certificate authority counts failed validations per hostname per hour and stops answering when
-     *  that budget runs out. Retrying a site whose DNS is simply wrong would spend the budget the working
-     *  sites need, so each failure backs its own slug off, doubling up to an hour. */
-    mayAttempt(slug) {
-        return (this.nextAttempt.get(slug) ?? 0) <= Date.now();
+    reconcile(bindings) {
+        if (this.inFlight)
+            return this.inFlight;
+        this.inFlight = this.reconcileOnce(bindings).finally(() => { this.inFlight = null; });
+        return this.inFlight;
     }
-    /** Give one site its hostname and certificate. Throws: a publish that cannot be reached is a failed
-     *  publish, not a published site with a caveat.
-     *
-     *  One site failing is not the gateway failing, so this never overwrites the gateway's own status —
-     *  a single bad slug must not make every other site look unaddressable. */
-    async ensureSite(slug) {
-        const gateway = this.ctx.control('publishedSitesGateway');
-        if (!gateway)
-            throw new Error('this daemon has no published-sites gateway broker');
+    async reconcileOnce(bindings) {
+        const control = this.control();
+        if (!control) {
+            this.status = unavailableStatus('The published-sites gateway broker is unavailable in this process.', this.hostnameBase());
+            return this.status;
+        }
+        const dns = await this.checkGatewayDns();
+        if (!dns.ok) {
+            this.status = { available: true, active: false, hostnameBase: this.hostnameBase(), detail: dns.detail };
+            return this.status;
+        }
         try {
-            const result = await gateway.ensureSite({ slug, email: this.contactEmail(), gatewayToken: this.gatewayToken() });
-            if (!result.available || !result.active) {
-                throw new Error(result.detail ?? `the site gateway could not publish ${slug}`);
-            }
-            this.nextAttempt.delete(slug);
-            this.backoffMs.delete(slug);
-            // `active` comes along, because the check above already refused anything else: the broker has just
-            // confirmed a live gateway. Without it a stale `active: false` from an earlier failed reconcile made
-            // `issuedSlugs` answer with nothing right after a successful issuance, and a caller asking which
-            // certificates exist was told none of them did.
-            if (result.slugs)
-                this.current = { ...this.current, active: true, slugs: result.slugs };
+            this.status = await control.syncBindings({ bindings, gatewayToken: this.gatewayToken() });
         }
         catch (error) {
-            const next = Math.min(MAX_BACKOFF_MS, (this.backoffMs.get(slug) ?? MIN_BACKOFF_MS / 2) * 2);
-            this.backoffMs.set(slug, next);
-            this.nextAttempt.set(slug, Date.now() + next);
-            throw error;
+            this.status = unavailableStatus(error instanceof Error ? error.message : String(error), this.hostnameBase());
         }
+        return this.status;
     }
-    /** Take one site's hostname and certificate away. Failure propagates to the durable Site deletion marker,
-     *  which keeps the slug reserved and retries until the privileged gateway confirms cleanup. */
-    async removeSite(slug) {
-        const gateway = this.ctx.control('publishedSitesGateway');
-        // Whatever becomes of the certificate, its issuance backoff must not delay cleanup or transfer to the
-        // next owner after deletion eventually completes.
-        this.nextAttempt.delete(slug);
-        this.backoffMs.delete(slug);
-        if (!gateway)
-            throw new Error('this daemon has no published-sites gateway broker');
-        const result = await gateway.removeSite({ slug, gatewayToken: this.gatewayToken() });
-        if (!result.available || !result.active)
-            throw new Error(result.detail ?? `the site gateway could not remove ${slug}`);
-        if (result.slugs)
-            this.current = { ...this.current, slugs: result.slugs };
+    async ensureBinding(binding, bindings) {
+        const control = this.control();
+        if (!control)
+            throw new Error('No published-sites gateway broker is available in this process.');
+        const email = typeof this.ctx.config.contactEmail === 'string' ? this.ctx.config.contactEmail.trim() : '';
+        if (!email)
+            throw new Error('A contact email is required before a site certificate can be issued.');
+        const status = await control.ensureBinding({
+            binding,
+            bindings,
+            email,
+            gatewayToken: this.gatewayToken(),
+        });
+        this.status = status;
+        if (!status.available || !status.active)
+            throw new Error(status.detail ?? `The gateway did not activate ${binding.hostname}.`);
+        return status;
     }
-    contactEmail() {
-        const configured = this.ctx.config.contactEmail;
-        if (typeof configured !== 'string' || configured.trim() === '') {
-            throw new Error('Set a contact email in the Sites plugin settings: a certificate authority requires one to issue certificates.');
-        }
-        return configured.trim();
+    async removeBinding(hostname, slug, bindings) {
+        const control = this.control();
+        if (!control)
+            throw new Error('No published-sites gateway broker is available in this process.');
+        const status = await control.removeBinding({
+            hostname,
+            slug,
+            bindings,
+            gatewayToken: this.gatewayToken(),
+        });
+        this.status = status;
+        if (!status.available)
+            throw new Error(status.detail ?? `The gateway did not remove ${hostname}.`);
+        return status;
     }
-    /** The gateway's health as the Settings screen reports it. This readiness check is the ONE place the
-     *  required DNS record is surfaced to a person: there is no configuration form, because the record
-     *  lives at a registrar and is not something this instance could write.
-     *
-     *  The record goes out as `fix` — labelled fields the screen renders as copyable values — rather than
-     *  only as a sentence. It is transcribed by hand into somebody else's control panel, where one wrong
-     *  character produces no error anywhere: the wildcard simply does not resolve, and the gateway reports
-     *  the same "does not resolve" it reports when nobody created the record at all. */
     async readiness() {
-        await this.reconcile();
-        const record = this.requiredRecord();
-        const status = this.current.active
-            ? 'ready'
-            : this.dnsCheck.state === 'ready' ? 'unavailable' : this.dnsCheck.state;
-        return {
-            id: 'sites-gateway',
-            label: 'Published sites gateway',
-            ok: this.current.active,
-            status,
-            detail: this.current.active ? this.current.hostnameBase ?? 'active' : this.current.detail ?? 'not configured',
-            ...(this.dnsCheck.observedTargets.length > 0 ? { observedTargets: this.dnsCheck.observedTargets } : {}),
-            ...(this.current.active || !record ? {} : {
-                hint: 'Add this DNS record at the registrar for your domain. Sites start working within a minute of it resolving — nothing else has to be configured.',
-                fix: [
-                    { label: 'Type', value: record.type },
-                    { label: 'Name', value: record.name },
-                    { label: 'Value', value: record.value },
-                ],
-            }),
-        };
+        const row = { id: 'sites-gateway', label: 'Published sites gateway' };
+        const dns = await this.checkGatewayDns();
+        if (!dns.ok)
+            return { ...row, ...dns };
+        const status = this.control() ? (this.status ?? await this.control()?.status()) : null;
+        if (!status?.available) {
+            return { ...row, ok: false, status: 'unavailable', detail: status?.detail ?? 'The published-sites gateway broker is unavailable.' };
+        }
+        return status.active
+            ? { ...row, ok: true, status: 'ready', detail: status.detail ?? 'The published-sites gateway is active.' }
+            : { ...row, ok: false, status: 'unavailable', detail: status.detail ?? 'The published-sites gateway is inactive.' };
     }
 }

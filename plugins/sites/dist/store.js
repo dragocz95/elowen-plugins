@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { isAbsolute, relative, sep } from 'node:path';
 export const VISIBILITIES = ['private', 'project', 'authenticated', 'public'];
 const toPreviewImage = (row) => ({
@@ -41,8 +42,7 @@ const toSite = (row) => ({
     lastPublishAt: row.last_publish_at,
     lastPublishModel: row.last_publish_model,
     lastError: row.last_error,
-    certificateRequestedAt: row.certificate_requested_at,
-    certificateError: row.certificate_error,
+    primaryCustomHostnameId: row.primary_custom_hostname_id,
 });
 const toRelease = (row) => ({
     id: row.id,
@@ -56,10 +56,78 @@ const toRelease = (row) => ({
     imageRef: row.image_ref,
     dataArchive: row.data_archive,
 });
+const HOSTNAME_KINDS = new Set(['generated', 'custom']);
+const HOSTNAME_DNS_STATES = new Set(['unchecked', 'missing', 'misdirected', 'ready', 'unavailable']);
+const HOSTNAME_CERTIFICATE_STATES = new Set([
+    'none', 'requested', 'issuing', 'ready', 'authority_refused', 'rate_limited',
+    'renewal_blocked', 'expired',
+]);
+const CUSTOM_HOSTNAME_LIMIT = 10;
+const OWNERSHIP_RESERVATION_MS = 24 * 60 * 60 * 1000;
+const enumValue = (value, allowed, field) => {
+    if (!allowed.has(value))
+        throw new Error(`Invalid stored ${field}: ${value}`);
+    return value;
+};
+const observedDnsValues = (json) => {
+    let parsed;
+    try {
+        parsed = JSON.parse(json);
+    }
+    catch {
+        throw new Error('Invalid stored DNS observation JSON');
+    }
+    if (!Array.isArray(parsed) || parsed.length > 32
+        || parsed.some((value) => typeof value !== 'string' || value.length === 0 || value.length > 253)) {
+        throw new Error('Invalid stored DNS observation values');
+    }
+    return parsed;
+};
+const toHostname = (row) => ({
+    id: row.id,
+    siteId: row.site_id,
+    kind: enumValue(row.kind, HOSTNAME_KINDS, 'hostname kind'),
+    hostname: row.hostname,
+    ownershipToken: row.ownership_token,
+    ownershipVerifiedAt: row.ownership_verified_at,
+    ownershipExpiresAt: row.ownership_expires_at,
+    dnsState: enumValue(row.dns_state, HOSTNAME_DNS_STATES, 'DNS state'),
+    dnsObserved: observedDnsValues(row.dns_observed_json),
+    dnsCheckedAt: row.dns_checked_at,
+    dnsNextCheckAt: row.dns_next_check_at,
+    dnsAttempts: row.dns_attempts,
+    certificateState: enumValue(row.certificate_state, HOSTNAME_CERTIFICATE_STATES, 'certificate state'),
+    certificateRequestedAt: row.certificate_requested_at,
+    certificateErrorCode: row.certificate_error_code,
+    certificateErrorDetail: row.certificate_error_detail,
+    certificateRetryAt: row.certificate_retry_at,
+    certificateNotAfter: row.certificate_not_after,
+    certificateFailures: row.certificate_failures,
+    removalRequestedAt: row.removal_requested_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+});
+export class HostnameClaimError extends Error {
+    code;
+    constructor(code, message) {
+        super(message);
+        this.code = code;
+        this.name = 'HostnameClaimError';
+    }
+}
 export class SitesStore {
     db;
-    constructor(db) {
+    hostnameBase;
+    now;
+    randomId;
+    randomToken;
+    constructor(db, options = {}) {
         this.db = db;
+        this.hostnameBase = options.hostnameBase ?? null;
+        this.now = options.now ?? Date.now;
+        this.randomId = options.randomId ?? randomUUID;
+        this.randomToken = options.randomToken ?? (() => randomBytes(32).toString('base64url'));
+        const hostnameBase = this.hostnameBase;
         db.migrate([
             {
                 version: 1,
@@ -367,7 +435,128 @@ export class SitesStore {
           CREATE INDEX IF NOT EXISTS idx_p_sites_capture_grants_site ON p_sites_capture_grants (site_id);
         `),
             },
+            {
+                version: 20,
+                up: (handle) => {
+                    const sites = handle.prepare(`
+            SELECT id, slug, status, certificate_requested_at, certificate_error, created_at, updated_at
+            FROM p_sites_sites
+            WHERE runtime = 'static'
+          `).all();
+                    handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN primary_custom_hostname_id TEXT;
+
+            CREATE TABLE p_sites_hostnames (
+              id TEXT PRIMARY KEY,
+              site_id TEXT NOT NULL,
+              kind TEXT NOT NULL CHECK (kind IN ('generated', 'custom')),
+              hostname TEXT NOT NULL,
+              ownership_token TEXT,
+              ownership_verified_at TEXT,
+              ownership_expires_at TEXT,
+              dns_state TEXT NOT NULL CHECK (dns_state IN ('unchecked', 'missing', 'misdirected', 'ready', 'unavailable')),
+              dns_observed_json TEXT NOT NULL DEFAULT '[]',
+              dns_checked_at TEXT,
+              dns_next_check_at TEXT,
+              certificate_state TEXT NOT NULL CHECK (certificate_state IN (
+                'none', 'requested', 'issuing', 'ready', 'authority_refused',
+                'rate_limited', 'renewal_blocked', 'expired'
+              )),
+              certificate_requested_at TEXT,
+              certificate_error_code TEXT,
+              certificate_error_detail TEXT,
+              certificate_retry_at TEXT,
+              certificate_not_after TEXT,
+              removal_requested_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK (
+                (kind = 'generated' AND ownership_token IS NULL AND ownership_verified_at IS NULL AND ownership_expires_at IS NULL)
+                OR
+                (kind = 'custom' AND ownership_token IS NOT NULL AND (
+                  (ownership_verified_at IS NULL AND ownership_expires_at IS NOT NULL)
+                  OR ownership_verified_at IS NOT NULL
+                ))
+              )
+            );
+            CREATE UNIQUE INDEX idx_p_sites_hostnames_hostname
+              ON p_sites_hostnames (hostname COLLATE NOCASE);
+            CREATE UNIQUE INDEX idx_p_sites_hostnames_generated
+              ON p_sites_hostnames (site_id) WHERE kind = 'generated';
+            CREATE INDEX idx_p_sites_hostnames_site ON p_sites_hostnames (site_id);
+            CREATE INDEX idx_p_sites_hostnames_ownership_expiry ON p_sites_hostnames (ownership_expires_at);
+            CREATE INDEX idx_p_sites_hostnames_dns_next_check ON p_sites_hostnames (dns_next_check_at);
+            CREATE INDEX idx_p_sites_hostnames_certificate_retry ON p_sites_hostnames (certificate_retry_at);
+            CREATE INDEX idx_p_sites_hostnames_removal ON p_sites_hostnames (removal_requested_at);
+          `);
+                    if (hostnameBase !== null) {
+                        const insert = handle.prepare(`
+              INSERT INTO p_sites_hostnames (
+                id, site_id, kind, hostname,
+                ownership_token, ownership_verified_at, ownership_expires_at,
+                dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+                certificate_state, certificate_requested_at,
+                certificate_error_code, certificate_error_detail,
+                certificate_retry_at, certificate_not_after, removal_requested_at,
+                created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+                        for (const site of sites) {
+                            const failed = site.certificate_error !== null && site.certificate_error !== '';
+                            const state = failed
+                                ? 'authority_refused'
+                                : site.certificate_requested_at !== null ? 'requested' : 'none';
+                            insert.run(site.id + ':generated', site.id, 'generated', site.slug + '.' + hostnameBase, null, null, null, 'unchecked', '[]', null, null, state, site.certificate_requested_at, failed ? 'authority_refused' : null, failed ? site.certificate_error : null, null, null, site.status === 'deleting' ? site.updated_at : null, site.created_at, site.updated_at);
+                        }
+                    }
+                    handle.exec(`
+            ALTER TABLE p_sites_sites DROP COLUMN certificate_requested_at;
+            ALTER TABLE p_sites_sites DROP COLUMN certificate_error;
+          `);
+                },
+            },
+            {
+                version: 21,
+                // Retry ownership belongs to the hostname row. Keeping the counters beside the durable next-attempt
+                // timestamps means a plugin reload resumes the same exponential schedule instead of starting over.
+                up: handle => handle.exec(`
+          ALTER TABLE p_sites_hostnames ADD COLUMN dns_attempts INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE p_sites_hostnames ADD COLUMN certificate_failures INTEGER NOT NULL DEFAULT 0;
+        `),
+            },
         ]);
+        if (hostnameBase !== null && this.db.appliedVersion() >= 20) {
+            this.reconcileGeneratedHostnames(hostnameBase);
+        }
+    }
+    reconcileGeneratedHostnames(hostnameBase) {
+        this.db.transaction(() => {
+            const sites = this.db.prepare(`
+        SELECT id, slug, status, created_at, updated_at
+        FROM p_sites_sites
+        WHERE runtime = 'static'
+          AND NOT EXISTS (
+            SELECT 1 FROM p_sites_hostnames
+            WHERE p_sites_hostnames.site_id = p_sites_sites.id
+              AND p_sites_hostnames.kind = 'generated'
+          )
+      `).all();
+            const insert = this.db.prepare(`
+        INSERT INTO p_sites_hostnames (
+          id, site_id, kind, hostname,
+          ownership_token, ownership_verified_at, ownership_expires_at,
+          dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+          certificate_state, certificate_requested_at,
+          certificate_error_code, certificate_error_detail,
+          certificate_retry_at, certificate_not_after, removal_requested_at,
+          created_at, updated_at
+        ) VALUES (?, ?, 'generated', ?, NULL, NULL, NULL, 'unchecked', '[]', NULL, NULL,
+          'none', NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
+      `);
+            for (const site of sites) {
+                insert.run(site.id + ':generated', site.id, site.slug + '.' + hostnameBase, site.status === 'deleting' ? site.updated_at : null, site.created_at, site.updated_at);
+            }
+        });
     }
     migrateSourceReferences(projectRoot) {
         const columns = this.db.prepare("PRAGMA table_info('p_sites_sites')").all();
@@ -434,17 +623,264 @@ export class SitesStore {
         return this.db.transaction(fn);
     }
     insertSite(site) {
-        const legacyColumn = this.db.prepare("PRAGMA table_info('p_sites_sites')").all()
-            .some((column) => column.name === 'source_dir');
+        this.db.transaction(() => {
+            const legacyColumn = this.db.prepare("PRAGMA table_info('p_sites_sites')").all()
+                .some((column) => column.name === 'source_dir');
+            this.db.prepare(`
+        INSERT INTO p_sites_sites (
+          id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
+          ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
+          environment_cpus, environment_memory_mb, environment_pids_limit,
+          environment_desired_state, status, current_release_id,
+          created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error,
+          primary_custom_hostname_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, 'static', '', 'socket', null, null, null, null, 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError, null);
+            if (this.hostnameBase !== null) {
+                this.db.prepare(`
+          INSERT INTO p_sites_hostnames (
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+            certificate_state, certificate_requested_at,
+            certificate_error_code, certificate_error_detail,
+            certificate_retry_at, certificate_not_after, removal_requested_at,
+            created_at, updated_at
+          ) VALUES (?, ?, 'generated', ?, NULL, NULL, NULL, 'unchecked', '[]', NULL, NULL,
+            'none', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        `).run(site.id + ':generated', site.id, site.slug + '.' + this.hostnameBase, site.createdAt, site.updatedAt);
+            }
+        });
+    }
+    hostnameById(id) {
+        const row = this.db.prepare('SELECT * FROM p_sites_hostnames WHERE id = ?').get(id);
+        return row ? toHostname(row) : null;
+    }
+    hostnamesForSite(siteId) {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE site_id = ?
+      ORDER BY CASE kind WHEN 'generated' THEN 0 ELSE 1 END, created_at, id
+    `).all(siteId).map(toHostname);
+    }
+    generatedHostname(siteId) {
+        const row = this.db.prepare("SELECT * FROM p_sites_hostnames WHERE site_id = ? AND kind = 'generated'")
+            .get(siteId);
+        return row ? toHostname(row) : null;
+    }
+    customHostnames(siteId) {
+        return this.db.prepare("SELECT * FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom' ORDER BY created_at, id")
+            .all(siteId).map(toHostname);
+    }
+    allCustomHostnames() {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE kind = 'custom' AND removal_requested_at IS NULL
+      ORDER BY created_at, id
+    `).all().map(toHostname);
+    }
+    customHostnamesDueForDns(at = this.now()) {
+        const now = new Date(at).toISOString();
+        return this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE kind = 'custom' AND removal_requested_at IS NULL
+        AND (dns_next_check_at IS NULL OR dns_next_check_at <= ?)
+      ORDER BY COALESCE(dns_next_check_at, created_at), id
+    `).all(now).map(toHostname);
+    }
+    hostnamesPendingRemoval() {
+        return this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE removal_requested_at IS NOT NULL
+      ORDER BY removal_requested_at, id
+    `).all().map(toHostname);
+    }
+    expireUnverifiedHostnameReservations() {
+        const now = new Date(this.now()).toISOString();
+        return Number(this.db.prepare(`
+      DELETE FROM p_sites_hostnames
+      WHERE kind = 'custom'
+        AND ownership_verified_at IS NULL
+        AND ownership_expires_at <= ?
+        AND removal_requested_at IS NULL
+    `).run(now).changes);
+    }
+    claimCustomHostname(siteId, hostname) {
+        try {
+            return this.db.transaction(() => {
+                this.expireUnverifiedHostnameReservations();
+                const site = this.db.prepare("SELECT status FROM p_sites_sites WHERE id = ? AND runtime = 'static'")
+                    .get(siteId);
+                if (!site || site.status === 'deleting') {
+                    throw new HostnameClaimError('site_unavailable', 'The Site is unavailable for a hostname claim.');
+                }
+                const count = this.db.prepare("SELECT COUNT(*) AS count FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom'")
+                    .get(siteId);
+                if (count.count >= CUSTOM_HOSTNAME_LIMIT) {
+                    throw new HostnameClaimError('hostname_limit', `A Site may have at most ${CUSTOM_HOSTNAME_LIMIT} custom hostnames.`);
+                }
+                const nowMs = this.now();
+                const now = new Date(nowMs).toISOString();
+                const id = this.randomId();
+                this.db.prepare(`
+          INSERT INTO p_sites_hostnames (
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+            certificate_state, certificate_requested_at,
+            certificate_error_code, certificate_error_detail,
+            certificate_retry_at, certificate_not_after, removal_requested_at,
+            created_at, updated_at
+          ) VALUES (?, ?, 'custom', ?, ?, NULL, ?, 'unchecked', '[]', NULL, NULL,
+            'none', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        `).run(id, siteId, hostname.ascii, this.randomToken(), new Date(nowMs + OWNERSHIP_RESERVATION_MS).toISOString(), now, now);
+                const claimed = this.hostnameById(id);
+                if (!claimed)
+                    throw new Error('The hostname claim was not stored');
+                return claimed;
+            });
+        }
+        catch (error) {
+            if (error instanceof HostnameClaimError)
+                throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes('UNIQUE constraint failed') && message.includes('p_sites_hostnames.hostname')) {
+                throw new HostnameClaimError('domain_claimed', 'This hostname is already reserved by another Site.');
+            }
+            throw error;
+        }
+    }
+    verifyHostnameOwnership(id) {
+        const now = new Date(this.now()).toISOString();
+        const result = this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET ownership_verified_at = ?, ownership_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NULL
+        AND ownership_expires_at > ? AND removal_requested_at IS NULL
+    `).run(now, now, id, now);
+        if (result.changes !== 1)
+            throw new Error('The hostname reservation is absent, expired or already verified.');
+    }
+    recordHostnameDns(id, state, observed, nextCheckAt = null) {
+        if (!HOSTNAME_DNS_STATES.has(state))
+            throw new Error(`Invalid DNS state: ${state}`);
+        const json = JSON.stringify(observed);
+        observedDnsValues(json);
+        const now = new Date(this.now()).toISOString();
+        const result = this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET dns_state = ?, dns_observed_json = ?, dns_checked_at = ?, dns_next_check_at = ?,
+          dns_attempts = dns_attempts + 1, updated_at = ?
+      WHERE id = ? AND removal_requested_at IS NULL
+    `).run(state, json, now, nextCheckAt, now, id);
+        if (result.changes !== 1)
+            throw new Error('The hostname is absent or being removed.');
+    }
+    recordHostnameCertificate(id, update) {
+        if (!HOSTNAME_CERTIFICATE_STATES.has(update.state)) {
+            throw new Error(`Invalid certificate state: ${update.state}`);
+        }
+        this.db.transaction(() => {
+            const row = this.db.prepare('SELECT * FROM p_sites_hostnames WHERE id = ?').get(id);
+            if (!row || row.removal_requested_at !== null)
+                throw new Error('The hostname is absent or being removed.');
+            if (update.state === 'ready' && row.kind === 'custom'
+                && (row.ownership_verified_at === null || row.dns_state !== 'ready')) {
+                throw new Error('A custom hostname must have verified ownership and ready DNS before its certificate is ready.');
+            }
+            const now = new Date(this.now()).toISOString();
+            const failure = update.state === 'authority_refused' || update.state === 'rate_limited';
+            this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET certificate_state = ?,
+            certificate_requested_at = CASE
+              WHEN ? IN ('requested', 'issuing') THEN COALESCE(certificate_requested_at, ?)
+              WHEN ? = 'ready' THEN NULL
+              ELSE certificate_requested_at
+            END,
+            certificate_error_code = ?,
+            certificate_error_detail = ?,
+            certificate_retry_at = ?,
+            certificate_not_after = COALESCE(?, certificate_not_after),
+            certificate_failures = CASE WHEN ? = 'ready' THEN 0 WHEN ? THEN certificate_failures + 1 ELSE certificate_failures END,
+            updated_at = ?
+        WHERE id = ?
+      `).run(update.state, update.state, now, update.state, update.errorCode ?? null, update.errorDetail?.slice(0, 600) ?? null, update.retryAt ?? null, update.notAfter ?? null, update.state, failure ? 1 : 0, now, id);
+            if (update.state === 'ready' && row.kind === 'custom') {
+                this.db.prepare(`
+          UPDATE p_sites_sites SET primary_custom_hostname_id = ?, updated_at = ?
+          WHERE id = ? AND primary_custom_hostname_id IS NULL
+        `).run(id, now, row.site_id);
+            }
+        });
+    }
+    setPrimaryCustomHostname(siteId, hostnameId) {
+        this.db.transaction(() => {
+            if (hostnameId !== null) {
+                const row = this.db.prepare(`
+          SELECT 1 FROM p_sites_hostnames
+          WHERE id = ? AND site_id = ? AND kind = 'custom'
+            AND certificate_state = 'ready' AND removal_requested_at IS NULL
+        `).get(hostnameId, siteId);
+                if (!row)
+                    throw new Error('The primary hostname must be a ready custom hostname of this Site.');
+            }
+            const now = new Date(this.now()).toISOString();
+            const updated = this.db.prepare(`
+        UPDATE p_sites_sites SET primary_custom_hostname_id = ?, updated_at = ?
+        WHERE id = ? AND status <> 'deleting'
+      `).run(hostnameId, now, siteId);
+            if (updated.changes !== 1)
+                throw new Error('The Site is absent or being deleted.');
+        });
+    }
+    requestHostnameRemoval(id) {
+        this.db.transaction(() => {
+            const row = this.db.prepare('SELECT site_id FROM p_sites_hostnames WHERE id = ?')
+                .get(id);
+            if (!row)
+                throw new Error('The hostname does not exist.');
+            const now = new Date(this.now()).toISOString();
+            this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET removal_requested_at = COALESCE(removal_requested_at, ?), updated_at = ?
+        WHERE id = ?
+      `).run(now, now, id);
+            this.db.prepare(`
+        UPDATE p_sites_sites SET primary_custom_hostname_id = NULL, updated_at = ?
+        WHERE id = ? AND primary_custom_hostname_id = ?
+      `).run(now, row.site_id, id);
+        });
+    }
+    completeHostnameRemoval(id) {
+        const result = this.db.prepare('DELETE FROM p_sites_hostnames WHERE id = ? AND removal_requested_at IS NOT NULL').run(id);
+        if (result.changes !== 1)
+            throw new Error('Hostname cleanup has not been requested.');
+    }
+    requestGeneratedCertificate(siteId, requestedAt) {
         this.db.prepare(`
-      INSERT INTO p_sites_sites (
-        id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
-        environment_cpus, environment_memory_mb, environment_pids_limit,
-        environment_desired_state, status, current_release_id,
-        created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, 'static', '', 'socket', null, null, null, null, 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError);
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'requested', certificate_requested_at = ?, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(requestedAt, requestedAt, siteId);
+    }
+    clearGeneratedCertificateRequest(siteId) {
+        const now = new Date(this.now()).toISOString();
+        this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'none', certificate_requested_at = NULL,
+          certificate_error_code = NULL, certificate_error_detail = NULL, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(now, siteId);
+    }
+    failGeneratedCertificate(siteId, detail) {
+        const now = new Date(this.now()).toISOString();
+        this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'authority_refused', certificate_requested_at = NULL,
+          certificate_error_code = 'authority_refused', certificate_error_detail = ?, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(detail, now, siteId);
     }
     siteById(id) {
         const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE id = ? AND runtime = 'static'").get(id);
@@ -510,8 +946,6 @@ export class SitesStore {
             lastPublishAt: 'last_publish_at',
             lastPublishModel: 'last_publish_model',
             lastError: 'last_error',
-            certificateRequestedAt: 'certificate_requested_at',
-            certificateError: 'certificate_error',
         };
         const sets = [];
         const values = [];
@@ -537,12 +971,18 @@ export class SitesStore {
      * stops authorising immediately, and a crash leaves a row boot reconciliation can finish. Idempotent. */
     beginDelete(id) {
         this.db.transaction(() => {
+            const now = new Date(this.now()).toISOString();
             this.db.prepare(`
         UPDATE p_sites_sites
-        SET status = 'deleting', current_release_id = NULL,
+        SET status = 'deleting', current_release_id = NULL, primary_custom_hostname_id = NULL,
             access_generation = access_generation + 1, updated_at = ?
         WHERE id = ?
-      `).run(new Date().toISOString(), id);
+      `).run(now, id);
+            this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET removal_requested_at = COALESCE(removal_requested_at, ?), updated_at = ?
+        WHERE site_id = ?
+      `).run(now, now, id);
             this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
@@ -555,6 +995,9 @@ export class SitesStore {
     }
     deleteSite(id) {
         this.db.transaction(() => {
+            if (this.db.prepare('SELECT 1 FROM p_sites_hostnames WHERE site_id = ?').get(id)) {
+                throw new Error('Site hostname cleanup must finish before the Site row is deleted.');
+            }
             this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ?').run(id);
             this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);

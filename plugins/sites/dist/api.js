@@ -1,6 +1,6 @@
 import { VISIBILITIES } from './store.js';
 import { canManage, mayOpen, mintTicket, normalizeReturnPath } from './access.js';
-import { SITE_BASE_PATH, siteUrl } from './config.js';
+import { SITE_BASE_PATH } from './config.js';
 const json = (status, body) => ({
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -8,7 +8,6 @@ const json = (status, body) => ({
 });
 const TICKET_TTL_MS = 60_000;
 const toView = (site, deps, auth) => {
-    const config = deps.config();
     return {
         id: site.id,
         slug: site.slug,
@@ -17,7 +16,7 @@ const toView = (site, deps, auth) => {
         visibility: site.visibility,
         status: site.status,
         degraded: site.status === 'live' && site.lastError !== null,
-        url: siteUrl(config, site.slug),
+        url: deps.addresses.urlForSite(site),
         basePath: SITE_BASE_PATH,
         projectId: site.projectId,
         projectSlug: deps.projectSlug(site.projectId),
@@ -263,17 +262,22 @@ export function createApiHandlers(deps) {
     const ticket = async (req) => {
         if (req.method !== 'POST')
             return json(405, { error: 'method not allowed' });
-        const body = await req.json().catch(() => ({}));
-        const slug = typeof body.slug === 'string' ? body.slug : '';
-        const target = deps.store.siteBySlug(slug) ?? deps.previewSite?.(slug);
+        const body = await req.json()
+            .catch(() => ({}));
+        const bindingId = typeof body.binding === 'string' ? body.binding : '';
+        const binding = deps.addresses.bindingById(deps.store.hostnameById(bindingId)?.siteId
+            ?? (bindingId.startsWith('preview:') ? bindingId.slice('preview:'.length) : ''), bindingId);
+        const target = binding
+            ? deps.store.siteById(binding.siteId) ?? deps.previewSite?.(binding.slug)
+            : null;
         const viewer = { userId: req.auth.userId };
-        if (!target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
+        if (!binding || !target || target.status !== 'live' || !mayOpen(target, viewer, deps.store, deps.access)) {
             // Deliberately the same answer for an unknown site and one this account may not open.
             return json(403, { error: 'no access' });
         }
         if (req.auth.userId === null)
             return json(403, { error: 'no access' });
-        const address = siteUrl(deps.config(), target.slug);
+        const address = deps.addresses.urlForHostname(binding.hostname);
         // No address means no gateway, and a ticket is only useful as a form post TO that address. Minting
         // one anyway would burn a single-use token against a form the page could not submit.
         if (address === null)

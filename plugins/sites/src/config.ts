@@ -120,39 +120,6 @@ export function resolveConfig(
   };
 }
 
-/** Just the addressing part of the configuration, so the serving path can answer host questions
- *  without being handed every unrelated setting. */
-export type SiteAddressing = Pick<SitesConfig, 'siteHostBase' | 'siteScheme' | 'appBaseUrl'>;
-
-/** The hostname one site is served from, or null while the gateway is unprovisioned. Exported because the
- *  certificate probe asks the gateway for exactly this name by SNI, and a second derivation of it could
- *  report a certificate as ready for a hostname the serving path never uses. */
-export const siteHost = (config: SiteAddressing, slug: string): string | null =>
-  config.siteHostBase === null ? null : `${slug}.${config.siteHostBase}`;
-
-/** Where a site lives, or null when this instance has no site hostname to put it on. Callers render the
- *  null as "not addressable yet" rather than inventing a URL on the app's own origin. */
-export const siteUrl = (config: SiteAddressing, slug: string): string | null => {
-  const host = siteHost(config, slug);
-  return host === null ? null : `${config.siteScheme}//${host}/`;
-};
-
-/** Whether THIS request arrived on the site's own hostname.
- *
- *  Decided from the request, never from configuration alone. Configuring a site hostname does not stop
- *  the app's own hostname from reaching the same handler — `/hooks/` is proxied to the daemon there
- *  too — so a page served merely because a hostname exists in settings would still be same-origin with
- *  the app, which is the whole hazard the separate origin was for. */
-export const requestOnSiteHost = (config: SiteAddressing, slug: string, hostHeader: string | undefined): boolean => {
-  const expected = siteHost(config, slug);
-  if (expected === null || !hostHeader) return false;
-  // A Host is one hostname followed by at most one numeric port. Splitting on the first colon alone
-  // would also accept `site.example.com:not-a-port` and `site.example.com:443:junk` as this site's own
-  // address, which is a decision about identity made on a string nobody validated.
-  const parsed = /^([^:]+)(?::(\d{1,5}))?$/.exec(hostHeader.trim());
-  return parsed?.[1]?.toLowerCase() === expected;
-};
-
 /** Every publication owns the root of its own hostname. Kept in the API for legacy file rows and for
  *  callers that build links without knowing whether the row is file-backed or proxied. */
 export const SITE_BASE_PATH = '/';

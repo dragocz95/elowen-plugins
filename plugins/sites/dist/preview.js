@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { cookieName } from './access.js';
-import { siteUrl } from './config.js';
 import { proxyToProject } from './proxy.js';
 import { requireSandbox } from './sandboxControl.js';
 /** Preview records contain no ownership or visibility grants. Current Project membership is authority. */
@@ -35,10 +34,15 @@ export class ProjectPreviewService {
         }
         if (!preview)
             throw new Error('the Project preview record could not be created');
-        const url = siteUrl(this.deps.config(), preview.slug);
-        if (!url)
+        const bindings = this.deps.addresses.bindings();
+        const address = bindings.find((entry) => entry.siteId === preview.id && entry.class === 'generated');
+        if (!address)
             throw new Error('the isolated Sites origin is unavailable');
-        await this.deps.gateway.ensureSite(preview.slug);
+        const synced = await this.deps.gateway.reconcile(bindings);
+        if (!synced.available || !synced.active)
+            throw new Error(synced.detail ?? 'the isolated Sites gateway is unavailable');
+        await this.deps.gateway.ensureBinding(address, bindings);
+        const url = this.deps.addresses.urlForHostname(address.hostname);
         if (!this.allowed(projectId, accountUserId))
             throw new Error('Project access changed while preparing the preview');
         return { url, projectId, port };
@@ -56,7 +60,8 @@ export class ProjectPreviewService {
             title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
             sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port),
             status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
-            createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
+            createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null,
+            primaryCustomHostnameId: null };
     }
     async serve(site, req, rest, viewer, siteRoot) {
         const denied = () => ({ status: 404, headers: { 'cache-control': 'no-store' }, body: '' });
@@ -87,18 +92,29 @@ export class ProjectPreviewService {
             await binding?.release();
         }
     }
-    async syncGateway(issued, renew) {
+    async syncGateway(renew) {
+        const bindings = this.deps.addresses.bindings();
+        const synced = await this.deps.gateway.reconcile(bindings);
+        if (!synced.available || !synced.active)
+            return;
         for (const preview of this.deps.store.allPreviews()) {
             if (!this.active(preview.projectId))
                 continue;
-            if (renew || !issued.has(preview.slug))
-                await this.deps.gateway.ensureSite(preview.slug);
+            const binding = bindings.find((entry) => entry.siteId === preview.id && entry.class === 'generated');
+            if (binding && (renew || !this.deps.gateway.hasCertificate(binding.hostname))) {
+                await this.deps.gateway.ensureBinding(binding, bindings);
+            }
         }
     }
     async removeProject(projectId) {
         const previews = this.deps.store.previewsInProject(projectId);
+        const hostnameBase = this.deps.config().siteHostBase;
+        const remaining = this.deps.addresses.bindings(Date.now(), new Set(previews.map((preview) => preview.id)));
+        if (hostnameBase) {
+            for (const preview of previews) {
+                await this.deps.gateway.removeBinding(`${preview.slug}.${hostnameBase}`, preview.slug, remaining);
+            }
+        }
         this.deps.store.deletePreviews(projectId);
-        for (const preview of previews)
-            await this.deps.gateway.removeSite(preview.slug);
     }
 }

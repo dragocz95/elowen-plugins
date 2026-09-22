@@ -82,7 +82,7 @@ test('migration v20 upgrades the exact v19 shape and preserves generated URL and
   const upgraded = makeDb({ from: v19 });
   const store = new SitesStore(upgraded, { hostnameBase: BASE });
 
-  assert.equal(upgraded.appliedVersion(), 20);
+  assert.equal(upgraded.appliedVersion(), 21);
   const siteColumns = upgraded.prepare("PRAGMA table_info('p_sites_sites')").all().map((column) => column.name);
   assert.ok(siteColumns.includes('primary_custom_hostname_id'));
   assert.ok(!siteColumns.includes('certificate_requested_at'));
@@ -134,7 +134,7 @@ test('a hostless v19 upgrade starts and reconciles generated rows when a base la
 
   const upgraded = makeDb({ from: v19 });
   const hostless = new SitesStore(upgraded);
-  assert.equal(upgraded.appliedVersion(), 20);
+  assert.equal(upgraded.appliedVersion(), 21);
   assert.equal(hostless.generatedHostname('hostless'), null);
 
   const configured = new SitesStore(makeDb({ from: upgraded }), { hostnameBase: BASE });
@@ -190,10 +190,14 @@ test('first ready custom hostname becomes primary and changing primary validates
   const first = store.claimCustomHostname('site-1', parseSiteHostname('first.customer.example'));
   const second = store.claimCustomHostname('site-1', parseSiteHostname('second.customer.example'));
   const foreign = store.claimCustomHostname('site-2', parseSiteHostname('foreign.customer.example'));
+  assert.throws(
+    () => store.recordHostnameCertificate(first.id, { state: 'ready' }),
+    /verified ownership and ready DNS/,
+  );
   const activate = (hostname) => {
     store.verifyHostnameOwnership(hostname.id);
     store.recordHostnameDns(hostname.id, 'ready', ['192.0.2.10']);
-    store.setHostnameCertificateState(hostname.id, 'ready');
+    store.recordHostnameCertificate(hostname.id, { state: 'ready' });
   };
   activate(first);
   assert.equal(store.siteById('site-1').primaryCustomHostnameId, first.id);

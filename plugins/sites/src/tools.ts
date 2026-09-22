@@ -6,7 +6,8 @@ import type { SitesContext } from './coreSeams.js';
 import type { Site, SitesStore, Visibility } from './store.js';
 import { VISIBILITIES } from './store.js';
 import { canManage, mayPublish, type AccessDeps } from './access.js';
-import { SITE_BASE_PATH, siteHost, siteUrl, type SitesConfig } from './config.js';
+import { SITE_BASE_PATH, type SitesConfig } from './config.js';
+import type { SiteAddressService } from './address.js';
 import type { ProjectPreviewService } from './preview.js';
 import { publicationPort, type ProjectPublicationService } from './publication.js';
 import type { PreviewRequestCause, PreviewRequestOutcome } from './previewImage.js';
@@ -18,6 +19,7 @@ export interface ToolDeps {
   store: SitesStore;
   access: AccessDeps;
   config(): SitesConfig;
+  addresses: Pick<SiteAddressService, 'urlForSite' | 'effectiveHostname'>;
   people(): Map<number, { id: number; username: string; name: string; avatar: string }>;
   previews?: Pick<ProjectPreviewService, 'request'>;
   /** The picture half of the register. A publish asks for one; a refusal is never a publish failure. */
@@ -185,10 +187,9 @@ const projectLines = (
 
 const describe = (
   site: Site,
-  config: SitesConfig,
+  address: string | null,
   project?: { slug: string | null; path?: string; executionKind?: string } | null,
 ): string => {
-  const address = siteUrl(config, site.slug);
   const source = project?.executionKind === 'managed'
     ? posix.join(`/${project.slug ?? ''}`, site.sourceRel)
     : project?.path ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel;
@@ -318,7 +319,7 @@ export function registerTools(deps: ToolDeps): void {
           primaryCustomHostnameId: null,
         };
         store.insertSite(site);
-        const address = siteUrl(config, site.slug);
+        const address = deps.addresses.urlForSite(site);
         return text([
           `Created "${site.title}" as a publication of project ${project.slug}.`,
           `  id   ${site.id}`,
@@ -357,8 +358,7 @@ export function registerTools(deps: ToolDeps): void {
         const userId = ownerOf(ctx);
         guardPublisher(userId);
         const site = requireOwned(deps, input.site, userId);
-        const config = deps.config();
-        const address = siteUrl(config, site.slug);
+        const address = deps.addresses.urlForSite(site);
 
         // A publication has nothing to copy: publishing it means proving the application inside the Project
         // answers through the same transport a visitor's request takes, and only then making the address
@@ -385,7 +385,7 @@ export function registerTools(deps: ToolDeps): void {
         }
         // Probed as a visitor reaches it: the application may answer by Host, and a publication that only
         // answers to `localhost` is not one anybody can open.
-        const probe = await deps.publications.probe(socketPath, { host: siteHost(config, site.slug) ?? undefined });
+        const probe = await deps.publications.probe(socketPath, { host: deps.addresses.effectiveHostname(site) ?? undefined });
         if (!probe.answered || probe.status === null || probe.status >= 500) {
           const message = probe.answered
             ? `127.0.0.1:${port} inside the Project answered with an unhealthy status (${probe.detail})`
@@ -444,7 +444,6 @@ export function registerTools(deps: ToolDeps): void {
     execute: async () => {
       try {
         const userId = ownerOf(ctx);
-        const config = deps.config();
         const sites = store.sitesOwnedBy(userId);
         if (sites.length === 0) return text('This account has no sites yet.');
         const rows = sites.map((site) => ({
@@ -452,7 +451,7 @@ export function registerTools(deps: ToolDeps): void {
           certificate: recordedCertificate(site, store.generatedHostname(site.id)),
         }));
         return text(rows.map((row) => [
-          describe(row.site, config, projectOf(row.site)),
+          describe(row.site, deps.addresses.urlForSite(row.site), projectOf(row.site)),
           ...(row.certificate ? [recordedCertificateLine(row.certificate)] : []),
         ].join('\n')).join('\n\n'), {
           sites: rows.map((row) => ({
@@ -481,7 +480,6 @@ export function registerTools(deps: ToolDeps): void {
         // what the route grants the same actor: an administrator reads the operational detail of what an
         // account published just as they do for an environment, for a file site precisely as for a proxy.
         const site = requireManaged(deps, input.site, userId);
-        const config = deps.config();
         const releases = site.kind === 'static' ? store.releases(site.id) : [];
         // What serves this publication, read through the account the Project belongs to rather than through
         // whoever is asking: the environment seam answers per account, and a reader of a site is not
@@ -497,7 +495,7 @@ export function registerTools(deps: ToolDeps): void {
         // most useful thing this tool can report, and it is only true if it is observed each time.
         const certificate = site.status === 'live' ? await deps.certificates.readiness(site) : null;
         return text([
-          describe(site, config, projectInfo),
+          describe(site, deps.addresses.urlForSite(site), projectInfo),
           `  base path  ${SITE_BASE_PATH}`,
           ...(certificate ? [`  certificate ${certificate.state} - ${certificate.detail}`] : []),
           `  guests     ${guests.length === 0 ? 'none' : guests.map((guest) => guest.name).join(', ')}`,
@@ -510,7 +508,7 @@ export function registerTools(deps: ToolDeps): void {
                 .map((release) => `  ${release.id}  ${release.createdAt}  ${release.fileCount} files  ${(release.sizeBytes / 1048576).toFixed(2)} MB${release.note ? `  ${release.note}` : ''}`)].join('\n'),
           site.lastError ? `\nLast error: ${site.lastError}` : '',
         ].join('\n'), {
-          siteId: site.id, slug: site.slug, url: siteUrl(config, site.slug), visibility: site.visibility,
+          siteId: site.id, slug: site.slug, url: deps.addresses.urlForSite(site), visibility: site.visibility,
           status: site.status, degraded: site.status === 'live' && site.lastError !== null,
           sourceDir: site.kind === 'static'
             ? project?.executionKind === 'managed' ? posix.join(`/${project.slug}`, site.sourceRel) : project ? join(project.path, ...site.sourceRel.split('/')) : site.sourceRel
@@ -565,7 +563,7 @@ export function registerTools(deps: ToolDeps): void {
         if (accessChanged) store.bumpAccessGeneration(site.id);
         const updated = store.siteById(site.id);
         if (!updated) return text('Updated.');
-        return text(`Updated.\n\n${describe(updated, deps.config(), projectOf(updated))}`);
+        return text(`Updated.\n\n${describe(updated, deps.addresses.urlForSite(updated), projectOf(updated))}`);
       } catch (error) {
         throw isRefusal(error) ? error : new Error(String(error));
       }
@@ -613,7 +611,7 @@ export function registerTools(deps: ToolDeps): void {
       }
       store.addMember(site.id, person.id);
       store.bumpAccessGeneration(site.id);
-      const address = siteUrl(deps.config(), site.slug);
+      const address = deps.addresses.urlForSite(site);
       return text([
         `${person.name} can now open "${site.title}".`,
         address

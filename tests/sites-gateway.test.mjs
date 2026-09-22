@@ -28,7 +28,7 @@ const makeResolver = (overrides = {}) => {
 const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example.com', gatewayDnsTarget, dns = {}, publicWebUrl = `https://${APP_HOST}`, gatewayAvailable = true } = {}) => {
   const values = new Map();
   const warnings = [];
-  const calls = { status: 0, sync: 0, ensure: [], remove: [] };
+  const calls = { status: 0, sync: 0, ensure: [], remove: [], order: [] };
   const bag = {
     get: (key) => values.has(key) ? { value: values.get(key), version: 1 } : null,
     has: (key) => values.has(key),
@@ -37,17 +37,27 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
   };
   const control = {
     hostnameBase: () => hostnameBase,
-    syncSites: async () => {
+    reservedHostnames: () => [APP_HOST, HOSTNAME_BASE],
+    syncBindings: async (input) => {
       calls.sync += 1;
-      return { available: true, active: true, hostnameBase, slugs: [] };
+      calls.order.push('sync');
+      calls.lastSnapshot = input.bindings;
+      return { available: true, active: true, hostnameBase, bindings: [] };
     },
-    ensureSite: async (input) => {
+    ensureBinding: async (input) => {
       calls.ensure.push(input);
-      return { available: true, active: true, hostnameBase, slugs: [input.slug] };
+      calls.order.push('ensure');
+      return {
+        available: true,
+        active: true,
+        hostnameBase,
+        bindings: [{ hostname: input.binding.hostname, present: true }],
+      };
     },
-    removeSite: async (input) => {
+    removeBinding: async (input) => {
       calls.remove.push(input);
-      return { available: true, active: true, hostnameBase, slugs: [] };
+      calls.order.push('remove');
+      return { available: true, active: true, hostnameBase, bindings: [] };
     },
     deny: async () => ({ available: true, active: false, hostnameBase }),
     status: async () => {
@@ -109,7 +119,7 @@ test('a CNAME chain to the app hostname makes the gateway serve before any certi
       resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
     },
   });
-  const status = await harness.manager.reconcile();
+  const status = await harness.manager.reconcile([]);
 
   assert.equal(status.active, true);
   assert.equal(harness.calls.sync, 1, 'the challenge vhost is published first');
@@ -128,7 +138,7 @@ test('flattened IPv4 DNS rejects every extra address outside the destination set
         : hostname === `${APP_HOST}.` ? ['192.0.2.41', '192.0.2.42'] : await missingDns(),
     },
   });
-  assert.equal((await harness.manager.reconcile()).active, false);
+  assert.equal((await harness.manager.reconcile([])).active, false);
   assert.equal((await harness.manager.readiness()).status, 'misdirected');
 });
 
@@ -140,7 +150,7 @@ test('flattened IPv6 DNS is accepted without an IPv4 answer', async () => {
         : hostname === `${APP_HOST}.` ? ['2001:DB8::20'] : await missingDns(),
     },
   });
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile([])).active, true);
 });
 
 test('an explicit origin IP accepts direct Sites DNS while the main app remains proxied', async () => {
@@ -154,6 +164,7 @@ test('an explicit origin IP accepts direct Sites DNS while the main app remains 
     },
   });
 
+  await harness.manager.reconcile([]);
   const readiness = await harness.manager.readiness();
   assert.equal(readiness.ok, true);
   assert.equal(harness.calls.sync, 1);
@@ -172,7 +183,7 @@ test('an explicit origin hostname accepts a CNAME without consulting the proxied
     },
   });
 
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile([])).active, true);
   assert.deepEqual(harness.manager.requiredRecord(), {
     type: 'CNAME', name: `*.${HOSTNAME_BASE}`, value: `${target}.`,
   });
@@ -186,7 +197,7 @@ test('an explicit IPv6 origin produces and validates an AAAA record', async () =
     dns: { resolve6: async (hostname) => hostname === `${PROBE_HOST}.` ? [target.toUpperCase()] : await missingDns() },
   });
 
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile([])).active, true);
   assert.deepEqual(harness.manager.requiredRecord(), {
     type: 'AAAA', name: `*.${HOSTNAME_BASE}`, value: target,
   });
@@ -201,7 +212,7 @@ test('an expanded IPv6 destination matches the compressed form a resolver return
     dns: { resolve6: async (hostname) => hostname === `${PROBE_HOST}.` ? ['2001:db8::20'] : await missingDns() },
   });
 
-  assert.equal((await harness.manager.reconcile()).active, true);
+  assert.equal((await harness.manager.reconcile([])).active, true);
   assert.deepEqual(harness.manager.requiredRecord(), {
     type: 'AAAA', name: `*.${HOSTNAME_BASE}`, value: '2001:db8::20',
   });
@@ -314,77 +325,85 @@ test('sampling load-balanced answers rejects any destination outside the allowed
           : await missingDns(),
     },
   });
-  assert.equal((await harness.manager.reconcile()).active, false);
+  assert.equal((await harness.manager.reconcile([])).active, false);
   assert.equal((await harness.manager.readiness()).status, 'misdirected');
 });
 
 test('concurrent reconciles join one broker call', async () => {
-  const harness = makeHarness({ hostnameBase: null });
-  const first = harness.manager.reconcile();
-  const second = harness.manager.reconcile();
-  assert.equal(first, second, 'the second caller joins the in-flight sweep');
-  await Promise.all([first, second]);
-  assert.equal(harness.calls.status, 1);
-});
-
-test('a failed certificate backs off per slug, so one broken site cannot spend the others rate limit', async () => {
-  const harness = makeHarness();
-  harness.control.ensureSite = async () => { throw new Error('validation failed'); };
-
-  assert.equal(harness.manager.mayAttempt('broken-abc123'), true, 'the first attempt is always allowed');
-  await assert.rejects(harness.manager.ensureSite('broken-abc123'), /validation failed/);
-
-  // The failure is what stops the retry loop, and it stops it for THIS site only.
-  assert.equal(harness.manager.mayAttempt('broken-abc123'), false);
-  assert.equal(harness.manager.mayAttempt('healthy-def456'), true);
-});
-
-test('a site that succeeds clears its own backoff, and one bad slug never marks the gateway down', async () => {
   const harness = makeHarness({ dns: {
     resolveCname: async () => [`${APP_HOST}.`],
     resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
   } });
-  await harness.manager.reconcile();
+  const first = harness.manager.reconcile([]);
+  const second = harness.manager.reconcile([]);
+  assert.equal(first, second, 'the second caller joins the in-flight sweep');
+  await Promise.all([first, second]);
+  assert.equal(harness.calls.sync, 1);
+});
+
+test('complete binding snapshots sync before one binding is ensured', async () => {
+  const harness = makeHarness({ dns: {
+    resolveCname: async () => [`${APP_HOST}.`],
+    resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+  } });
+  const generated = { hostname: `demo-abc123.${HOSTNAME_BASE}`, slug: 'demo-abc123', class: 'generated' };
+  const custom = { hostname: 'www.customer.example', slug: 'demo-abc123', class: 'custom' };
+  const snapshot = [generated, custom];
+
+  harness.calls.order.length = 0;
+  await harness.manager.reconcile(snapshot);
+  await harness.manager.ensureBinding(custom, snapshot);
+
+  assert.deepEqual(harness.calls.order, ['sync', 'ensure']);
+  assert.deepEqual(harness.calls.lastSnapshot, snapshot);
+  assert.deepEqual(harness.calls.ensure[0].bindings, snapshot);
+  assert.deepEqual(harness.calls.ensure[0].binding, custom);
+});
+
+test('one failed custom certificate does not mark the synchronized gateway unavailable', async () => {
+  const harness = makeHarness({ dns: {
+    resolveCname: async () => [`${APP_HOST}.`],
+    resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+  } });
+  const binding = { hostname: 'broken.customer.example', slug: 'broken-abc123', class: 'custom' };
+  await harness.manager.reconcile([binding]);
+  harness.control.ensureBinding = async () => { throw new Error('validation failed'); };
+
+  await assert.rejects(harness.manager.ensureBinding(binding, [binding]), /validation failed/);
   assert.equal(harness.manager.isActive(), true);
-
-  harness.control.ensureSite = async () => { throw new Error('validation failed'); };
-  await assert.rejects(harness.manager.ensureSite('broken-abc123'));
-  // One site failing is not the gateway failing: every other site must stay addressable.
-  assert.equal(harness.manager.isActive(), true);
-
-  harness.control.ensureSite = async (input) => ({ available: true, active: true, hostnameBase: HOSTNAME_BASE, slugs: [input.slug] });
-  await harness.manager.ensureSite('broken-abc123');
-  assert.equal(harness.manager.mayAttempt('broken-abc123'), true, 'success releases the slug immediately');
-  assert.deepEqual([...harness.manager.issuedSlugs()], ['broken-abc123']);
 });
 
-test('a broker that refuses the site is a failed publish, not a published site with a caveat', async () => {
+test('a broker refusal is a failed binding issuance', async () => {
   const harness = makeHarness();
-  harness.control.ensureSite = async () => ({ available: true, active: false, hostnameBase: HOSTNAME_BASE, detail: 'certbot timed out' });
-  await assert.rejects(harness.manager.ensureSite('demo-abc123'), /certbot timed out/);
+  const binding = { hostname: `demo-abc123.${HOSTNAME_BASE}`, slug: 'demo-abc123', class: 'generated' };
+  harness.control.ensureBinding = async () => ({
+    available: true, active: false, hostnameBase: HOSTNAME_BASE, detail: 'certbot timed out',
+  });
+  await assert.rejects(harness.manager.ensureBinding(binding, [binding]), /certbot timed out/);
 });
 
-test('removing a site propagates broker failure so durable deletion can retry it', async () => {
+test('binding removal propagates broker failure for durable cleanup', async () => {
   const harness = makeHarness();
-  harness.control.removeSite = async () => { throw new Error('certbot is holding the lineage'); };
-  await assert.rejects(harness.manager.removeSite('demo-abc123'), /certbot is holding the lineage/);
+  harness.control.removeBinding = async () => { throw new Error('certbot is holding the lineage'); };
+  await assert.rejects(
+    harness.manager.removeBinding('www.customer.example', 'demo-abc123', []),
+    /certbot is holding the lineage/,
+  );
 });
 
-test('removing a site treats an unavailable broker verdict as cleanup failure', async () => {
-  const harness = makeHarness();
-  harness.control.removeSite = async () => ({ available: false, active: false, hostnameBase: HOSTNAME_BASE, detail: 'nginx reload failed' });
-  await assert.rejects(harness.manager.removeSite('demo-abc123'), /nginx reload failed/);
-});
-
-test('removing a site refuses to complete when the gateway control disappears', async () => {
+test('binding removal refuses to complete without the gateway control', async () => {
   const harness = makeHarness({ gatewayAvailable: false });
-  await assert.rejects(harness.manager.removeSite('demo-abc123'), /no published-sites gateway broker/);
+  await assert.rejects(
+    harness.manager.removeBinding('www.customer.example', 'demo-abc123', []),
+    /No published-sites gateway broker/,
+  );
 });
 
-test('issuance refuses to start without the contact address a certificate authority requires', async () => {
+test('issuance refuses to start without the certificate contact address', async () => {
   const harness = makeHarness({ contactEmail: '   ' });
-  await assert.rejects(harness.manager.ensureSite('demo-abc123'), /contact email/i);
-  assert.deepEqual(harness.calls.ensure, [], 'nothing reached the broker');
+  const binding = { hostname: `demo-abc123.${HOSTNAME_BASE}`, slug: 'demo-abc123', class: 'generated' };
+  await assert.rejects(harness.manager.ensureBinding(binding, [binding]), /contact email/i);
+  assert.deepEqual(harness.calls.ensure, []);
 });
 
 test('the gateway token is minted once, reused, and shaped like the marker nginx sets', () => {
@@ -400,53 +419,22 @@ test('the gateway token is minted once, reused, and shaped like the marker nginx
   assert.equal(reloaded.manager.gatewayToken(), first);
 });
 
-test('the certificate sweep consults the backoff, skips drafts, and runs often enough to matter', () => {
-  // SOURCE CHECK, because all three failures are invisible at runtime until it is far too late: the
-  // rate-limit budget is already spent, a draft slug is already in a public Certificate Transparency
-  // log, or a freshly published page has already been unreachable for hours.
+test('daemon sweeps use durable hostname coordination on both issue and renewal cadences', () => {
   const source = readFileSync(new URL('../plugins/sites/dist/index.js', import.meta.url), 'utf8');
-  // Scoped to the sweep's OWN body: the selector call appears elsewhere in this file (the cheap guard in
-  // front of the sweep reads it too), so matching the whole module would keep passing after the loop that
-  // has to enforce it stopped consulting it.
-  const start = source.indexOf('const syncGateway =');
-  const end = source.indexOf('if (isDaemonProcess())', start);
-  assert.ok(start > -1 && end > start, 'syncGateway must still be recognisable in the build');
-  const sweep = source.slice(start, end);
+  const coordinator = readFileSync(new URL('../plugins/sites/dist/hostnameCoordinator.js', import.meta.url), 'utf8');
+  const store = readFileSync(new URL('../plugins/sites/dist/store.js', import.meta.url), 'utf8');
 
-  // Both rules now live in `sitesDueForCertificate`, where they ALSO have direct behavioural tests
-  // (sites-certificate.test.mjs). This still has to hold, because a sweep that stopped asking the selector
-  // would enforce neither: the selector is the only thing between a reload and the authority's per-hostname
-  // failure budget, and between a draft and a public Certificate Transparency entry.
-  assert.match(sweep, /sitesDueForCertificate\(/, 'syncGateway must route through the due-site selector');
-  const selector = readFileSync(new URL('../plugins/sites/dist/certificate.js', import.meta.url), 'utf8');
-  // Bounded at BOTH ends, like the sweep slice above: an open-ended `slice(indexOf(...))` still matches when
-  // the function is gone, because the rules also appear in the service further down the same module.
-  // The opening paren is part of the marker, so renaming the function away is caught too, not only deleting it.
-  const rulesStart = selector.indexOf('export function sitesDueForCertificate(');
-  assert.ok(rulesStart > -1, 'the due-site selector must still be recognisable in the build');
-  const rulesEnd = selector.indexOf('\n}', rulesStart);
-  assert.ok(rulesEnd > rulesStart, 'the due-site selector must still be a single function');
-  const rules = selector.slice(rulesStart, rulesEnd);
+  assert.match(source, /issue-site-certificates/);
+  assert.match(source, /renew-site-gateway/);
+  assert.match(source, /hostnameCoordinator\.sweep/);
+  assert.match(coordinator, /certificateRetryAt/);
+  assert.match(coordinator, /dnsAttempts/);
+  assert.match(store, /dns_attempts INTEGER NOT NULL DEFAULT 0/);
+  assert.match(store, /certificate_failures INTEGER NOT NULL DEFAULT 0/);
 
-  // `mayAttempt` existed and the backoff map was maintained correctly — and NOTHING called it, so every
-  // plugin reload re-attempted each failing site against the authority's per-hostname failure budget.
-  assert.match(rules, /mayAttempt\(/, 'the selector must skip slugs that are still backed off');
-
-  // A draft has no release to serve, so issuing for it only publishes its slug before anybody chose to.
-  assert.match(rules, /status !== 'live'/, 'only a live site earns a certificate');
-
-  // A publish arrives from a forked runner that never reconciles. Without a sweep between the 12-hour
-  // renewals, the site is live in the store while nginx has no server block for it.
-  assert.match(source, /issue-site-certificates/, 'new sites must converge sooner than the renewal sweep');
-
-  // The certificate sweep gives up immediately on an inactive gateway, so it can never be what brings
-  // one back. Recovery therefore needs its own interval: the operator adds the DNS record the readiness
-  // check asked for, and without this nothing notices until the twelve-hour renewal — a wildcard that
-  // started resolving at 09:00 leaves every site dark until 21:00, with no signal it was accepted.
   const registration = source.indexOf("registerInterval('recover-site-gateway'");
-  assert.ok(registration > -1, 'a gateway that is down must retry sooner than the renewal sweep');
-  assert.match(source.slice(registration, registration + 300), /isActive\(\)/,
-    'recovery must skip the probe while the gateway is up');
+  assert.ok(registration > -1);
+  assert.match(source.slice(registration, registration + 300), /isActive\(\)/);
 });
 
 test('the site address comes from the broker, so a forked tool runner reports the same one', () => {

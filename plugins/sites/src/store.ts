@@ -68,12 +68,14 @@ export interface SiteHostnameRecord {
   dnsObserved: string[];
   dnsCheckedAt: string | null;
   dnsNextCheckAt: string | null;
+  dnsAttempts: number;
   certificateState: SiteHostnameCertificateState;
   certificateRequestedAt: string | null;
   certificateErrorCode: string | null;
   certificateErrorDetail: string | null;
   certificateRetryAt: string | null;
   certificateNotAfter: string | null;
+  certificateFailures: number;
   removalRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -205,12 +207,14 @@ interface SiteHostnameDbRow {
   dns_observed_json: string;
   dns_checked_at: string | null;
   dns_next_check_at: string | null;
+  dns_attempts: number;
   certificate_state: string;
   certificate_requested_at: string | null;
   certificate_error_code: string | null;
   certificate_error_detail: string | null;
   certificate_retry_at: string | null;
   certificate_not_after: string | null;
+  certificate_failures: number;
   removal_requested_at: string | null;
   created_at: string;
   updated_at: string;
@@ -317,12 +321,14 @@ const toHostname = (row: SiteHostnameDbRow): SiteHostnameRecord => ({
   dnsObserved: observedDnsValues(row.dns_observed_json),
   dnsCheckedAt: row.dns_checked_at,
   dnsNextCheckAt: row.dns_next_check_at,
+  dnsAttempts: row.dns_attempts,
   certificateState: enumValue(row.certificate_state, HOSTNAME_CERTIFICATE_STATES, 'certificate state'),
   certificateRequestedAt: row.certificate_requested_at,
   certificateErrorCode: row.certificate_error_code,
   certificateErrorDetail: row.certificate_error_detail,
   certificateRetryAt: row.certificate_retry_at,
   certificateNotAfter: row.certificate_not_after,
+  certificateFailures: row.certificate_failures,
   removalRequestedAt: row.removal_requested_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -774,6 +780,15 @@ export class SitesStore {
           `);
         },
       },
+      {
+        version: 21,
+        // Retry ownership belongs to the hostname row. Keeping the counters beside the durable next-attempt
+        // timestamps means a plugin reload resumes the same exponential schedule instead of starting over.
+        up: handle => handle.exec(`
+          ALTER TABLE p_sites_hostnames ADD COLUMN dns_attempts INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE p_sites_hostnames ADD COLUMN certificate_failures INTEGER NOT NULL DEFAULT 0;
+        `),
+      },
     ]);
     if (hostnameBase !== null && this.db.appliedVersion() >= 20) {
       this.reconcileGeneratedHostnames(hostnameBase);
@@ -950,6 +965,32 @@ export class SitesStore {
       .all(siteId) as SiteHostnameDbRow[]).map(toHostname);
   }
 
+  allCustomHostnames(): SiteHostnameRecord[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE kind = 'custom' AND removal_requested_at IS NULL
+      ORDER BY created_at, id
+    `).all() as SiteHostnameDbRow[]).map(toHostname);
+  }
+
+  customHostnamesDueForDns(at = this.now()): SiteHostnameRecord[] {
+    const now = new Date(at).toISOString();
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE kind = 'custom' AND removal_requested_at IS NULL
+        AND (dns_next_check_at IS NULL OR dns_next_check_at <= ?)
+      ORDER BY COALESCE(dns_next_check_at, created_at), id
+    `).all(now) as SiteHostnameDbRow[]).map(toHostname);
+  }
+
+  hostnamesPendingRemoval(): SiteHostnameRecord[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE removal_requested_at IS NOT NULL
+      ORDER BY removal_requested_at, id
+    `).all() as SiteHostnameDbRow[]).map(toHostname);
+  }
+
   expireUnverifiedHostnameReservations(): number {
     const now = new Date(this.now()).toISOString();
     return Number(this.db.prepare(`
@@ -1036,36 +1077,67 @@ export class SitesStore {
     const now = new Date(this.now()).toISOString();
     const result = this.db.prepare(`
       UPDATE p_sites_hostnames
-      SET dns_state = ?, dns_observed_json = ?, dns_checked_at = ?, dns_next_check_at = ?, updated_at = ?
+      SET dns_state = ?, dns_observed_json = ?, dns_checked_at = ?, dns_next_check_at = ?,
+          dns_attempts = dns_attempts + 1, updated_at = ?
       WHERE id = ? AND removal_requested_at IS NULL
     `).run(state, json, now, nextCheckAt, now, id);
     if (result.changes !== 1) throw new Error('The hostname is absent or being removed.');
   }
 
-  setHostnameCertificateState(id: string, state: SiteHostnameCertificateState): void {
-    if (!HOSTNAME_CERTIFICATE_STATES.has(state)) throw new Error(`Invalid certificate state: ${state}`);
+  recordHostnameCertificate(
+    id: string,
+    update: {
+      state: SiteHostnameCertificateState;
+      errorCode?: string | null;
+      errorDetail?: string | null;
+      retryAt?: string | null;
+      notAfter?: string | null;
+    },
+  ): void {
+    if (!HOSTNAME_CERTIFICATE_STATES.has(update.state)) {
+      throw new Error(`Invalid certificate state: ${update.state}`);
+    }
     this.db.transaction(() => {
       const row = this.db.prepare('SELECT * FROM p_sites_hostnames WHERE id = ?').get(id) as SiteHostnameDbRow | undefined;
-      if (!row) throw new Error('The hostname does not exist.');
-      if (row.removal_requested_at !== null) throw new Error('The hostname is being removed.');
-      if (state === 'ready' && row.kind === 'custom'
+      if (!row || row.removal_requested_at !== null) throw new Error('The hostname is absent or being removed.');
+      if (update.state === 'ready' && row.kind === 'custom'
         && (row.ownership_verified_at === null || row.dns_state !== 'ready')) {
         throw new Error('A custom hostname must have verified ownership and ready DNS before its certificate is ready.');
       }
       const now = new Date(this.now()).toISOString();
+      const failure = update.state === 'authority_refused' || update.state === 'rate_limited';
       this.db.prepare(`
         UPDATE p_sites_hostnames
         SET certificate_state = ?,
-            certificate_requested_at = CASE WHEN ? = 'requested' THEN COALESCE(certificate_requested_at, ?) ELSE certificate_requested_at END,
-            certificate_error_code = CASE WHEN ? = 'ready' THEN NULL ELSE certificate_error_code END,
-            certificate_error_detail = CASE WHEN ? = 'ready' THEN NULL ELSE certificate_error_detail END,
+            certificate_requested_at = CASE
+              WHEN ? IN ('requested', 'issuing') THEN COALESCE(certificate_requested_at, ?)
+              WHEN ? = 'ready' THEN NULL
+              ELSE certificate_requested_at
+            END,
+            certificate_error_code = ?,
+            certificate_error_detail = ?,
+            certificate_retry_at = ?,
+            certificate_not_after = COALESCE(?, certificate_not_after),
+            certificate_failures = CASE WHEN ? = 'ready' THEN 0 WHEN ? THEN certificate_failures + 1 ELSE certificate_failures END,
             updated_at = ?
         WHERE id = ?
-      `).run(state, state, now, state, state, now, id);
-      if (state === 'ready' && row.kind === 'custom') {
+      `).run(
+        update.state,
+        update.state,
+        now,
+        update.state,
+        update.errorCode ?? null,
+        update.errorDetail?.slice(0, 600) ?? null,
+        update.retryAt ?? null,
+        update.notAfter ?? null,
+        update.state,
+        failure ? 1 : 0,
+        now,
+        id,
+      );
+      if (update.state === 'ready' && row.kind === 'custom') {
         this.db.prepare(`
-          UPDATE p_sites_sites
-          SET primary_custom_hostname_id = ?, updated_at = ?
+          UPDATE p_sites_sites SET primary_custom_hostname_id = ?, updated_at = ?
           WHERE id = ? AND primary_custom_hostname_id IS NULL
         `).run(id, now, row.site_id);
       }
