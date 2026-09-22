@@ -166,33 +166,6 @@ export const probeGatewayCertificate: GatewayCertificateProbe = (
   });
 });
 
-/** Which live sites the gateway sweep must ask for on this pass.
- *
- *  One place, because the sweep and the cheap "is anything pending" guard in front of it have to agree: a
- *  guard that answered no to a site the sweep would have issued is how an explicit request goes unanswered
- *  until the twelve-hour renewal.
- *
- *  An explicit request outranks the `issued` skip, which would otherwise ignore a republication whose
- *  certificate needs reinstating in the gateway config. It deliberately does NOT outrank the backoff: that
- *  exists because the authority counts FAILED validations per hostname per hour against a budget every site
- *  on the instance shares, and the caller most likely to ask again in a loop is exactly the agent whose
- *  publish just reported a failure. A backed-off site reports its recorded reason instead. */
-export function sitesDueForCertificate<T extends {
-  slug: string;
-  status: Site['status'];
-  certificateRequestedAt: string | null;
-}>(
-  sites: readonly T[],
-  options: { all: boolean; issued: ReadonlySet<string>; mayAttempt(slug: string): boolean },
-): T[] {
-  return sites.filter((site) => {
-    if (site.status !== 'live') return false;
-    if (!options.mayAttempt(site.slug)) return false;
-    if (site.certificateRequestedAt != null) return true;
-    return options.all || !options.issued.has(site.slug);
-  });
-}
-
 /** What the site row alone says about this site's certificate.
  *
  *  Three states, and `ready` is deliberately not among them: the row records that a request was made and why

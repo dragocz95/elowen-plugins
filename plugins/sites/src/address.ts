@@ -6,14 +6,6 @@ export interface SiteAddressBinding extends SitesGatewayBinding {
   siteId: string;
 }
 
-export interface SiteAddress {
-  id: string;
-  hostname: string;
-  url: string;
-  generated: boolean;
-  effective: boolean;
-}
-
 type AddressStore = Pick<SitesStore,
   'allSites' | 'generatedHostname' | 'customHostnames' | 'hostnameById' | 'siteById'>;
 
@@ -70,26 +62,6 @@ export class SiteAddressService {
   urlForSite(site: Pick<Site, 'id' | 'primaryCustomHostnameId'>): string | null {
     const hostname = this.effectiveHostname(site);
     return hostname === null ? null : this.urlForHostname(hostname);
-  }
-
-  urlForBinding(site: Pick<Site, 'id'>, bindingId: string): string | null {
-    const binding = this.bindings().find((entry) => entry.id === bindingId && entry.siteId === site.id);
-    return binding ? this.urlForHostname(binding.hostname) : null;
-  }
-
-  allAddresses(site: Pick<Site, 'id' | 'primaryCustomHostnameId'>): SiteAddress[] {
-    const effective = this.effectiveHostname(site);
-    const records = [
-      ...(this.generatedHostname(site) ? [this.generatedHostname(site) as SiteHostnameRecord] : []),
-      ...this.activeCustomHostnames(site),
-    ];
-    return records.map((record) => ({
-      id: record.id,
-      hostname: record.hostname,
-      url: this.urlForHostname(record.hostname),
-      generated: record.kind === 'generated',
-      effective: record.hostname === effective,
-    }));
   }
 
   bindings(now = Date.now(), excludedSiteIds: ReadonlySet<string> = new Set()): SiteAddressBinding[] {

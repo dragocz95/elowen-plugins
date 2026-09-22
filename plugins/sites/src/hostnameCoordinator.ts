@@ -129,7 +129,6 @@ export class SiteHostnameCoordinator {
       this.deps.store.recordHostnameOwnership(
         record.id,
         ownership.state,
-        ownership.observedValues,
         'detail' in ownership ? ownership.detail ?? null : null,
       );
     }

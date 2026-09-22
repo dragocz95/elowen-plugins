@@ -125,7 +125,7 @@ test('the server returns canonical names and exact root/subdomain record plans w
 
 test('domain projection covers every setup, certificate and removal state', async () => {
   const scenarios = [
-    ['awaiting_ownership', (store, row) => store.recordHostnameOwnership(row.id, 'missing', [])],
+    ['awaiting_ownership', (store, row) => store.recordHostnameOwnership(row.id, 'missing')],
     ['awaiting_routing', (store, row) => {
       store.verifyHostnameOwnership(row.id);
       store.recordHostnameDns(row.id, 'missing', []);
@@ -148,11 +148,6 @@ test('domain projection covers every setup, certificate and removal state', asyn
       store.verifyHostnameOwnership(row.id);
       store.recordHostnameDns(row.id, 'ready', ['192.0.2.44']);
       store.recordHostnameCertificate(row.id, { state: 'authority_refused', errorCode: 'authority_refused', errorDetail: 'CAA refused issuance' });
-    }],
-    ['rate_limited', (store, row) => {
-      store.verifyHostnameOwnership(row.id);
-      store.recordHostnameDns(row.id, 'ready', ['192.0.2.44']);
-      store.recordHostnameCertificate(row.id, { state: 'rate_limited', errorCode: 'rate_limited', retryAt: '2026-09-22T07:00:00.000Z' });
     }],
     ['renewal_blocked', (store, row) => {
       store.verifyHostnameOwnership(row.id);

@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { createServer } from 'node:net';
 
 import { SitesStore } from '../plugins/sites/dist/store.js';
-import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificate, recordedCertificate, sitesDueForCertificate } from '../plugins/sites/dist/certificate.js';
+import { SiteCertificateService, evaluatePeerCertificate, probeGatewayCertificate, recordedCertificate } from '../plugins/sites/dist/certificate.js';
 
 const HOSTNAME = 'demo-abc123.sites.elowen.example';
 const OTHER_HOSTNAME = 'someone-else.sites.elowen.example';
@@ -294,37 +294,6 @@ test('a gateway that answers no TLS handshake is an error rather than a pending 
 
   assert.equal(readiness.state, 'error');
   assert.match(readiness.detail, /ECONNREFUSED/);
-});
-
-test('the sweep selector skips drafts and certified sites but never an explicitly requested one', () => {
-  const sites = [
-    { slug: 'draft', status: 'draft', certificateRequestedAt: null },
-    { slug: 'certified', status: 'live', certificateRequestedAt: null },
-    { slug: 'uncertified', status: 'live', certificateRequestedAt: null },
-    { slug: 'certified-but-requested', status: 'live', certificateRequestedAt: '2026-09-12T02:40:00.000Z' },
-  ];
-
-  const due = sitesDueForCertificate(sites, {
-    all: false,
-    issued: new Set(['certified', 'certified-but-requested']),
-    mayAttempt: () => true,
-  });
-
-  assert.deepEqual(due.map((entry) => entry.slug), ['uncertified', 'certified-but-requested']);
-});
-
-test('the backoff outranks an explicit request, so a retry loop cannot spend the failure budget', () => {
-  // The request overrides the "already issued" skip and NOTHING else. Letting it override the backoff put
-  // the authority's shared per-hour validation budget at the mercy of an agent republishing after a failure.
-  const sites = [
-    { slug: 'backed-off', status: 'live', certificateRequestedAt: null },
-    { slug: 'backed-off-but-requested', status: 'live', certificateRequestedAt: '2026-09-12T02:40:00.000Z' },
-    { slug: 'requested-draft', status: 'draft', certificateRequestedAt: '2026-09-12T02:40:00.000Z' },
-  ];
-
-  const due = sitesDueForCertificate(sites, { all: false, issued: new Set(), mayAttempt: () => false });
-
-  assert.deepEqual(due, []);
 });
 
 test('a hostname this process cannot derive is pending without the broker and an error with it', async () => {

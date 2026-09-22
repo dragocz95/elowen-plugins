@@ -28,7 +28,6 @@ type SiteDomainStatus =
   | 'issuing'
   | 'ready'
   | 'authority_refused'
-  | 'rate_limited'
   | 'renewal_blocked'
   | 'expired'
   | 'removing';
@@ -45,10 +44,8 @@ type SiteDomainStatusCode =
   | 'certificate_waiting'
   | 'certificate_requested'
   | 'certificate_issuing'
-  | 'certificate_reload_pending'
   | 'certificate_ready'
   | 'authority_refused'
-  | 'rate_limited'
   | 'gateway_configuration_failed'
   | 'gateway_not_serving'
   | 'renewal_dns_missing'
@@ -157,8 +154,6 @@ const codeParams = (
     case 'authority_refused':
     case 'gateway_configuration_failed':
       return { detail: bounded(code === 'ownership_unavailable' ? record.ownershipErrorDetail : code === 'dns_unavailable' ? record.dnsErrorDetail : record.certificateErrorDetail) };
-    case 'rate_limited':
-      return { time: record.certificateRetryAt ?? '' };
     case 'certificate_ready':
       return { date: record.certificateNotAfter ?? '' };
     case 'renewal_dns_missing':
@@ -193,7 +188,6 @@ const routingCode = (state: SiteHostnameDnsState): SiteDomainStatusCode => {
 const certificateCode = (record: SiteHostnameRecord): SiteDomainStatusCode => {
   if (record.certificateErrorCode && [
     'authority_refused',
-    'rate_limited',
     'gateway_configuration_failed',
     'gateway_not_serving',
     'renewal_dns_missing',
@@ -207,7 +201,6 @@ const certificateCode = (record: SiteHostnameRecord): SiteDomainStatusCode => {
     case 'issuing': return 'certificate_issuing';
     case 'ready': return 'certificate_ready';
     case 'authority_refused': return 'authority_refused';
-    case 'rate_limited': return 'rate_limited';
     case 'renewal_blocked': return record.dnsState === 'misdirected' ? 'renewal_dns_misdirected' : 'renewal_dns_missing';
     case 'expired': return 'certificate_expired';
     default: return 'certificate_waiting';
@@ -224,7 +217,6 @@ const domainStatus = (
   if (certificate === 'certificate_expired') return { status: 'expired', code: certificate };
   if (record.certificateState === 'renewal_blocked') return { status: 'renewal_blocked', code: certificate };
   if (record.certificateState === 'ready') return { status: 'ready', code: certificate };
-  if (certificate === 'rate_limited') return { status: 'rate_limited', code: certificate };
   if (certificate === 'authority_refused' || certificate === 'gateway_configuration_failed') {
     return { status: 'authority_refused', code: certificate };
   }

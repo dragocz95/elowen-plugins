@@ -82,9 +82,11 @@ test('migration v20 upgrades the exact v19 shape and preserves generated URL and
   const upgraded = makeDb({ from: v19 });
   const store = new SitesStore(upgraded, { hostnameBase: BASE });
 
-  assert.equal(upgraded.appliedVersion(), 22);
+  assert.equal(upgraded.appliedVersion(), 23);
   const siteColumns = upgraded.prepare("PRAGMA table_info('p_sites_sites')").all().map((column) => column.name);
   assert.ok(siteColumns.includes('primary_custom_hostname_id'));
+  const hostnameColumns = upgraded.prepare("PRAGMA table_info('p_sites_hostnames')").all().map((column) => column.name);
+  assert.ok(!hostnameColumns.includes('ownership_observed_json'));
   assert.ok(!siteColumns.includes('certificate_requested_at'));
   assert.ok(!siteColumns.includes('certificate_error'));
 
@@ -134,7 +136,7 @@ test('a hostless v19 upgrade starts and reconciles generated rows when a base la
 
   const upgraded = makeDb({ from: v19 });
   const hostless = new SitesStore(upgraded);
-  assert.equal(upgraded.appliedVersion(), 22);
+  assert.equal(upgraded.appliedVersion(), 23);
   assert.equal(hostless.generatedHostname('hostless'), null);
 
   const configured = new SitesStore(makeDb({ from: upgraded }), { hostnameBase: BASE });
