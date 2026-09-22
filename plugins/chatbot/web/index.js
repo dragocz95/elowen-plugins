@@ -456,7 +456,7 @@ var WIDGET_ASSET_NAME = "widget.js";
 var MESSAGE_MAX_BYTES = 8 * 1024;
 var VISITOR_TEXT_MAX_BYTES = 2 * 1024;
 var PAGE_STATE_MAX_BYTES = 32 * 1024;
-var WIDGET_MAX_ACTIONS_PER_TURN = 20;
+var WIDGET_MAX_ACTIONS_PER_TURN = 50;
 var PUBLIC_SEGMENTS = {
   handoff: "handoff",
   visitors: "visitors",
@@ -511,7 +511,7 @@ var MANDATORY_LIMITS = {
     column: "rate_ip_per_minute",
     min: 1,
     max: 1e5,
-    default: 30,
+    default: 75,
     slider: { min: 5, max: 300, step: 5 }
   },
   // Bounds every visitor of one chatbot together, whatever address they come from.
@@ -519,7 +519,7 @@ var MANDATORY_LIMITS = {
     column: "rate_chatbot_per_minute",
     min: 1,
     max: 1e5,
-    default: 60,
+    default: 150,
     slider: { min: 10, max: 600, step: 10 }
   },
   // Bounds one visitor's own conversation. This is the number that stops a single widget from spending a
@@ -528,7 +528,7 @@ var MANDATORY_LIMITS = {
     column: "rate_conversation_per_minute",
     min: 1,
     max: 1e4,
-    default: 10,
+    default: 25,
     slider: { min: 1, max: 60, step: 1 }
   },
   // Turns this chatbot admits per UTC day, counted by the plugin itself at admission.
@@ -536,7 +536,7 @@ var MANDATORY_LIMITS = {
     column: "daily_turn_limit",
     min: 1,
     max: 1e7,
-    default: 200,
+    default: 500,
     slider: { min: 10, max: 1e4, step: 10 }
   },
   // How many of this chatbot's turns may run at the same time.
@@ -544,7 +544,7 @@ var MANDATORY_LIMITS = {
     column: "max_concurrent_turns",
     min: 1,
     max: 64,
-    default: 2,
+    default: 5,
     slider: { min: 1, max: 32, step: 1 }
   },
   // How many may wait for a slot. Depth plus concurrency bounds everything one chatbot can hold.
@@ -552,7 +552,7 @@ var MANDATORY_LIMITS = {
     column: "max_queue_depth",
     min: 1,
     max: 1e4,
-    default: 4,
+    default: 10,
     slider: { min: 1, max: 100, step: 1 }
   },
   // How long a turn may wait for a slot before it is closed with no model call. An hour is the bound; the
@@ -561,16 +561,17 @@ var MANDATORY_LIMITS = {
     column: "queue_timeout_seconds",
     min: 1,
     max: 3600,
-    default: 60,
+    default: 150,
     slider: { min: 5, max: 600, step: 5 }
   },
   // The per-turn ceiling on page actions, bounded by what the served widget will perform: two numbers for one
   // budget would be one number too many, and the server must never approve an action the widget refuses.
+  // Reading the page counts, and a read precedes every click, so a booking form costs well over a dozen.
   maxActionsPerTurn: {
     column: "max_actions_per_turn",
     min: 1,
     max: WIDGET_MAX_ACTIONS_PER_TURN,
-    default: 8,
+    default: 20,
     slider: { min: 1, max: WIDGET_MAX_ACTIONS_PER_TURN, step: 1 }
   },
   // How long a visitor's conversation is kept before the cleaner deletes it, core transcript included.
@@ -1402,6 +1403,7 @@ var CS = {
   launcher: "Otev\u0159\xEDt chat",
   title: "Chat",
   close: "Zav\u0159\xEDt",
+  stop: "Zastavit p\u0159\xEDjem odpov\u011Bdi",
   placeholder: "Napi\u0161te zpr\xE1vu",
   intro: "Dobr\xFD den. Pomohu v\xE1m s vypln\u011Bn\xEDm formul\xE1\u0159e na t\xE9to str\xE1nce.",
   quickButtons: "Rychl\xE9 dotazy",
@@ -1424,6 +1426,7 @@ var SK = {
   launcher: "Otvori\u0165 chat",
   title: "Chat",
   close: "Zavrie\u0165",
+  stop: "Zastavi\u0165 pr\xEDjem odpovede",
   placeholder: "Nap\xED\u0161te spr\xE1vu",
   intro: "Dobr\xFD de\u0148. Pom\xF4\u017Eem v\xE1m s vyplnen\xEDm formul\xE1ra na tejto str\xE1nke.",
   quickButtons: "R\xFDchle ot\xE1zky",
@@ -1446,6 +1449,7 @@ var EN = {
   launcher: "Open chat",
   title: "Chat",
   close: "Close",
+  stop: "Stop receiving the answer",
   placeholder: "Write a message",
   intro: "Hello. I can help you fill in the form on this page.",
   quickButtons: "Quick questions",
@@ -19675,6 +19679,11 @@ function chatConfig(input) {
   const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === "circle" ? "50%" : "8px";
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
+  const sendContainer = {
+    default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+    hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+    click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius }
+  };
   return {
     chatStyle: {
       // The GROUND is painted by the panel's own `.messages` element, not here. deep-chat reads `chatStyle`
@@ -19708,12 +19717,9 @@ function chatConfig(input) {
       }
     },
     submitButtonStyles: {
+      position: "inside-end",
       submit: {
-        container: {
-          default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
-          hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
-          click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius }
-        },
+        container: sendContainer,
         svg: {
           content: appearanceIconSvg(appearance.send.icon),
           styles: { default: { color: appearance.colors.sendIcon, width: "20px", height: "20px" } }
@@ -19727,6 +19733,17 @@ function chatConfig(input) {
         svg: { content: appearanceIconSvg(appearance.send.icon), styles: { default: { color: appearance.colors.sendIcon, width: "20px", height: "20px" } } }
       }
     },
+    customButtons: [{
+      position: "inside-end",
+      styles: { button: { default: {
+        container: sendContainer,
+        svg: {
+          content: '<svg xmlns="http://www.w3.org/2000/svg" data-cb-stop-icon="" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+          styles: { default: { color: appearance.colors.sendIcon, filter: "none", width: "20px", height: "20px" } }
+        }
+      } } },
+      onClick: input.onStop
+    }],
     // The bubble's FILL is the customer's and its INK is not: whichever of the two inks reads better on that
     // fill is the one used, so a white bubble and a black one are both legible without a second control.
     messageStyles: {
@@ -19749,8 +19766,29 @@ function chatConfig(input) {
       }
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
-    // library provides for exactly that.
-    auxiliaryStyle: `.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+    // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
+    // only the primary color source changes to the widget appearance's send color.
+    auxiliaryStyle: `
+:host { --cb-stop-color: ${appearance.colors.sendButton}; }
+:host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
+:host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
+.input-button:has([data-cb-stop-icon]) { right: .33em !important; }
+:host([data-answer-active]) .input-button:has([data-cb-stop-icon]) { animation: stop-pulse 1.6s ease-out infinite; }
+:host([data-answer-active]) [data-cb-stop-icon] { animation: stop-pulse-icon 1.6s ease-in-out infinite; }
+@keyframes stop-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--cb-stop-color) 85%, transparent); }
+  70% { box-shadow: 0 0 0 12px color-mix(in oklab, var(--cb-stop-color) 30%, transparent); }
+  100% { box-shadow: 0 0 0 16px color-mix(in oklab, var(--cb-stop-color) 0%, transparent); }
+}
+@keyframes stop-pulse-icon {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :host([data-answer-active]) .input-button:has([data-cb-stop-icon]),
+  :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
+}
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -19884,6 +19922,7 @@ var ChatPanel = class {
   answer = "";
   answerIndex = null;
   signals = null;
+  answerActive = false;
   pendingConfirmation = null;
   constructor(options) {
     this.strings = options.strings;
@@ -20015,6 +20054,8 @@ var ChatPanel = class {
     this.answer = "";
     this.answerIndex = null;
     this.clearStatus();
+    this.answerActive = true;
+    this.syncAnswerControl();
     this.signals?.onOpen();
   }
   streamAnswer(text) {
@@ -20023,6 +20064,8 @@ var ChatPanel = class {
     this.writeAnswer(this.answer);
   }
   finishAnswer(text) {
+    this.answerActive = false;
+    this.syncAnswerControl();
     this.answer = text === "" ? this.answer : text;
     const signals = this.signals;
     this.signals = null;
@@ -20043,6 +20086,8 @@ var ChatPanel = class {
     this.setStatus(text, false);
   }
   error(text) {
+    this.answerActive = false;
+    this.syncAnswerControl();
     this.setStatus(text, true);
     this.signals?.onClose();
     this.signals = null;
@@ -20090,7 +20135,7 @@ var ChatPanel = class {
    *  one reconfigured for a new look are configured identically, or the panel a visitor sees and the panel an
    *  administrator previews would be two different things. */
   chatConfig() {
-    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text) });
+    return chatConfig({ look: this.look, strings: this.strings, onQuickButton: (text) => this.sendQuick(text), onStop: () => this.stopAnswer() });
   }
   /** One chat element, configured from the current look. `connect` is what makes this widget answer with its
    *  own transport instead of a service client, and `onComponentRender` is the one moment the library says
@@ -20098,20 +20143,39 @@ var ChatPanel = class {
   createChat() {
     const chat = document.createElement("deep-chat");
     Object.assign(chat, this.chatConfig());
+    chat.validateInput = (text) => !this.answerActive && !!text?.trim();
     chat.connect = {
       stream: true,
       handler: (body, signals) => this.handleSubmit(body, signals)
     };
     chat.onComponentRender = () => {
       this.ready = true;
+      this.syncAnswerControl();
       for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
       this.scrollToLatest();
     };
     return chat;
   }
-  /** Whether the message element has nothing to lose: it has rendered, it has drawn no message, and nothing
-   *  is waiting to be drawn into it. An element that has not rendered yet cannot take a reconfiguration at
-   *  all — there is nothing to re-render — so it is replaced, which is free because it is empty. */
+  /** Session begin/end signals, not a local submit, own whether stopping is possible. The custom stop
+   *  occupies the native send slot without reaching into deep-chat's private submit/validation state. */
+  syncAnswerControl() {
+    this.chat.toggleAttribute("data-answer-active", this.answerActive);
+    const stop = this.chat.shadowRoot?.querySelector(".input-button:has([data-cb-stop-icon])");
+    stop?.setAttribute("aria-label", this.strings.stop);
+    stop?.setAttribute("title", this.strings.stop);
+    if (!this.answerActive && this.ready) this.chat.disableSubmitButton(false);
+  }
+  stopAnswer() {
+    if (!this.answerActive) return;
+    this.onStop();
+    this.answerActive = false;
+    this.signals?.onClose();
+    this.signals = null;
+    this.answerIndex = null;
+    this.syncAnswerControl();
+    this.flushRedraw();
+  }
+  /** Only a rendered, empty element can be reconfigured without losing messages. */
   pristineChat() {
     return this.ready && this.queued.length === 0 && this.chat.getMessages().length === 0;
   }
@@ -20124,13 +20188,14 @@ var ChatPanel = class {
    *  message list whenever one of its properties is set, so this is the only way to change the look of a
    *  panel that already has a conversation in it. */
   redrawChat() {
+    const carryingAnswer = this.answerIndex !== null;
     const carried = this.ready ? this.chat.getMessages().map((message) => ({ role: typeof message.role === "string" ? message.role : "ai", text: typeof message.text === "string" ? message.text : "" })).filter((message) => message.text !== "") : [];
     this.layoutObserver.disconnect();
     this.cancelDrawScroll();
     this.chat.remove();
     this.ready = false;
-    this.answerIndex = null;
     this.queued.push(...carried);
+    this.answerIndex = carryingAnswer ? this.queued.length - 1 : null;
     this.chat = this.createChat();
     this.messages.append(this.chat);
     this.layoutObserver.observe(this.chat);
@@ -20238,7 +20303,7 @@ var ChatPanel = class {
     }
     this.signals = signals;
     this.answerIndex = null;
-    signals.stopClicked.listener = () => this.onStop();
+    signals.stopClicked.listener = () => this.stopAnswer();
     this.onVisitorMessage(text);
   }
   /** A message written through the panel's own message list, for content that arrives outside a submit: a

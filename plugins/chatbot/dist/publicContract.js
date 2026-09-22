@@ -55,9 +55,14 @@ export const CONFIRMATION_ACTION_KIND = 'request_submit';
  *
  *  This is NOT a budget. A chatbot's own per-turn ceiling (its own setting, enforced server-side) is the
  *  budget, and the server simply stops approving actions when it is reached. This number is the client's
- *  own refusal: a page that has been driven twenty times in one turn is a page something has gone wrong
- *  with, and a widget that keeps going because a frame asked it to is not one a customer should install. */
-export const WIDGET_MAX_ACTIONS_PER_TURN = 20;
+ *  own refusal: a page driven this many times in one turn is a page something has gone wrong with, and a
+ *  widget that keeps going because a frame asked it to is not one a customer should install.
+ *
+ *  Measured against real work rather than guessed: reading the page is itself an action, and every click or
+ *  keystroke is preceded by a fresh read, so filling one booking form costs upwards of a dozen. At twenty
+ *  the ceiling stopped ordinary form filling half way through, which reads to a visitor as an agent that
+ *  gave up mid-sentence. */
+export const WIDGET_MAX_ACTIONS_PER_TURN = 50;
 /** Element ids and snapshot ids issued by the widget. Both are opaque handles: a server that receives
  *  anything else refuses it, and no CSS selector, XPath or script ever crosses this boundary. */
 export const TARGET_ID_PATTERN = /^e\d{1,3}$/;
