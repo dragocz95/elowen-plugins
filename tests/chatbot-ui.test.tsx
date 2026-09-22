@@ -633,6 +633,9 @@ describe('the statistics section', () => {
 
     // Three windows, all of them visible: a list would hide two of the three choices.
     expect(await screen.findByRole('radio', { name: strings.statsWindowDays!.replace('{count}', '30') })).toBeChecked();
+    // And they stay reachable where the row is narrower than the three of them: the window switch is asked
+    // to scroll rather than clip, which is the only thing standing between a phone and a lost third choice.
+    expect(screen.getByRole('radiogroup', { name: strings.statsWindowLabel! })).toHaveAttribute('data-nowrap', 'true');
     await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
     expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
     expect(asked.stats).toEqual([bot.chatbotUserId]);

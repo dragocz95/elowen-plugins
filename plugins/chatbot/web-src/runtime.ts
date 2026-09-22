@@ -371,6 +371,10 @@ interface ChatbotComponents {
     onChange(value: string): void;
     size?: 'sm' | 'md';
     className?: string;
+    /** Keep the track on one line, scrolling it sideways when it runs out of room and holding the selected
+     *  option in view. The host's answer for a control with more options than the row has width for: a
+     *  three-option switch in a narrow header clips its last option without this. */
+    nowrap?: boolean;
     'aria-label'?: string;
   }>;
 }

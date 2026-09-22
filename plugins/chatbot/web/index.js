@@ -20697,6 +20697,7 @@ function StatsSection() {
             C.Segmented,
             {
               size: "sm",
+              nowrap: true,
               "aria-label": s.statsWindowLabel,
               value: days,
               onChange: setDays,

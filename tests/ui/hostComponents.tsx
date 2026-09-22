@@ -122,8 +122,10 @@ export function Slider({ value, onChange, min = 0, max = 100, step = 1, disabled
 }
 
 /** A connected segmented switch — a radiogroup whose options are `role="radio"` buttons named by their
- *  label. The scope filter and the create form's "visible to" control are both this. */
-export function Segmented({ options, value, onChange, className, 'aria-label': ariaLabel }: {
+ *  label. The scope filter and the create form's "visible to" control are both this. `nowrap` is carried
+ *  onto the track the way the host carries it, so a suite can see that a control was asked to scroll
+ *  rather than clip when its row runs out of width. */
+export function Segmented({ options, value, onChange, className, nowrap, 'aria-label': ariaLabel }: {
   options: SegmentedOption[];
   value: string;
   onChange: (value: string) => void;
@@ -148,7 +150,7 @@ export function Segmented({ options, value, onChange, className, 'aria-label': a
     buttonRefs.current[next]?.focus();
   };
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className={className}>
+    <div role="radiogroup" aria-label={ariaLabel} className={className} data-nowrap={nowrap ? 'true' : undefined}>
       {options.map((o, index) => (
         <button
           key={o.value}

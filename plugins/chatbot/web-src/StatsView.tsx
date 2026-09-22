@@ -124,13 +124,16 @@ export function StatsSection() {
   return (
     <div className="flex flex-col gap-3">
       {/* Which chatbot, and over how many days. Three windows, all of them visible: a dropdown would make
-          the reader open a list to discover what the other two are. */}
+          the reader open a list to discover what the other two are. `nowrap` keeps that promise where the
+          row is too narrow for all three: the track scrolls with the host's own fade instead of the last
+          window being clipped on a phone. */}
       <C.SettingsGroup
         actions={(
           <>
             <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />
             <C.Segmented
               size="sm"
+              nowrap
               aria-label={s.statsWindowLabel}
               value={days}
               onChange={setDays}
