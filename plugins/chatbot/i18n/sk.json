@@ -15,8 +15,6 @@
       "chatbots": "Chatboti"
     },
     "strings": {
-      "title": "Chatboti",
-      "sectionHint": "Chatboti, ktorí odpovedajú návštevníkom webov tretích strán. Každý pracuje v práve jednom spravovanom projekte a jeho konverzácie patria jeho vlastnému účtu.",
       "botsSearch": "Hľadať podľa názvu, účtu alebo verejného ID…",
       "botsSearchClear": "Zrušiť hľadanie",
       "openBot": "Otvoriť {name}",

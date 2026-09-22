@@ -58,12 +58,11 @@
       {
         "id": "chatbots",
         "label": "Chatbots",
-        "icon": "MessagesSquare"
+        "icon": "MessagesSquare",
+        "placement": "pluginDetail"
       }
     ],
     "strings": {
-      "title": "Chatbots",
-      "sectionHint": "Chatbots answering visitors of third-party websites. Each one works inside exactly one managed Project, and its conversations belong to its own account.",
       "botsSearch": "Search by name, account or public ID…",
       "botsSearchClear": "Clear the search",
       "openBot": "Open {name}",

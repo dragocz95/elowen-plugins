@@ -5,17 +5,23 @@ import { BotDetail, statusText } from './BotDetail';
 import { CreateBotDialog } from './CreateBotDialog';
 import type { ChatbotBotView, ChatbotsAnswer } from './types';
 
-/** The chatbot admin surface: ONE section of Settings.
+/** The chatbot admin surface: ONE section of Settings, offered inside Settings → Plugins → Chatbot.
  *
  *  It used to be a workspace of its own — a page in the left navigation with a hero, three metrics, a tab
  *  strip and a two-column register — which is a shape nothing else in this app wears for configuration.
- *  It is now what `cronjob` and `skills` are: a single `web.settings` section the host serves at
- *  `/p/chatbot`, drawn inside the host's OWN settings frame (`PluginPageFrame` supplies the masthead and
- *  the settings document), so its header, its cards and its rows are the same ones the rest of Settings
- *  uses. The section is not listed in `ownsPageFrame` precisely because the frame is the host's.
+ *  Its manifest entry now declares `placement: "pluginDetail"`, so the host mounts it as a tab of that
+ *  plugin's detail workspace with `surface="deck"`: the tab names the section and the host supplies the
+ *  panel and the settings document around it (`web/modules/settings/PluginSettingsSection.tsx`). This
+ *  file therefore draws NO header of its own and no navigation of its own — it fills the panel it is
+ *  given. The section is not in `ownsPageFrame` for the same reason: the frame is the host's.
  *
- *  What is left on the page is one card: the chatbots, one row each. Everything about ONE chatbot lives in
- *  the drawer that row opens, which is how every other settings surface treats a record it configures. */
+ *  `C.PluginPageFrame` is what makes that true on both surfaces without a branch of our own: it is a
+ *  pass-through on the deck and supplies the masthead if the section is ever placed as a page. The one
+ *  control the surface owns lives in the CARD's header rather than in that masthead, because the masthead
+ *  does not exist on the deck.
+ *
+ *  What is on the panel is one card: the chatbots, one row each. Everything about ONE chatbot lives in the
+ *  drawer that row opens, which is how every other settings surface treats a record it configures. */
 export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 'page' | 'deck' }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
@@ -64,12 +70,9 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
   const body = loadError !== null ? <C.ErrorState message={`${s.botsLoadError} — ${loadError}`} onRetry={load} />
     : answer === null ? <C.LoadingState variant="list" />
       : bots.length === 0 ? (
-        <C.EmptyState
-          title={s.botsEmptyTitle}
-          description={s.botsEmptyDescription}
-          icon={Bot}
-          action={<C.Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{s.newBot}</C.Button>}
-        />
+        // No second creation button here: the card's header carries it in every state, and one card
+        // offering the same action twice is two things to read where there is one thing to do.
+        <C.EmptyState title={s.botsEmptyTitle} description={s.botsEmptyDescription} icon={Bot} />
       )
         : visible.length === 0 ? <C.EmptyState title={s.botsNoResults} description={s.botsNoResultsDescription} icon={Search} />
           : visible.map((bot) => (
@@ -97,26 +100,31 @@ export function ChatbotSettings({ plugin, surface }: { plugin: string; surface: 
 
   return (
     <C.PluginPageFrame
+      // No title of our own: placed as a page, the frame reads the section's label from the manifest
+      // listing, so the heading cannot drift from the entry that leads here.
       surface={surface}
       plugin={plugin}
       section="chatbots"
-      title={s.title}
-      description={s.sectionHint}
       icon={MessagesSquare}
-      action={<C.Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{s.newBot}</C.Button>}
     >
-      {/* No title inside the card: on a page the masthead above it already says what this is, and in a
-          settings deck the panel does. The header carries the one control the list needs. */}
+      {/* No title inside the card either: the workspace tab above it already names the section, and a
+          native settings panel wears no second heading. The header carries the controls the list needs —
+          creation among them, because the deck has no masthead to put an action in. */}
       <C.SettingsGroup
-        actions={bots.length === 0 ? undefined : (
-          <C.RegisterSearch
-            value={search}
-            onChange={setSearch}
-            placeholder={s.botsSearch}
-            label={s.botsSearch}
-            onClear={() => setSearch('')}
-            clearLabel={s.botsSearchClear}
-          />
+        actions={(
+          <>
+            {bots.length === 0 ? null : (
+              <C.RegisterSearch
+                value={search}
+                onChange={setSearch}
+                placeholder={s.botsSearch}
+                label={s.botsSearch}
+                onClear={() => setSearch('')}
+                clearLabel={s.botsSearchClear}
+              />
+            )}
+            <C.Button variant="accent" icon={Plus} onClick={() => setCreating(true)}>{s.newBot}</C.Button>
+          </>
         )}
       >
         {body}

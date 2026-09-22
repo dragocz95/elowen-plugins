@@ -20608,14 +20608,10 @@ function ChatbotSettings({ plugin, surface }) {
     return haystack.toLowerCase().includes(needle);
   });
   const open = bots.find((bot) => bot.chatbotUserId === openId) ?? null;
-  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : bots.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
-    C.EmptyState,
-    {
-      title: s.botsEmptyTitle,
-      description: s.botsEmptyDescription,
-      icon: Bot,
-      action: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: () => setCreating(true), children: s.newBot })
-    }
+  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : bots.length === 0 ? (
+    // No second creation button here: the card's header carries it in every state, and one card
+    // offering the same action twice is two things to read where there is one thing to do.
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.botsEmptyTitle, description: s.botsEmptyDescription, icon: Bot })
   ) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.botsNoResults, description: s.botsNoResultsDescription, icon: Search }) : visible.map((bot) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
     C.SettingsRow,
     {
@@ -20640,25 +20636,25 @@ function ChatbotSettings({ plugin, surface }) {
       surface,
       plugin,
       section: "chatbots",
-      title: s.title,
-      description: s.sectionHint,
       icon: MessagesSquare,
-      action: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: () => setCreating(true), children: s.newBot }),
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           C.SettingsGroup,
           {
-            actions: bots.length === 0 ? void 0 : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
-              C.RegisterSearch,
-              {
-                value: search,
-                onChange: setSearch,
-                placeholder: s.botsSearch,
-                label: s.botsSearch,
-                onClear: () => setSearch(""),
-                clearLabel: s.botsSearchClear
-              }
-            ),
+            actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+              bots.length === 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+                C.RegisterSearch,
+                {
+                  value: search,
+                  onChange: setSearch,
+                  placeholder: s.botsSearch,
+                  label: s.botsSearch,
+                  onClear: () => setSearch(""),
+                  clearLabel: s.botsSearchClear
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Button, { variant: "accent", icon: Plus, onClick: () => setCreating(true), children: s.newBot })
+            ] }),
             children: body
           }
         ),

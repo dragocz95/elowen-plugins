@@ -227,16 +227,20 @@ afterEach(() => {
 });
 afterAll(() => close());
 
+/** Rendered the way the host mounts it: `surface="deck"`, inside the plugin's detail workspace. The
+ *  manifest places this section in Settings → Plugins, so the deck is the ONLY surface it is ever drawn
+ *  on, and a test that rendered it as a page would be testing a frame production never gives it. */
 function renderSection() {
   const { wrapper: Wrapper } = createWrapper();
-  return render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="page" /></ToastProvider></Wrapper>);
+  return render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="deck" /></ToastProvider></Wrapper>);
 }
 
 /** Wait until the section's own copy has arrived. The plugin's strings come from a listing query, so the
  *  first paint renders every label empty and React then REUSES those nodes with text — a control queried
- *  before that lands is a node whose events reach nothing. Awaiting the section hint (a string only the
- *  listing can supply) is what makes a test that touches a control honest. */
-const settled = () => screen.findByText(strings.sectionHint!);
+ *  before that lands is a node whose events reach nothing. Awaiting the creation button by its plugin-owned
+ *  name (it is in the card header in every state, including while the register is loading or failed) is
+ *  what makes a test that touches a control honest. */
+const settled = () => screen.findAllByRole('button', { name: strings.newBot! });
 
 /** The window on top. The surface is one card whose rows open a drawer, and the drawer's own rows open
  *  further windows, so "the dialog" is always the last one mounted — every overlay the host draws is
@@ -262,14 +266,16 @@ const openWindow = async (label: string): Promise<HTMLElement> => {
 };
 
 describe('the chatbot settings section', () => {
-  it('renders inside the host settings frame, one row per chatbot', async () => {
+  it('fills the panel it is given, one row per chatbot, and draws no header of its own', async () => {
     renderSection();
     await settled();
-    // The host's own masthead names the section; the card below it is the register and nothing else.
-    expect(screen.getByRole('heading', { name: strings.title! })).toBeInTheDocument();
     expect(await screen.findByText('Městský úřad')).toBeInTheDocument();
     expect(screen.getByText('Škola')).toBeInTheDocument();
     expect(screen.getAllByText(strings.statusAttention!).length).toBeGreaterThan(0);
+    // The workspace tab around this panel already names the section — from the manifest entry, the one
+    // place that word lives — so nothing here repeats it as a heading. A second title is exactly what
+    // `surface="deck"` exists to prevent.
+    expect(screen.queryByRole('heading', { name: manifest.web.settings[0]!.label })).not.toBeInTheDocument();
     // No workspace of its own: no tab strip, and nothing of one chatbot's configuration until a row is
     // opened.
     expect(screen.queryAllByRole('radio')).toHaveLength(0);
@@ -378,8 +384,10 @@ describe('the chatbot settings section', () => {
     renderSection();
     await settled();
     expect(await screen.findByText(strings.botsEmptyTitle!)).toBeInTheDocument();
-    // Two ways in and both are the same action: the empty state's own button and the section's.
-    fireEvent.click(screen.getAllByRole('button', { name: strings.newBot! })[0]!);
+    // ONE way in, in the card's header, where it also is when the register is full: the empty state says
+    // what is missing and does not offer a second copy of the same button.
+    expect(screen.getAllByRole('button', { name: strings.newBot! })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: strings.newBot! }));
     const dialog = top();
     expect(within(dialog).getByText(strings.createTitle!)).toBeInTheDocument();
     // One managed Project is on offer and it is preselected, so the submit is reachable straight away.
@@ -390,7 +398,7 @@ describe('the chatbot settings section', () => {
     use(http.get('/api/plugins/chatbot/api/bots', () => HttpResponse.json(botsBody([]))));
     renderSection();
     await settled();
-    fireEvent.click(screen.getAllByRole('button', { name: strings.newBot! })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: strings.newBot! }));
     const dialog = top();
     // A fresh account: the dialog creates it rather than reusing one of the candidates.
     fireEvent.change(within(dialog).getByRole('combobox', { name: strings.createModeLabel! }), { target: { value: 'new' } });

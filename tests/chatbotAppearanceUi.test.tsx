@@ -119,8 +119,8 @@ afterAll(() => close());
  *  dialog on screen — the drawer it was opened from stays mounted underneath. */
 async function openEditor(): Promise<HTMLElement> {
   const { wrapper: Wrapper } = createWrapper();
-  render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="page" /></ToastProvider></Wrapper>);
-  await screen.findByText(strings.sectionHint!);
+  render(<Wrapper><ToastProvider><ChatbotSettings plugin="chatbot" surface="deck" /></ToastProvider></Wrapper>);
+  await screen.findAllByRole('button', { name: strings.newBot! });
   fireEvent.click(await screen.findByRole('button', { name: strings.openBot!.replace('{name}', bot.displayName) }));
   const drawer = await screen.findByRole('dialog');
   fireEvent.click(within(drawer).getByRole('button', { name: strings.appearanceAction! }));
