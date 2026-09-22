@@ -24,7 +24,8 @@ const isDaemonProcess = (): boolean => typeof process.send !== 'function';
 
 export function register(published: PluginContext): void {
   const ctx = asSitesContext(published);
-  const store = new SitesStore(ctx.db());
+  const gateway = new SiteGatewayManager(ctx);
+  const store = new SitesStore(ctx.db(), { hostnameBase: gateway.hostnameBase() });
   store.migrateSourceReferences((projectId) => {
     const project = ctx.host.stores().projects.get(projectId);
     if (!project) return null;
@@ -51,7 +52,6 @@ export function register(published: PluginContext): void {
     return cachedSecret;
   };
 
-  const gateway = new SiteGatewayManager(ctx);
   const config = (): SitesConfig => resolveConfig(
     ctx.config as Record<string, unknown>,
     ctx.publicWebUrl(),
@@ -243,21 +243,22 @@ export function register(published: PluginContext): void {
   });
   ctx.registerReadinessCheck(() => gateway.readiness());
 
+  const certificateCandidates = () => store.allSites().map((site) => ({
+    ...site,
+    certificateRequestedAt: store.generatedHostname(site.id)?.certificateRequestedAt ?? null,
+  }));
+
   const syncGateway = async (all = false): Promise<void> => {
     const status = await gateway.reconcile();
     if (!status.active) return;
     const issued = new Set(gateway.issuedSlugs());
-    for (const site of sitesDueForCertificate(store.allSites(), { all, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) })) {
-      const requested = site.certificateRequestedAt != null;
+    for (const site of sitesDueForCertificate(certificateCandidates(), { all, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) })) {
       try {
         await gateway.ensureSite(site.slug);
-        store.updateSite(site.id, {
-          ...(requested ? { certificateRequestedAt: null } : {}),
-          ...(store.siteById(site.id)?.certificateError != null ? { certificateError: null } : {}),
-        });
+        store.clearGeneratedCertificateRequest(site.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        store.updateSite(site.id, { ...(requested ? { certificateRequestedAt: null } : {}), certificateError: message });
+        store.failGeneratedCertificate(site.id, message);
         ctx.logger.warn(`site ${site.slug} has no certificate yet: ${message}`);
       }
     }
@@ -294,7 +295,7 @@ export function register(published: PluginContext): void {
   ctx.registerInterval('issue-site-certificates', async () => {
     if (!gateway.isActive()) return;
     const issued = new Set(gateway.issuedSlugs());
-    const pending = sitesDueForCertificate(store.allSites(), { all: false, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) });
+    const pending = sitesDueForCertificate(certificateCandidates(), { all: false, issued, mayAttempt: (slug) => gateway.mayAttempt(slug) });
     if (pending.length > 0) await syncGateway();
   }, ISSUE_SWEEP_MS);
   ctx.registerInterval('renew-site-gateway', async () => { await syncGateway(true); }, GATEWAY_RECONCILE_MS);

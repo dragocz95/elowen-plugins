@@ -64,7 +64,8 @@ export class ProjectPreviewService {
       title: 'Project preview', summary: '', visibility: 'project', accessGeneration: 1,
       sourceRel: '', spa: false, kind: 'proxy', target: String(preview.port),
       status: 'live', currentReleaseId: null, createdAt: preview.createdAt, updatedAt: preview.createdAt,
-      createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null };
+      createdModel: '', lastPublishAt: null, lastPublishModel: null, lastError: null,
+      primaryCustomHostnameId: null };
   }
   async serve(site: Site, req: SitesHttpRequest, rest: string, viewer: Viewer, siteRoot: string): Promise<SitesHttpResponse> {
     const denied = (): SitesHttpResponse => ({ status: 404, headers: { 'cache-control': 'no-store' }, body: '' });

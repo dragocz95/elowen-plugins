@@ -1,5 +1,7 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { isAbsolute, relative, sep } from 'node:path';
 import type { PluginDb } from 'elowen/plugin-api';
+import type { SiteHostname } from './hostname.js';
 
 export interface ProjectPreview { id: string; slug: string; projectId: number; port: number; createdAt: string }
 
@@ -45,14 +47,36 @@ export interface Site {
   lastPublishAt: string | null;
   lastPublishModel: string | null;
   lastError: string | null;
-  /** Set when a publish asks for this site's certificate and cleared by the attempt that answers it. It is
-   *  how a forked runner — which holds no gateway broker — asks the daemon for ONE site's certificate, and
-   *  it overrides the per-slug issuance backoff for that one request. Optional like every other column
-   *  added after the table existed: a row is INSERTED without it and reads always carry it. */
-  certificateRequestedAt?: string | null;
-  /** Why the last issuance attempt the daemon actually made failed, or null when it succeeded. The only
-   *  way a process without the broker can learn the authority's own reason. */
-  certificateError?: string | null;
+  primaryCustomHostnameId: string | null;
+}
+
+type SiteHostnameKind = 'generated' | 'custom';
+export type SiteHostnameDnsState = 'unchecked' | 'missing' | 'misdirected' | 'ready' | 'unavailable';
+export type SiteHostnameCertificateState =
+  | 'none' | 'requested' | 'issuing' | 'ready' | 'authority_refused'
+  | 'rate_limited' | 'renewal_blocked' | 'expired';
+
+export interface SiteHostnameRecord {
+  id: string;
+  siteId: string;
+  kind: SiteHostnameKind;
+  hostname: string;
+  ownershipToken: string | null;
+  ownershipVerifiedAt: string | null;
+  ownershipExpiresAt: string | null;
+  dnsState: SiteHostnameDnsState;
+  dnsObserved: string[];
+  dnsCheckedAt: string | null;
+  dnsNextCheckAt: string | null;
+  certificateState: SiteHostnameCertificateState;
+  certificateRequestedAt: string | null;
+  certificateErrorCode: string | null;
+  certificateErrorDetail: string | null;
+  certificateRetryAt: string | null;
+  certificateNotAfter: string | null;
+  removalRequestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Release {
@@ -166,8 +190,30 @@ interface SiteDbRow {
   last_publish_at: string | null;
   last_publish_model: string | null;
   last_error: string | null;
+  primary_custom_hostname_id: string | null;
+}
+
+interface SiteHostnameDbRow {
+  id: string;
+  site_id: string;
+  kind: string;
+  hostname: string;
+  ownership_token: string | null;
+  ownership_verified_at: string | null;
+  ownership_expires_at: string | null;
+  dns_state: string;
+  dns_observed_json: string;
+  dns_checked_at: string | null;
+  dns_next_check_at: string | null;
+  certificate_state: string;
   certificate_requested_at: string | null;
-  certificate_error: string | null;
+  certificate_error_code: string | null;
+  certificate_error_detail: string | null;
+  certificate_retry_at: string | null;
+  certificate_not_after: string | null;
+  removal_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ReleaseDbRow {
@@ -214,8 +260,7 @@ const toSite = (row: SiteDbRow): Site => ({
     lastPublishAt: row.last_publish_at,
     lastPublishModel: row.last_publish_model,
     lastError: row.last_error,
-    certificateRequestedAt: row.certificate_requested_at,
-    certificateError: row.certificate_error,
+    primaryCustomHostnameId: row.primary_custom_hostname_id,
 });
 
 
@@ -232,8 +277,85 @@ const toRelease = (row: ReleaseDbRow): Release => ({
   dataArchive: row.data_archive,
 });
 
+const HOSTNAME_KINDS = new Set<SiteHostnameKind>(['generated', 'custom']);
+const HOSTNAME_DNS_STATES = new Set<SiteHostnameDnsState>(['unchecked', 'missing', 'misdirected', 'ready', 'unavailable']);
+const HOSTNAME_CERTIFICATE_STATES = new Set<SiteHostnameCertificateState>([
+  'none', 'requested', 'issuing', 'ready', 'authority_refused', 'rate_limited',
+  'renewal_blocked', 'expired',
+]);
+const CUSTOM_HOSTNAME_LIMIT = 10;
+const OWNERSHIP_RESERVATION_MS = 24 * 60 * 60 * 1000;
+
+const enumValue = <T extends string>(value: string, allowed: ReadonlySet<T>, field: string): T => {
+  if (!allowed.has(value as T)) throw new Error(`Invalid stored ${field}: ${value}`);
+  return value as T;
+};
+
+const observedDnsValues = (json: string): string[] => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error('Invalid stored DNS observation JSON');
+  }
+  if (!Array.isArray(parsed) || parsed.length > 32
+    || parsed.some((value) => typeof value !== 'string' || value.length === 0 || value.length > 253)) {
+    throw new Error('Invalid stored DNS observation values');
+  }
+  return parsed;
+};
+
+const toHostname = (row: SiteHostnameDbRow): SiteHostnameRecord => ({
+  id: row.id,
+  siteId: row.site_id,
+  kind: enumValue(row.kind, HOSTNAME_KINDS, 'hostname kind'),
+  hostname: row.hostname,
+  ownershipToken: row.ownership_token,
+  ownershipVerifiedAt: row.ownership_verified_at,
+  ownershipExpiresAt: row.ownership_expires_at,
+  dnsState: enumValue(row.dns_state, HOSTNAME_DNS_STATES, 'DNS state'),
+  dnsObserved: observedDnsValues(row.dns_observed_json),
+  dnsCheckedAt: row.dns_checked_at,
+  dnsNextCheckAt: row.dns_next_check_at,
+  certificateState: enumValue(row.certificate_state, HOSTNAME_CERTIFICATE_STATES, 'certificate state'),
+  certificateRequestedAt: row.certificate_requested_at,
+  certificateErrorCode: row.certificate_error_code,
+  certificateErrorDetail: row.certificate_error_detail,
+  certificateRetryAt: row.certificate_retry_at,
+  certificateNotAfter: row.certificate_not_after,
+  removalRequestedAt: row.removal_requested_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export type HostnameClaimErrorCode = 'domain_claimed' | 'hostname_limit' | 'site_unavailable';
+
+export class HostnameClaimError extends Error {
+  constructor(readonly code: HostnameClaimErrorCode, message: string) {
+    super(message);
+    this.name = 'HostnameClaimError';
+  }
+}
+
+export interface SitesStoreOptions {
+  hostnameBase?: string | null;
+  now?: () => number;
+  randomId?: () => string;
+  randomToken?: () => string;
+}
+
 export class SitesStore {
-  constructor(private readonly db: PluginDb) {
+  private readonly hostnameBase: string | null;
+  private readonly now: () => number;
+  private readonly randomId: () => string;
+  private readonly randomToken: () => string;
+
+  constructor(private readonly db: PluginDb, options: SitesStoreOptions = {}) {
+    this.hostnameBase = options.hostnameBase ?? null;
+    this.now = options.now ?? Date.now;
+    this.randomId = options.randomId ?? randomUUID;
+    this.randomToken = options.randomToken ?? (() => randomBytes(32).toString('base64url'));
+    const hostnameBase = this.hostnameBase;
     db.migrate([
       {
         version: 1,
@@ -541,7 +663,164 @@ export class SitesStore {
           CREATE INDEX IF NOT EXISTS idx_p_sites_capture_grants_site ON p_sites_capture_grants (site_id);
         `),
       },
+      {
+        version: 20,
+        up: (handle) => {
+          const sites = handle.prepare(`
+            SELECT id, slug, status, certificate_requested_at, certificate_error, created_at, updated_at
+            FROM p_sites_sites
+            WHERE runtime = 'static'
+          `).all() as {
+            id: string;
+            slug: string;
+            status: string;
+            certificate_requested_at: string | null;
+            certificate_error: string | null;
+            created_at: string;
+            updated_at: string;
+          }[];
+          handle.exec(`
+            ALTER TABLE p_sites_sites ADD COLUMN primary_custom_hostname_id TEXT;
+
+            CREATE TABLE p_sites_hostnames (
+              id TEXT PRIMARY KEY,
+              site_id TEXT NOT NULL,
+              kind TEXT NOT NULL CHECK (kind IN ('generated', 'custom')),
+              hostname TEXT NOT NULL,
+              ownership_token TEXT,
+              ownership_verified_at TEXT,
+              ownership_expires_at TEXT,
+              dns_state TEXT NOT NULL CHECK (dns_state IN ('unchecked', 'missing', 'misdirected', 'ready', 'unavailable')),
+              dns_observed_json TEXT NOT NULL DEFAULT '[]',
+              dns_checked_at TEXT,
+              dns_next_check_at TEXT,
+              certificate_state TEXT NOT NULL CHECK (certificate_state IN (
+                'none', 'requested', 'issuing', 'ready', 'authority_refused',
+                'rate_limited', 'renewal_blocked', 'expired'
+              )),
+              certificate_requested_at TEXT,
+              certificate_error_code TEXT,
+              certificate_error_detail TEXT,
+              certificate_retry_at TEXT,
+              certificate_not_after TEXT,
+              removal_requested_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              CHECK (
+                (kind = 'generated' AND ownership_token IS NULL AND ownership_verified_at IS NULL AND ownership_expires_at IS NULL)
+                OR
+                (kind = 'custom' AND ownership_token IS NOT NULL AND (
+                  (ownership_verified_at IS NULL AND ownership_expires_at IS NOT NULL)
+                  OR ownership_verified_at IS NOT NULL
+                ))
+              )
+            );
+            CREATE UNIQUE INDEX idx_p_sites_hostnames_hostname
+              ON p_sites_hostnames (hostname COLLATE NOCASE);
+            CREATE UNIQUE INDEX idx_p_sites_hostnames_generated
+              ON p_sites_hostnames (site_id) WHERE kind = 'generated';
+            CREATE INDEX idx_p_sites_hostnames_site ON p_sites_hostnames (site_id);
+            CREATE INDEX idx_p_sites_hostnames_ownership_expiry ON p_sites_hostnames (ownership_expires_at);
+            CREATE INDEX idx_p_sites_hostnames_dns_next_check ON p_sites_hostnames (dns_next_check_at);
+            CREATE INDEX idx_p_sites_hostnames_certificate_retry ON p_sites_hostnames (certificate_retry_at);
+            CREATE INDEX idx_p_sites_hostnames_removal ON p_sites_hostnames (removal_requested_at);
+          `);
+
+          if (hostnameBase !== null) {
+            const insert = handle.prepare(`
+              INSERT INTO p_sites_hostnames (
+                id, site_id, kind, hostname,
+                ownership_token, ownership_verified_at, ownership_expires_at,
+                dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+                certificate_state, certificate_requested_at,
+                certificate_error_code, certificate_error_detail,
+                certificate_retry_at, certificate_not_after, removal_requested_at,
+                created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            for (const site of sites) {
+              const failed = site.certificate_error !== null && site.certificate_error !== '';
+              const state: SiteHostnameCertificateState = failed
+                ? 'authority_refused'
+                : site.certificate_requested_at !== null ? 'requested' : 'none';
+              insert.run(
+                site.id + ':generated',
+                site.id,
+                'generated',
+                site.slug + '.' + hostnameBase,
+                null,
+                null,
+                null,
+                'unchecked',
+                '[]',
+                null,
+                null,
+                state,
+                site.certificate_requested_at,
+                failed ? 'authority_refused' : null,
+                failed ? site.certificate_error : null,
+                null,
+                null,
+                site.status === 'deleting' ? site.updated_at : null,
+                site.created_at,
+                site.updated_at,
+              );
+            }
+          }
+
+          handle.exec(`
+            ALTER TABLE p_sites_sites DROP COLUMN certificate_requested_at;
+            ALTER TABLE p_sites_sites DROP COLUMN certificate_error;
+          `);
+        },
+      },
     ]);
+    if (hostnameBase !== null && this.db.appliedVersion() >= 20) {
+      this.reconcileGeneratedHostnames(hostnameBase);
+    }
+  }
+
+  private reconcileGeneratedHostnames(hostnameBase: string): void {
+    this.db.transaction(() => {
+      const sites = this.db.prepare(`
+        SELECT id, slug, status, created_at, updated_at
+        FROM p_sites_sites
+        WHERE runtime = 'static'
+          AND NOT EXISTS (
+            SELECT 1 FROM p_sites_hostnames
+            WHERE p_sites_hostnames.site_id = p_sites_sites.id
+              AND p_sites_hostnames.kind = 'generated'
+          )
+      `).all() as {
+        id: string;
+        slug: string;
+        status: string;
+        created_at: string;
+        updated_at: string;
+      }[];
+      const insert = this.db.prepare(`
+        INSERT INTO p_sites_hostnames (
+          id, site_id, kind, hostname,
+          ownership_token, ownership_verified_at, ownership_expires_at,
+          dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+          certificate_state, certificate_requested_at,
+          certificate_error_code, certificate_error_detail,
+          certificate_retry_at, certificate_not_after, removal_requested_at,
+          created_at, updated_at
+        ) VALUES (?, ?, 'generated', ?, NULL, NULL, NULL, 'unchecked', '[]', NULL, NULL,
+          'none', NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
+      `);
+      for (const site of sites) {
+        insert.run(
+          site.id + ':generated',
+          site.id,
+          site.slug + '.' + hostnameBase,
+          site.status === 'deleting' ? site.updated_at : null,
+          site.created_at,
+          site.updated_at,
+        );
+      }
+    });
   }
 
   migrateSourceReferences(projectRoot: (projectId: number) => string | null): void {
@@ -608,25 +887,261 @@ export class SitesStore {
   }
 
   insertSite(site: Site): void {
-    const legacyColumn = (this.db.prepare("PRAGMA table_info('p_sites_sites')").all() as { name: string }[])
-      .some((column) => column.name === 'source_dir');
-    this.db.prepare(`
-      INSERT INTO p_sites_sites (
-        id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-        ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
-        environment_cpus, environment_memory_mb, environment_pids_limit,
-        environment_desired_state, status, current_release_id,
-        created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
-      site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0,
-      site.kind, site.target, 'static', '', 'socket', null,
-      null, null, null, 'running', site.status,
-      site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel,
-      site.lastPublishAt, site.lastPublishModel, site.lastError,
-    );
+    this.db.transaction(() => {
+      const legacyColumn = (this.db.prepare("PRAGMA table_info('p_sites_sites')").all() as { name: string }[])
+        .some((column) => column.name === 'source_dir');
+      this.db.prepare(`
+        INSERT INTO p_sites_sites (
+          id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
+          ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
+          environment_cpus, environment_memory_mb, environment_pids_limit,
+          environment_desired_state, status, current_release_id,
+          created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error,
+          primary_custom_hostname_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
+        site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0,
+        site.kind, site.target, 'static', '', 'socket', null,
+        null, null, null, 'running', site.status,
+        site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel,
+        site.lastPublishAt, site.lastPublishModel, site.lastError, null,
+      );
+      if (this.hostnameBase !== null) {
+        this.db.prepare(`
+          INSERT INTO p_sites_hostnames (
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+            certificate_state, certificate_requested_at,
+            certificate_error_code, certificate_error_detail,
+            certificate_retry_at, certificate_not_after, removal_requested_at,
+            created_at, updated_at
+          ) VALUES (?, ?, 'generated', ?, NULL, NULL, NULL, 'unchecked', '[]', NULL, NULL,
+            'none', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        `).run(site.id + ':generated', site.id, site.slug + '.' + this.hostnameBase, site.createdAt, site.updatedAt);
+      }
+    });
   }
+
+
+
+  hostnameById(id: string): SiteHostnameRecord | null {
+    const row = this.db.prepare('SELECT * FROM p_sites_hostnames WHERE id = ?').get(id) as SiteHostnameDbRow | undefined;
+    return row ? toHostname(row) : null;
+  }
+
+  hostnamesForSite(siteId: string): SiteHostnameRecord[] {
+    return (this.db.prepare(`
+      SELECT * FROM p_sites_hostnames
+      WHERE site_id = ?
+      ORDER BY CASE kind WHEN 'generated' THEN 0 ELSE 1 END, created_at, id
+    `).all(siteId) as SiteHostnameDbRow[]).map(toHostname);
+  }
+
+  generatedHostname(siteId: string): SiteHostnameRecord | null {
+    const row = this.db.prepare("SELECT * FROM p_sites_hostnames WHERE site_id = ? AND kind = 'generated'")
+      .get(siteId) as SiteHostnameDbRow | undefined;
+    return row ? toHostname(row) : null;
+  }
+
+  customHostnames(siteId: string): SiteHostnameRecord[] {
+    return (this.db.prepare("SELECT * FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom' ORDER BY created_at, id")
+      .all(siteId) as SiteHostnameDbRow[]).map(toHostname);
+  }
+
+  expireUnverifiedHostnameReservations(): number {
+    const now = new Date(this.now()).toISOString();
+    return Number(this.db.prepare(`
+      DELETE FROM p_sites_hostnames
+      WHERE kind = 'custom'
+        AND ownership_verified_at IS NULL
+        AND ownership_expires_at <= ?
+        AND removal_requested_at IS NULL
+    `).run(now).changes);
+  }
+
+  claimCustomHostname(siteId: string, hostname: SiteHostname): SiteHostnameRecord {
+    try {
+      return this.db.transaction(() => {
+        this.expireUnverifiedHostnameReservations();
+        const site = this.db.prepare("SELECT status FROM p_sites_sites WHERE id = ? AND runtime = 'static'")
+          .get(siteId) as { status: string } | undefined;
+        if (!site || site.status === 'deleting') {
+          throw new HostnameClaimError('site_unavailable', 'The Site is unavailable for a hostname claim.');
+        }
+        const count = this.db.prepare("SELECT COUNT(*) AS count FROM p_sites_hostnames WHERE site_id = ? AND kind = 'custom'")
+          .get(siteId) as { count: number };
+        if (count.count >= CUSTOM_HOSTNAME_LIMIT) {
+          throw new HostnameClaimError('hostname_limit', `A Site may have at most ${CUSTOM_HOSTNAME_LIMIT} custom hostnames.`);
+        }
+
+        const nowMs = this.now();
+        const now = new Date(nowMs).toISOString();
+        const id = this.randomId();
+        this.db.prepare(`
+          INSERT INTO p_sites_hostnames (
+            id, site_id, kind, hostname,
+            ownership_token, ownership_verified_at, ownership_expires_at,
+            dns_state, dns_observed_json, dns_checked_at, dns_next_check_at,
+            certificate_state, certificate_requested_at,
+            certificate_error_code, certificate_error_detail,
+            certificate_retry_at, certificate_not_after, removal_requested_at,
+            created_at, updated_at
+          ) VALUES (?, ?, 'custom', ?, ?, NULL, ?, 'unchecked', '[]', NULL, NULL,
+            'none', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        `).run(
+          id,
+          siteId,
+          hostname.ascii,
+          this.randomToken(),
+          new Date(nowMs + OWNERSHIP_RESERVATION_MS).toISOString(),
+          now,
+          now,
+        );
+        const claimed = this.hostnameById(id);
+        if (!claimed) throw new Error('The hostname claim was not stored');
+        return claimed;
+      });
+    } catch (error) {
+      if (error instanceof HostnameClaimError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('UNIQUE constraint failed') && message.includes('p_sites_hostnames.hostname')) {
+        throw new HostnameClaimError('domain_claimed', 'This hostname is already reserved by another Site.');
+      }
+      throw error;
+    }
+  }
+
+  verifyHostnameOwnership(id: string): void {
+    const now = new Date(this.now()).toISOString();
+    const result = this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET ownership_verified_at = ?, ownership_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NULL
+        AND ownership_expires_at > ? AND removal_requested_at IS NULL
+    `).run(now, now, id, now);
+    if (result.changes !== 1) throw new Error('The hostname reservation is absent, expired or already verified.');
+  }
+
+  recordHostnameDns(
+    id: string,
+    state: SiteHostnameDnsState,
+    observed: readonly string[],
+    nextCheckAt: string | null = null,
+  ): void {
+    if (!HOSTNAME_DNS_STATES.has(state)) throw new Error(`Invalid DNS state: ${state}`);
+    const json = JSON.stringify(observed);
+    observedDnsValues(json);
+    const now = new Date(this.now()).toISOString();
+    const result = this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET dns_state = ?, dns_observed_json = ?, dns_checked_at = ?, dns_next_check_at = ?, updated_at = ?
+      WHERE id = ? AND removal_requested_at IS NULL
+    `).run(state, json, now, nextCheckAt, now, id);
+    if (result.changes !== 1) throw new Error('The hostname is absent or being removed.');
+  }
+
+  setHostnameCertificateState(id: string, state: SiteHostnameCertificateState): void {
+    if (!HOSTNAME_CERTIFICATE_STATES.has(state)) throw new Error(`Invalid certificate state: ${state}`);
+    this.db.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM p_sites_hostnames WHERE id = ?').get(id) as SiteHostnameDbRow | undefined;
+      if (!row) throw new Error('The hostname does not exist.');
+      if (row.removal_requested_at !== null) throw new Error('The hostname is being removed.');
+      if (state === 'ready' && row.kind === 'custom'
+        && (row.ownership_verified_at === null || row.dns_state !== 'ready')) {
+        throw new Error('A custom hostname must have verified ownership and ready DNS before its certificate is ready.');
+      }
+      const now = new Date(this.now()).toISOString();
+      this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET certificate_state = ?,
+            certificate_requested_at = CASE WHEN ? = 'requested' THEN COALESCE(certificate_requested_at, ?) ELSE certificate_requested_at END,
+            certificate_error_code = CASE WHEN ? = 'ready' THEN NULL ELSE certificate_error_code END,
+            certificate_error_detail = CASE WHEN ? = 'ready' THEN NULL ELSE certificate_error_detail END,
+            updated_at = ?
+        WHERE id = ?
+      `).run(state, state, now, state, state, now, id);
+      if (state === 'ready' && row.kind === 'custom') {
+        this.db.prepare(`
+          UPDATE p_sites_sites
+          SET primary_custom_hostname_id = ?, updated_at = ?
+          WHERE id = ? AND primary_custom_hostname_id IS NULL
+        `).run(id, now, row.site_id);
+      }
+    });
+  }
+
+  setPrimaryCustomHostname(siteId: string, hostnameId: string | null): void {
+    this.db.transaction(() => {
+      if (hostnameId !== null) {
+        const row = this.db.prepare(`
+          SELECT 1 FROM p_sites_hostnames
+          WHERE id = ? AND site_id = ? AND kind = 'custom'
+            AND certificate_state = 'ready' AND removal_requested_at IS NULL
+        `).get(hostnameId, siteId);
+        if (!row) throw new Error('The primary hostname must be a ready custom hostname of this Site.');
+      }
+      const now = new Date(this.now()).toISOString();
+      const updated = this.db.prepare(`
+        UPDATE p_sites_sites SET primary_custom_hostname_id = ?, updated_at = ?
+        WHERE id = ? AND status <> 'deleting'
+      `).run(hostnameId, now, siteId);
+      if (updated.changes !== 1) throw new Error('The Site is absent or being deleted.');
+    });
+  }
+
+  requestHostnameRemoval(id: string): void {
+    this.db.transaction(() => {
+      const row = this.db.prepare('SELECT site_id FROM p_sites_hostnames WHERE id = ?')
+        .get(id) as { site_id: string } | undefined;
+      if (!row) throw new Error('The hostname does not exist.');
+      const now = new Date(this.now()).toISOString();
+      this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET removal_requested_at = COALESCE(removal_requested_at, ?), updated_at = ?
+        WHERE id = ?
+      `).run(now, now, id);
+      this.db.prepare(`
+        UPDATE p_sites_sites SET primary_custom_hostname_id = NULL, updated_at = ?
+        WHERE id = ? AND primary_custom_hostname_id = ?
+      `).run(now, row.site_id, id);
+    });
+  }
+
+  completeHostnameRemoval(id: string): void {
+    const result = this.db.prepare('DELETE FROM p_sites_hostnames WHERE id = ? AND removal_requested_at IS NOT NULL').run(id);
+    if (result.changes !== 1) throw new Error('Hostname cleanup has not been requested.');
+  }
+
+  requestGeneratedCertificate(siteId: string, requestedAt: string): void {
+    this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'requested', certificate_requested_at = ?, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(requestedAt, requestedAt, siteId);
+  }
+
+  clearGeneratedCertificateRequest(siteId: string): void {
+    const now = new Date(this.now()).toISOString();
+    this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'none', certificate_requested_at = NULL,
+          certificate_error_code = NULL, certificate_error_detail = NULL, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(now, siteId);
+  }
+
+  failGeneratedCertificate(siteId: string, detail: string): void {
+    const now = new Date(this.now()).toISOString();
+    this.db.prepare(`
+      UPDATE p_sites_hostnames
+      SET certificate_state = 'authority_refused', certificate_requested_at = NULL,
+          certificate_error_code = 'authority_refused', certificate_error_detail = ?, updated_at = ?
+      WHERE site_id = ? AND kind = 'generated'
+    `).run(detail, now, siteId);
+  }
+
 
   siteById(id: string): Site | null {
     const row = this.db.prepare("SELECT * FROM p_sites_sites WHERE id = ? AND runtime = 'static'").get(id) as SiteDbRow | undefined;
@@ -695,8 +1210,7 @@ export class SitesStore {
 
   updateSite(id: string, patch: Partial<Pick<Site,
     'title' | 'summary' | 'visibility' | 'status' | 'currentReleaseId' |
-    'lastPublishAt' | 'lastPublishModel' | 'lastError' |
-    'certificateRequestedAt' | 'certificateError'>>): void {
+    'lastPublishAt' | 'lastPublishModel' | 'lastError'>>): void {
     const columns: Record<string, string> = {
       title: 'title',
       summary: 'summary',
@@ -706,8 +1220,6 @@ export class SitesStore {
       lastPublishAt: 'last_publish_at',
       lastPublishModel: 'last_publish_model',
       lastError: 'last_error',
-      certificateRequestedAt: 'certificate_requested_at',
-      certificateError: 'certificate_error',
     };
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -733,12 +1245,18 @@ export class SitesStore {
    * stops authorising immediately, and a crash leaves a row boot reconciliation can finish. Idempotent. */
   beginDelete(id: string): void {
     this.db.transaction(() => {
+      const now = new Date(this.now()).toISOString();
       this.db.prepare(`
         UPDATE p_sites_sites
-        SET status = 'deleting', current_release_id = NULL,
+        SET status = 'deleting', current_release_id = NULL, primary_custom_hostname_id = NULL,
             access_generation = access_generation + 1, updated_at = ?
         WHERE id = ?
-      `).run(new Date().toISOString(), id);
+      `).run(now, id);
+      this.db.prepare(`
+        UPDATE p_sites_hostnames
+        SET removal_requested_at = COALESCE(removal_requested_at, ?), updated_at = ?
+        WHERE site_id = ?
+      `).run(now, now, id);
       this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_hits WHERE site_id = ?').run(id);
@@ -752,6 +1270,9 @@ export class SitesStore {
 
   deleteSite(id: string): void {
     this.db.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM p_sites_hostnames WHERE site_id = ?').get(id)) {
+        throw new Error('Site hostname cleanup must finish before the Site row is deleted.');
+      }
       this.db.prepare('DELETE FROM p_sites_members WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_releases WHERE site_id = ?').run(id);
       this.db.prepare('DELETE FROM p_sites_tickets WHERE site_id = ?').run(id);

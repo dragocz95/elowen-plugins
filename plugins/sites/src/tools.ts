@@ -315,6 +315,7 @@ export function registerTools(deps: ToolDeps): void {
           lastPublishAt: null,
           lastPublishModel: null,
           lastError: null,
+          primaryCustomHostnameId: null,
         };
         store.insertSite(site);
         const address = siteUrl(config, site.slug);
@@ -446,7 +447,10 @@ export function registerTools(deps: ToolDeps): void {
         const config = deps.config();
         const sites = store.sitesOwnedBy(userId);
         if (sites.length === 0) return text('This account has no sites yet.');
-        const rows = sites.map((site) => ({ site, certificate: recordedCertificate(site) }));
+        const rows = sites.map((site) => ({
+          site,
+          certificate: recordedCertificate(site, store.generatedHostname(site.id)),
+        }));
         return text(rows.map((row) => [
           describe(row.site, config, projectOf(row.site)),
           ...(row.certificate ? [recordedCertificateLine(row.certificate)] : []),

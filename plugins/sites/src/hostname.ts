@@ -2,7 +2,7 @@ import { isIP } from 'node:net';
 import { domainToASCII, domainToUnicode } from 'node:url';
 import { parse } from 'tldts';
 
-export type SiteHostnameKind = 'root' | 'subdomain';
+type SiteHostnameKind = 'root' | 'subdomain';
 
 export interface SiteHostname {
   ascii: string;

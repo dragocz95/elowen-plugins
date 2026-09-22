@@ -25,5 +25,7 @@ export async function deleteSiteResources(siteId: string, deps: SiteDeletionDeps
   if (site.kind === 'proxy') await deps.releasePublication(site);
   rmSync(deps.siteDir(siteId), { recursive: true, force: true });
   await deps.removeGateway(site.slug);
-  deps.store.deleteSite(siteId);
+  const generated = deps.store.generatedHostname(siteId);
+  if (generated) deps.store.completeHostnameRemoval(generated.id);
+  if (deps.store.hostnamesForSite(siteId).length === 0) deps.store.deleteSite(siteId);
 }

@@ -49,6 +49,16 @@ test('TXT ownership verification joins chunks and keeps missing distinct from re
   assert.equal((await verifyOwnershipTxt('shop.example.com', token, resolver({
     txt: { '_elowen-site.shop.example.com': [['wrong']] },
   }))).state, 'mismatch');
+  const ninthProof = await verifyOwnershipTxt('shop.example.com', token, resolver({
+    txt: {
+      '_elowen-site.shop.example.com': [
+        ...Array.from({ length: 8 }, (_, index) => ['wrong-' + index]),
+        ['elowen-site-verification=token-123'],
+      ],
+    },
+  }));
+  assert.equal(ninthProof.state, 'ready');
+  assert.equal(ninthProof.observedValues.length, 8, 'returned observations stay bounded');
   assert.equal((await verifyOwnershipTxt('shop.example.com', token, resolver())).state, 'missing');
   assert.equal((await verifyOwnershipTxt('shop.example.com', token, resolver({}, { txt: 'ETIMEOUT' }))).state, 'unavailable');
 });
@@ -125,6 +135,21 @@ test('a correct A together with a wrong AAAA is misdirected, never ready', async
     observedTargets: ['192.0.2.10', '2001:db8::99'],
   });
 });
+
+test('an exact CNAME is unavailable when its configured destination has no address', async () => {
+  const target = new GatewayDnsTargetService({
+    configured: () => 'gateway.example.net',
+    fallbackHostname: () => null,
+    resolver: resolver({
+      cname: { 'shop.example.com': ['gateway.example.net.'] },
+    }),
+  }).current().target;
+
+  const observation = await target.verifyHostname('shop.example.com');
+  assert.equal(observation.state, 'unavailable');
+  assert.match(observation.detail, /no A or AAAA answer/);
+});
+
 
 test('traffic DNS keeps a missing answer distinct from resolver unavailability', async () => {
   const missing = new GatewayDnsTargetService({

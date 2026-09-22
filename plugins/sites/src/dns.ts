@@ -17,27 +17,27 @@ export interface OwnershipDnsResolver {
   resolveTxt(hostname: string): Promise<string[][]>;
 }
 
-export type DnsTrafficState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
+type DnsTrafficState = 'ready' | 'missing' | 'misdirected' | 'unavailable';
 
-export interface DnsTrafficObservation {
+interface DnsTrafficObservation {
   state: DnsTrafficState;
   observedTargets: string[];
   detail?: string;
 }
 
-export type DirectDnsRecord = {
+type DirectDnsRecord = {
   name: string;
   type: 'A' | 'AAAA' | 'CNAME';
   value: string;
 };
 
-export type DnsRecord = DirectDnsRecord | {
+type DnsRecord = DirectDnsRecord | {
   name: string;
   type: 'ALIAS/ANAME';
   value: string;
 };
 
-export interface DnsRecordPlan {
+interface DnsRecordPlan {
   state: 'ready' | 'unavailable';
   hostname: string;
   kind: SiteHostname['kind'];
@@ -75,7 +75,7 @@ const answer = async (query: () => Promise<string[]>): Promise<DnsAnswer> => {
 };
 
 /** Canonical address parsing is shared by settings, record rendering and verification. */
-export function canonicalDnsAddress(value: string): { kind: 'ipv4' | 'ipv6'; value: string } | null {
+function canonicalDnsAddress(value: string): { kind: 'ipv4' | 'ipv6'; value: string } | null {
   const candidate = value.trim();
   const family = isIP(candidate);
   if (family === 4) return { kind: 'ipv4', value: candidate };
@@ -155,7 +155,7 @@ const cnameChain = async (
   return { reachesTarget: false, observed: [...observed], errors };
 };
 
-export class GatewayDnsTarget {
+class GatewayDnsTarget {
   constructor(
     readonly kind: 'hostname' | 'ipv4' | 'ipv6',
     readonly value: string,
@@ -231,6 +231,14 @@ export class GatewayDnsTarget {
       ...observed.ipv4,
       ...observed.ipv6,
     ].filter((value, index, all) => all.indexOf(value) === index).slice(0, 8);
+    if (this.kind === 'hostname' && !allowed.answered) {
+      const errors = [...allowed.errors, ...cname.errors, ...observed.errors];
+      return {
+        state: 'unavailable',
+        observedTargets,
+        detail: errors[0] ?? 'The configured DNS destination currently has no A or AAAA answer.',
+      };
+    }
     const wrongAddress = [...observed.ipv4].some((value) => !allowed.ipv4.has(value))
       || [...observed.ipv6].some((value) => !allowed.ipv6.has(value));
     if (wrongAddress) return { state: 'misdirected', observedTargets };
@@ -252,7 +260,7 @@ export class GatewayDnsTarget {
   }
 }
 
-export type GatewayDnsTargetResolution = {
+type GatewayDnsTargetResolution = {
   target: GatewayDnsTarget | null;
   error: string | null;
 };
@@ -313,8 +321,14 @@ export async function verifyOwnershipTxt(
   const record = ownershipTxtRecord(hostname, token);
   try {
     const rows = await resolver.resolveTxt(fqdn(record.name));
-    const observedValues = rows.map((chunks) => chunks.join('')).slice(0, 8);
-    return observedValues.includes(record.value)
+    const observedValues: string[] = [];
+    let matches = false;
+    for (const chunks of rows) {
+      const value = chunks.join('');
+      if (value === record.value) matches = true;
+      if (observedValues.length < 8) observedValues.push(value);
+    }
+    return matches
       ? { state: 'ready', observedValues }
       : { state: 'mismatch', observedValues };
   } catch (error) {

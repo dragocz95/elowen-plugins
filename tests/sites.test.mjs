@@ -12,7 +12,8 @@ import {
 import { SitesStore } from '../plugins/sites/dist/store.js';
 import { resolveWithin } from '../plugins/sites/dist/releaseFiles.js';
 import { createSiteHandler } from '../plugins/sites/dist/serve.js';
-import { resolveConfig, resolveGatewayDnsTarget, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
+import { resolveConfig, siteUrl, requestOnSiteHost } from '../plugins/sites/dist/config.js';
+import { resolveGatewayDnsTarget } from '../plugins/sites/dist/dns.js';
 import { proxyToProject, ProxyError } from '../plugins/sites/dist/proxy.js';
 import { registerTools } from '../plugins/sites/dist/tools.js';
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
@@ -780,17 +781,19 @@ test('every site gets the root of the gateway hostname derived by core', () => {
 test('the Sites DNS destination is parsed once, strictly, for both readiness and the record', () => {
   // One exported contract, used by the gateway for the DNS check AND for the record the settings screen
   // shows. Everything that is not exactly a hostname or an address is refused rather than guessed at.
-  assert.deepEqual(resolveGatewayDnsTarget(undefined, 'elowen.example'), {
-    target: { kind: 'hostname', value: 'elowen.example' }, error: null,
-  });
-  assert.deepEqual(resolveGatewayDnsTarget('203.0.113.40', 'elowen.example').target, { kind: 'ipv4', value: '203.0.113.40' });
-  assert.deepEqual(resolveGatewayDnsTarget('Origin.Example.COM.', null).target, { kind: 'hostname', value: 'origin.example.com' });
+  const targetShape = (value, fallback) => {
+    const resolved = resolveGatewayDnsTarget(value, fallback);
+    return resolved.target ? { kind: resolved.target.kind, value: resolved.target.value } : null;
+  };
+  assert.deepEqual(targetShape(undefined, 'elowen.example'), { kind: 'hostname', value: 'elowen.example' });
+  assert.deepEqual(targetShape('203.0.113.40', 'elowen.example'), { kind: 'ipv4', value: '203.0.113.40' });
+  assert.deepEqual(targetShape('Origin.Example.COM.', null), { kind: 'hostname', value: 'origin.example.com' });
 
   // A trailing dot is a fully qualified value, not a hostname whose last label happens to be numeric.
-  assert.deepEqual(resolveGatewayDnsTarget('188.130.140.170.', null).target, { kind: 'ipv4', value: '188.130.140.170' });
+  assert.deepEqual(targetShape('188.130.140.170.', null), { kind: 'ipv4', value: '188.130.140.170' });
 
   // IPv6 is canonicalised, so a stored value and a resolver answer are the same string.
-  assert.deepEqual(resolveGatewayDnsTarget('2001:0DB8:0000:0000:0000:0000:0000:0020', null).target, {
+  assert.deepEqual(targetShape('2001:0DB8:0000:0000:0000:0000:0000:0020', null), {
     kind: 'ipv6', value: '2001:db8::20',
   });
 
@@ -855,7 +858,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 
 const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease } = {}) => {
   const db = makeDb();
-  const store = new SitesStore(db);
+  const store = new SitesStore(db, { hostnameBase: gatewayHost });
   const registered = new Map();
   const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
   mkdirSync(join(dir, 'project'), { recursive: true });
@@ -882,7 +885,11 @@ const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost 
     access: { isAdmin: () => admin, canAccessProject: () => true, accountExists: () => true, allowPublicSites: () => true },
     config: () => resolveConfig(configRaw, 'https://elowen.example', gatewayHost),
     people: () => new Map(accounts.map((person) => [person.id, person])),
-    deleteSite: async (id) => { store.beginDelete(id); store.deleteSite(id); },
+    deleteSite: async (id) => {
+      store.beginDelete(id);
+      for (const hostname of store.hostnamesForSite(id)) store.completeHostnameRemoval(hostname.id);
+      store.deleteSite(id);
+    },
     activateRelease: activateRelease ?? ((target, releaseId) => {
       store.updateSite(target.id, { currentReleaseId: releaseId, status: 'live', lastError: null });
     }),
@@ -1096,8 +1103,8 @@ test('SiteList reports what each row records about its certificate, and probes n
   store.insertSite(site({ id: 'draft', slug: 'draft-a1b2c3', status: 'draft', currentReleaseId: null, lastPublishAt: null }));
   // Written the way the certificate path writes them: the columns are updated on an existing row, never
   // supplied at insert.
-  store.updateSite('waiting', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
-  store.updateSite('failed', { certificateError: 'certbot failed: DNS problem' });
+  store.requestGeneratedCertificate('waiting', '2026-09-12T02:40:00.000Z');
+  store.failGeneratedCertificate('failed', 'certbot failed: DNS problem');
 
   const listed = await call('SiteList', {});
   const body = listed.content[0].text;

@@ -1,6 +1,4 @@
 import type { Visibility } from './store.js';
-export { canonicalDnsAddress, resolveGatewayDnsTarget } from './dns.js';
-export type { GatewayDnsTargetResolution } from './dns.js';
 
 export interface SitesConfig {
   defaultVisibility: Visibility;

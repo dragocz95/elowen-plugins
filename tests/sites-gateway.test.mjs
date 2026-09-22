@@ -70,7 +70,11 @@ const makeHarness = ({ hostnameBase = HOSTNAME_BASE, contactEmail = 'ops@example
 };
 
 test('the readiness check names the exact DNS record while the wildcard is missing', async () => {
-  const harness = makeHarness();
+  const harness = makeHarness({
+    dns: {
+      resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+    },
+  });
   const readiness = await harness.manager.readiness();
 
   // This is now the ONLY place a person is told what to create — there is no hosting screen and no
@@ -102,6 +106,7 @@ test('a CNAME chain to the app hostname makes the gateway serve before any certi
       resolveCname: async (hostname) => hostname === `${PROBE_HOST}.`
         ? ['Edge.Example.Invalid.']
         : hostname === 'edge.example.invalid.' ? [`${APP_HOST}.`] : await missingDns(),
+      resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
     },
   });
   const status = await harness.manager.reconcile();
@@ -163,6 +168,7 @@ test('an explicit origin hostname accepts a CNAME without consulting the proxied
     gatewayDnsTarget: target,
     dns: {
       resolveCname: async (hostname) => hostname === `${PROBE_HOST}.` ? [`${target}.`] : await missingDns(),
+      resolve4: async (hostname) => hostname === `${target}.` ? ['192.0.2.20'] : await missingDns(),
     },
   });
 
@@ -334,7 +340,10 @@ test('a failed certificate backs off per slug, so one broken site cannot spend t
 });
 
 test('a site that succeeds clears its own backoff, and one bad slug never marks the gateway down', async () => {
-  const harness = makeHarness({ dns: { resolveCname: async () => [`${APP_HOST}.`] } });
+  const harness = makeHarness({ dns: {
+    resolveCname: async () => [`${APP_HOST}.`],
+    resolve4: async (hostname) => hostname === `${APP_HOST}.` ? ['192.0.2.10'] : await missingDns(),
+  } });
   await harness.manager.reconcile();
   assert.equal(harness.manager.isActive(), true);
 

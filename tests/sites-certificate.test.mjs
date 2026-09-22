@@ -34,18 +34,6 @@ const makeDb = ({ beforeStep, through = Infinity, from } = {}) => {
   };
 };
 
-/** Column definitions as SQLite reports them, reduced to what a migration decides. */
-const tableShape = (db, table) => db.prepare(`PRAGMA table_info('${table}')`).all()
-  .map(({ name, type, notnull, dflt_value: dflt }) => ({ name, type, notnull, dflt }));
-
-/** A site row exactly as a release before the certificate columns wrote one. */
-const insertLegacySite = (handle, id) => handle.prepare(`INSERT INTO p_sites_sites (
-  id, slug, title, project_id, owner_user_id, source_dir, runtime, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-  id, `${id}-abc123`, 'Legacy', 7, 1, '/tmp/legacy', 'static', 'live',
-  '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
-);
-
 const site = (overrides = {}) => ({
   id: 'site-1',
   slug: 'demo-abc123',
@@ -80,7 +68,7 @@ const peerCertificate = ({ names = [HOSTNAME], from = '2026-01-01T00:00:00.000Z'
 
 const harness = ({ canIssue = true, issue, probe, mayAttempt = true, issuedSlugs = [] } = {}) => {
   const db = makeDb();
-  const store = new SitesStore(db);
+  const store = new SitesStore(db, { hostnameBase: 'sites.elowen.example' });
   store.insertSite(site());
   const issued = [];
   const probed = [];
@@ -98,7 +86,14 @@ const harness = ({ canIssue = true, issue, probe, mayAttempt = true, issuedSlugs
       return probe ? await probe(hostname) : { reachable: true, covered: true, detail: `serving ${hostname}` };
     },
   });
-  return { store, service, issued, probed, site: () => store.siteById('site-1') };
+  return {
+    store,
+    service,
+    issued,
+    probed,
+    site: () => store.siteById('site-1'),
+    hostname: () => store.generatedHostname('site-1'),
+  };
 };
 
 const NOT_COVERED = {
@@ -106,6 +101,14 @@ const NOT_COVERED = {
   covered: false,
   detail: `the gateway answers ${HOSTNAME} with a certificate for ${OTHER_HOSTNAME}`,
 };
+
+const certificate = (overrides = {}) => ({
+  certificateState: 'none',
+  certificateRequestedAt: null,
+  certificateErrorCode: null,
+  certificateErrorDetail: null,
+  ...overrides,
+});
 
 test('a foreign certificate served for a site hostname is not read as coverage', () => {
   const observation = evaluatePeerCertificate(HOSTNAME, peerCertificate({ names: [OTHER_HOSTNAME] }), Date.parse('2026-06-01T00:00:00Z'));
@@ -144,8 +147,8 @@ test('publishing where the broker is present and issuance succeeds reports a ver
   assert.deepEqual(h.issued, ['demo-abc123']);
   assert.deepEqual(h.probed, [HOSTNAME]);
   // The request is answered by the attempt, so nothing is left for the sweep to redo.
-  assert.equal(h.site().certificateRequestedAt, null);
-  assert.equal(h.site().certificateError, null);
+  assert.equal(h.hostname().certificateRequestedAt, null);
+  assert.equal(h.hostname().certificateErrorDetail, null);
 });
 
 test('a refused issuance is reported as an error carrying the authority reason and is recorded on the row', async () => {
@@ -155,8 +158,8 @@ test('a refused issuance is reported as an error carrying the authority reason a
 
   assert.equal(readiness.state, 'error');
   assert.match(readiness.detail, /too many failed authorizations recently/);
-  assert.equal(h.site().certificateError, 'certbot failed: too many failed authorizations recently');
-  assert.equal(h.site().certificateRequestedAt, null);
+  assert.equal(h.hostname().certificateErrorDetail, 'certbot failed: too many failed authorizations recently');
+  assert.equal(h.hostname().certificateRequestedAt, null);
   // The failure is terminal for this call: no probe can turn a refusal into a usable address.
   assert.deepEqual(h.probed, []);
 });
@@ -230,7 +233,7 @@ test('a backed-off slug is not asked again, and reports the recorded reason inst
   // The authority counts failed validations per hostname per hour against a budget every site shares, so the
   // path an agent repeats after reading a failure must not be the one that spends it.
   const h = harness({ mayAttempt: false, probe: async () => NOT_COVERED });
-  h.store.updateSite('site-1', { certificateError: 'certbot failed: too many failed authorizations recently' });
+  h.store.failGeneratedCertificate('site-1', 'certbot failed: too many failed authorizations recently');
 
   const readiness = await h.service.publish(site(), HOSTNAME);
 
@@ -270,13 +273,13 @@ test('publishing without the broker records the request for the daemon and repor
 
   assert.equal(readiness.state, 'pending');
   assert.deepEqual(h.issued, []);
-  assert.notEqual(h.site().certificateRequestedAt, null);
+  assert.notEqual(h.hostname().certificateRequestedAt, null);
   assert.match(readiness.detail, /requested/);
 });
 
 test('a recorded issuance failure outranks a pending handshake when readiness is read', async () => {
   const h = harness({ canIssue: false, probe: async () => NOT_COVERED });
-  h.store.updateSite('site-1', { certificateError: 'certbot failed: DNS problem' });
+  h.store.failGeneratedCertificate('site-1', 'certbot failed: DNS problem');
 
   const readiness = await h.service.readiness(site(), HOSTNAME);
 
@@ -334,7 +337,7 @@ test('a hostname this process cannot derive is pending without the broker and an
   assert.equal(runner.state, 'pending');
   assert.match(runner.detail, /no gateway broker/);
   // Recorded even with no hostname to probe: the daemon can derive one and is the process that will.
-  assert.notEqual(withoutBroker.site().certificateRequestedAt, null);
+  assert.notEqual(withoutBroker.hostname().certificateRequestedAt, null);
   assert.equal(daemon.state, 'error');
   assert.match(daemon.detail, /no sites domain/);
   assert.deepEqual(withBroker.issued, []);
@@ -347,7 +350,7 @@ test('a hostname this process cannot derive is pending without the broker and an
 // why an attempt failed, and neither establishes that the gateway is serving a certificate right now.
 
 test('a row that has recorded nothing reports exactly that, and never that it is served', () => {
-  const recorded = recordedCertificate(site());
+  const recorded = recordedCertificate(site(), certificate());
 
   assert.equal(recorded.state, 'unrecorded');
   assert.match(recorded.detail, /no pending request and no recorded failure/);
@@ -358,7 +361,10 @@ test('a row that has recorded nothing reports exactly that, and never that it is
 });
 
 test('a recorded request reports the wait, with the stamp that says how long it has been waiting', () => {
-  const recorded = recordedCertificate(site({ certificateRequestedAt: '2026-09-12T02:40:00.000Z' }));
+  const recorded = recordedCertificate(site(), certificate({
+    certificateState: 'requested',
+    certificateRequestedAt: '2026-09-12T02:40:00.000Z',
+  }));
 
   assert.equal(recorded.state, 'requested');
   assert.match(recorded.detail, /2026-09-12T02:40:00\.000Z/);
@@ -368,10 +374,16 @@ test('a recorded request reports the wait, with the stamp that says how long it 
 test('a recorded failure reports the authority reason and outranks a stale pending request', () => {
   // The order matters: a runner records a request BEFORE the daemon has had a chance to fail it again, so a
   // row can hold both. The failure is the fact a reader has to act on.
-  const failed = recordedCertificate(site({ certificateError: 'certbot failed: too many failed authorizations recently' }));
-  const both = recordedCertificate(site({
+  const failed = recordedCertificate(site(), certificate({
+    certificateState: 'authority_refused',
+    certificateErrorCode: 'authority_refused',
+    certificateErrorDetail: 'certbot failed: too many failed authorizations recently',
+  }));
+  const both = recordedCertificate(site(), certificate({
+    certificateState: 'authority_refused',
     certificateRequestedAt: '2026-09-12T02:40:00.000Z',
-    certificateError: 'certbot failed: DNS problem',
+    certificateErrorCode: 'authority_refused',
+    certificateErrorDetail: 'certbot failed: DNS problem',
   }));
 
   assert.equal(failed.state, 'error');
@@ -382,7 +394,10 @@ test('a recorded failure reports the authority reason and outranks a stale pendi
 
 test('a site that is not live has no certificate line at all', () => {
   for (const status of ['draft', 'deleting']) {
-    assert.equal(recordedCertificate(site({ status, certificateRequestedAt: '2026-09-12T02:40:00.000Z' })), null, status);
+    assert.equal(recordedCertificate(site({ status }), certificate({
+      certificateState: 'requested',
+      certificateRequestedAt: '2026-09-12T02:40:00.000Z',
+    })), null, status);
   }
 });
 
@@ -393,7 +408,12 @@ test('no row in any combination can be read as a certificate that is ready', () 
   for (const status of ['live', 'draft', 'deleting']) {
     for (const certificateRequestedAt of [null, '2026-09-12T02:40:00.000Z']) {
       for (const certificateError of [null, '', 'certbot failed: DNS problem']) {
-        const recorded = recordedCertificate(site({ status, certificateRequestedAt, certificateError }));
+        const recorded = recordedCertificate(site({ status }), certificate({
+          certificateState: certificateError ? 'authority_refused' : certificateRequestedAt ? 'requested' : 'none',
+          certificateRequestedAt,
+          certificateErrorCode: certificateError ? 'authority_refused' : null,
+          certificateErrorDetail: certificateError || null,
+        }));
         if (recorded === null) continue;
         judged += 1;
         assert.ok(['error', 'requested', 'unrecorded'].includes(recorded.state),
@@ -412,80 +432,7 @@ test('the recorded reading is synchronous, which is what makes it probe-free', (
   // proof that a listing of twenty sites opens no sockets. It also takes the row and nothing else — no
   // store, no gateway, no probe — so there is nothing it could reach even if it wanted to.
   assert.equal(recordedCertificate.constructor.name, 'Function', 'an async reader could hide a probe');
-  assert.equal(recordedCertificate.length, 1, 'the row is the only input');
-  const result = recordedCertificate(site());
+  assert.equal(recordedCertificate.length, 2, 'the Site and its generated hostname record are the only inputs');
+  const result = recordedCertificate(site(), certificate());
   assert.equal(typeof result.then, 'undefined');
-});
-
-// ── the schema half: migration v18 ───────────────────────────────────────────────────────────────
-//
-// The two certificate columns are what the readiness path reads and writes, so an upgrade that does not
-// produce them, or that disturbs the rows already there, breaks every behaviour above on a real database
-// while every test using a freshly built schema still passes.
-
-test('migration v18 adds two nullable certificate columns and leaves a row written before them intact', () => {
-  const db = makeDb({ beforeStep: (version, handle) => { if (version === 18) insertLegacySite(handle, 'legacy'); } });
-  const store = new SitesStore(db);
-
-  const columns = new Map(tableShape(db, 'p_sites_sites').map((column) => [column.name, column]));
-  for (const name of ['certificate_requested_at', 'certificate_error']) {
-    assert.deepEqual(columns.get(name), { name, type: 'TEXT', notnull: 0, dflt: null },
-      `${name} must be nullable with no default, so an existing row needs no value`);
-  }
-
-  const row = store.siteById('legacy');
-  assert.equal(row.slug, 'legacy-abc123');
-  assert.equal(row.status, 'live');
-  assert.equal(db.prepare("SELECT runtime FROM p_sites_sites WHERE id = 'legacy'").get().runtime, 'static',
-    'the legacy compatibility column remains intact without becoming part of the active Site contract');
-  assert.equal(row.certificateRequestedAt, null, 'a row that predates the columns has requested nothing');
-  assert.equal(row.certificateError, null, 'and has recorded no failure');
-  // It also behaves as one: a live site nobody has issued for is exactly what the sweep must pick up.
-  assert.deepEqual(
-    sitesDueForCertificate([row], { all: false, issued: new Set(), mayAttempt: () => true }).map((entry) => entry.slug),
-    ['legacy-abc123'],
-  );
-});
-
-test('opening a database that already carries the newest migration alters nothing and keeps its values', () => {
-  // 19 is the newest step: the preview-image and capture-grant tables. Nothing about it touches an
-  // existing column, which is what this pins — a second load over the same file adds nothing twice.
-  const first = makeDb({ beforeStep: (version, handle) => { if (version === 19) insertLegacySite(handle, 'legacy'); } });
-  const before = new SitesStore(first);
-  before.updateSite('legacy', { certificateError: 'certbot failed: DNS problem' });
-  const shapeBefore = tableShape(first, 'p_sites_sites');
-
-  // The plugin is loaded again over the same database, as every daemon boot does.
-  const reopened = makeDb({ from: first });
-  const store = new SitesStore(reopened);
-
-  assert.equal(reopened.appliedVersion(), 19);
-  assert.deepEqual(tableShape(reopened, 'p_sites_sites'), shapeBefore, 'a second load adds no column a second time');
-  assert.equal(store.siteById('legacy').certificateError, 'certbot failed: DNS problem');
-});
-
-test('a database left at the schema before the certificate columns upgrades into the shape of a fresh one', () => {
-  const stamps = {
-    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-    lastPublishAt: '2026-01-01T00:00:00.000Z',
-  };
-  const older = makeDb({ through: 17 });
-  const olderStore = new SitesStore(older);
-  olderStore.insertSite(site({ ...stamps }));
-  assert.equal(older.appliedVersion(), 17, 'the older release stopped before the certificate columns');
-
-  const upgraded = makeDb({ from: older });
-  const store = new SitesStore(upgraded);
-  const fresh = makeDb();
-  const freshStore = new SitesStore(fresh);
-  freshStore.insertSite(site({ ...stamps }));
-
-  assert.equal(upgraded.appliedVersion(), 19, 'the upgrade chain reaches the current schema');
-  assert.deepEqual(tableShape(upgraded, 'p_sites_sites'), tableShape(fresh, 'p_sites_sites'));
-  assert.deepEqual(store.siteById('site-1'), freshStore.siteById('site-1'),
-    'an upgraded row reads back exactly like one written against the current schema');
-
-  // And the upgraded database accepts what the readiness path writes.
-  store.updateSite('site-1', { certificateRequestedAt: '2026-09-12T02:40:00.000Z' });
-  assert.equal(store.siteById('site-1').certificateRequestedAt, '2026-09-12T02:40:00.000Z');
 });
