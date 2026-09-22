@@ -1,11 +1,11 @@
-import { parseAppearance } from './appearanceContract.js';
+import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
+import { parseAppearanceSelection } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf } from './limits.js';
 import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */
-const DISPLAY_NAME_MAX_CHARS = 80;
 const ORIGINS_MAX = 20;
 /** How much of a page's own explanation may be kept with an action. A `read` answers with the value it
  *  found, and a failed action with a stable code — both are short, and a page that sends more is not
@@ -306,7 +306,7 @@ export function validateAppearanceWrite(body) {
     const displayName = readString(outer.value, 'displayName', DISPLAY_NAME_MAX_CHARS);
     if (!displayName.ok)
         return displayName;
-    const appearance = parseAppearance(outer.value.appearance);
+    const appearance = parseAppearanceSelection(outer.value.appearance);
     if (!appearance.ok)
         return { ok: false, error: appearance.error };
     return {

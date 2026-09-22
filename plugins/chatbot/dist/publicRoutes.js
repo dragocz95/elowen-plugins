@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
-import { parseStoredAppearance } from './appearanceContract.js';
+import { parseStoredAppearance, resolveAppearance } from './appearanceContract.js';
 import { EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission } from './validation.js';
@@ -246,7 +246,7 @@ export function createPublicRoute(deps) {
         // the customer's own page instead of as the refusal it is.
         let appearance;
         try {
-            appearance = parseStoredAppearance(admitted.bot.appearance);
+            appearance = resolveAppearance(parseStoredAppearance(admitted.bot.appearance));
         }
         catch (error) {
             warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${error instanceof Error ? error.message : String(error)}`);

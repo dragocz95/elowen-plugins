@@ -325,6 +325,12 @@ var Power = createLucideIcon("Power", [
   ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04", key: "obofu9" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
+var RotateCcw = createLucideIcon("RotateCcw", [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/ruler.js
 var Ruler = createLucideIcon("Ruler", [
   [
@@ -357,6 +363,18 @@ var Save = createLucideIcon("Save", [
 var Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/send.js
+var Send = createLucideIcon("Send", [
+  [
+    "path",
+    {
+      d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",
+      key: "1ffxy3"
+    }
+  ],
+  ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/settings-2.js
@@ -406,6 +424,19 @@ var Trash2 = createLucideIcon("Trash2", [
   ["path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", key: "v07s0e" }],
   ["line", { x1: "10", x2: "10", y1: "11", y2: "17", key: "1uufr5" }],
   ["line", { x1: "14", x2: "14", y1: "11", y2: "17", key: "xtxkd" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/type.js
+var Type = createLucideIcon("Type", [
+  ["polyline", { points: "4 7 4 4 20 4 20 7", key: "1nosan" }],
+  ["line", { x1: "9", x2: "15", y1: "20", y2: "20", key: "swin9y" }],
+  ["line", { x1: "12", x2: "12", y1: "4", y2: "20", key: "1tx1rr" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/user-round.js
+var UserRound = createLucideIcon("UserRound", [
+  ["circle", { cx: "12", cy: "8", r: "5", key: "1hypcn" }],
+  ["path", { d: "M20 21a8 8 0 0 0-16 0", key: "rfgkzh" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/users.js
@@ -730,11 +761,11 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
   const rows = (fields) => fields.map((field) => {
     const range = sliderRange(field, draft[field]);
     const label = s[`limit_${field}`];
-    const Icon2 = ICONS[field];
+    const Icon3 = ICONS[field];
     const text = valueText(field, draft[field]);
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "py-3.5", children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "flex items-center gap-2.5", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon2, { size: 18, "aria-hidden": true }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Icon3, { size: 18, "aria-hidden": true }) }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-foreground", children: [
           label,
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.HelpTip, { children: s[`limitHint_${field}`] })
@@ -791,55 +822,125 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
 var import_react6 = __toESM(require_react(), 1);
 
 // plugins/chatbot/src/appearanceContract.ts
-var APPEARANCE_SCHEMA_VERSION = 1;
+var APPEARANCE_SCHEMA_VERSION = 2;
+var APPEARANCE_TEMPLATE_IDS = ["elowen", "clean", "mono", "warm"];
+var APPEARANCE_MODES = ["light", "dark"];
+var PANEL_POSITIONS = ["bottom-right", "bottom-left", "top-right", "top-left"];
+var SEND_SHAPES = ["circle", "rounded-square"];
+var APPEARANCE_ICONS = [
+  { id: "arrow", path: "M5 12h14 M13 6l6 6-6 6" },
+  { id: "paper-plane", path: "M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7Z" },
+  { id: "speech-bubble", path: "M21 15a4 4 0 0 1-4 4H8l-5 3 1.7-5.1A8 8 0 1 1 21 15Z" },
+  { id: "sparkles", path: "M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Z M19 13l.8 2.2L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.8L19 13Z" },
+  { id: "question", path: "M9.1 9a3 3 0 1 1 4.7 2.5c-1.1.7-1.8 1.2-1.8 2.5 M12 18h.01 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" },
+  { id: "phone", path: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z" },
+  { id: "calendar", path: "M6 2v4 M18 2v4 M3 9h18 M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z" },
+  { id: "cart", path: "M3 3h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6 M10 21h.01 M18 21h.01" },
+  { id: "person", path: "M20 21a8 8 0 0 0-16 0 M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" },
+  { id: "envelope", path: "M3 5h18v14H3V5Z M3 6l9 7 9-7" },
+  { id: "check", path: "m5 12 4 4L19 6" }
+];
 var APPEARANCE_BOUNDS = {
   width: { min: 280, max: 640 },
   height: { min: 320, max: 760 },
-  radius: { min: 0, max: 28 }
+  radius: { min: 0, max: 32 },
+  launcherSize: { min: 44, max: 72 },
+  launcherOffset: { min: 8, max: 40 },
+  fontSize: { min: 12, max: 18 }
 };
 var APPEARANCE_INTRO_MAX_CHARS = 400;
 var APPEARANCE_AVATAR_URL_MAX_CHARS = 2048;
+var APPEARANCE_SUBTITLE_MAX_CHARS = 80;
+var APPEARANCE_PLACEHOLDER_MAX_CHARS = 80;
+var APPEARANCE_LAUNCHER_LABEL_MAX_CHARS = 24;
 var APPEARANCE_QUICK_BUTTONS_MAX = 6;
 var APPEARANCE_QUICK_BUTTON_MAX_CHARS = 40;
-var APPEARANCE_PRESETS = {
-  dark: { panel: "#070707", visitorBubble: "#ff5236", botBubble: "#151515", sendButton: "#ff5236" },
-  light: { panel: "#ffffff", visitorBubble: "#ff5236", botBubble: "#f3efec", sendButton: "#ff5236" }
+var APPEARANCE_FONT_STACKS = {
+  system: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  humanist: "Optima, Candara, 'Noto Sans', sans-serif",
+  serif: "Georgia, Cambria, 'Times New Roman', serif",
+  mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
 };
+var APPEARANCE_SHADOWS = {
+  none: "none",
+  soft: "0 12px 32px rgb(0 0 0 / 0.16)",
+  medium: "0 18px 48px rgb(0 0 0 / 0.28)",
+  strong: "0 24px 64px rgb(0 0 0 / 0.5)"
+};
+var template = (appearance) => ({
+  schemaVersion: APPEARANCE_SCHEMA_VERSION,
+  ...appearance
+});
+var APPEARANCE_TEMPLATES = {
+  elowen: template({
+    mode: "dark",
+    position: "bottom-right",
+    width: 380,
+    height: 560,
+    radius: 16,
+    colors: { panel: "#070707", visitorBubble: "#ff5236", botBubble: "#151515", sendButton: "#ff5236", sendIcon: "#1b1917", launcher: "#ff5236" },
+    intro: null,
+    avatarUrl: "",
+    quickButtons: [],
+    send: { icon: "arrow", shape: "circle" },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    header: { subtitle: "", showAvatar: true, showMessageName: true },
+    typography: { fontSize: 14, fontFamily: "system", shadow: "strong", placeholder: "" }
+  }),
+  clean: template({
+    mode: "light",
+    position: "bottom-right",
+    width: 400,
+    height: 600,
+    radius: 20,
+    colors: { panel: "#ffffff", visitorBubble: "#2563eb", botBubble: "#f1f5f9", sendButton: "#2563eb", sendIcon: "#ffffff", launcher: "#2563eb" },
+    intro: null,
+    avatarUrl: "",
+    quickButtons: [],
+    send: { icon: "paper-plane", shape: "circle" },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "" },
+    header: { subtitle: "", showAvatar: true, showMessageName: false },
+    typography: { fontSize: 15, fontFamily: "system", shadow: "soft", placeholder: "" }
+  }),
+  mono: template({
+    mode: "dark",
+    position: "bottom-right",
+    width: 320,
+    height: 520,
+    radius: 4,
+    colors: { panel: "#000000", visitorBubble: "#ffffff", botBubble: "#171717", sendButton: "#ffffff", sendIcon: "#000000", launcher: "#000000" },
+    intro: null,
+    avatarUrl: "",
+    quickButtons: [],
+    send: { icon: "arrow", shape: "rounded-square" },
+    launcher: { icon: "speech-bubble", size: 52, offset: 16, label: "" },
+    header: { subtitle: "", showAvatar: false, showMessageName: true },
+    typography: { fontSize: 14, fontFamily: "mono", shadow: "none", placeholder: "" }
+  }),
+  warm: template({
+    mode: "light",
+    position: "bottom-right",
+    width: 400,
+    height: 600,
+    radius: 28,
+    colors: { panel: "#fffaf0", visitorBubble: "#d88c9a", botBubble: "#f7eadf", sendButton: "#d88c9a", sendIcon: "#1b1917", launcher: "#8fae98" },
+    intro: null,
+    avatarUrl: "",
+    quickButtons: [],
+    send: { icon: "paper-plane", shape: "circle" },
+    launcher: { icon: "sparkles", size: 60, offset: 24, label: "" },
+    header: { subtitle: "", showAvatar: true, showMessageName: false },
+    typography: { fontSize: 15, fontFamily: "humanist", shadow: "medium", placeholder: "" }
+  })
+};
+var DEFAULT_APPEARANCE = APPEARANCE_TEMPLATES.elowen;
 var APPEARANCE_RAMPS = {
-  dark: {
-    foreground: "#f7f3f0",
-    muted: "#9d948e",
-    border: "#242424",
-    raised: "#151515",
-    field: "#151515",
-    ember: "#ff9a62"
-  },
-  light: {
-    foreground: "#1b1917",
-    muted: "#6f6862",
-    border: "#e2ddd8",
-    raised: "#f7f4f1",
-    field: "#f7f4f1",
-    ember: "#b03a12"
-  }
+  dark: { foreground: "#f7f3f0", muted: "#9d948e", border: "#242424", raised: "#151515", field: "#151515", ember: "#ff9a62" },
+  light: { foreground: "#1b1917", muted: "#6f6862", border: "#e2ddd8", raised: "#f7f4f1", field: "#f7f4f1", ember: "#b03a12" }
 };
 var LIGHT_INK = "#f7f3f0";
 var DARK_INK = "#1b1917";
-var DEFAULT_APPEARANCE = {
-  schemaVersion: APPEARANCE_SCHEMA_VERSION,
-  mode: "dark",
-  position: "bottom-right",
-  width: 380,
-  height: 560,
-  radius: 16,
-  colors: APPEARANCE_PRESETS.dark,
-  intro: null,
-  avatarUrl: "",
-  quickButtons: []
-};
-function presetAppearance(mode) {
-  return { ...DEFAULT_APPEARANCE, mode, colors: { ...APPEARANCE_PRESETS[mode] } };
-}
+var HEX_COLOR = /^#[0-9a-f]{6}$/i;
 var channels = (hex) => [
   Number.parseInt(hex.slice(1, 3), 16),
   Number.parseInt(hex.slice(3, 5), 16),
@@ -865,6 +966,346 @@ function appearanceShade(color, direction, amount = 0.12) {
   const mix = (value) => value + (target - value) * amount;
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
 }
+function appearanceIcon(id2) {
+  return APPEARANCE_ICONS.find((entry) => entry.id === id2);
+}
+function appearanceIconSvg(id2) {
+  const icon = appearanceIcon(id2);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icon.path}"/></svg>`;
+}
+function appearanceFontStack(family) {
+  return APPEARANCE_FONT_STACKS[family];
+}
+function cloneAppearance(value) {
+  return {
+    ...value,
+    colors: { ...value.colors },
+    quickButtons: value.quickButtons.map((button) => ({ ...button })),
+    send: { ...value.send },
+    launcher: { ...value.launcher },
+    header: { ...value.header },
+    typography: { ...value.typography }
+  };
+}
+function resolveAppearance(stored) {
+  const base = cloneAppearance(APPEARANCE_TEMPLATES[stored.template]);
+  const overrides = stored.overrides;
+  return {
+    ...base,
+    ...overrides,
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
+    colors: { ...base.colors, ...overrides.colors },
+    quickButtons: overrides.quickButtons?.map((button) => ({ ...button })) ?? base.quickButtons,
+    send: { ...base.send, ...overrides.send },
+    launcher: { ...base.launcher, ...overrides.launcher },
+    header: { ...base.header, ...overrides.header },
+    typography: { ...base.typography, ...overrides.typography }
+  };
+}
+function setAppearanceOverride(stored, path, value) {
+  const [group, child] = path.split(".");
+  const overrides = { ...stored.overrides };
+  if (child === void 0) {
+    overrides[group] = value;
+  } else {
+    overrides[group] = {
+      ...overrides[group],
+      [child]: value
+    };
+  }
+  return { ...stored, overrides };
+}
+function resetAppearanceOverride(stored, path) {
+  const [group, child] = path.split(".");
+  const overrides = { ...stored.overrides };
+  if (child === void 0) {
+    delete overrides[group];
+  } else {
+    const nested = { ...overrides[group] };
+    delete nested[child];
+    if (Object.keys(nested).length === 0) delete overrides[group];
+    else overrides[group] = nested;
+  }
+  return { ...stored, overrides };
+}
+function isAppearanceOverridden(stored, path) {
+  const [group, child] = path.split(".");
+  if (child === void 0) return Object.prototype.hasOwnProperty.call(stored.overrides, group);
+  const nested = stored.overrides[group];
+  return typeof nested === "object" && nested !== null && Object.prototype.hasOwnProperty.call(nested, child);
+}
+function selectAppearanceTemplate(templateId) {
+  return { schemaVersion: APPEARANCE_SCHEMA_VERSION, template: templateId, overrides: {} };
+}
+var integerWithin = (value, min, max) => typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= min && value <= max;
+function plainObject(input, allowed, where) {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return { ok: false, error: `${where} must be a JSON object` };
+  const record = input;
+  for (const key of Object.keys(record)) {
+    if (!allowed.includes(key)) return { ok: false, error: `${where} has an unknown field "${key}"` };
+  }
+  return { ok: true, value: record };
+}
+function requiredKeys(record, keys, where) {
+  for (const key of keys) if (!(key in record)) return { ok: false, error: `${where} is missing "${key}"` };
+  return { ok: true, value: true };
+}
+function readEnum(value, values, key) {
+  return typeof value === "string" && values.includes(value) ? { ok: true, value } : { ok: false, error: `"${key}" is not an allowed value` };
+}
+function readString(value, key, max, nullable = false) {
+  if (nullable && value === null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, error: `"${key}" must be a string` };
+  const trimmed = value.trim();
+  if (trimmed.length > max) return { ok: false, error: `"${key}" is longer than ${max} characters` };
+  return { ok: true, value: nullable && trimmed === "" ? null : trimmed };
+}
+function readColor(value, key) {
+  return typeof value === "string" && HEX_COLOR.test(value) ? { ok: true, value: value.toLowerCase() } : { ok: false, error: `"${key}" must be a colour written as #rrggbb` };
+}
+function readAvatar(value) {
+  const text = readString(value, "avatarUrl", APPEARANCE_AVATAR_URL_MAX_CHARS);
+  if (!text.ok) return text;
+  const trimmed = text.value;
+  if (trimmed === "") return { ok: true, value: "" };
+  if (trimmed.startsWith("data:")) {
+    return /^data:image\/[a-z0-9.+-]+[;,]/.test(trimmed) ? { ok: true, value: trimmed } : { ok: false, error: '"avatarUrl" may carry an image, not another kind of data' };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? { ok: true, value: trimmed } : { ok: false, error: '"avatarUrl" must be an https address or an image' };
+  } catch {
+    return { ok: false, error: '"avatarUrl" must be an https address or an image' };
+  }
+}
+function readQuickButtons(value) {
+  if (!Array.isArray(value)) return { ok: false, error: '"quickButtons" must be an array' };
+  if (value.length > APPEARANCE_QUICK_BUTTONS_MAX) return { ok: false, error: `at most ${APPEARANCE_QUICK_BUTTONS_MAX} quick buttons` };
+  const result = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const entry of value) {
+    const object2 = plainObject(entry, ["text", "icon"], "quick button");
+    if (!object2.ok) return object2;
+    const present = requiredKeys(object2.value, ["text", "icon"], "quick button");
+    if (!present.ok) return present;
+    const text = readString(object2.value.text, "quick button text", APPEARANCE_QUICK_BUTTON_MAX_CHARS);
+    if (!text.ok) return text;
+    if (text.value === "") return { ok: false, error: "a quick button must not be empty" };
+    if (seen.has(text.value)) return { ok: false, error: "quick button text must be unique" };
+    let icon = null;
+    if (object2.value.icon !== null) {
+      const parsedIcon = readEnum(object2.value.icon, APPEARANCE_ICONS.map((item) => item.id), "quick button icon");
+      if (!parsedIcon.ok) return parsedIcon;
+      icon = parsedIcon.value;
+    }
+    seen.add(text.value);
+    result.push({ text: text.value, icon });
+  }
+  return { ok: true, value: result };
+}
+function parseColors(input, partial) {
+  const keys = ["panel", "visitorBubble", "botBubble", "sendButton", "sendIcon", "launcher"];
+  const object2 = plainObject(input, keys, "appearance.colors");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, keys, "appearance.colors");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  for (const key of keys) {
+    if (!(key in object2.value)) continue;
+    const value = readColor(object2.value[key], key);
+    if (!value.ok) return value;
+    result[key] = value.value;
+  }
+  return { ok: true, value: result };
+}
+function parseSend(input, partial) {
+  const keys = ["icon", "shape"];
+  const object2 = plainObject(input, keys, "appearance.send");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, keys, "appearance.send");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("icon" in object2.value) {
+    const icon = readEnum(object2.value.icon, APPEARANCE_ICONS.map((item) => item.id), "send.icon");
+    if (!icon.ok) return icon;
+    result.icon = icon.value;
+  }
+  if ("shape" in object2.value) {
+    const shape = readEnum(object2.value.shape, SEND_SHAPES, "send.shape");
+    if (!shape.ok) return shape;
+    result.shape = shape.value;
+  }
+  return { ok: true, value: result };
+}
+function parseLauncher(input, partial) {
+  const keys = ["icon", "size", "offset", "label"];
+  const object2 = plainObject(input, keys, "appearance.launcher");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, keys, "appearance.launcher");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("icon" in object2.value) {
+    const icon = readEnum(object2.value.icon, APPEARANCE_ICONS.map((item) => item.id), "launcher.icon");
+    if (!icon.ok) return icon;
+    result.icon = icon.value;
+  }
+  if ("size" in object2.value) {
+    if (!integerWithin(object2.value.size, APPEARANCE_BOUNDS.launcherSize.min, APPEARANCE_BOUNDS.launcherSize.max)) return { ok: false, error: '"launcher.size" is outside its bounds' };
+    result.size = object2.value.size;
+  }
+  if ("offset" in object2.value) {
+    if (!integerWithin(object2.value.offset, APPEARANCE_BOUNDS.launcherOffset.min, APPEARANCE_BOUNDS.launcherOffset.max)) return { ok: false, error: '"launcher.offset" is outside its bounds' };
+    result.offset = object2.value.offset;
+  }
+  if ("label" in object2.value) {
+    const label = readString(object2.value.label, "launcher.label", APPEARANCE_LAUNCHER_LABEL_MAX_CHARS);
+    if (!label.ok) return label;
+    result.label = label.value;
+  }
+  return { ok: true, value: result };
+}
+function parseHeader(input, partial) {
+  const keys = ["subtitle", "showAvatar", "showMessageName"];
+  const object2 = plainObject(input, keys, "appearance.header");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, keys, "appearance.header");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("subtitle" in object2.value) {
+    const subtitle = readString(object2.value.subtitle, "header.subtitle", APPEARANCE_SUBTITLE_MAX_CHARS);
+    if (!subtitle.ok) return subtitle;
+    result.subtitle = subtitle.value;
+  }
+  for (const key of ["showAvatar", "showMessageName"]) {
+    if (!(key in object2.value)) continue;
+    if (typeof object2.value[key] !== "boolean") return { ok: false, error: `"header.${key}" must be a boolean` };
+    result[key] = object2.value[key];
+  }
+  return { ok: true, value: result };
+}
+function parseTypography(input, partial) {
+  const keys = ["fontSize", "fontFamily", "shadow", "placeholder"];
+  const object2 = plainObject(input, keys, "appearance.typography");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, keys, "appearance.typography");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("fontSize" in object2.value) {
+    if (!integerWithin(object2.value.fontSize, APPEARANCE_BOUNDS.fontSize.min, APPEARANCE_BOUNDS.fontSize.max)) return { ok: false, error: '"typography.fontSize" is outside its bounds' };
+    result.fontSize = object2.value.fontSize;
+  }
+  if ("fontFamily" in object2.value) {
+    const family = readEnum(object2.value.fontFamily, Object.keys(APPEARANCE_FONT_STACKS), "typography.fontFamily");
+    if (!family.ok) return family;
+    result.fontFamily = family.value;
+  }
+  if ("shadow" in object2.value) {
+    const shadow = readEnum(object2.value.shadow, Object.keys(APPEARANCE_SHADOWS), "typography.shadow");
+    if (!shadow.ok) return shadow;
+    result.shadow = shadow.value;
+  }
+  if ("placeholder" in object2.value) {
+    const placeholder = readString(object2.value.placeholder, "typography.placeholder", APPEARANCE_PLACEHOLDER_MAX_CHARS);
+    if (!placeholder.ok) return placeholder;
+    result.placeholder = placeholder.value;
+  }
+  return { ok: true, value: result };
+}
+var appearanceFields = ["mode", "position", "width", "height", "radius", "colors", "intro", "avatarUrl", "quickButtons", "send", "launcher", "header", "typography"];
+function parseOverrides(input, partial = true) {
+  const object2 = plainObject(input, appearanceFields, "appearance.overrides");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, appearanceFields, "appearance");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("mode" in object2.value) {
+    const value = readEnum(object2.value.mode, APPEARANCE_MODES, "mode");
+    if (!value.ok) return value;
+    result.mode = value.value;
+  }
+  if ("position" in object2.value) {
+    const value = readEnum(object2.value.position, PANEL_POSITIONS, "position");
+    if (!value.ok) return value;
+    result.position = value.value;
+  }
+  for (const [key, bounds] of [["width", APPEARANCE_BOUNDS.width], ["height", APPEARANCE_BOUNDS.height], ["radius", APPEARANCE_BOUNDS.radius]]) {
+    if (!(key in object2.value)) continue;
+    if (!integerWithin(object2.value[key], bounds.min, bounds.max)) return { ok: false, error: `"${key}" is outside its bounds` };
+    result[key] = object2.value[key];
+  }
+  if ("colors" in object2.value) {
+    const value = parseColors(object2.value.colors, partial);
+    if (!value.ok) return value;
+    result.colors = value.value;
+  }
+  if ("intro" in object2.value) {
+    const value = readString(object2.value.intro, "intro", APPEARANCE_INTRO_MAX_CHARS, true);
+    if (!value.ok) return value;
+    result.intro = value.value;
+  }
+  if ("avatarUrl" in object2.value) {
+    const value = readAvatar(object2.value.avatarUrl);
+    if (!value.ok) return value;
+    result.avatarUrl = value.value;
+  }
+  if ("quickButtons" in object2.value) {
+    const value = readQuickButtons(object2.value.quickButtons);
+    if (!value.ok) return value;
+    result.quickButtons = value.value;
+  }
+  if ("send" in object2.value) {
+    const value = parseSend(object2.value.send, partial);
+    if (!value.ok) return value;
+    result.send = value.value;
+  }
+  if ("launcher" in object2.value) {
+    const value = parseLauncher(object2.value.launcher, partial);
+    if (!value.ok) return value;
+    result.launcher = value.value;
+  }
+  if ("header" in object2.value) {
+    const value = parseHeader(object2.value.header, partial);
+    if (!value.ok) return value;
+    result.header = value.value;
+  }
+  if ("typography" in object2.value) {
+    const value = parseTypography(object2.value.typography, partial);
+    if (!value.ok) return value;
+    result.typography = value.value;
+  }
+  return { ok: true, value: result };
+}
+function parseAppearanceSelection(input) {
+  const object2 = plainObject(input, ["schemaVersion", "template", "overrides"], "appearance");
+  if (!object2.ok) return object2;
+  const present = requiredKeys(object2.value, ["schemaVersion", "template", "overrides"], "appearance");
+  if (!present.ok) return present;
+  if (object2.value.schemaVersion !== APPEARANCE_SCHEMA_VERSION) return { ok: false, error: `"schemaVersion" must be ${APPEARANCE_SCHEMA_VERSION}` };
+  const templateId = readEnum(object2.value.template, APPEARANCE_TEMPLATE_IDS, "template");
+  if (!templateId.ok) return templateId;
+  const overrides = parseOverrides(object2.value.overrides);
+  if (!overrides.ok) return overrides;
+  return { ok: true, value: {
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
+    template: templateId.value,
+    overrides: overrides.value
+  } };
+}
+
+// plugins/chatbot/src/adminContract.ts
+var DISPLAY_NAME_MAX_CHARS = 80;
 
 // plugins/chatbot/web-src/AppearancePreview.tsx
 var import_react5 = __toESM(require_react(), 1);
@@ -19082,9 +19523,10 @@ O([P("object")], k.prototype, "_insertKeyViewStyles");
 customElements.define("deep-chat", k);
 
 // plugins/chatbot/embed-src/chatPanel.ts
-var GUTTER_PX = 20;
-var VERTICAL_RESERVE_PX = 140;
-var FONT_STACK = "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+var LAUNCHER_GAP_PX = 12;
+function appearanceViewportInset(appearance) {
+  return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
+}
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -19098,7 +19540,7 @@ function introHtml(input) {
   const { greeting, appearance, strings } = input;
   const text = `<div class="cb-intro-text">${escapeHtml(greeting)}</div>`;
   if (appearance.quickButtons.length === 0) return text;
-  const buttons = appearance.quickButtons.map((label) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(label)}">${escapeHtml(label)}</button>`).join("");
+  const buttons = appearance.quickButtons.map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? "" : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`).join("");
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
 function introUtilities(appearance, onQuickButton) {
@@ -19122,6 +19564,9 @@ function introUtilities(appearance, onQuickButton) {
           color: ramp.foreground,
           borderRadius: `${appearance.radius}px`,
           padding: "6px 10px",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
           font: "inherit",
           fontSize: "13px",
           cursor: "pointer",
@@ -19136,7 +19581,7 @@ function chatConfig(input) {
   const { look, strings } = input;
   const appearance = look.appearance;
   const ramp = APPEARANCE_RAMPS[appearance.mode];
-  const sendInk = appearanceInk(appearance.colors.sendButton);
+  const sendRadius = appearance.send.shape === "circle" ? "50%" : "8px";
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
   return {
     chatStyle: {
@@ -19145,16 +19590,16 @@ function chatConfig(input) {
       border: "none",
       width: "100%",
       height: "100%",
-      fontSize: "14px",
+      fontSize: `${appearance.typography.fontSize}px`,
       // `fontFamily` is set here for a reason beyond typography: deep-chat appends a Google Fonts stylesheet
       // to the page's <head> unless the chat carries a family of its own, and a widget on a customer's site
       // may not call out to a font host. A family of our own is the supported way to say so — and it means a
       // page that already has Inter keeps it, while every other page falls back to the system stack.
-      fontFamily: FONT_STACK
+      fontFamily: appearanceFontStack(appearance.typography.fontFamily)
     },
     inputAreaStyle: { backgroundColor: appearance.colors.panel },
     textInput: {
-      placeholder: { text: strings.placeholder, style: { color: ramp.muted } },
+      placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
         text: { color: ramp.foreground },
         container: {
@@ -19168,16 +19613,21 @@ function chatConfig(input) {
     submitButtonStyles: {
       submit: {
         container: {
-          default: { backgroundColor: appearance.colors.sendButton, color: sendInk },
-          hover: { backgroundColor: sendHover, color: sendInk },
-          click: { backgroundColor: sendHover, color: sendInk }
+          default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+          hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
+          click: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius }
+        },
+        svg: {
+          content: appearanceIconSvg(appearance.send.icon),
+          styles: { default: { color: appearance.colors.sendIcon, width: "20px", height: "20px" } }
         }
       },
       // The send button rests in its DISABLED state until the visitor types something. That state is what a
       // visitor actually looks at, so the configured colour has to reach it — held back a little, because a
       // send button that looks ready when it is not is a button somebody presses for nothing.
       disabled: {
-        container: { default: { backgroundColor: appearance.colors.sendButton, color: sendInk, opacity: "0.5" } }
+        container: { default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius, opacity: "0.5" } },
+        svg: { content: appearanceIconSvg(appearance.send.icon), styles: { default: { color: appearance.colors.sendIcon, width: "20px", height: "20px" } } }
       }
     },
     // The bubble's FILL is the customer's and its INK is not: whichever of the two inks reads better on that
@@ -19203,7 +19653,7 @@ function chatConfig(input) {
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that.
-    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; }`,
+    auxiliaryStyle: `.error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -19213,11 +19663,14 @@ function chatConfig(input) {
       })
     },
     htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: appearance.avatarUrl === "" ? void 0 : { ai: { src: appearance.avatarUrl } },
-    names: { ai: { text: look.name === "" ? strings.title : look.name, position: "start" } }
+    avatars: !appearance.header.showAvatar || appearance.avatarUrl === "" ? void 0 : { ai: { src: appearance.avatarUrl } },
+    names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" } } : void 0
   };
 }
 function styleText(appearance) {
+  const GUTTER_PX = appearance.launcher.offset;
+  const inset = appearanceViewportInset(appearance);
+  const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === "dark" ? "lighter" : "darker");
   const ramp = APPEARANCE_RAMPS[appearance.mode];
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
@@ -19231,37 +19684,45 @@ function styleText(appearance) {
   const fromLeft = appearance.position.endsWith("left");
   return `
 :host {
-  --cb-avail-w: calc(100vw - ${GUTTER_PX * 2}px);
-  --cb-avail-h: calc(100vh - ${VERTICAL_RESERVE_PX}px);
+  --cb-avail-w: calc(100vw - ${inset.width}px);
+  --cb-avail-h: calc(100vh - ${inset.height}px);
 }
 .root {
   position: fixed; ${corner[appearance.position]} z-index: 2147483000;
-  display: flex; flex-direction: ${fromTop ? "column-reverse" : "column"}; align-items: ${fromLeft ? "flex-start" : "flex-end"}; gap: 12px;
+  display: flex; flex-direction: ${fromTop ? "column-reverse" : "column"}; align-items: ${fromLeft ? "flex-start" : "flex-end"}; gap: ${LAUNCHER_GAP_PX}px;
+  max-width: var(--cb-avail-w);
   color: ${ramp.foreground}; line-height: 1.4; letter-spacing: normal; text-align: left; direction: ltr;
-  font-family: ${FONT_STACK};
-  font-size: 14px; font-style: normal; font-weight: 400; text-transform: none; white-space: normal;
+  font-family: ${appearanceFontStack(appearance.typography.fontFamily)};
+  font-size: ${appearance.typography.fontSize}px; font-style: normal; font-weight: 400; text-transform: none; white-space: normal;
 }
 *, *::before, *::after { box-sizing: border-box; }
 .launcher {
-  border: 1px solid ${appearance.colors.sendButton}; background: ${appearance.colors.sendButton}; color: ${sendInk};
-  font: inherit; font-size: 14px; font-weight: 600; padding: 12px 18px; border-radius: 999px; cursor: pointer;
-  box-shadow: 0 14px 40px rgb(0 0 0 / 0.35);
+  display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
+  border: 1px solid ${appearance.colors.launcher}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
+  min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
 }
-.launcher:hover { background: ${sendHover}; border-color: ${sendHover}; }
+.launcher svg { width: ${appearance.launcher.size - 2}px; height: ${appearance.launcher.size - 2}px; padding: ${Math.round(appearance.launcher.size * 0.28)}px; flex: 0 0 auto; }
+.launcher-label { padding-right: 18px; overflow-wrap: anywhere; }
+.launcher:hover { background: ${launcherHover}; border-color: ${launcherHover}; }
 .launcher:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-.launcher[hidden] { display: none; }
 .panel {
   display: flex; flex-direction: column;
   width: min(${appearance.width}px, var(--cb-avail-w)); height: min(${appearance.height}px, var(--cb-avail-h));
   background: ${appearance.colors.panel}; border: 1px solid ${ramp.border}; border-radius: ${appearance.radius}px;
-  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5); overflow: hidden;
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; overflow: hidden;
 }
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.raised};
 }
-.title { margin: 0; font-size: 15px; font-weight: 600; color: ${ramp.foreground}; }
+.identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
+.header-avatar[hidden], .subtitle[hidden] { display: none; }
+.subtitle { margin: 3px 0 0; color: ${ramp.muted}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.foreground}; }
 .close {
   border: 1px solid transparent; background: transparent; color: ${ramp.muted};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
@@ -19300,6 +19761,8 @@ var ChatPanel = class {
   style;
   panel;
   title;
+  subtitle;
+  avatar;
   launcher;
   messages;
   confirmBox;
@@ -19340,7 +19803,6 @@ var ChatPanel = class {
     this.launcher.className = "launcher";
     this.launcher.setAttribute("aria-haspopup", "dialog");
     this.launcher.setAttribute("aria-expanded", "false");
-    this.launcher.textContent = this.strings.launcher;
     this.panel = document.createElement("section");
     this.panel.className = "panel";
     this.panel.setAttribute("role", "dialog");
@@ -19353,7 +19815,17 @@ var ChatPanel = class {
     close.type = "button";
     close.className = "close";
     close.textContent = this.strings.close;
-    header.append(this.title, close);
+    this.subtitle = document.createElement("p");
+    this.subtitle.className = "subtitle";
+    this.avatar = document.createElement("img");
+    this.avatar.className = "header-avatar";
+    this.avatar.alt = "";
+    const identity = document.createElement("div");
+    identity.className = "identity";
+    const headings = document.createElement("div");
+    headings.append(this.title, this.subtitle);
+    identity.append(this.avatar, headings);
+    header.append(identity, close);
     this.status = document.createElement("p");
     this.status.className = "status";
     this.status.setAttribute("role", "status");
@@ -19387,7 +19859,7 @@ var ChatPanel = class {
     shadow.append(this.style, root);
     this.applyChrome();
     this.messages.append(this.chat);
-    this.launcher.addEventListener("click", () => this.toggle(true));
+    this.launcher.addEventListener("click", () => this.toggle(!this.isOpen()));
     close.addEventListener("click", () => this.toggle(false));
     this.confirmYes.addEventListener("click", (event) => {
       if (event.isTrusted) this.answerConfirmation(true);
@@ -19568,6 +20040,20 @@ var ChatPanel = class {
     this.style.textContent = styleText(this.look.appearance);
     const title = this.titleText();
     this.title.textContent = title;
+    const { appearance } = this.look;
+    this.subtitle.textContent = appearance.header.subtitle;
+    this.subtitle.hidden = appearance.header.subtitle === "";
+    this.avatar.hidden = !appearance.header.showAvatar || appearance.avatarUrl === "";
+    if (this.avatar.hidden) this.avatar.removeAttribute("src");
+    else this.avatar.src = appearance.avatarUrl;
+    this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.label !== "") {
+      const label = document.createElement("span");
+      label.className = "launcher-label";
+      label.textContent = appearance.launcher.label;
+      this.launcher.append(label);
+    }
+    this.launcher.setAttribute("aria-label", appearance.launcher.label || this.strings.launcher);
     this.panel.setAttribute("aria-label", title);
   }
   titleText() {
@@ -19585,7 +20071,6 @@ var ChatPanel = class {
   }
   toggle(open) {
     this.panel.hidden = !open;
-    this.launcher.hidden = open;
     this.launcher.setAttribute("aria-expanded", open ? "true" : "false");
     if (!open) return;
     this.chat.focusInput();
@@ -19638,9 +20123,7 @@ function lastUserText(body) {
 
 // plugins/chatbot/web-src/AppearancePreview.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
-var GUTTER_PX2 = 20;
-var VERTICAL_RESERVE_PX2 = 40;
-function AppearancePreview({ look, label, hint }) {
+function AppearancePreview({ look, label }) {
   const stage = (0, import_react5.useRef)(null);
   const frame = (0, import_react5.useRef)(null);
   const panel = (0, import_react5.useRef)(null);
@@ -19673,64 +20156,115 @@ function AppearancePreview({ look, label, hint }) {
     if (!stageElement || !frameElement) return;
     const measure = () => {
       const box = stageElement.getBoundingClientRect();
-      frameElement.style.setProperty("--cb-avail-w", `${Math.max(0, Math.round(box.width) - GUTTER_PX2 * 2)}px`);
-      frameElement.style.setProperty("--cb-avail-h", `${Math.max(0, Math.round(box.height) - VERTICAL_RESERVE_PX2)}px`);
+      const inset = appearanceViewportInset(look.appearance);
+      panel.current?.host.style.setProperty("--cb-avail-w", `${Math.max(0, Math.round(box.width) - inset.width)}px`);
+      panel.current?.host.style.setProperty("--cb-avail-h", `${Math.max(0, Math.round(box.height) - inset.height)}px`);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stageElement);
     return () => observer.disconnect();
-  }, []);
+  }, [look.appearance]);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-xs font-medium uppercase tracking-wide text-muted-foreground", children: label }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ref: stage, className: "relative h-[38rem] w-full overflow-hidden rounded-xl border border-border bg-background", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ref: frame, className: "absolute inset-0 [transform:translateZ(0)]" }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-xs leading-relaxed text-muted-foreground", children: hint })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ref: stage, className: "relative h-[38rem] w-full overflow-hidden rounded-xl border border-border bg-background", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { ref: frame, className: "absolute inset-0 [transform:translateZ(0)]" }) })
   ] });
 }
 
 // plugins/chatbot/web-src/AppearanceModal.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
-function avatarHint(value) {
-  const trimmed = value.trim();
-  if (trimmed === "") return null;
-  if (trimmed.startsWith("data:")) return /^data:image\/[a-z0-9.+-]+[;,]/.test(trimmed) ? null : "invalid";
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? null : "invalid";
-  } catch {
-    return "invalid";
-  }
+function Icon2({ id: id2 }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: appearanceIcon(id2).path }) });
 }
-function quickButtonHint(value, existing) {
-  const trimmed = value.trim();
-  if (trimmed === "") return null;
-  return existing.includes(trimmed) ? "duplicate" : null;
+function TemplateSwatch({ template: template2 }) {
+  const a = APPEARANCE_TEMPLATES[template2];
+  const ramp = APPEARANCE_RAMPS[a.mode];
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { "aria-hidden": true, className: "flex h-28 w-full flex-col gap-2 p-2", style: { background: a.colors.panel, borderRadius: a.radius / 2, border: `1px solid ${ramp.border}` }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-2 w-1/2 rounded", style: { background: ramp.muted } }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-4 w-3/4 self-start", style: { background: a.colors.botBubble, borderRadius: a.radius / 3 } }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "h-4 w-1/2 self-end", style: { background: a.colors.visitorBubble, borderRadius: a.radius / 3 } }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "mt-auto flex justify-end gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-6 w-6 items-center justify-center rounded-full", style: { background: a.colors.launcher, color: appearanceInk(a.colors.launcher) }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: a.launcher.icon }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "flex h-6 w-6 items-center justify-center", style: { background: a.colors.sendButton, color: a.colors.sendIcon, borderRadius: a.send.shape === "circle" ? "50%" : 4 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: a.send.icon }) })
+    ] })
+  ] });
 }
-var COLOR_FIELDS = ["panel", "visitorBubble", "botBubble", "sendButton"];
 function AppearanceModal({ bot, onClose, onChanged }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const { toast } = hooks.useToast();
+  const id2 = (0, import_react6.useId)();
   const [name, setName] = (0, import_react6.useState)(bot.displayName);
-  const [appearance, setAppearance] = (0, import_react6.useState)(bot.appearance);
+  const [stored, setStored] = (0, import_react6.useState)(bot.appearance);
   const [draftButton, setDraftButton] = (0, import_react6.useState)("");
+  const [draftIcon, setDraftIcon] = (0, import_react6.useState)(null);
+  const [templateChoice, setTemplateChoice] = (0, import_react6.useState)(null);
   const [revision, setRevision] = (0, import_react6.useState)(bot.updatedAt);
   const [pending, setPending] = (0, import_react6.useState)(false);
   const [error, setError] = (0, import_react6.useState)(null);
-  (0, import_react6.useEffect)(() => {
-    setName(bot.displayName);
-    setAppearance(bot.appearance);
-    setRevision(bot.updatedAt);
-    setDraftButton("");
-    setError(null);
-  }, [bot.chatbotUserId]);
-  const patch = (part) => setAppearance((current) => ({ ...current, ...part }));
-  const setColor = (field, value) => setAppearance((current) => ({ ...current, colors: { ...current.colors, [field]: value } }));
-  const pixels = (value) => s.appearancePixels.replace("{value}", String(value));
-  const maxChars = (limit) => s.appearanceMaxChars.replace("{max}", String(limit));
-  const avatar = avatarHint(appearance.avatarUrl);
-  const buttonHint = quickButtonHint(draftButton, appearance.quickButtons);
+  const appearance = (0, import_react6.useMemo)(() => resolveAppearance(stored), [stored]);
+  const look = (0, import_react6.useMemo)(() => ({ name, appearance }), [name, appearance]);
+  const patch = (path, value) => setStored((current) => setAppearanceOverride(current, path, value));
+  const reset = (path, label, compact = false) => {
+    if (!isAppearanceOverridden(stored, path)) return null;
+    const title = s.appearanceReset.replace("{value}", label);
+    const onClick = () => setStored((current) => resetAppearanceOverride(current, path));
+    return compact ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.IconButton, { icon: RotateCcw, disabled: pending, label: title, onClick }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "ghost", size: "sm", icon: RotateCcw, disabled: pending, "aria-label": title, onClick, children: s.appearanceOverridden });
+  };
+  const heading = (path, label, help) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center justify-between gap-1", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("label", { htmlFor: `${id2}-${path}`, className: "text-sm font-medium text-foreground", children: label }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "flex items-center gap-1", children: [
+      help ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.HelpTip, { children: help }) : null,
+      reset(path, label)
+    ] })
+  ] });
+  const field = (path, label, control, help) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", children: [
+    heading(path, label, help),
+    control
+  ] });
+  const textField = (path, label, value, max, placeholder, help) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Input, { id: `${id2}-${path}`, "aria-label": label, value, maxLength: max, disabled: pending, placeholder, onChange: (event) => patch(path, event.target.value) }), help);
+  const select = (path, label, value, options) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.SelectMenu, { label, value, options, disabled: pending, onChange: (value2) => patch(path, value2) }));
+  const icons = APPEARANCE_ICONS.map((icon) => ({ value: icon.id, label: s[`appearanceIcon_${icon.id}`], icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: icon.id }) }));
+  const iconPicker = (path, label, value) => select(path, label, value, icons);
+  const color = (key, label) => field(
+    `colors.${key}`,
+    label,
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("input", { id: `${id2}-colors.${key}`, type: "color", "aria-label": label, value: appearance.colors[key], disabled: pending, onChange: (event) => patch(`colors.${key}`, event.target.value), className: "h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" })
+  );
+  const scalar = (path, key, label, value) => {
+    const text = s.appearancePixels.replace("{value}", String(value));
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "py-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex items-center gap-2.5", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Ruler, { size: 18, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "truncate", title: label, children: label }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.HelpTip, { children: s[`appearanceHint_${key}`] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-sm tabular-nums text-primary", children: text }),
+        reset(path, label, true)
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Slider, { className: "mt-3", value, ...APPEARANCE_BOUNDS[key], step: 1, disabled: pending, "aria-label": label, "aria-valuetext": text, onChange: (value2) => patch(path, value2) })
+    ] });
+  };
+  const toggle = (path, label, checked) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Toggle, { label, checked, disabled: pending, onChange: (value) => patch(path, value) }));
+  const section = (label, icon, children, help, action) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "flex min-w-0 flex-col gap-4 border-t border-border pt-4", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "text-muted-foreground", children: icon }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { className: "text-sm font-semibold text-foreground", children: label }),
+      help ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.HelpTip, { children: help }) : null,
+      action
+    ] }),
+    children
+  ] });
+  const buttonText = draftButton.trim();
+  const duplicate = appearance.quickButtons.some((button) => button.text === buttonText);
   const quickFull = appearance.quickButtons.length >= APPEARANCE_QUICK_BUTTONS_MAX;
+  const addButton = () => {
+    if (pending || quickFull || duplicate || !buttonText) return;
+    patch("quickButtons", [...appearance.quickButtons, { text: buttonText, icon: draftIcon }]);
+    setDraftButton("");
+  };
+  const valid = parseAppearanceSelection(stored).ok;
   const save = async () => {
     setPending(true);
     setError(null);
@@ -19739,9 +20273,10 @@ function AppearanceModal({ bot, onClose, onChanged }) {
         chatbotUserId: bot.chatbotUserId,
         expectedUpdatedAt: revision,
         displayName: name,
-        appearance
+        appearance: stored
       }));
       setRevision(answer.bot.updatedAt);
+      setStored(answer.bot.appearance);
       onChanged(answer.bot);
       toast(s.appearanceSaved);
     } catch (reason) {
@@ -19750,226 +20285,104 @@ function AppearanceModal({ bot, onClose, onChanged }) {
       setPending(false);
     }
   };
-  const addButton = () => {
-    if (buttonHint !== null) return;
-    const label = draftButton.trim();
-    setAppearance((current) => ({ ...current, quickButtons: [...current.quickButtons, label] }));
-    setDraftButton("");
-  };
-  const colorLabels = {
-    panel: s.appearanceColorPanel,
-    visitorBubble: s.appearanceColorVisitor,
-    botBubble: s.appearanceColorBot,
-    sendButton: s.appearanceColorSend
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-    C.Modal,
-    {
-      title: s.appearanceTitle,
-      description: s.appearanceIntro,
-      icon: Palette,
-      size: "lg",
-      presentation: "center",
-      closeLabel: s.cancel,
-      closeDisabled: pending,
-      ...pending ? { "aria-busy": true } : {},
-      onClose,
-      children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ModalBody, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-start", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.Modal, { title: s.appearanceTitle, icon: Palette, size: "lg", presentation: "center", closeLabel: s.cancel, closeDisabled: pending, ...pending ? { "aria-busy": true } : {}, onClose, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ModalBody, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-6", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { role: "group", "aria-label": s.appearanceTemplates, className: "flex gap-3 overflow-x-auto pb-2", children: APPEARANCE_TEMPLATE_IDS.map((template2) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.Button, { variant: stored.template === template2 ? "accent" : "outline", className: "h-auto min-w-28 flex-1 flex-col gap-2 p-2", disabled: pending, "aria-pressed": stored.template === template2, onClick: () => {
+          if (template2 !== stored.template) setTemplateChoice(template2);
+        }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TemplateSwatch, { template: template2 }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: s[`appearanceTemplate_${template2}`] })
+        ] }, template2)) }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]", children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "order-2 flex min-w-0 flex-col gap-5 lg:order-1", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceNameLabel, hint: s.appearanceNameHint, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              C.Input,
-              {
-                value: name,
-                maxLength: 80,
-                disabled: pending,
-                onChange: (event) => setName(event.target.value)
-              }
-            ) }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid gap-4 sm:grid-cols-2", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceModeLabel, hint: s.appearanceModeHint, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                C.Segmented,
-                {
-                  "aria-label": s.appearanceModeLabel,
-                  value: appearance.mode,
-                  onChange: (mode) => setAppearance(presetAppearance(mode)),
-                  options: [
-                    { value: "light", label: s.appearanceModeLight },
-                    { value: "dark", label: s.appearanceModeDark }
-                  ]
-                }
-              ) }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearancePositionLabel, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                C.SelectMenu,
-                {
-                  label: s.appearancePositionLabel,
-                  value: appearance.position,
-                  onChange: (position) => patch({ position }),
-                  options: [
-                    { value: "bottom-right", label: s.appearancePositionBottomRight },
-                    { value: "bottom-left", label: s.appearancePositionBottomLeft },
-                    { value: "top-right", label: s.appearancePositionTopRight },
-                    { value: "top-left", label: s.appearancePositionTopLeft }
-                  ]
-                }
-              ) })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.SettingsGroup, { title: s.appearanceColorsLabel, icon: Palette, columns: 2, density: "compact", children: COLOR_FIELDS.map((field) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              C.SettingsRow,
-              {
-                label: colorLabels[field],
-                status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-mono text-[11px] uppercase", children: appearance.colors[field] }),
-                control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                  "input",
-                  {
-                    type: "color",
-                    "aria-label": colorLabels[field],
-                    value: appearance.colors[field],
-                    disabled: pending,
-                    onChange: (event) => setColor(field, event.target.value),
-                    className: "h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0"
-                  }
-                )
-              },
-              field
-            )) }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.SettingsGroup, { title: s.appearanceSizeLabel, icon: Ruler, density: "compact", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                C.SettingsRow,
-                {
-                  label: s.appearanceRadiusLabel,
-                  status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-mono text-[11px]", children: pixels(appearance.radius) }),
-                  control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                    C.Slider,
-                    {
-                      value: appearance.radius,
-                      min: APPEARANCE_BOUNDS.radius.min,
-                      max: APPEARANCE_BOUNDS.radius.max,
-                      step: 1,
-                      "aria-label": s.appearanceRadiusLabel,
-                      onChange: (value) => patch({ radius: value })
+            section(s.appearanceColorsLabel, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Palette, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              select("mode", s.appearanceModeLabel, appearance.mode, [{ value: "light", label: s.appearanceModeLight }, { value: "dark", label: s.appearanceModeDark }]),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid grid-cols-2 gap-4", children: [
+                color("panel", s.appearanceColorPanel),
+                color("visitorBubble", s.appearanceColorVisitor),
+                color("botBubble", s.appearanceColorBot)
+              ] }),
+              scalar("width", "width", s.appearanceWidthLabel, appearance.width),
+              scalar("height", "height", s.appearanceHeightLabel, appearance.height),
+              scalar("radius", "radius", s.appearanceRadiusLabel, appearance.radius)
+            ] })),
+            section(s.appearanceSendGroup, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Send, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "grid grid-cols-2 gap-4", children: [
+                color("sendButton", s.appearanceColorSend),
+                color("sendIcon", s.appearanceColorSendIcon)
+              ] }),
+              iconPicker("send.icon", s.appearanceSendIcon, appearance.send.icon),
+              select("send.shape", s.appearanceSendShape, appearance.send.shape, [{ value: "circle", label: s.appearanceShapeCircle }, { value: "rounded-square", label: s.appearanceShapeSquare }])
+            ] })),
+            section(s.appearanceLauncherGroup, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(MousePointerClick, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              color("launcher", s.appearanceColorLauncher),
+              iconPicker("launcher.icon", s.appearanceLauncherIcon, appearance.launcher.icon),
+              textField("launcher.label", s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS),
+              select("position", s.appearancePositionLabel, appearance.position, [
+                { value: "bottom-right", label: s.appearancePositionBottomRight },
+                { value: "bottom-left", label: s.appearancePositionBottomLeft },
+                { value: "top-right", label: s.appearancePositionTopRight },
+                { value: "top-left", label: s.appearancePositionTopLeft }
+              ]),
+              scalar("launcher.size", "launcherSize", s.appearanceLauncherSize, appearance.launcher.size),
+              scalar("launcher.offset", "launcherOffset", s.appearanceLauncherOffset, appearance.launcher.offset)
+            ] })),
+            section(s.appearanceHeaderGroup, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(UserRound, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceNameLabel, hint: s.appearanceNameHint, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Input, { "aria-label": s.appearanceNameLabel, value: name, maxLength: DISPLAY_NAME_MAX_CHARS, disabled: pending, onChange: (event) => setName(event.target.value) }) }),
+              textField("header.subtitle", s.appearanceSubtitle, appearance.header.subtitle, APPEARANCE_SUBTITLE_MAX_CHARS),
+              toggle("header.showAvatar", s.appearanceShowAvatar, appearance.header.showAvatar),
+              textField("avatarUrl", s.appearanceAvatarLabel, appearance.avatarUrl, APPEARANCE_AVATAR_URL_MAX_CHARS, s.appearanceAvatarPlaceholder, s.appearanceAvatarHint),
+              toggle("header.showMessageName", s.appearanceShowMessageName, appearance.header.showMessageName)
+            ] })),
+            section(s.appearanceTypographyGroup, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Type, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              scalar("typography.fontSize", "fontSize", s.appearanceFontSize, appearance.typography.fontSize),
+              select("typography.fontFamily", s.appearanceFontFamily, appearance.typography.fontFamily, Object.keys(APPEARANCE_FONT_STACKS).map((value) => ({ value, label: s[`appearanceFont_${value}`] }))),
+              select("typography.shadow", s.appearanceShadow, appearance.typography.shadow, Object.keys(APPEARANCE_SHADOWS).map((value) => ({ value, label: s[`appearanceShadow_${value}`] }))),
+              textField("typography.placeholder", s.appearancePlaceholder, appearance.typography.placeholder, APPEARANCE_PLACEHOLDER_MAX_CHARS),
+              field("intro", s.appearanceIntroLabel, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("textarea", { id: `${id2}-intro`, "aria-label": s.appearanceIntroLabel, value: appearance.intro ?? "", rows: 3, maxLength: APPEARANCE_INTRO_MAX_CHARS, disabled: pending, placeholder: s.appearanceIntroPlaceholder, onChange: (event) => patch("intro", event.target.value || null), className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary" }), s.appearanceIntroHint)
+            ] })),
+            section(s.appearanceQuickLabel, /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(MousePointerClick, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "flex flex-wrap gap-2", children: appearance.quickButtons.map((button) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "flex max-w-full items-center gap-2 rounded-full border border-border bg-card py-1 pl-3 pr-1 text-sm", children: [
+                button.icon === null ? null : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Icon2, { id: button.icon }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "break-words", children: button.text }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.IconButton, { icon: Trash2, variant: "danger", label: s.appearanceQuickRemove.replace("{value}", button.text), disabled: pending, onClick: () => patch("quickButtons", appearance.quickButtons.filter((item) => item.text !== button.text)) })
+              ] }, button.text)) }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-col gap-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Input, { className: "min-w-0 flex-1", "aria-label": s.appearanceQuickAdd, value: draftButton, maxLength: APPEARANCE_QUICK_BUTTON_MAX_CHARS, disabled: pending || quickFull, placeholder: s.appearanceQuickPlaceholder, onChange: (event) => setDraftButton(event.target.value), onKeyDown: (event) => {
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      addButton();
                     }
-                  )
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                C.SettingsRow,
-                {
-                  label: s.appearanceWidthLabel,
-                  status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-mono text-[11px]", children: pixels(appearance.width) }),
-                  control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                    C.Slider,
-                    {
-                      value: appearance.width,
-                      min: APPEARANCE_BOUNDS.width.min,
-                      max: APPEARANCE_BOUNDS.width.max,
-                      step: 10,
-                      "aria-label": s.appearanceWidthLabel,
-                      onChange: (value) => patch({ width: value })
-                    }
-                  )
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                C.SettingsRow,
-                {
-                  label: s.appearanceHeightLabel,
-                  status: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "font-mono text-[11px]", children: pixels(appearance.height) }),
-                  control: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                    C.Slider,
-                    {
-                      value: appearance.height,
-                      min: APPEARANCE_BOUNDS.height.min,
-                      max: APPEARANCE_BOUNDS.height.max,
-                      step: 10,
-                      "aria-label": s.appearanceHeightLabel,
-                      onChange: (value) => patch({ height: value })
-                    }
-                  )
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceIntroLabel, hint: `${s.appearanceIntroHint} ${maxChars(APPEARANCE_INTRO_MAX_CHARS)}`, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "textarea",
-              {
-                value: appearance.intro ?? "",
-                rows: 3,
-                maxLength: APPEARANCE_INTRO_MAX_CHARS,
-                disabled: pending,
-                placeholder: s.appearanceIntroPlaceholder,
-                onChange: (event) => patch({ intro: event.target.value === "" ? null : event.target.value }),
-                className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
-              }
-            ) }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceAvatarLabel, hint: `${s.appearanceAvatarHint} ${maxChars(APPEARANCE_AVATAR_URL_MAX_CHARS)}`, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              C.Input,
-              {
-                value: appearance.avatarUrl,
-                maxLength: APPEARANCE_AVATAR_URL_MAX_CHARS,
-                disabled: pending,
-                placeholder: s.appearanceAvatarPlaceholder,
-                onChange: (event) => patch({ avatarUrl: event.target.value })
-              }
-            ) }),
-            avatar === "invalid" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", children: s.appearanceAvatarInvalid }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-              C.SettingsGroup,
-              {
-                title: s.appearanceQuickLabel,
-                description: `${s.appearanceQuickHint} ${maxChars(APPEARANCE_QUICK_BUTTON_MAX_CHARS)}`,
-                icon: MousePointerClick,
-                children: [
-                  appearance.quickButtons.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-muted-foreground", children: s.appearanceQuickEmpty }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "flex flex-col gap-1.5", children: appearance.quickButtons.map((text) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "flex items-center justify-between gap-3", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "min-w-0 truncate text-sm text-foreground", children: text }),
-                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                      C.IconButton,
-                      {
-                        icon: Trash2,
-                        variant: "danger",
-                        label: s.appearanceQuickRemove.replace("{value}", text),
-                        disabled: pending,
-                        onClick: () => patch({ quickButtons: appearance.quickButtons.filter((candidate) => candidate !== text) })
-                      }
-                    )
-                  ] }, text)) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "flex flex-wrap items-end gap-2", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Field, { label: s.appearanceQuickAdd, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-                      C.Input,
-                      {
-                        value: draftButton,
-                        maxLength: APPEARANCE_QUICK_BUTTON_MAX_CHARS,
-                        disabled: pending,
-                        placeholder: s.appearanceQuickPlaceholder,
-                        onChange: (event) => setDraftButton(event.target.value)
-                      }
-                    ) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { icon: Plus, disabled: pending || draftButton.trim() === "" || buttonHint !== null || quickFull, onClick: addButton, children: s.appearanceQuickAdd })
-                  ] }),
-                  buttonHint === "duplicate" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", children: s.appearanceQuickDuplicate }) : null,
-                  quickFull ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-muted-foreground", children: s.appearanceQuickFull }) : null
-                ]
-              }
-            )
+                  } }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.IconButton, { icon: Plus, label: s.appearanceQuickAdd, disabled: pending || quickFull || duplicate || !buttonText, onClick: addButton })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.SelectMenu, { label: s.appearanceQuickIcon, value: draftIcon ?? "", disabled: pending || quickFull, onChange: (value) => setDraftIcon(value === "" ? null : value), options: [{ value: "", label: s.appearanceIconNone }, ...icons] })
+              ] }),
+              duplicate ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", children: s.appearanceQuickDuplicate }) : null,
+              quickFull ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-muted-foreground", children: s.appearanceQuickFull }) : null
+            ] }), s.appearanceQuickHint, reset("quickButtons", s.appearanceQuickLabel))
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "order-1 min-w-0 lg:order-2 lg:sticky lg:top-0", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AppearancePreview, { look: { name, appearance }, label: s.appearancePreview, hint: s.appearancePreviewHint }) })
-        ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.ModalFooter, { children: [
-          error !== null ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: error }) : null,
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "ghost", disabled: pending, onClick: onClose, children: s.cancel }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            C.Button,
-            {
-              variant: "accent",
-              icon: Save,
-              disabled: pending || name.trim() === "" || avatar === "invalid",
-              onClick: () => void save(),
-              children: pending ? s.appearanceSaving : s.appearanceSave
-            }
-          )
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "order-1 min-w-0 lg:sticky lg:top-0 lg:order-2", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AppearancePreview, { look, label: s.appearancePreview }) })
         ] })
-      ]
-    }
-  );
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(C.ModalFooter, { children: [
+        error !== null ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: error }) : null,
+        !valid ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: s.appearanceInvalid }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "ghost", disabled: pending, onClick: onClose, children: s.cancel }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.Button, { variant: "accent", icon: Save, disabled: pending || name.trim() === "" || !valid, onClick: () => void save(), children: pending ? s.appearanceSaving : s.appearanceSave })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(C.ConfirmDialog, { open: templateChoice !== null, title: s.appearanceTemplateConfirm, description: s.appearanceTemplateReplace, confirmLabel: s.appearanceTemplateApply, onClose: () => setTemplateChoice(null), onConfirm: () => {
+      if (templateChoice !== null) {
+        setStored(selectAppearanceTemplate(templateChoice));
+        setDraftButton("");
+        setDraftIcon(null);
+        setTemplateChoice(null);
+      }
+    } })
+  ] });
 }
 
 // plugins/chatbot/web-src/BotDetail.tsx
@@ -20128,7 +20541,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
           }
         ),
         opened === "limits" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LimitsModal, { draft: limits, disabled: pending, onChange: setLimits, onClose: () => setOpened(null) }) : null,
-        opened === "appearance" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(AppearanceModal, { bot, onClose: () => setOpened(null), onChanged }) : null
+        opened === "appearance" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(AppearanceModal, { bot, onClose: () => setOpened(null), onChanged }, bot.chatbotUserId) : null
       ]
     }
   );
