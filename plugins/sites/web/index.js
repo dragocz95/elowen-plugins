@@ -314,13 +314,6 @@ var History = createLucideIcon("History", [
   ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/image.js
-var Image = createLucideIcon("Image", [
-  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }],
-  ["circle", { cx: "9", cy: "9", r: "2", key: "af1f0g" }],
-  ["path", { d: "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21", key: "1xmnt7" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/key-round.js
 var KeyRound = createLucideIcon("KeyRound", [
   [
@@ -1268,12 +1261,12 @@ var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var basePath = (siteId) => `/plugins/sites/api/site/${siteId}`;
 function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
   const { components } = runtime();
-  const { Badge, Button, DetailBlock } = components;
+  const { Badge, Button } = components;
   const preview = site.preview;
   const [refusedVersion, setRefusedVersion] = (0, import_react5.useState)(null);
   const picture = preview.version > 0 && refusedVersion !== preview.version;
   const taken = preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Image, title: strings.previewTitle, hint: strings.previewHint, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "flex flex-col gap-2", children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "relative aspect-[16/6] w-full overflow-hidden rounded-lg border border-border/60 bg-muted/40", children: picture ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "img",
       {
@@ -1437,6 +1430,20 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-5", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      PreviewBlock,
+      {
+        site,
+        notice: detail.data?.previewNotice ?? null,
+        busy: call.isPending,
+        strings,
+        onRefresh: () => runCall({
+          path: `${basePath(siteId)}/preview/refresh`,
+          init: { method: "POST" },
+          done: strings.previewRefreshed
+        })
+      }
+    ),
     failedAction ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ErrorState,
       {
@@ -1498,20 +1505,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       ] })
     ] }),
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SiteDomains, { siteId: site.id }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReadOnlySiteAddress, { url: site.url, strings }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-      PreviewBlock,
-      {
-        site,
-        notice: detail.data?.previewNotice ?? null,
-        busy: call.isPending,
-        strings,
-        onRefresh: () => runCall({
-          path: `${basePath(siteId)}/preview/refresh`,
-          init: { method: "POST" },
-          done: strings.previewRefreshed
-        })
-      }
-    ),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "grid grid-cols-3 divide-x divide-border/70 border-y border-border/70", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Metric,

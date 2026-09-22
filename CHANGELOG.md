@@ -1,5 +1,9 @@
 # Changelog
 
+## sites 0.14.8 - 2026-09-22
+
+- Opening a website now leads with the picture of the page itself, at the very top of the detail and without a heading above it. The page is what a reader recognises a site by, so it comes before the words about it.
+
 ## chatbot 0.1.1 - 2026-09-22
 
 - The form for registering a chatbot no longer offers accounts that are not chatbots. It listed every non-administrator account, so people appeared in a list whose choice the server would then refuse; only accounts of kind `chatbot` that do not already carry one are offered.
