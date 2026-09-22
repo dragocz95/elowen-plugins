@@ -1114,7 +1114,15 @@ export class SitesStore {
       WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NULL
         AND ownership_expires_at > ? AND removal_requested_at IS NULL
     `).run(now, now, id, now);
-    if (result.changes !== 1) throw new Error('The hostname reservation is absent, expired or already verified.');
+    if (result.changes === 1) return;
+    const verified = this.db.prepare(`
+      SELECT 1
+      FROM p_sites_hostnames
+      WHERE id = ? AND kind = 'custom' AND ownership_verified_at IS NOT NULL
+        AND removal_requested_at IS NULL
+    `).get(id);
+    if (verified) return;
+    throw new Error('The hostname reservation is absent, expired or being removed.');
   }
 
   recordHostnameDns(

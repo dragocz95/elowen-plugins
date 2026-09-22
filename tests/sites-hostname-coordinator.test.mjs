@@ -206,3 +206,37 @@ test('an expired preferred custom hostname falls back to the generated address',
   assert.equal(h.store.hostnameById(claimed.id).certificateState, 'expired');
   assert.equal(h.addresses.effectiveHostname(h.store.siteById(site.id)), `demo-abc123.${BASE}`);
 });
+
+test('an on-demand check joins an overlapping sweep for the same custom hostname', async () => {
+  const h = harness();
+  const claimed = h.store.claimCustomHostname(site.id, parseSiteHostname('race.customer.example'));
+  let ownershipChecks = 0;
+  let releaseOwnership;
+  const ownershipGate = new Promise((resolve) => { releaseOwnership = resolve; });
+  h.setOwnership(async () => {
+    ownershipChecks += 1;
+    await ownershipGate;
+    return [['elowen-site-verification=ownership-token']];
+  });
+  const coordinator = h.coordinator();
+
+  const onDemand = coordinator.checkCustom(claimed);
+  const sweep = coordinator.sweep();
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseOwnership();
+  await Promise.all([onDemand, sweep]);
+
+  assert.equal(ownershipChecks, 1);
+  assert.equal(h.ensureCalls(), 1);
+});
+
+test('a check with a stale unverified record succeeds after ownership was already verified', async () => {
+  const h = harness();
+  const claimed = h.store.claimCustomHostname(site.id, parseSiteHostname('verified.customer.example'));
+  h.store.verifyHostnameOwnership(claimed.id);
+
+  await h.coordinator().checkCustom(claimed);
+
+  assert.equal(h.store.hostnameById(claimed.id).certificateState, 'ready');
+  assert.equal(h.ensureCalls(), 1);
+});
