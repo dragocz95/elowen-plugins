@@ -34,8 +34,8 @@ function serverWith(projectPath: string) {
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen',?)").run(projectPath);
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const member = users.create('member', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const member = users.create('member', 'human', 'pw');
   const userProjects = new UserProjectStore(db);
   // The member is a fully legitimate user of project 1 — the point being that project access is exactly
   // what the system root does NOT follow from.

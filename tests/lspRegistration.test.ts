@@ -28,7 +28,7 @@ function serverWith(enabled: string[]) {
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
   const app = createServer({
     bus: new EventBus(),
     tmux: null as never,

@@ -28,8 +28,8 @@ function serverWith(enabled: string[], projectPath = '/tmp') {
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen',?)").run(projectPath);
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const member = users.create('member', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const member = users.create('member', 'human', 'pw');
   const projects = new ProjectStore(db);
   const host: PluginHostWiring = { stores: { projects } as never, projectFiles: { safe: safeProjectPath } };
   const app = createServer({

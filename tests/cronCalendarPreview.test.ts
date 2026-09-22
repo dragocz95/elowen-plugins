@@ -32,8 +32,8 @@ function setup(opts: { config?: Record<string, Record<string, unknown>>; timezon
   const dataRoot = tmpDir();
   const db = openDb(':memory:');
   const users = new UserStore(db);
-  const admin = users.create('admin', 'pw');
-  const amy = users.create('amy', 'pw');
+  const admin = users.create('admin', 'human', 'pw');
+  const amy = users.create('amy', 'human', 'pw');
   users.setGrantedPlugins(amy.id, ['cronjob']);
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, delegatedTurnsOutOfProcess: () => false,
