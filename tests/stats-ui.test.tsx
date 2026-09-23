@@ -5,6 +5,7 @@ import { http, HttpResponse, onUnhandledRequest, setupServer } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import manifest from '../plugins/stats/elowen-plugin.json' with { type: 'json' };
+import { compact, cost, integer, percentage, speed } from '../plugins/stats/web-src/format';
 
 ensurePluginUiRuntime();
 const registered = vi.fn();
@@ -42,6 +43,17 @@ const renderStats = () => {
   const { wrapper: Wrapper } = createWrapper();
   return render(<Wrapper><StatsView /></Wrapper>);
 };
+
+describe('usage numbers', () => {
+  it.each(['cs', 'sk', 'en'])('formats values and percentages in %s', (locale) => {
+    const number = new Intl.NumberFormat(locale);
+    expect(integer(1234567, locale)).toBe(number.format(1234567));
+    expect(compact(1234, locale)).toBe(new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(1234));
+    expect(cost(12.5, locale)).toBe(new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(12.5));
+    expect(percentage(18.5, locale)).toBe(`${number.format(18.5)}%`);
+    expect(speed(18.5, locale)).toBe(`${number.format(19)} tok/s`);
+  });
+});
 
 describe('daily usage window', () => {
   it('pads missing UTC days and counts calendar days without DST drift', () => {
@@ -153,7 +165,7 @@ describe('StatsView', () => {
     renderStats();
     const tokenHeading = await screen.findByText(strings.tokensByModel);
     const tokenCard = tokenHeading.closest('section');
-    expect(tokenCard).toHaveClass('bg-card', 'text-card-foreground');
+    expect(tokenCard).toHaveStyle({ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' });
     expect(tokenHeading).toHaveClass('text-foreground');
     expect(screen.getByText(strings.tokensByModelHint)).toHaveClass('text-muted-foreground');
 
@@ -166,7 +178,7 @@ describe('StatsView', () => {
 
     const trendHeading = screen.getByText(strings.trendTitle);
     const trendCard = trendHeading.closest('section')!;
-    expect(trendCard).toHaveClass('bg-card', 'text-card-foreground');
+    expect(trendCard).toHaveStyle({ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' });
     const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
     const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
     expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');

@@ -149,7 +149,6 @@ export interface CronWeekDay {
 export interface CronIntervalRow {
   jobId: string;
   schedule: string;
-  intervalLabel: string;
   enabled: boolean;
   nextExpectedAt: string | null;
   /** Calendar day of the next fire, in the scheduler timezone. Active hours can push it past midnight. */

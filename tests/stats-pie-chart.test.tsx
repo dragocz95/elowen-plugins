@@ -34,8 +34,13 @@ describe('PieChart', () => {
     expect(segments.reduce((sum, segment) => sum + segment.percentage, 0)).toBeCloseTo(100, 10);
   });
 
+  it('uses the selected locale for chart shares', () => {
+    render(<PieChart title="Podíly" data={data} emptyText="Bez dat" locale="cs" />);
+    expect(screen.getByText('60,0% · 60')).toBeTruthy();
+  });
+
   it('renders a value-bearing legend so the chart is understandable without color', () => {
-    render(<PieChart title="Token distribution" data={data} emptyText="No data" />);
+    render(<PieChart title="Token distribution" data={data} emptyText="No data" locale="en" />);
     const figure = screen.getByRole('figure', { name: 'Token distribution' });
     expect(within(figure).getByText('60.0% · 60')).toBeTruthy();
     expect(within(figure).getByText('30.0% · 30')).toBeTruthy();

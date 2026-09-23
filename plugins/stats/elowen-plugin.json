@@ -1,6 +1,6 @@
 {
   "name": "stats",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "apiVersion": "2",
   "requiresCore": "0.28.51",
   "description": "Model usage statistics: tokens, cost, cache use and generation speed. Based on Elowen's shared usage records, they keep task tracking separate from operating costs.",
