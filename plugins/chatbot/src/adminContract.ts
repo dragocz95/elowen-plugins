@@ -95,7 +95,7 @@ export interface ChatbotsAnswer {
 
 /** One visitor's conversation, as the register lists it. Metadata only: what was said is read one
  *  conversation at a time. */
-export interface ChatbotConversationView {
+interface ChatbotConversationView {
   visitorId: string;
   /** The core session reported by the relay, not an id the plugin derives. */
   sessionId: string | null;

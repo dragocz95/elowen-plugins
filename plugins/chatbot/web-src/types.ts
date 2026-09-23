@@ -7,7 +7,6 @@
 export type {
   ChatbotAccountOptionView,
   ChatbotBotView,
-  ChatbotConversationView,
   ChatbotConversationsAnswer,
   ChatbotModelView,
   ChatbotProjectView,
