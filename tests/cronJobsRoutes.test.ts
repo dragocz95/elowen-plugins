@@ -22,7 +22,7 @@ afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true
 
 const pluginsDir = join(process.cwd(), 'plugins');
 
-function setup(opts: { enabled?: string[]; config?: Record<string, Record<string, unknown>>; noUsers?: boolean } = {}) {
+function setup(opts: { enabled?: string[]; config?: Record<string, Record<string, unknown>>; noUsers?: boolean; timezone?: string } = {}) {
   const dataRoot = tmpDir('cronjobs');
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
@@ -33,6 +33,7 @@ function setup(opts: { enabled?: string[]; config?: Record<string, Record<string
   // The '/plugins/cronjob/jobs' surface is served by the REAL cronjob plugin (root mounts) now.
   const provider = new PluginRegistryProvider(() => loadPlugins({
     dirs: [pluginsDir], enabled: opts.enabled ?? ['cronjob'], dataRoot, config: opts.config,
+    ...(opts.timezone ? { timezone: () => opts.timezone! } : {}),
     pluginDb: pluginDbFor(dataRoot),
     host: {
       stores: {
@@ -666,10 +667,12 @@ describe('cron job creation POST', () => {
   });
 
   it('a one-shot whose local time does not exist in the timezone refuses nonexistent_local_time', async () => {
-    const { app, dataRoot, adminTok } = setup();
+    // A gap exists only in a zone that springs forward, so the zone is pinned rather than taken from the
+    // host (CI runs in UTC). The date is a future gap: a past one is refused as too soon instead.
+    const { app, dataRoot, adminTok } = setup({ timezone: 'Europe/Prague' });
     const res = await app.request('/plugins/cronjob/jobs', postJob(adminTok, {
       requestId: 'r-gap', lifecycle: 'oneShot', scope: 'personal', name: 'w', prompt: 'p',
-      localRunAt: { date: '2026-03-29', time: '02:30' },
+      localRunAt: { date: '2099-03-29', time: '02:30' },
     }));
     expect(res.status).toBe(400);
     const body = await res.json() as Record<string, unknown>;
