@@ -17,7 +17,7 @@ import { capturePageSnapshot, pageMetadata, type PageTargetHandle } from './page
 import { performAction, submitForm, type ActionReport, type PerformableAction } from './pageActions.js';
 import { ChatPanel } from './chatPanel.js';
 import { ChatSession, type CapturedPage, type PageBridge } from './session.js';
-import { DEFAULT_APPEARANCE } from '../src/appearanceContract.js';
+import { DEFAULT_APPEARANCE, type ChatbotLook } from '../src/appearanceContract.js';
 import { HANDOFF_CODE_PATTERN, HANDOFF_FRAGMENT_KEY, PUBLIC_SCHEMA_VERSION } from '../src/publicContract.js';
 import { detectLocale, widgetStrings } from './strings.js';
 
@@ -151,24 +151,26 @@ export function mount(): ElowenChatbotApi | null {
   const page = new BrowserPage();
   let panel: ChatPanel | null = null;
   let session: ChatSession | null = null;
-  /** Whether this chatbot's look has been asked for, and the answer if one is on its way: the read happens
-   *  at most once per page however often the panel is opened. */
+  let destroyed = false;
+  let visitorEngaged = false;
+  let appearanceAppliedAfterEngagement = false;
+  /** The look is resolved before the panel enters the document, so even its launcher and errors cannot flash
+   *  in the widget's built-in colours. A refusal leaves the panel unattached. */
   let lookAsked = false;
-  let looking: Promise<void> | null = null;
+  let looking: Promise<ChatbotLook | null> | null = null;
 
-  /** Read the chatbot's own name and appearance and draw the panel with them.
-   *
-   *  Deliberately NOT on page load. A visitor this browser has already seen is read just before their
-   *  transcript is restored, and a first-time visitor when they OPEN the panel — a click they make. A page
-   *  whose panel is never opened therefore sends nothing at all, which is the promise the widget makes about
-   *  an untouched page. Every refusal inside is answered with `null`, so this never rejects. */
-  const look = (): Promise<void> => {
+  const look = (): Promise<ChatbotLook | null> => {
     if (looking !== null) return looking;
-    if (lookAsked) return Promise.resolve();
+    if (lookAsked) return Promise.resolve(null);
     looking = (async () => {
       const value = await session?.loadAppearance() ?? null;
-      if (value) panel?.applyAppearance(value);
+      if (value && panel && !destroyed) {
+        panel.applyAppearance(value);
+        (document.body ?? document.documentElement).appendChild(panel.host);
+        if (visitorEngaged) appearanceAppliedAfterEngagement = true;
+      }
       lookAsked = true;
+      return value;
     })();
     return looking;
   };
@@ -179,10 +181,18 @@ export function mount(): ElowenChatbotApi | null {
     // The panel already showed the visitor's message; the conversation is told that it did.
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),
     onStop: () => session?.stopWatching(),
-    onOpen: () => void look(),
+    onOpen: () => {
+      visitorEngaged = true;
+      void look().then((value) => {
+        if (value && !appearanceAppliedAfterEngagement && !destroyed) {
+          appearanceAppliedAfterEngagement = true;
+          panel?.applyAppearance(value);
+        }
+      });
+    },
     // The owner's avatar travels over the visitor's own authorized connection rather than from the image
     // host the customer's page would have to allow. Absent bytes are simply a panel without an avatar.
-    loadAvatar: async () => await session?.loadAvatar() ?? null,
+    loadAvatar: async () => visitorEngaged ? (await session?.loadAvatar()) ?? null : null,
   });
 
   session = new ChatSession({
@@ -195,18 +205,22 @@ export function mount(): ElowenChatbotApi | null {
     strings,
   });
 
-  (document.body ?? document.documentElement).appendChild(panel.host);
-  // A conversation this tab already had is restored, and nothing at all is sent when it never had one. The
-  // look is read FIRST, because a panel that has to be built with it cannot restore a transcript into a
-  // panel that would then be replaced under it.
-  if (session.hasStoredToken()) void look().then(() => session.start());
-  if (page.arrivedByNavigation) panel.open();
+  // The bootstrap is origin-gated and names this chatbot specifically. Resolve it before attaching the
+  // launcher; otherwise the visitor sees a flash of our defaults on every page load.
+  const restoreConversation = session.hasStoredToken();
+  visitorEngaged = restoreConversation;
+  void look().then((value) => {
+    if (!value) return;
+    if (restoreConversation) void session?.start();
+    if (page.arrivedByNavigation) panel?.open();
+  });
 
   const api: ElowenChatbotApi = {
     version: PUBLIC_SCHEMA_VERSION,
     open: () => panel?.open(),
     close: () => panel?.close(),
     destroy: () => {
+      destroyed = true;
       session?.destroy();
       panel?.destroy();
       delete window.ElowenChatbot;

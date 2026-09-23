@@ -98,6 +98,7 @@ export const EVENTS_AFTER_QUERY = 'after';
  *  differently from the handler that answers it, and so a route is renamed in one place or not at all. */
 export const PUBLIC_SEGMENTS = {
   handoff: 'handoff',
+  bootstrap: 'bootstrap',
   visitors: 'visitors',
   refresh: 'refresh',
   turns: 'turns',
@@ -106,7 +107,6 @@ export const PUBLIC_SEGMENTS = {
   result: 'result',
   confirmation: 'confirmation',
   conversation: 'conversation',
-  appearance: 'appearance',
   avatar: 'avatar',
   widget: WIDGET_ASSET_NAME,
 } as const;
@@ -114,11 +114,11 @@ export const PUBLIC_SEGMENTS = {
 /** The public paths, relative to the mount. */
 export const PUBLIC_PATHS = {
   handoff: PUBLIC_SEGMENTS.handoff,
+  bootstrap: PUBLIC_SEGMENTS.bootstrap,
   visitors: PUBLIC_SEGMENTS.visitors,
   refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
   turns: PUBLIC_SEGMENTS.turns,
   conversation: PUBLIC_SEGMENTS.conversation,
-  appearance: PUBLIC_SEGMENTS.appearance,
   /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
    *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
   avatar: PUBLIC_SEGMENTS.avatar,

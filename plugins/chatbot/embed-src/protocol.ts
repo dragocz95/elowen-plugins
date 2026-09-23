@@ -98,7 +98,7 @@ export function readVisitorText(composed: string): string {
 
 // ── request bodies ───────────────────────────────────────────────────────────────────────────────────
 
-export function visitorRequestBody(publicId: string): Record<string, unknown> {
+export function publicBotRequestBody(publicId: string): Record<string, unknown> {
   return { schemaVersion: PUBLIC_SCHEMA_VERSION, bot: publicId };
 }
 

@@ -475,15 +475,25 @@ function readAvatar(value: unknown): Parse<string> {
   }
 }
 
+/** The fields each group owns. Declared once because two readers need them: the parser that validates a
+ *  group's values, and the widget's filter that drops fields a newer deployment added. Two lists would let
+ *  a new field validate here and vanish there. */
+const QUICK_BUTTON_KEYS = ['text', 'icon'] as const;
+const COLOR_KEYS = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'] as const;
+const SEND_KEYS = ['icon', 'shape'] as const;
+const LAUNCHER_KEYS = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'] as const;
+const HEADER_KEYS = ['subtitle', 'showAvatar', 'showMessageName'] as const;
+const TYPOGRAPHY_KEYS = ['fontSize', 'fontFamily', 'shadow', 'placeholder'] as const;
+
 function readQuickButtons(value: unknown): Parse<QuickButton[]> {
   if (!Array.isArray(value)) return { ok: false, error: '"quickButtons" must be an array' };
   if (value.length > APPEARANCE_QUICK_BUTTONS_MAX) return { ok: false, error: `at most ${APPEARANCE_QUICK_BUTTONS_MAX} quick buttons` };
   const result: QuickButton[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
-    const object = plainObject(entry, ['text', 'icon'], 'quick button');
+    const object = plainObject(entry, QUICK_BUTTON_KEYS, 'quick button');
     if (!object.ok) return object;
-    const present = requiredKeys(object.value, ['text', 'icon'], 'quick button');
+    const present = requiredKeys(object.value, QUICK_BUTTON_KEYS, 'quick button');
     if (!present.ok) return present;
     const text = readString(object.value.text, 'quick button text', APPEARANCE_QUICK_BUTTON_MAX_CHARS);
     if (!text.ok) return text as Parse<QuickButton[]>;
@@ -502,7 +512,7 @@ function readQuickButtons(value: unknown): Parse<QuickButton[]> {
 }
 
 function parseColors(input: unknown, partial: boolean): Parse<Partial<AppearanceColors>> {
-  const keys = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'] as const;
+  const keys = COLOR_KEYS;
   const object = plainObject(input, keys, 'appearance.colors');
   if (!object.ok) return object;
   if (!partial) {
@@ -524,7 +534,7 @@ function parseColors(input: unknown, partial: boolean): Parse<Partial<Appearance
 }
 
 function parseSend(input: unknown, partial: boolean): Parse<Partial<SendAppearance>> {
-  const keys = ['icon', 'shape'] as const;
+  const keys = SEND_KEYS;
   const object = plainObject(input, keys, 'appearance.send');
   if (!object.ok) return object;
   if (!partial) {
@@ -546,7 +556,7 @@ function parseSend(input: unknown, partial: boolean): Parse<Partial<SendAppearan
 }
 
 function parseLauncher(input: unknown, partial: boolean): Parse<Partial<LauncherAppearance>> {
-  const keys = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'] as const;
+  const keys = LAUNCHER_KEYS;
   const object = plainObject(input, keys, 'appearance.launcher');
   if (!object.ok) return object;
   if (!partial) {
@@ -585,7 +595,7 @@ function parseLauncher(input: unknown, partial: boolean): Parse<Partial<Launcher
 }
 
 function parseHeader(input: unknown, partial: boolean): Parse<Partial<HeaderAppearance>> {
-  const keys = ['subtitle', 'showAvatar', 'showMessageName'] as const;
+  const keys = HEADER_KEYS;
   const object = plainObject(input, keys, 'appearance.header');
   if (!object.ok) return object;
   if (!partial) {
@@ -607,7 +617,7 @@ function parseHeader(input: unknown, partial: boolean): Parse<Partial<HeaderAppe
 }
 
 function parseTypography(input: unknown, partial: boolean): Parse<Partial<TypographyAppearance>> {
-  const keys = ['fontSize', 'fontFamily', 'shadow', 'placeholder'] as const;
+  const keys = TYPOGRAPHY_KEYS;
   const object = plainObject(input, keys, 'appearance.typography');
   if (!object.ok) return object;
   if (!partial) {
@@ -639,8 +649,36 @@ function parseTypography(input: unknown, partial: boolean): Parse<Partial<Typogr
 
 const appearanceFields = ['mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons', 'send', 'launcher', 'header', 'typography'] as const;
 
+function knownAppearanceFields(input: unknown, allowed: readonly string[]): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(record).filter(([key]) => allowed.includes(key)));
+}
+
+/** Keep fields this widget understands and validate their values strictly. Deployments can add optional
+ *  appearance fields before every visitor has revalidated their cached widget bundle. */
+function appearanceForThisWidget(input: unknown): unknown {
+  const known = knownAppearanceFields(input, ['schemaVersion', ...appearanceFields]);
+  if (typeof known !== 'object' || known === null || Array.isArray(known)) return known;
+  const appearance = known as Record<string, unknown>;
+  const groups: Record<string, readonly string[]> = {
+    colors: COLOR_KEYS,
+    send: SEND_KEYS,
+    launcher: LAUNCHER_KEYS,
+    header: HEADER_KEYS,
+    typography: TYPOGRAPHY_KEYS,
+  };
+  for (const [group, fields] of Object.entries(groups)) {
+    if (group in appearance) appearance[group] = knownAppearanceFields(appearance[group], fields);
+  }
+  if (Array.isArray(appearance.quickButtons)) {
+    appearance.quickButtons = appearance.quickButtons.map((button) => knownAppearanceFields(button, ['text', 'icon']));
+  }
+  return appearance;
+}
+
 export function parseAppearance(input: unknown): AppearanceParse {
-  const object = plainObject(input, ['schemaVersion', ...appearanceFields], 'appearance');
+  const object = plainObject(appearanceForThisWidget(input), ['schemaVersion', ...appearanceFields], 'appearance');
   if (!object.ok) return object;
   const { schemaVersion, ...fields } = object.value;
   if (schemaVersion !== APPEARANCE_SCHEMA_VERSION) return { ok: false, error: `"schemaVersion" must be ${APPEARANCE_SCHEMA_VERSION}` };

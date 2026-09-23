@@ -38,7 +38,7 @@ import {
   readVisitorText,
   schemaVersionBody,
   turnRequestBody,
-  visitorRequestBody,
+  publicBotRequestBody,
   type ActionFrame,
 } from './protocol.js';
 import { FORM_INVALID, TARGET_GONE, type ActionReport, type PerformableAction } from './pageActions.js';
@@ -173,19 +173,10 @@ export class ChatSession {
 
   /** How this chatbot's panel looks, and the name that goes with it.
    *
-   *  This is the widget's ONLY configuration read, and it is deliberately not made on page load: it is made
-   *  when the panel is first opened (or, for a visitor this browser has seen before, just before the
-   *  transcript is restored), so a page nobody engaged with is never touched. It answers `null` for every
-   *  refusal — an unavailable chatbot, a spent token, an appearance this version cannot read — and the panel
-   *  then keeps the widget's own built-in look rather than showing something the customer did not choose. */
+   *  The read-only, origin-gated bootstrap is the single look path for new and returning visitors. Every
+   *  refusal answers `null`; the caller keeps the panel unattached rather than showing the built-in look. */
   async loadAppearance(): Promise<ChatbotLook | null> {
-    let token: string;
-    try {
-      token = await this.ensureToken();
-    } catch {
-      return null;
-    }
-    const response = await this.request(token, 'GET', PUBLIC_PATHS.appearance, null);
+    const response = await this.request(null, 'POST', PUBLIC_PATHS.bootstrap, publicBotRequestBody(this.deps.publicId));
     if (!response || !response.ok) return null;
     const body = await readJson(response);
     if (!body) return null;
@@ -566,11 +557,12 @@ export class ChatSession {
       this.rememberHandoffReceipt(code);
     }
     if (this.token !== null) return this.token;
-    const response = await this.request(null, 'POST', PUBLIC_PATHS.visitors, visitorRequestBody(this.deps.publicId));
+    const response = await this.request(null, 'POST', PUBLIC_PATHS.visitors, publicBotRequestBody(this.deps.publicId));
     if (!response || !response.ok) throw new Error('token request refused');
     const body = await readJson(response);
     const token = typeof body?.token === 'string' ? body.token : null;
     if (!token) throw new Error('token response carried no token');
+
     this.rememberToken(token);
     return token;
   }
