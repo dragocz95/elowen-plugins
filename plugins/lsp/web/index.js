@@ -151,7 +151,7 @@ function LspRail({ variant, data }) {
   const enabled = data.enabled;
   if (variant === "compact") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { "data-testid": "telemetry-compact-lsp", className: "flex w-10 flex-col items-center gap-1 rounded-md px-1 py-1.5", title: strings.railTitle, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Braces, { size: 14, "aria-hidden": true, className: enabled ? "text-success" : "text-subtle-foreground" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-[9px] leading-none text-muted-foreground", children: enabled ? strings.active : strings.inactive })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-tiny leading-none text-muted-foreground", children: enabled ? strings.active : strings.inactive })
   ] });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { "data-testid": "telemetry-lsp", className: "flex flex-col gap-1", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.RailSectionHead, { label: strings.railTitle, icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Braces, { size: 11, "aria-hidden": true }) }),

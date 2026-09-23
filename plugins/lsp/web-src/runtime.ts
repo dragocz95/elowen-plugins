@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
-import type { AssertPublished } from 'elowen-plugin-ui-kit';
-export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
+import type { AssertPublished, PluginChatRailSectionProps } from 'elowen-plugin-ui-kit';
+export type { PluginChatRailSectionProps } from 'elowen-plugin-ui-kit';
 interface Registration { requiresApiVersion: number; chatRailSections?: Record<string, ComponentType<PluginChatRailSectionProps>> }
 interface Components {
   /** The host's shared rail heading; a bundle must not rebuild its markup, because the skin styles it by class. */
