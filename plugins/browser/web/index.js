@@ -15797,36 +15797,20 @@ function BrowserSettings({ surface }) {
               strings.depsCounted || "dependencies ready"
             ] })
           ] }),
-          children: report.checks.map((check) => {
+          children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { role: "list", className: "flex flex-col gap-2", children: report.checks.map((check) => {
             const label = strings[`dep_label_${check.id.replace(/-/g, "_")}`] || check.label;
-            const badge = /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: TONE[check.status], children: statusLabel(check.status) });
-            if (check.status === "ready") {
-              return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                SettingsRow,
-                {
-                  label,
-                  status: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex items-center gap-2", children: [
-                    check.value ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-xs text-muted-foreground", children: check.value }) : null,
-                    badge
-                  ] })
-                },
-                check.id
-              );
-            }
-            return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              SettingsRow,
-              {
-                label,
-                trailingLayout: "stack",
-                status: badge,
-                control: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "space-y-1 text-left", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-xs text-muted-foreground", children: say(check.code, check.detail) }),
-                  check.remediation ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-xs text-foreground", children: say(`${check.code}.fix`, check.remediation) }) : null
-                ] })
-              },
-              check.id
-            );
-          })
+            return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { role: "listitem", "data-browser-check": check.id, className: "browser-readiness-item min-w-0 rounded-lg px-3.5 py-3", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center gap-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 flex-1 text-sm font-medium text-foreground", children: label }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: TONE[check.status], children: statusLabel(check.status) })
+              ] }),
+              check.value ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 break-all font-mono text-caption text-muted-foreground", children: check.value }) : null,
+              check.status !== "ready" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "mt-2 space-y-1", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-meta text-muted-foreground", children: say(check.code, check.detail) }),
+                check.remediation ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-meta text-foreground", children: say(`${check.code}.fix`, check.remediation) }) : null
+              ] }) : null
+            ] }, check.id);
+          }) })
         }
       ) : null,
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(

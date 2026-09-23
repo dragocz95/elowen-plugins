@@ -1052,7 +1052,7 @@ describe('browser plugin UI', () => {
   };
 
   const readinessRows = (container: HTMLElement) =>
-    [...container.querySelectorAll<HTMLElement>('[data-settings-group]')][0]!.querySelectorAll<HTMLElement>('.settings-row');
+    [...container.querySelectorAll<HTMLElement>('[data-settings-group]')][0]!.querySelectorAll<HTMLElement>('[data-browser-check][role="listitem"]');
 
   it('answers the readiness question at a glance, and stays quiet when everything is ready', async () => {
     use(dependencyStatus({
@@ -1073,13 +1073,15 @@ describe('browser plugin UI', () => {
     expect(within(summary).getByText(strings.depReady)).toBeInTheDocument();
     expect(summary.closest('.settings-group__actions')).not.toBeNull();
 
-    // A ready dependency says nothing beyond its badge, and stays on the record's single trailing line.
+    // Each dependency is its own outlined item. Ready checks omit redundant detail.
     const rows = readinessRows(view.container);
     expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveClass('browser-readiness-item');
+    expect(rows[1]).toHaveClass('browser-readiness-item');
+    expect(rows[0]).not.toBe(rows[1]);
     expect(screen.getByText(strings.dep_label_chrome)).toBeInTheDocument();
-    expect(rows[0]).toHaveAttribute('data-trailing', 'inline');
     expect(screen.queryByText('proxy-chain is loadable and pins DNS per request.')).toBeNull();
-    // …except the browser's name, which is a fact worth seeing and is never its path.
+    // The browser's name is a fact worth seeing and is never its path.
     expect(within(rows[0]!).getByText('chromium')).toBeInTheDocument();
   });
 
@@ -1102,9 +1104,8 @@ describe('browser plugin UI', () => {
 
     const rows = readinessRows(view.container);
     expect(within(rows[0]!).getByText(strings.depBlocked)).toBeInTheDocument();
-    // Detail and remediation are READ on the row, not hidden behind a tooltip, and the record takes the
-    // stacked trailing side so neither collapses into a phone's value column.
-    expect(rows[0]).toHaveAttribute('data-trailing', 'stack');
+    // Detail and remediation remain visible inside the same outlined item.
+    expect(rows[0]).toHaveClass('browser-readiness-item');
     expect(within(rows[0]!).getByText(strings.dep_chrome_missing)).toBeInTheDocument();
     expect(within(rows[0]!).getByText(strings.dep_chrome_missing_fix)).toBeInTheDocument();
     expect(within(rows[0]!).queryByRole('button', { name: 'Help' })).toBeNull();
@@ -1112,7 +1113,7 @@ describe('browser plugin UI', () => {
     expect(within(rows[1]!).getByText(strings.depAttention)).toBeInTheDocument();
     expect(within(rows[1]!).getByText(strings.dep_artifacts_missing_fix)).toBeInTheDocument();
     expect(within(rows[2]!).getByText(strings.depReady)).toBeInTheDocument();
-    expect(rows[2]).toHaveAttribute('data-trailing', 'inline');
+    expect(rows[2]).toHaveClass('browser-readiness-item');
   });
 
   it('claims no sandbox verdict it cannot stand behind', async () => {
