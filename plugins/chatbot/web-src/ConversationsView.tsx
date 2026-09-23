@@ -4,7 +4,7 @@ import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
-import type { ChatbotBotView, ChatbotConversationView, ChatbotConversationsAnswer, ChatbotTranscriptAnswer } from './types';
+import type { ChatbotConversationsAnswer } from './types';
 
 /** THE CONVERSATIONS SECTION: who talked to one chatbot, and what was said.
  *
@@ -12,8 +12,7 @@ import type { ChatbotBotView, ChatbotConversationView, ChatbotConversationsAnswe
  *  keeps this a register rather than a transcript dump, and every request names the chatbot it is about,
  *  so this page can never show one chatbot's visitor under another chatbot's name.
  *
- *  One conversation opens in the host's inspection rail — the surface this app opens to READ a record —
- *  rather than in a window this bundle would assemble for itself. */
+ *  A row opens the visitor's canonical core session in a new host chat window; it never assembles its own URL. */
 
 const PAGE_SIZE = 25;
 /** The grid: the visitor, when it was last seen, how many turns, and what the last one did. */
@@ -35,7 +34,6 @@ export function ConversationsSection() {
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [open, setOpen] = useState<ChatbotConversationView | null>(null);
 
   // The first chatbot until the reader picks another, and back to a real one if the picked chatbot left
   // the register.
@@ -54,7 +52,6 @@ export function ConversationsSection() {
   // while the new read is in flight.
   useEffect(() => {
     setAnswer(null);
-    setOpen(null);
     setPage(0);
   }, [chatbotUserId]);
 
@@ -95,8 +92,9 @@ export function ConversationsSection() {
               {answer.conversations.map((conversation) => (
                 <C.DataTableRow
                   key={conversation.visitorId}
-                  onOpen={() => setOpen(conversation)}
-                  openLabel={s.openConversation.replace('{visitor}', conversation.visitorId)}
+                  interactive={conversation.sessionId !== null}
+                  onOpen={conversation.sessionId === null ? undefined : () => utils.openBrainSessionWindow(conversation.sessionId!)}
+                  openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
                 >
                   <C.DataTableCell lines={1} title={conversation.visitorId} className="font-mono text-xs">{conversation.visitorId}</C.DataTableCell>
                   <C.DataTableCell lines={1} priority="wide">{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
@@ -116,72 +114,8 @@ export function ConversationsSection() {
         );
 
   return (
-    <>
-      {/* The section's own heading, and the one control it needs: which chatbot this list is about. */}
-      <C.SettingsGroup {...heading} actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}>
-        {body}
-      </C.SettingsGroup>
-      {open === null ? null : <Transcript bot={bot} conversation={open} onClose={() => setOpen(null)} />}
-    </>
-  );
-}
-
-/** One conversation, as the plugin recorded it: what the visitor wrote and what the plugin answered. The
- *  model's tool calls and its reasoning are core transcript and are deliberately not part of this read. */
-function Transcript({ bot, conversation, onClose }: {
-  bot: ChatbotBotView;
-  conversation: ChatbotConversationView;
-  onClose(): void;
-}) {
-  const { components: C, hooks, utils } = runtime();
-  const s = hooks.usePluginStrings('chatbot');
-  const { locale, t } = hooks.useTranslation();
-  const [answer, setAnswer] = useState<ChatbotTranscriptAnswer | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setLoadError(null);
-    void apiJson<ChatbotTranscriptAnswer>(chatbotApi.conversation({
-      chatbotUserId: bot.chatbotUserId,
-      visitorId: conversation.visitorId,
-    }))
-      .then(setAnswer)
-      .catch((error) => setLoadError(utils.apiErrorMessage(error) || s.transcriptLoadError));
-  }, [bot.chatbotUserId, conversation.visitorId, s.transcriptLoadError, utils]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const statusLabel = (status: string): string => s[`turnStatus_${status}`] ?? status;
-
-  return (
-    <C.WorkspaceDetailRail
-      label={s.transcriptTitle}
-      description={conversation.visitorId}
-      closeLabel={t.common.close}
-      onClose={onClose}
-    >
-      {loadError !== null ? <C.ErrorState message={`${s.transcriptLoadError} — ${loadError}`} onRetry={load} />
-        : answer === null ? <C.LoadingLine layout="block" />
-          : answer.turns.length === 0 ? <C.EmptyState title={s.transcriptEmptyTitle} description={s.transcriptEmptyDescription} icon={MessagesSquare} />
-            : (
-              <ol className="flex flex-col gap-3" aria-label={s.transcriptTitle}>
-                {answer.turns.map((turn) => (
-                  <li key={turn.turnId} className="rounded-xl border border-border bg-card p-3">
-                    <p className="text-[11px] uppercase tracking-wide text-subtle-foreground">
-                      {formatDateTime(turn.at, locale)} · {statusLabel(turn.status)}
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{turn.visitorText}</p>
-                    {turn.reply === null ? (
-                      <p className="mt-2 text-xs italic text-muted-foreground">
-                        {turn.errorCode === null ? s.transcriptNoReply : `${s.transcriptFailed}: ${turn.errorCode}`}
-                      </p>
-                    ) : (
-                      <p className="mt-2 whitespace-pre-wrap rounded-lg bg-muted/40 p-2 text-sm text-muted-foreground">{turn.reply}</p>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-    </C.WorkspaceDetailRail>
+    <C.SettingsGroup {...heading} actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}>
+      {body}
+    </C.SettingsGroup>
   );
 }

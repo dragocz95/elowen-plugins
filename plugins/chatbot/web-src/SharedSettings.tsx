@@ -1,5 +1,5 @@
 import { ShieldCheck, SlidersHorizontal, Wrench } from 'lucide-react';
-import { runtime, type PluginConfigField } from './runtime';
+import { runtime, type PluginConfigField, type PluginDetail } from './runtime';
 import { useChatbots } from './useChatbots';
 
 /** THE SHARED SETTINGS SECTION: what applies to every chatbot at once.
@@ -25,26 +25,8 @@ export function SharedSettings({ plugin }: { plugin: string }) {
   // The required tools are the register's answer, read from the same cached request every other section
   // reads: this section states a fact the server already told the page.
   const { requiredTools } = useChatbots();
-  const { locale, t } = hooks.useTranslation();
   const detail = hooks.usePluginDetail(plugin);
-  const draft = hooks.usePluginConfigDraft(plugin, {
-    config: detail.data?.config ?? {},
-    configSchema: detail.data?.configSchema ?? [],
-  });
 
-  // A config field's own copy comes from the MANIFEST and its `i18n/<lang>.json` `fields` block — the
-  // same source Settings → Plugins reads it from. It is not page copy, so it is not restated as a bundle
-  // string: two records of one label are two things that can disagree.
-  const translated = detail.data?.i18n?.[locale]?.fields;
-  const fieldLabel = (field: PluginConfigField): string => translated?.[field.key]?.label ?? field.label;
-  const fieldHint = (field: PluginConfigField): string | undefined => translated?.[field.key]?.hint ?? field.hint;
-  const fieldOptions = (field: PluginConfigField) => (field.options ?? []).map((option) => ({
-    ...option,
-    label: translated?.[field.key]?.options?.[option.value] ?? option.label,
-  }));
-  // The host's own words for its own risk scale.
-  const riskText = (risk: 'low' | 'medium' | 'high'): string =>
-    risk === 'high' ? t.pluginDetail.riskHigh : risk === 'medium' ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow;
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,16 +39,7 @@ export function SharedSettings({ plugin }: { plugin: string }) {
         : detail.data === undefined ? <C.LoadingState variant="block" />
           : (
             <C.SettingsDocument>
-              <C.PluginConfigEditor
-                name={plugin}
-                detail={detail.data}
-                draft={draft}
-                mode="all"
-                fieldLabel={fieldLabel}
-                fieldHint={fieldHint}
-                fieldOptions={fieldOptions}
-                riskText={riskText}
-              />
+              <SharedPluginConfig plugin={plugin} detail={detail.data} />
             </C.SettingsDocument>
           )}
 
@@ -83,5 +56,35 @@ export function SharedSettings({ plugin }: { plugin: string }) {
         />
       </C.SettingsGroup>
     </div>
+  );
+}
+
+function SharedPluginConfig({ plugin, detail }: { plugin: string; detail: PluginDetail }) {
+  const { components: C, hooks } = runtime();
+  const { locale, t } = hooks.useTranslation();
+  // Mount this draft only after the host detail arrives. Seeding it with an empty loading placeholder
+  // meant the asynchronous response for this same plugin was never adopted by the host draft hook.
+  const draft = hooks.usePluginConfigDraft(plugin, detail);
+  const translated = detail.i18n?.[locale]?.fields;
+  const fieldLabel = (field: PluginConfigField): string => translated?.[field.key]?.label ?? field.label;
+  const fieldHint = (field: PluginConfigField): string | undefined => translated?.[field.key]?.hint ?? field.hint;
+  const fieldOptions = (field: PluginConfigField) => (field.options ?? []).map((option) => ({
+    ...option,
+    label: translated?.[field.key]?.options?.[option.value] ?? option.label,
+  }));
+  const riskText = (risk: 'low' | 'medium' | 'high'): string =>
+    risk === 'high' ? t.pluginDetail.riskHigh : risk === 'medium' ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow;
+
+  return (
+    <C.PluginConfigEditor
+      name={plugin}
+      detail={detail}
+      draft={draft}
+      mode="all"
+      fieldLabel={fieldLabel}
+      fieldHint={fieldHint}
+      fieldOptions={fieldOptions}
+      riskText={riskText}
+    />
   );
 }

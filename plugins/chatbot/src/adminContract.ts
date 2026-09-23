@@ -97,6 +97,8 @@ export interface ChatbotsAnswer {
  *  conversation at a time. */
 export interface ChatbotConversationView {
   visitorId: string;
+  /** The core session reported by the relay, not an id the plugin derives. */
+  sessionId: string | null;
   turns: number;
   errors: number;
   firstAt: string;
@@ -111,26 +113,6 @@ export interface ChatbotConversationsAnswer {
   total: number;
   limit: number;
   offset: number;
-}
-
-/** One turn of a conversation, as an administrator may read it: the visitor's own words and the answer the
- *  plugin published to the widget. The model's tool calls and its reasoning are core transcript and are
- *  deliberately not part of this contract. Private to it: one field of {@link ChatbotTranscriptAnswer}. */
-interface ChatbotTranscriptTurnView {
-  turnId: string;
-  visitorText: string;
-  /** The whole answer, or null when the turn produced none (still running, or failed). */
-  reply: string | null;
-  status: string;
-  errorCode: string | null;
-  at: string;
-}
-
-/** `GET api/conversation?chatbotUserId=&visitorId=`, oldest turn first. */
-export interface ChatbotTranscriptAnswer {
-  chatbotUserId: number;
-  visitorId: string;
-  turns: ChatbotTranscriptTurnView[];
 }
 
 /** One UTC day of this chatbot's own turn counters. */

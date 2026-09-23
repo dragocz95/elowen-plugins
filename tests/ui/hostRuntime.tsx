@@ -119,14 +119,15 @@ export function ensurePluginUiRuntime(): void {
       useActivity: H.useActivity, useModelUsage: H.useModelUsage, useUsageByDay: H.useUsageByDay,
       useUsageByOrigin: H.useUsageByOrigin, useResetUsage: H.useResetUsage,
       usePluginDetail: H.usePluginDetail, useSavePluginConfig: H.useSavePluginConfig,
-      usePluginConfigDraft: H.usePluginConfigDraft,
+      usePluginConfigDraft: H.usePluginConfigDraft, useAutoSaveStatus: H.useAutoSaveStatus,
       // Batched queries against the HOST's react-query client — a bundle that imported the library
       // itself would get a second QueryClient context and read an empty cache.
       useQuery: H.useQuery, useMutation: H.useMutation, useInfiniteQuery: H.useInfiniteQuery,
       useQueryClient: H.useQueryClient, useQueries: H.useQueries,
     },
     utils: {
-      apiErrorMessage, parseTs: U.parseTs, compactElapsed: U.compactElapsed, isValidSchedule: U.isValidSchedule,
+      apiErrorMessage, openBrainSessionWindow: U.openBrainSessionWindow,
+      parseTs: U.parseTs, compactElapsed: U.compactElapsed, isValidSchedule: U.isValidSchedule,
       copyText: U.copyText, defineEditorThemes: U.defineEditorThemes, editorTheme: U.editorTheme,
       // The date window a usage page needs to persist and read back its own filter.
       DEFAULT_RANGE: U.DEFAULT_RANGE, serializeRange: U.serializeRange, parseRange: U.parseRange,

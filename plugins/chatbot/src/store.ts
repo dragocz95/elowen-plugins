@@ -56,6 +56,7 @@ export type AdmissionOutcome =
  *  conversation at a time. */
 export interface ConversationSummaryRow {
   visitorId: string;
+  sessionId: string | null;
   turns: number;
   errors: number;
   firstAt: string;
@@ -897,25 +898,30 @@ export class ChatbotStore {
    *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show
    *  one chatbot's visitor under another chatbot's row. */
   conversations(input: { chatbotUserId: number; limit: number; offset: number }): ConversationSummaryRow[] {
-    const rows = this.stmt(`SELECT visitor_id,
+    const rows = this.stmt(`SELECT turns.visitor_id,
+                                   conversations.session_id,
                                    COUNT(*) AS turns,
-                                   SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
-                                   MIN(created_at) AS first_at,
-                                   MAX(created_at) AS last_at,
+                                   SUM(CASE WHEN turns.status = 'error' THEN 1 ELSE 0 END) AS errors,
+                                   MIN(turns.created_at) AS first_at,
+                                   MAX(turns.created_at) AS last_at,
                                    (SELECT last_turn.status FROM p_chatbot_turns AS last_turn
                                      WHERE last_turn.chatbot_user_id = turns.chatbot_user_id
                                        AND last_turn.visitor_id = turns.visitor_id
                                      ORDER BY last_turn.created_at DESC, last_turn.turn_id DESC LIMIT 1) AS last_status
                               FROM p_chatbot_turns AS turns
-                             WHERE chatbot_user_id = ?
-                          GROUP BY visitor_id
-                          ORDER BY last_at DESC, visitor_id
+                         LEFT JOIN p_chatbot_conversations AS conversations
+                                ON conversations.chatbot_user_id = turns.chatbot_user_id
+                               AND conversations.visitor_id = turns.visitor_id
+                             WHERE turns.chatbot_user_id = ?
+                          GROUP BY turns.visitor_id, conversations.session_id
+                          ORDER BY last_at DESC, turns.visitor_id
                              LIMIT ? OFFSET ?`)
       .all(input.chatbotUserId, input.limit, input.offset) as {
-        visitor_id: string; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
+        visitor_id: string; session_id: string | null; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
       }[];
     return rows.map((row) => ({
       visitorId: row.visitor_id,
+      sessionId: row.session_id,
       turns: row.turns,
       errors: row.errors,
       firstAt: row.first_at,
@@ -929,17 +935,6 @@ export class ChatbotStore {
     const row = this.stmt('SELECT COUNT(DISTINCT visitor_id) AS count FROM p_chatbot_turns WHERE chatbot_user_id = ?')
       .get(chatbotUserId) as { count: number };
     return row.count;
-  }
-
-  /** One conversation's turns, oldest first. `visitorId` is matched TOGETHER with the chatbot, so a
-   *  visitor id that belongs to another chatbot reads as an empty conversation rather than as that
-   *  chatbot's history. */
-  conversationTurns(input: { chatbotUserId: number; visitorId: string; limit: number }): TurnRow[] {
-    return this.stmt(`SELECT * FROM p_chatbot_turns
-                       WHERE chatbot_user_id = ? AND visitor_id = ?
-                    ORDER BY created_at, turn_id
-                       LIMIT ?`)
-      .all(input.chatbotUserId, input.visitorId, input.limit) as TurnRow[];
   }
 
   /** This chatbot's own admission counters per UTC day, over an inclusive range of days. Read from the

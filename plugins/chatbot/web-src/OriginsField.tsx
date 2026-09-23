@@ -10,9 +10,8 @@ import { runtime } from './runtime';
  *  eight. The pair here is the host's own (`SelectionSummary` + a window), the same shape the Users screen
  *  states an account's tools with and cronjob picks a destination with.
  *
- *  What the window edits is the DRAFT the detail pane already holds: adding or removing a domain marks the
- *  form dirty exactly as it did before, and the save that stores it is still the one explicit click at the
- *  bottom of the page. So the window has nothing to save of its own and closes on `Done`. */
+ *  What the window edits is the DRAFT the detail pane already holds: adding or removing a domain schedules
+ *  the host's one auto-save, and the window itself has nothing to save. It closes on `Done`. */
 
 /** A hint for the form, never the rule: the server normalises and validates every domain it is given and
  *  refuses an entry it cannot reduce to `scheme://host`. This only keeps an obviously wrong value out of

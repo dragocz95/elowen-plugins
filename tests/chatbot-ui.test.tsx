@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../plugins/chatbot/web-src/AppearancePreview', () => ({ AppearancePreview: () => null }));
 import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json' };
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
@@ -9,9 +11,11 @@ import { limitDraftOf, sliderRange } from '../plugins/chatbot/web-src/LimitsModa
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
 import { DEFAULT_LIMITS, LIMIT_FIELDS, MANDATORY_LIMITS, isUsableLimit, specOf, type LimitValues } from '../plugins/chatbot/src/limits';
+import { DEFAULT_STORED_APPEARANCE } from '../plugins/chatbot/src/appearanceContract';
 import { chartPoints, statsWindow } from '../plugins/chatbot/web-src/StatsView';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
+import { openBrainSessionWindow } from './ui/hostUtils';
 import { ensurePluginUiRuntime, pluginNavigations, resetPluginNavigations } from './ui/hostRuntime';
 
 /** The chatbot admin surface — ONE entry in the primary navigation, opened in the host's reading modal,
@@ -50,6 +54,7 @@ const bot = {
   status: 'enabled' as const,
   origins: [SITE],
   maySubmitForms: true,
+  appearance: DEFAULT_STORED_APPEARANCE,
   embedSnippet: `<script src="https://elowen.example.com/hooks/chatbot/v2/widget.js" data-chatbot="cbt_0123456789abcdef01234567" async></script>`,
   updatedAt: '2026-09-21T16:00:00.000Z',
   account: { username: 'ured-bot', type: 'chatbot' as const, isAdmin: false },
@@ -96,6 +101,7 @@ const botsBody = (bots = [bot, broken, second]) => ({
 
 const conversationOf = (visitorId: string, turns: number) => ({
   visitorId,
+  sessionId: `session-${visitorId}`,
   turns,
   errors: 0,
   firstAt: '2026-09-20T09:00:00.000Z',
@@ -107,14 +113,13 @@ const conversationOf = (visitorId: string, turns: number) => ({
  *  than only what the screen happened to render. */
 const asked: {
   conversations: number[];
-  conversation: string[];
   stats: number[];
   usage: string[];
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
   impersonate: number[];
-} = { conversations: [], conversation: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
+} = { conversations: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -130,7 +135,7 @@ setDefaults(
   // what is stored against it, and the manifest's own translations for its fields.
   http.get('/api/plugins/chatbot', () => HttpResponse.json({
     name: 'chatbot',
-    config: {},
+    config: { visitorTokenTtlDays: 45 },
     configSchema: manifest.configSchema,
     secretsSet: [],
     // The manifest's OWN translations, which is where a plugin's config labels are localized. The value
@@ -172,18 +177,6 @@ setDefaults(
       ? [conversationOf('visitor-skola', 1)]
       : [conversationOf('visitor-ured', 4)];
     return HttpResponse.json({ conversations, total: conversations.length, limit: 25, offset: 0 });
-  }),
-  http.get('/api/plugins/chatbot/api/conversation', ({ url }) => {
-    const visitorId = url.searchParams.get('visitorId') ?? '';
-    asked.conversation.push(visitorId);
-    return HttpResponse.json({
-      chatbotUserId: Number(url.searchParams.get('chatbotUserId')),
-      visitorId,
-      turns: [
-        { turnId: 'turn-1', visitorText: 'Dobrý den, kdy máte otevřeno?', reply: 'V pondělí od osmi.', status: 'done', errorCode: null, at: '2026-09-20T09:00:00.000Z' },
-        { turnId: 'turn-2', visitorText: 'Děkuji.', reply: null, status: 'running', errorCode: null, at: '2026-09-20T09:04:00.000Z' },
-      ],
-    });
   }),
   http.get('/api/plugins/chatbot/api/stats', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
@@ -256,8 +249,8 @@ afterEach(() => {
   cleanup();
   resetHandlers();
   asked.conversations = [];
-  asked.conversation = [];
   asked.stats = [];
+  openBrainSessionWindow.mockReset();
   asked.usage = [];
   asked.userPatch = [];
   asked.botPatch = [];
@@ -607,40 +600,24 @@ describe('the chatbots section', () => {
     }
   });
 
-  it('saves the whole row on an explicit submit, and disables it only after a confirmation', async () => {
+  it('auto-saves settings and preserves confirmed status actions', async () => {
     renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
     const drawer = await openBot('Městský úřad');
 
-    const submitToggle = within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! });
-    const save = within(drawer).getByRole('button', { name: strings.saveAction! }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-    fireEvent.click(submitToggle);
-    expect(save.disabled).toBe(false);
-    fireEvent.click(save);
-    await waitFor(() => expect(asked.botPatch[0]).toMatchObject({ maySubmitForms: false }));
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
+    await waitFor(() => expect(asked.botPatch[0]).toMatchObject({ maySubmitForms: false }), { timeout: 3000 });
 
     fireEvent.click(within(top()).getByRole('button', { name: strings.disableAction! }));
-    const confirm = top();
-    expect(within(confirm).getByText(strings.disableTitle!)).toBeInTheDocument();
-    fireEvent.click(within(confirm).getByRole('button', { name: strings.disableConfirm! }));
-    await waitFor(() => expect(within(top()).getByRole('button', { name: strings.enableAction! })).toBeInTheDocument());
-  });
+    expect(within(top()).getByText(strings.disableTitle!)).toBeInTheDocument();
+    fireEvent.click(within(top()).getByRole('button', { name: strings.disableConfirm! }));
+    await waitFor(() => expect(asked.botPatch.at(-1)).toMatchObject({ action: 'disable' }), { timeout: 3000 });
 
-  it('asks before closing a drawer that holds unsaved changes', async () => {
-    renderSection('bots');
-    await settled();
-    await screen.findByText('Městský úřad');
-    const drawer = await openBot('Městský úřad');
-    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
-
-    // The drawer is still there, with the question over it: a stray click may not cost typed instructions.
-    expect(within(top()).getByText(strings.discardTitle!)).toBeInTheDocument();
-    fireEvent.click(within(top()).getByRole('button', { name: strings.discardConfirm! }));
-    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
-    expect(asked.botPatch).toHaveLength(0);
+    fireEvent.click(within(top()).getByRole('button', { name: strings.enableAction! }));
+    expect(within(top()).getByText(strings.enableTitle!)).toBeInTheDocument();
+    fireEvent.click(within(top()).getByRole('button', { name: strings.enableConfirm! }));
+    await waitFor(() => expect(asked.botPatch.at(-1)).toMatchObject({ action: 'enable' }), { timeout: 3000 });
   });
 
   it('states the sensitive-data mode as unavailable instead of offering a switch it would refuse', async () => {
@@ -785,20 +762,12 @@ describe('the conversations section', () => {
     expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
   });
 
-  it('opens one conversation in the host\'s inspection rail and shows what was said', async () => {
+  it('opens the stored core session in a new host chat window without a transcript drawer', async () => {
     await openConversations();
     fireEvent.click(await screen.findByRole('button', { name: strings.openConversation!.replace('{visitor}', 'visitor-ured') }));
 
-    const rail = await screen.findByRole('dialog');
-    expect(await within(rail).findByText('Dobrý den, kdy máte otevřeno?')).toBeInTheDocument();
-    expect(within(rail).getByText('V pondělí od osmi.')).toBeInTheDocument();
-    // A turn that produced no answer says so rather than rendering an empty answer.
-    expect(within(rail).getByText(strings.transcriptNoReply!)).toBeInTheDocument();
-    expect(asked.conversation).toEqual(['visitor-ured']);
-
-    fireEvent.click(within(rail).getByRole('button', { name: 'Close' }));
-    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
-    // The register it was opened from is still there, unchanged.
+    expect(openBrainSessionWindow).toHaveBeenCalledWith('session-visitor-ured');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByText('visitor-ured')).toBeInTheDocument();
   });
 
@@ -867,11 +836,16 @@ describe('the statistics section', () => {
     expect(rangeTrigger).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
     expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('figure')).toHaveLength(1);
-    const legend = screen.getByRole('figure').querySelector('figcaption')!;
-    expect(legend.textContent).toContain(strings.chartTurns);
-    expect(legend.textContent).toContain(strings.spendTitle);
-    expect(legend.textContent).not.toContain(strings.chartErrors);
+    const figures = screen.getAllByRole('figure');
+    expect(figures).toHaveLength(2);
+    const spendLegend = figures[0]!.querySelector('figcaption')!;
+    expect(spendLegend.textContent).toContain(strings.chartTurns);
+    expect(spendLegend.textContent).toContain(strings.spendTitle);
+    expect(spendLegend.textContent).not.toContain(strings.chartErrors);
+    const dailyLegend = figures[1]!.querySelector('figcaption')!;
+    expect(dailyLegend.textContent).toContain(strings.chartTurns);
+    expect(dailyLegend.textContent).toContain(strings.statsColumnDone);
+    expect(dailyLegend.textContent).toContain(strings.chartErrors);
     expect(asked.stats).toEqual([bot.chatbotUserId]);
 
     // The spend is ONE line, from the instance's rollup for this account, over the same window.
@@ -896,7 +870,7 @@ describe('the statistics section', () => {
     expect(await screen.findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
   });
 
-  it('renders zero-valued days in the same daily register', async () => {
+  it('renders zero-valued days in the daily chart', async () => {
     use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => HttpResponse.json({
       chatbotUserId: Number(url.searchParams.get('chatbotUserId')),
       from: url.searchParams.get('from'),
@@ -907,8 +881,10 @@ describe('the statistics section', () => {
       queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
     })));
     await openStats();
-    expect(await screen.findByText(strings.statsTableTitle!)).toBeInTheDocument();
-    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+    expect(await screen.findByText(strings.dailyChartTitle!)).toBeInTheDocument();
+    const dailyChart = screen.getAllByRole('figure')[1]!;
+    expect(within(dailyChart).getAllByText(new RegExp(`${strings.chartTurns} 0, ${strings.statsColumnDone} 0, ${strings.chartErrors} 0`)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('keeps incomplete daily pricing unknown in the chart and total', async () => {
@@ -953,8 +929,8 @@ describe('the shared settings section', () => {
     expect(screen.queryByText(field.label)).not.toBeInTheDocument();
     const box = await screen.findByRole('textbox', { name: label }) as HTMLInputElement;
     const slider = screen.getByRole('slider', { name: label }) as HTMLInputElement;
-    // Nothing is stored yet, so the field holds the manifest's own default.
-    expect(box.value).toBe(String(field.default));
+    // The stored value survives the asynchronous detail load instead of being replaced with the manifest default.
+    expect(box.value).toBe('45');
     expect(Number(slider.min)).toBe(field.min);
     expect(Number(slider.max)).toBe(field.max);
 
@@ -1002,7 +978,7 @@ describe('the allowed domains', () => {
     expect(within(domains).getByRole('button', { name: strings.originsAdd! })).toBeDisabled();
   });
 
-  it('adds one in the window and carries it into the summary', async () => {
+  it('adds one in the window, carries it into the summary and auto-saves it', async () => {
     renderSection('bots');
     await settled();
     await screen.findByText('Městský úřad');
@@ -1010,13 +986,23 @@ describe('the allowed domains', () => {
     const domains = await openWindow(strings.originsLabel!);
     fireEvent.change(within(domains).getByPlaceholderText(strings.originsPlaceholder!), { target: { value: 'https://www.druhy.cz' } });
     fireEvent.click(within(domains).getByRole('button', { name: strings.originsAdd! }));
-    // The window edits the DRAFT the drawer holds, so closing it leaves the new domain counted and the
-    // save offered — nothing is stored until that explicit click.
+    // Closing the editor window leaves the change visible and the host auto-saves the detail draft.
     fireEvent.click(within(domains).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1));
     expect(within(drawer).getByText(strings.originsCount!.replace('{n}', '2'))).toBeInTheDocument();
-    expect(within(drawer).getByRole('button', { name: strings.saveAction! })).toBeEnabled();
-    expect(asked.botPatch).toHaveLength(0);
+    await waitFor(() => expect(asked.botPatch[0]).toMatchObject({ origins: [SITE, 'https://www.druhy.cz'] }), { timeout: 3000 });
+  });
+
+  it('saves pending detail changes before opening the appearance editor', async () => {
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
+
+    const appearance = await openWindow(strings.appearanceAction!);
+    expect(within(appearance).getByText(strings.appearanceTitle!)).toBeInTheDocument();
+    expect(asked.botPatch[0]).toMatchObject({ maySubmitForms: false });
   });
 });
 

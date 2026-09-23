@@ -57,6 +57,7 @@ function recordTurn(host: ChatbotHost, input: {
   reply?: string;
   startedAt?: number;
   errorCode?: string;
+  sessionId?: string;
 }): void {
   host.store.createTurn({
     turnId: input.turnId,
@@ -73,7 +74,7 @@ function recordTurn(host: ChatbotHost, input: {
     host.store.finishTurn({
       turnId: input.turnId,
       status: input.status,
-      coreSessionId: null,
+      coreSessionId: input.sessionId ?? `core-session-${input.visitorId}`,
       errorCode: input.errorCode ?? null,
       now: iso(input.at + HOUR),
     });
@@ -82,14 +83,13 @@ function recordTurn(host: ChatbotHost, input: {
 }
 
 describe('the admin routes are admin-only, whatever the manifest says', () => {
-  it.each(['list', 'conversations', 'conversation', 'stats'] as const)('refuses a non-admin caller at %s', async (method) => {
+  it.each(['list', 'conversations', 'stats'] as const)('refuses a non-admin caller at %s', async (method) => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
     const answer = method === 'list'
       ? await api.list(VIEWER)
       : method === 'conversations' ? await api.conversations(VIEWER, { chatbotUserId: '12' })
-        : method === 'conversation' ? await api.conversation(VIEWER, { chatbotUserId: '12', visitorId: 'v1' })
-          : await api.stats(VIEWER, { chatbotUserId: '12' });
+        : await api.stats(VIEWER, { chatbotUserId: '12' });
     expect(answer).toMatchObject({ status: 403, body: { error: 'forbidden' } });
   });
 });
@@ -276,8 +276,8 @@ describe('one chatbot\'s conversations', () => {
     expect(first.body).toMatchObject({ total: 2, limit: 25, offset: 0 });
     // Newest activity first, with the counts of the turns behind each conversation.
     expect((first.body as { conversations: unknown[] }).conversations).toEqual([
-      { visitorId: 'v2', turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
-      { visitorId: 'v1', turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
+      { visitorId: 'v2', sessionId: 'core-session-v2', turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
+      { visitorId: 'v1', sessionId: 'core-session-v1', turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
     ]);
 
     // Paging is the server's: the second page of one per page holds the other conversation, and nothing of
@@ -290,39 +290,6 @@ describe('one chatbot\'s conversations', () => {
     expect((other.body as { conversations: { visitorId: string }[] }).conversations.map((row) => row.visitorId)).toEqual(['v9']);
   });
 
-  it('reads one conversation oldest first, with the answers the plugin published', async () => {
-    const host = twoChatbots();
-    const { api } = adminApiFor(host);
-    registerBot(host, { chatbotUserId: 12 });
-    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
-    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: 'v1', at: dayMs, status: 'done', message: 'Kdy máte otevřeno?', reply: 'V pondělí od osmi.' });
-    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: 'v1', at: dayMs + HOUR, status: 'running', message: 'A v úterý?', startedAt: dayMs + HOUR });
-
-    const answer = await api.conversation(ADMIN, { chatbotUserId: '12', visitorId: 'v1' });
-    expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({
-      chatbotUserId: 12,
-      visitorId: 'v1',
-      turns: [
-        { turnId: 'a', visitorText: 'Kdy máte otevřeno?', reply: 'V pondělí od osmi.', status: 'done', errorCode: null, at: iso(dayMs) },
-        // A turn that has not answered yet has no reply, which is not the same as an empty answer.
-        { turnId: 'b', visitorText: 'A v úterý?', reply: null, status: 'running', errorCode: null, at: iso(dayMs + HOUR) },
-      ],
-    });
-  });
-
-  it('reads another chatbot\'s visitor as an empty conversation rather than as this chatbot\'s history', async () => {
-    const host = twoChatbots();
-    const { api } = adminApiFor(host);
-    registerBot(host, { chatbotUserId: 12 });
-    registerBot(host, { chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}` });
-    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
-    recordTurn(host, { turnId: 'd', chatbotUserId: 13, visitorId: 'v9', at: dayMs, status: 'done', message: 'tajemství', reply: 'Ahoj' });
-
-    const answer = await api.conversation(ADMIN, { chatbotUserId: '12', visitorId: 'v9' });
-    expect(answer).toMatchObject({ status: 200, body: { chatbotUserId: 12, visitorId: 'v9', turns: [] } });
-  });
-
   it('refuses a chatbot it does not know, and a request that names none', async () => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
@@ -330,7 +297,6 @@ describe('one chatbot\'s conversations', () => {
 
     expect(await api.conversations(ADMIN, { chatbotUserId: '99' })).toMatchObject({ status: 404, body: { error: 'not_found' } });
     expect(await api.conversations(ADMIN, { chatbotUserId: 'nonsense' })).toMatchObject({ status: 400 });
-    expect(await api.conversation(ADMIN, { chatbotUserId: '12' })).toMatchObject({ status: 400 });
     expect(await api.stats(ADMIN, {})).toMatchObject({ status: 400 });
 
     // An account that is not a chatbot at all is not a chatbot, even with a plugin row pointing at it.
