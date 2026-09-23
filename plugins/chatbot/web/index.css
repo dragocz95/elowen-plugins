@@ -420,6 +420,11 @@
       grid-template-columns: minmax(0,1fr) minmax(0,32rem);
     }
   }
+  @container (width < 40rem) {
+    .\@max-\[40rem\]\:hidden {
+      display: none;
+    }
+  }
 }
 @property --tw-rotate-x {
   syntax: "*";

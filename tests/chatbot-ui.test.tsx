@@ -805,11 +805,17 @@ describe('the conversations section', () => {
 
   it('gives each visitor\'s address its own column, and says so when none was kept', async () => {
     await openConversations();
-    expect(await screen.findByRole('columnheader', { name: strings.columnIp! })).toBeInTheDocument();
+    const header = await screen.findByRole('columnheader', { name: strings.columnIp! });
     // A kept address reads as the address, monospaced like the other machine values on the page.
     const kept = (screen.getByText('Office hours')).closest('[role="row"]')!;
     const ipCell = within(kept).getByText('203.0.113.9');
     expect(ipCell).toHaveClass('font-mono');
+    // The Chatbots window is narrower than the host's wide breakpoint, so the address must not ride on the
+    // wide-only priority: it stays in the compact layout and only a phone-width table drops it.
+    for (const cell of [header, ipCell]) {
+      expect(cell).not.toHaveClass('data-table-wide');
+      expect(cell).toHaveClass('@max-[40rem]:hidden');
+    }
     // An address that was never kept is said to be unknown in the same column, never left blank.
     const unkept = screen.getByText(strings.conversationUntitled!).closest('[role="row"]')!;
     expect(within(unkept).getByText(strings.visitorIpUnknown!)).toBeInTheDocument();

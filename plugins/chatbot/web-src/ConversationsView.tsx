@@ -16,11 +16,15 @@ import type { ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types'
 
 const PAGE_SIZE = 25;
 /** The grid: the conversation, the address it came from, when it was last seen, how many turns, and what
- *  the last one did. The address shares the last activity's `wide` fate, so both vanish together below
- *  the desktop layout and the compact and mobile templates keep their four tracks. */
+ *  the last one did. The Chatbots window is narrower than the host's wide breakpoint, so the address cannot
+ *  be `wide` like the last activity or it would never show: it keeps a track in the compact layout too and
+ *  hides itself only in a phone-width table (`IP_CELL`), where the mobile template has no track for it. */
 const COLUMNS = 'minmax(0,1.5fr) 9rem minmax(0,1fr) 4.5rem 7rem 1.25rem';
-const COMPACT_COLUMNS = 'minmax(0,1.5fr) 4.5rem 7rem 1.25rem';
+const COMPACT_COLUMNS = 'minmax(0,1.5fr) 9rem 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
+/** Hides the address below the host DataTable's own 40rem mobile container breakpoint, the one that
+ *  switches to MOBILE_COLUMNS; the two numbers must stay equal. */
+const IP_CELL = '@max-[40rem]:hidden';
 
 export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
@@ -172,7 +176,7 @@ export function ConversationsSection() {
             <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COMPACT_COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
                 <C.DataTableCell header lines={1}>{s.columnTitle}</C.DataTableCell>
-                <C.DataTableCell header lines={1} priority="wide">{s.columnIp}</C.DataTableCell>
+                <C.DataTableCell header lines={1} className={IP_CELL}>{s.columnIp}</C.DataTableCell>
                 <C.DataTableCell header lines={1} priority="wide">{s.columnLastSeen}</C.DataTableCell>
                 <C.DataTableCell header lines={1}>{s.columnTurns}</C.DataTableCell>
                 <C.DataTableCell header lines={1}>{s.columnLastTurn}</C.DataTableCell>
@@ -190,7 +194,7 @@ export function ConversationsSection() {
                   openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
                 >
                   <C.DataTableCell lines={1}>{conversation.title ?? s.conversationUntitled}</C.DataTableCell>
-                  <C.DataTableCell lines={1} priority="wide" className="font-mono text-xs">{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className={`font-mono text-xs ${IP_CELL}`}>{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
                   <C.DataTableCell lines={1} priority="wide">{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
                   <C.DataTableCell lines={1}>
                     {integer(conversation.turns, locale)}
