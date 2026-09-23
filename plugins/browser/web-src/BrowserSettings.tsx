@@ -79,41 +79,26 @@ export function BrowserSettings({ surface }: PluginPageProps) {
                 </div>
               )}
             >
-              {report.checks.map((check) => {
-                const label = strings[`dep_label_${check.id.replace(/-/g, '_')}`] || check.label;
-                const badge = <Badge tone={TONE[check.status]}>{statusLabel(check.status)}</Badge>;
-                // A ready dependency is one line: its name, and the word Ready. Anything that needs the
-                // reader takes the row's full width instead of a phone's value column, and says what is
-                // wrong and what to do about it in the row itself rather than behind a tooltip.
-                if (check.status === 'ready') {
+              <div role="list" className="flex flex-col gap-2">
+                {report.checks.map((check) => {
+                  const label = strings[`dep_label_${check.id.replace(/-/g, '_')}`] || check.label;
                   return (
-                    <SettingsRow
-                      key={check.id}
-                      label={label}
-                      status={(
-                        <span className="flex items-center gap-2">
-                          {check.value ? <span className="text-xs text-muted-foreground">{check.value}</span> : null}
-                          {badge}
-                        </span>
-                      )}
-                    />
-                  );
-                }
-                return (
-                  <SettingsRow
-                    key={check.id}
-                    label={label}
-                    trailingLayout="stack"
-                    status={badge}
-                    control={(
-                      <div className="space-y-1 text-left">
-                        <p className="text-xs text-muted-foreground">{say(check.code, check.detail)}</p>
-                        {check.remediation ? <p className="text-xs text-foreground">{say(`${check.code}.fix`, check.remediation)}</p> : null}
+                    <div key={check.id} role="listitem" data-browser-check={check.id} className="browser-readiness-item min-w-0 rounded-lg px-3.5 py-3">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{label}</span>
+                        <Badge tone={TONE[check.status]}>{statusLabel(check.status)}</Badge>
                       </div>
-                    )}
-                  />
-                );
-              })}
+                      {check.value ? <p className="mt-1 break-all font-mono text-caption text-muted-foreground">{check.value}</p> : null}
+                      {check.status !== 'ready' ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-meta text-muted-foreground">{say(check.code, check.detail)}</p>
+                          {check.remediation ? <p className="text-meta text-foreground">{say(`${check.code}.fix`, check.remediation)}</p> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </SettingsGroup>
           ) : null}
 

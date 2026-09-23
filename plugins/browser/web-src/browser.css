@@ -615,3 +615,10 @@
   /* The picture is the card's header, so it takes the width and keeps its shape. */
   .browser-account__preview { border-radius: var(--radius-lg, .75rem); }
 }
+
+/* The plugin UI kit does not publish the host's Item primitive. In oled, outline each check
+   using the same raised ground and hairline edge as the host's Items; leave light colours alone. */
+:root[data-skin='studio-oled'] .browser-readiness-item {
+  border: 1px solid var(--color-hairline);
+  background: var(--color-raised);
+}
