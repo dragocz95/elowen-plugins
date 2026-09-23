@@ -803,6 +803,18 @@ describe('the conversations section', () => {
     await waitFor(() => expect(asked.visitors).toEqual([bot.chatbotUserId, second.chatbotUserId]));
   });
 
+  it('gives each visitor\'s address its own column, and says so when none was kept', async () => {
+    await openConversations();
+    expect(await screen.findByRole('columnheader', { name: strings.columnIp! })).toBeInTheDocument();
+    // A kept address reads as the address, monospaced like the other machine values on the page.
+    const kept = (screen.getByText('Office hours')).closest('[role="row"]')!;
+    const ipCell = within(kept).getByText('203.0.113.9');
+    expect(ipCell).toHaveClass('font-mono');
+    // An address that was never kept is said to be unknown in the same column, never left blank.
+    const unkept = screen.getByText(strings.conversationUntitled!).closest('[role="row"]')!;
+    expect(within(unkept).getByText(strings.visitorIpUnknown!)).toBeInTheDocument();
+  });
+
   /** Open the visitor picker, type into its search, pick the one option whose label is given, and save. */
   const pickVisitor = async (search: string, label: string) => {
     fireEvent.click(await screen.findByRole('button', { name: strings.visitorFilter! }));

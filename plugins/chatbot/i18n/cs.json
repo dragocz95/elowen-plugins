@@ -105,6 +105,7 @@
       "visitorsTruncated": "Nabízí se jen {n} naposledy aktivních návštěvníků.",
       "visitorsLoadError": "Návštěvníky se nepodařilo načíst",
       "columnTitle": "Konverzace",
+      "columnIp": "IP",
       "conversationUntitled": "Nepojmenovaná konverzace",
       "columnLastSeen": "Poslední aktivita",
       "columnTurns": "Tahů",

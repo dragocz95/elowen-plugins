@@ -4,6 +4,7 @@
 
 - A visitor's message is now stored, relayed and shown exactly as the visitor wrote it. The page's address and title travel beside it in their own field and reach the model as unverified page data after the message, so conversations no longer show the "Visitor message:" label and the page JSON. Stored conversations are migrated once, and page actions read the page from the stored turn. A widget tab left open across the upgrade must be reloaded before its next message is accepted.
 - The Conversations register is narrowed by picking a visitor instead of typing a visitor id. The host's searchable picker lists the chatbot's 500 most recently active visitors, each shown by the last IP address the host vouched for and the visitor id, and typing part of either finds one; the row tooltip shows the same pair. The address is stored on the visitor's conversation, replaced by each admitted message, and deleted with the conversation by retention, an operator's erase or the chatbot account going away. Conversations from before this release show the address as unknown.
+- The Conversations register names each visitor's last vouched-for IP address in its own column on a wide screen, saying so when none was kept; the column hides together with the last activity one on compact and mobile layouts.
 
 ## cronjob 0.6.14 - 2026-09-23
 

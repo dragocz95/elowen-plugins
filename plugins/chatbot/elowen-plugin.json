@@ -156,6 +156,7 @@
       "visitorsTruncated": "Only the {n} most recently active visitors are offered.",
       "visitorsLoadError": "The visitors could not be loaded",
       "columnTitle": "Conversation",
+      "columnIp": "IP",
       "conversationUntitled": "Untitled conversation",
       "columnLastSeen": "Last activity",
       "columnTurns": "Turns",

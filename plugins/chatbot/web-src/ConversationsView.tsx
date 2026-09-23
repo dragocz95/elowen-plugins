@@ -15,8 +15,10 @@ import type { ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types'
  *  A row opens the visitor's canonical core session in a new host chat window; it never assembles its own URL. */
 
 const PAGE_SIZE = 25;
-/** The grid: the conversation, when it was last seen, how many turns, and what the last one did. */
-const COLUMNS = 'minmax(0,1.5fr) minmax(0,1fr) 4.5rem 7rem 1.25rem';
+/** The grid: the conversation, the address it came from, when it was last seen, how many turns, and what
+ *  the last one did. The address shares the last activity's `wide` fate, so both vanish together below
+ *  the desktop layout and the compact and mobile templates keep their four tracks. */
+const COLUMNS = 'minmax(0,1.5fr) 9rem minmax(0,1fr) 4.5rem 7rem 1.25rem';
 const COMPACT_COLUMNS = 'minmax(0,1.5fr) 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
 
@@ -170,6 +172,7 @@ export function ConversationsSection() {
             <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COMPACT_COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
                 <C.DataTableCell header lines={1}>{s.columnTitle}</C.DataTableCell>
+                <C.DataTableCell header lines={1} priority="wide">{s.columnIp}</C.DataTableCell>
                 <C.DataTableCell header lines={1} priority="wide">{s.columnLastSeen}</C.DataTableCell>
                 <C.DataTableCell header lines={1}>{s.columnTurns}</C.DataTableCell>
                 <C.DataTableCell header lines={1}>{s.columnLastTurn}</C.DataTableCell>
@@ -187,6 +190,7 @@ export function ConversationsSection() {
                   openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
                 >
                   <C.DataTableCell lines={1}>{conversation.title ?? s.conversationUntitled}</C.DataTableCell>
+                  <C.DataTableCell lines={1} priority="wide" className="font-mono text-xs">{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
                   <C.DataTableCell lines={1} priority="wide">{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
                   <C.DataTableCell lines={1}>
                     {integer(conversation.turns, locale)}

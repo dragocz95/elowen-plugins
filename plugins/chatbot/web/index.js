@@ -21274,7 +21274,7 @@ function BotPicker({ bots, value, onChange, label, disabled }) {
 // plugins/chatbot/web-src/ConversationsView.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 25;
-var COLUMNS = "minmax(0,1.5fr) minmax(0,1fr) 4.5rem 7rem 1.25rem";
+var COLUMNS = "minmax(0,1.5fr) 9rem minmax(0,1fr) 4.5rem 7rem 1.25rem";
 var COMPACT_COLUMNS = "minmax(0,1.5fr) 4.5rem 7rem 1.25rem";
 var MOBILE_COLUMNS = "minmax(0,1fr) 2rem 5.5rem 1rem";
 function ConversationsSection() {
@@ -21389,6 +21389,7 @@ function ConversationsSection() {
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COMPACT_COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableRow, { header: true, children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTitle }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.columnIp }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.columnLastSeen }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTurns }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnLastTurn }),
@@ -21403,6 +21404,7 @@ function ConversationsSection() {
           openLabel: conversation.sessionId === null ? void 0 : s.openConversation.replace("{visitor}", conversation.visitorId),
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, children: conversation.title ?? s.conversationUntitled }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, priority: "wide", className: "font-mono text-xs", children: conversation.ip ?? s.visitorIpUnknown }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: formatDateTime(conversation.lastAt, locale) }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableCell, { lines: 1, children: [
               integer(conversation.turns, locale),
