@@ -180,6 +180,15 @@ describe('visitor attention', () => {
     const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & Record<string, any>;
     expect(chat.scrollButton.smoothScroll).toBe(true);
     expect(chat.hiddenMessages.clickScroll).toBe('last');
+    expect(chat.names.ai.text).toBe('Help');
+    expect(chat.names.user.style.display).toBe('none');
+    const mute = panel.host.shadowRoot!.querySelector<HTMLButtonElement>('.mute')!;
+    expect(mute.getAttribute('aria-label')).toBe(widget.mute);
+    expect(mute.getAttribute('aria-pressed')).toBe('false');
+    expect(mute.textContent).toBe('');
+    expect(mute.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(mute.querySelectorAll('path')).toHaveLength(3);
+    expect(panel.host.shadowRoot!.querySelector('style')!.textContent).toContain('width: 44px; height: 44px;');
     const initialTitle = document.title;
     document.title = 'Host page';
     try {
@@ -206,7 +215,11 @@ describe('visitor attention', () => {
       document.title = 'Changed by page';
       panel.open();
       expect(document.title).toBe('Changed by page');
-      panel.host.shadowRoot!.querySelector<HTMLButtonElement>('.mute')!.click();
+      mute.click();
+      expect(mute.getAttribute('aria-label')).toBe(widget.unmute);
+      expect(mute.getAttribute('aria-pressed')).toBe('true');
+      expect(mute.textContent).toBe('');
+      expect(mute.querySelectorAll('path')).toHaveLength(2);
       panel.close();
       start.mockClear();
       panel.beginAnswer();

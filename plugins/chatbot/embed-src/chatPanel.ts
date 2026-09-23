@@ -290,7 +290,7 @@ ${chatEffectsCss(appearance)}
     },
     htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
     avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
-    names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' } } : undefined,
+    names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
   };
 }
 
@@ -412,11 +412,16 @@ ${effectsCss(appearance)}
 .launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
 .launcher-teaser button { cursor: pointer; border: 0; background: transparent; color: inherit; font: inherit; font-size: 20px; line-height: 1; }
 .header-actions { display: flex; align-items: center; gap: 4px; }
-.mute { border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 6px; border-radius: 8px; cursor: pointer; font: inherit; }
+.mute { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; }
+.mute svg { display: block; width: 20px; height: 20px; }
 .mute:hover, .mute:focus-visible { border-color: ${headerInk}; }
 .mute[hidden] { display: none; }
 `;
 }
+
+const SPEAKER_SHAPE = '<path d="M11 5 6 9H3v6h3l5 4V5Z"/>';
+const SPEAKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${SPEAKER_SHAPE}<path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>`;
+const SPEAKER_OFF_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${SPEAKER_SHAPE}<path d="m16 9 5 6 M21 9l-5 6"/></svg>`;
 
 export class ChatPanel implements ChatView {
   /** The element the widget appended. It carries the attribute the page snapshot excludes, so the panel is
@@ -1075,7 +1080,7 @@ export class ChatPanel implements ChatView {
 
   private syncMute(): void {
     this.mute.hidden = this.look.appearance.sound.tone === 'none';
-    this.mute.textContent = this.muted ? '♪̸' : '♪';
+    this.mute.innerHTML = this.muted ? SPEAKER_OFF_SVG : SPEAKER_SVG;
     this.mute.setAttribute('aria-label', this.muted ? this.strings.unmute : this.strings.mute);
     this.mute.setAttribute('aria-pressed', this.muted ? 'true' : 'false');
   }
