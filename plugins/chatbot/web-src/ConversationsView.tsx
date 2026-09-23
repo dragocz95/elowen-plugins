@@ -4,7 +4,7 @@ import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
-import type { ChatbotConversationsAnswer } from './types';
+import type { ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types';
 
 /** THE CONVERSATIONS SECTION: who talked to one chatbot, and what was said.
  *
@@ -35,14 +35,22 @@ export function ConversationsSection() {
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [visitorQuery, setVisitorQuery] = useState('');
+  // The one way to narrow the register: exactly one visitor, picked from the chatbot's own visitor list.
+  // Null is every visitor.
+  const [visitorId, setVisitorId] = useState<string | null>(null);
+  const [visitors, setVisitors] = useState<ChatbotVisitorsAnswer | null>(null);
+  const [visitorsError, setVisitorsError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const visitorsSequence = useRef(0);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [eraseError, setEraseError] = useState<string | null>(null);
-  // Erasing removes EVERY conversation of the chatbot, while a filtered answer counts only the matches. The
-  // confirmation would then name the wrong number, so erasing is offered on the unfiltered register only.
-  const filtering = visitorQuery.trim() !== '';
+  // Erasing removes EVERY conversation of the chatbot, while a narrowed answer counts only one visitor's. The
+  // confirmation would then name the wrong number, so erasing is offered on the whole register only.
+  const filtering = visitorId !== null;
+  // A visitor is named by the last address the host vouched for and the id their browser carries. An
+  // address that was never kept is said to be unknown, never left out.
+  const visitorLabel = (ip: string | null, id: string): string => `${ip ?? s.visitorIpUnknown} · ${id}`;
 
   // The first chatbot until the reader picks another, and back to a real one if the picked chatbot left
   // the register.
@@ -57,35 +65,50 @@ export function ConversationsSection() {
       chatbotUserId,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
-      visitor: visitorQuery.trim(),
+      visitorId,
     }))
       .then((result) => { if (request === requestSequence.current) setAnswer(result); })
       .catch((error) => {
         if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.conversationsLoadError);
       });
-  }, [chatbotUserId, page, s.conversationsLoadError, utils, visitorQuery]);
+  }, [chatbotUserId, page, s.conversationsLoadError, utils, visitorId]);
 
-  // A new filter is a new register: its first page, and no row of the previous answer left on screen under
-  // a filter it does not match.
-  const changeVisitorQuery = (value: string) => {
+  // Who the register can be narrowed to. Read beside the register rather than before it: the picker is a
+  // narrowing, so a register whose visitor list could not be read still shows every conversation.
+  const loadVisitors = useCallback(() => {
+    const request = ++visitorsSequence.current;
+    if (chatbotUserId === null) return;
+    setVisitorsError(null);
+    void apiJson<ChatbotVisitorsAnswer>(chatbotApi.visitors(chatbotUserId))
+      .then((result) => { if (request === visitorsSequence.current) setVisitors(result); })
+      .catch((error) => {
+        if (request === visitorsSequence.current) setVisitorsError(utils.apiErrorMessage(error) || s.visitorsLoadError);
+      });
+  }, [chatbotUserId, s.visitorsLoadError, utils]);
+
+  // A new pick is a new register: its first page, and no row of the previous answer left on screen under a
+  // visitor it does not belong to.
+  const changeVisitor = (value: string) => {
     requestSequence.current += 1;
     setAnswer(null);
     setLoadError(null);
     setPage(0);
-    setVisitorQuery(value);
+    setVisitorId(value === '' ? null : value);
   };
 
   // Another chatbot is another register: its first page, and nothing of the previous one left on screen
-  // while the new read is in flight. A visitor filter belongs to the same one-bot view.
+  // while the new read is in flight. A visitor pick and the visitor list belong to the same one-bot view.
   useEffect(() => {
     requestSequence.current += 1;
     setAnswer(null);
     setEraseError(null);
     setPage(0);
-    setVisitorQuery('');
+    setVisitorId(null);
+    setVisitors(null);
   }, [chatbotUserId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadVisitors(); }, [loadVisitors]);
 
   const erase = async () => {
     if (chatbotUserId === null || deleting || filtering || answer === null || answer.total === 0) return;
@@ -113,6 +136,8 @@ export function ConversationsSection() {
       setAnswer(null);
       setPage(0);
       if (page === 0) load();
+      // The erased visitors are gone from the picker too.
+      loadVisitors();
     }
   };
 
@@ -135,8 +160,8 @@ export function ConversationsSection() {
     );
   }
 
-  const emptyTitle = filtering ? s.conversationsNoVisitorMatches : s.conversationsEmptyTitle;
-  const emptyDescription = filtering ? s.conversationsNoVisitorMatchesDescription : s.conversationsEmptyDescription;
+  const emptyTitle = filtering ? s.conversationsVisitorGone : s.conversationsEmptyTitle;
+  const emptyDescription = filtering ? s.conversationsVisitorGoneDescription : s.conversationsEmptyDescription;
   const body = loadError !== null ? <C.ErrorState message={`${s.conversationsLoadError} — ${loadError}`} onRetry={load} />
     : answer === null ? <C.LoadingState variant="list" />
       : answer.total === 0 ? <C.EmptyState title={emptyTitle} description={emptyDescription} icon={MessagesSquare} />
@@ -153,9 +178,10 @@ export function ConversationsSection() {
               {answer.conversations.map((conversation) => (
                 <C.DataTableRow
                   key={conversation.visitorId}
-                  // The visitor id is how a row is told apart from its namesakes and found again in the filter,
-                  // so it stays one hover away on the whole row rather than taking the title's place.
-                  title={conversation.visitorId}
+                  // The visitor, as the picker names them, is how a row is told apart from its namesakes and
+                  // found again in the picker, so it stays one hover away on the whole row rather than taking
+                  // the title's place.
+                  title={visitorLabel(conversation.ip, conversation.visitorId)}
                   interactive={conversation.sessionId !== null}
                   onOpen={conversation.sessionId === null ? undefined : () => utils.openBrainSessionWindow(conversation.sessionId!)}
                   openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
@@ -181,14 +207,19 @@ export function ConversationsSection() {
     <>
       <C.SettingsGroup {...heading} actions={(
         <>
-          <C.RegisterSearch
-            value={visitorQuery}
-            onChange={changeVisitorQuery}
-            placeholder={s.visitorSearch}
-            label={s.visitorSearch}
-            onClear={() => changeVisitorQuery('')}
-            clearLabel={s.visitorSearchClear}
-          />
+          <div className="w-60 min-w-0 max-w-full">
+            <C.ChoiceField
+              picker="always"
+              title={s.visitorFilter}
+              manageAriaLabel={s.visitorFilter}
+              value={visitorId ?? ''}
+              onChange={changeVisitor}
+              options={[
+                { value: '', label: s.visitorAll },
+                ...(visitors?.visitors ?? []).map((visitor) => ({ value: visitor.visitorId, label: visitorLabel(visitor.ip, visitor.visitorId) })),
+              ]}
+            />
+          </div>
           <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} disabled={confirming || deleting} />
           <C.IconButton icon={Trash2} variant="danger" label={s.conversationsEraseAction}
             disabled={filtering || answer === null || answer.total === 0 || loadError !== null || deleting || confirming}
@@ -196,6 +227,10 @@ export function ConversationsSection() {
         </>
       )}>
         {eraseError !== null ? <p className="text-xs text-destructive" role="alert">{eraseError}</p> : null}
+        {visitorsError !== null ? <p className="text-xs text-destructive" role="alert">{`${s.visitorsLoadError} — ${visitorsError}`}</p> : null}
+        {visitors?.truncated === true
+          ? <p className="text-xs text-muted-foreground">{s.visitorsTruncated.replace('{n}', integer(visitors.visitors.length, locale))}</p>
+          : null}
         {deleting ? <C.LoadingLine label={s.conversationsErasing} layout="inline" /> : null}
         {body}
       </C.SettingsGroup>

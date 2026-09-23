@@ -15,8 +15,12 @@ const RANDOM_BYTES = 16;
 export function newSecret() {
     return randomBytes(32).toString('base64url');
 }
-/** How long a visitor id is: the hex spelling of {@link RANDOM_BYTES}. A search longer than this cannot match. */
-export const VISITOR_ID_CHARS = RANDOM_BYTES * 2;
+/** The shape of every visitor id {@link newVisitorId} issues: the lowercase hex spelling of
+ *  {@link RANDOM_BYTES}. */
+const VISITOR_ID_PATTERN = new RegExp(`^[0-9a-f]{${RANDOM_BYTES * 2}}$`);
+export function isVisitorId(value) {
+    return VISITOR_ID_PATTERN.test(value);
+}
 export function newVisitorId() {
     return randomBytes(RANDOM_BYTES).toString('hex');
 }

@@ -138,6 +138,7 @@ export function register(published: PluginContext): void {
   // The register carries the core session id for each visitor; transcript reading now belongs to the core chat.
   ctx.registerApiRoute({ path: 'conversations', method: 'GET', access: 'admin', handler: async (req) => adminApi.conversations(req.auth, req.query) });
   ctx.registerApiRoute({ path: 'conversations', method: 'DELETE', access: 'admin', handler: async (req) => adminApi.eraseConversations(req.auth, req.query) });
+  ctx.registerApiRoute({ path: 'visitors', method: 'GET', access: 'admin', handler: async (req) => adminApi.visitors(req.auth, req.query) });
   ctx.registerApiRoute({ path: 'stats', method: 'GET', access: 'admin', handler: async (req) => adminApi.stats(req.auth, req.query) });
 
   /** Turn off every ENABLED chatbot that could no longer run a turn: its account is gone, is not a chatbot

@@ -12,5 +12,6 @@ export type {
   ChatbotProjectView,
   ChatbotStatsAnswer,
   ChatbotStatsDayView,
+  ChatbotVisitorsAnswer,
   ChatbotsAnswer,
 } from '../src/adminContract.js';

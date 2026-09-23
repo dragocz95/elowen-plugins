@@ -57,12 +57,22 @@ export type AdmissionOutcome =
  *  conversation at a time. */
 export interface ConversationSummaryRow {
   visitorId: string;
+  /** The visitor's last address the host vouched for, or null for a conversation from before addresses
+   *  were kept. */
+  ip: string | null;
   sessionId: string | null;
   turns: number;
   errors: number;
   firstAt: string;
   lastAt: string;
   lastStatus: string;
+}
+
+/** One visitor of a chatbot, as the register's visitor picker offers them. */
+export interface VisitorSummaryRow {
+  visitorId: string;
+  ip: string | null;
+  lastAt: string;
 }
 
 /** One UTC day of a chatbot's own turn counters. */
@@ -392,6 +402,7 @@ export class ChatbotStore {
           chatbotUserId: turn.chatbot_user_id,
           visitorId: turn.visitor_id,
           sessionId: input.coreSessionId,
+          ip: null,
           retentionDays: limits.retentionDays,
           now: input.now,
         });
@@ -561,6 +572,7 @@ export class ChatbotStore {
     clientTurnId: string;
     message: string;
     page: TurnPage;
+    originValue: string;
     now: string;
     nowMs: number;
     limits: BotLimits;
@@ -590,6 +602,9 @@ export class ChatbotStore {
       chatbotUserId: input.chatbotUserId,
       visitorId: input.visitorId,
       sessionId: null,
+      // The address the host vouched for is the visitor's LAST one: it replaces the previous value rather
+      // than adding to it, so the plugin keeps one address per conversation and no history of them.
+      ip: input.originValue,
       retentionDays: input.limits.retentionDays,
       now: input.now,
     });
@@ -661,21 +676,25 @@ export class ChatbotStore {
       .get(chatbotUserId, visitorId) as ConversationRow | undefined) ?? null;
   }
 
-  /** Move one conversation's clock: its last activity, its due date, and the core session it lives in.
+  /** Move one conversation's clock: its last activity, its due date, the core session it lives in and the
+   *  visitor's last address.
    *
    *  A null `sessionId` never erases one already recorded — the id is only known once a turn's relay has
-   *  reported it, and the first writes of a conversation happen before anything has run. */
+   *  reported it, and the first writes of a conversation happen before anything has run. A null `ip` never
+   *  erases one either: only an admitted message knows the address, and a turn finishing does not. */
   touchConversation(input: {
     chatbotUserId: number;
     visitorId: string;
     sessionId: string | null;
+    ip: string | null;
     retentionDays: number;
     now: string;
   }): void {
-    this.stmt(`INSERT INTO p_chatbot_conversations (id, chatbot_user_id, visitor_id, session_id, created_at, last_activity_at, delete_after)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+    this.stmt(`INSERT INTO p_chatbot_conversations (id, chatbot_user_id, visitor_id, session_id, last_ip, created_at, last_activity_at, delete_after)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT (chatbot_user_id, visitor_id) DO UPDATE SET
                  session_id = COALESCE(excluded.session_id, session_id),
+                 last_ip = COALESCE(excluded.last_ip, last_ip),
                  last_activity_at = excluded.last_activity_at,
                  delete_after = excluded.delete_after`)
       .run(
@@ -683,6 +702,7 @@ export class ChatbotStore {
         input.chatbotUserId,
         input.visitorId,
         input.sessionId,
+        input.ip,
         input.now,
         input.now,
         dueAt(input.now, input.retentionDays),
@@ -901,8 +921,9 @@ export class ChatbotStore {
   /** This chatbot's conversations, newest activity first. A conversation is the plugin's own
    *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show
    *  one chatbot's visitor under another chatbot's row. */
-  conversations(input: { chatbotUserId: number; visitorQuery: string; limit: number; offset: number }): ConversationSummaryRow[] {
+  conversations(input: { chatbotUserId: number; visitorId: string | null; limit: number; offset: number }): ConversationSummaryRow[] {
     const rows = this.stmt(`SELECT turns.visitor_id,
+                                   conversations.last_ip,
                                    conversations.session_id,
                                    COUNT(*) AS turns,
                                    SUM(CASE WHEN turns.status = 'error' THEN 1 ELSE 0 END) AS errors,
@@ -917,15 +938,16 @@ export class ChatbotStore {
                                 ON conversations.chatbot_user_id = turns.chatbot_user_id
                                AND conversations.visitor_id = turns.visitor_id
                              WHERE turns.chatbot_user_id = ?
-                               AND instr(turns.visitor_id, ?) > 0
-                          GROUP BY turns.visitor_id, conversations.session_id
+                               AND (? IS NULL OR turns.visitor_id = ?)
+                          GROUP BY turns.visitor_id, conversations.session_id, conversations.last_ip
                           ORDER BY last_at DESC, turns.visitor_id
                              LIMIT ? OFFSET ?`)
-      .all(input.chatbotUserId, input.visitorQuery, input.limit, input.offset) as {
-        visitor_id: string; session_id: string | null; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
+      .all(input.chatbotUserId, input.visitorId, input.visitorId, input.limit, input.offset) as {
+        visitor_id: string; last_ip: string | null; session_id: string | null; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
       }[];
     return rows.map((row) => ({
       visitorId: row.visitor_id,
+      ip: row.last_ip,
       sessionId: row.session_id,
       turns: row.turns,
       errors: row.errors,
@@ -935,12 +957,29 @@ export class ChatbotStore {
     }));
   }
 
-  /** How many conversations this chatbot has under the same visitor filter as its page. */
-  conversationCount(input: { chatbotUserId: number; visitorQuery: string }): number {
+  /** How many conversations this chatbot has, or whether the one picked visitor has one. */
+  conversationCount(input: { chatbotUserId: number; visitorId: string | null }): number {
     const row = this.stmt(`SELECT COUNT(DISTINCT visitor_id) AS count FROM p_chatbot_turns
-                            WHERE chatbot_user_id = ? AND instr(visitor_id, ?) > 0`)
-      .get(input.chatbotUserId, input.visitorQuery) as { count: number };
+                            WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)`)
+      .get(input.chatbotUserId, input.visitorId, input.visitorId) as { count: number };
     return row.count;
+  }
+
+  /** The visitors the register can be narrowed to: every visitor with a turn of this chatbot, most
+   *  recently active first, each with the last address the host vouched for. Built from the same turns the
+   *  register counts, so the picker never offers a visitor the register would answer empty. */
+  visitors(input: { chatbotUserId: number; limit: number }): VisitorSummaryRow[] {
+    const rows = this.stmt(`SELECT turns.visitor_id, conversations.last_ip, MAX(turns.created_at) AS last_at
+                              FROM p_chatbot_turns AS turns
+                         LEFT JOIN p_chatbot_conversations AS conversations
+                                ON conversations.chatbot_user_id = turns.chatbot_user_id
+                               AND conversations.visitor_id = turns.visitor_id
+                             WHERE turns.chatbot_user_id = ?
+                          GROUP BY turns.visitor_id, conversations.last_ip
+                          ORDER BY last_at DESC, turns.visitor_id
+                             LIMIT ?`)
+      .all(input.chatbotUserId, input.limit) as { visitor_id: string; last_ip: string | null; last_at: string }[];
+    return rows.map((row) => ({ visitorId: row.visitor_id, ip: row.last_ip, lastAt: row.last_at }));
   }
 
   /** This chatbot's own admission counters per UTC day, over an inclusive range of days. Read from the

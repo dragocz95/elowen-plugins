@@ -1,4 +1,4 @@
-import { newPublicId, VISITOR_ID_CHARS } from './token.js';
+import { isVisitorId, newPublicId } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
 import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLimits } from './limits.js';
@@ -10,6 +10,9 @@ import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 /** How many conversations one page of the register holds. */
 const CONVERSATIONS_DEFAULT_LIMIT = 25;
 const CONVERSATIONS_MAX_LIMIT = 100;
+/** How many visitors the register's picker offers: the most recently active ones. Bounded so one read
+ *  never walks a chatbot's whole audience, and the answer says when the bound cut the list. */
+const VISITORS_LIMIT = 500;
 /** How far back a statistics read may reach, and the window it uses when a caller names none. Bounded so a
  *  request can never ask the daemon to walk the whole history of an account for a chart nobody can read. */
 const STATS_DEFAULT_DAYS = 30;
@@ -261,10 +264,11 @@ export function createAdminApi(deps) {
             const chatbotUserId = readChatbotUserId(query.chatbotUserId);
             if (chatbotUserId === null)
                 return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
-            const visitorQuery = (query.visitor ?? '').trim().toLowerCase();
-            // Visitor ids are lowercase hex, so the filter is a case-insensitive fragment of one.
-            if (visitorQuery.length > VISITOR_ID_CHARS) {
-                return { status: 400, body: { error: 'invalid_request', detail: `"visitor" must be at most ${VISITOR_ID_CHARS} characters` } };
+            // The one way to narrow the register: exactly one visitor, picked from `visitors`. Absent means all of
+            // them; anything that is not a whole visitor id is a malformed request, never a fragment to match.
+            const visitorId = query.visitor ?? null;
+            if (visitorId !== null && !isVisitorId(visitorId)) {
+                return { status: 400, body: { error: 'invalid_request', detail: '"visitor" must be a visitor id' } };
             }
             const bot = requireBot(chatbotUserId);
             if (isRefusal(bot))
@@ -279,14 +283,33 @@ export function createAdminApi(deps) {
             // A conversation's title is core's own (the auto-titler names the session, a person may rename it), so
             // it is read per row from the host's conversation projection, scoped to the chatbot account that owns
             // these sessions, rather than stored here as a second copy that would go stale.
-            const conversations = store.conversations({ chatbotUserId, visitorQuery, limit, offset }).map((row) => {
+            const conversations = store.conversations({ chatbotUserId, visitorId, limit, offset }).map((row) => {
                 const target = row.sessionId === null
                     ? null
                     : stores.conversationsRead.resolve({ actorUserId, ownerUserId: chatbotUserId, sessionId: row.sessionId });
                 return { ...row, title: target === null || target.title === '' ? null : target.title };
             });
-            const total = store.conversationCount({ chatbotUserId, visitorQuery });
+            const total = store.conversationCount({ chatbotUserId, visitorId });
             return { status: 200, body: { conversations, total, limit, offset } };
+        },
+        /** The visitors the register can be narrowed to, for the picker: most recently active first, each with
+         *  the last address the host vouched for. Searching happens in the picker, over this bounded list. */
+        async visitors(auth, query) {
+            const refusal = requireAdmin(auth);
+            if (refusal)
+                return refusal;
+            const chatbotUserId = readChatbotUserId(query.chatbotUserId);
+            if (chatbotUserId === null)
+                return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
+            const bot = requireBot(chatbotUserId);
+            if (isRefusal(bot))
+                return bot;
+            // One more than the bound is read, so the answer can say whether the bound cut anything off.
+            const rows = store.visitors({ chatbotUserId, limit: VISITORS_LIMIT + 1 });
+            return {
+                status: 200,
+                body: { visitors: rows.slice(0, VISITORS_LIMIT), truncated: rows.length > VISITORS_LIMIT },
+            };
         },
         /** Erase this chatbot's conversations, here and in core. One bounded batch per call, so the answer says
          *  what is left: `remaining` above zero means the caller repeats. A conversation whose answer is still
@@ -302,7 +325,7 @@ export function createAdminApi(deps) {
             if (isRefusal(bot))
                 return bot;
             const { deleted, kept } = await deps.erase({ chatbotUserId, limit: CONVERSATIONS_MAX_LIMIT });
-            return { status: 200, body: { deleted, kept, remaining: store.conversationCount({ chatbotUserId, visitorQuery: '' }) } };
+            return { status: 200, body: { deleted, kept, remaining: store.conversationCount({ chatbotUserId, visitorId: null }) } };
         },
         /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */
         async stats(auth, query) {

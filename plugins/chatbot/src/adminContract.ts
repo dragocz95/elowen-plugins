@@ -97,6 +97,9 @@ export interface ChatbotsAnswer {
  *  conversation at a time. */
 interface ChatbotConversationView {
   visitorId: string;
+  /** The visitor's last address the host vouched for when a message was admitted. Null for a conversation
+   *  from before addresses were kept; the page then says the address is unknown. */
+  ip: string | null;
   /** The core session reported by the relay, not an id the plugin derives. */
   sessionId: string | null;
   /** The title core gave that session, read through the host's conversation projection when the page is
@@ -110,13 +113,27 @@ interface ChatbotConversationView {
   lastStatus: string;
 }
 
-/** `GET api/conversations?chatbotUserId=&limit=&offset=`. `total` counts the conversations of THIS
- *  chatbot, so a pager never offers a page the server would answer empty. */
+/** `GET api/conversations?chatbotUserId=&limit=&offset=[&visitor=]`. `total` counts the conversations of
+ *  THIS chatbot, or of the one visitor picked, so a pager never offers a page the server would answer empty. */
 export interface ChatbotConversationsAnswer {
   conversations: ChatbotConversationView[];
   total: number;
   limit: number;
   offset: number;
+}
+
+/** One visitor the register can be narrowed to. */
+interface ChatbotVisitorView {
+  visitorId: string;
+  ip: string | null;
+  lastAt: string;
+}
+
+/** `GET api/visitors?chatbotUserId=`: this chatbot's most recently active visitors, newest first.
+ *  `truncated` says the bound left older visitors out. */
+export interface ChatbotVisitorsAnswer {
+  visitors: ChatbotVisitorView[];
+  truncated: boolean;
 }
 
 /** One UTC day of this chatbot's own turn counters. */

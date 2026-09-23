@@ -26,6 +26,8 @@ import {
 
 const DAY = utcDay(NOW_MS);
 const VISITOR = 'visitor-1';
+/** The address the host vouched for when the fixture visitor's turn was admitted. */
+const VISITOR_IP = '198.51.100.7';
 
 let host: ChatbotHost;
 beforeEach(async () => {
@@ -65,7 +67,8 @@ function cleaner(bridge: { deleteSession(input: { chatbotUserId: number; session
   };
 }
 
-/** One conversation of this chatbot, due `daysAgo` days ago, with a turn, its event log and one action. */
+/** One conversation of this chatbot, due `daysAgo` days ago, with the visitor's last address, a turn, its
+ *  event log and one action. */
 function conversation(input: { visitorId?: string; daysAgo: number; sessionId?: string | null; activeTurn?: boolean }): string {
   const visitorId = input.visitorId ?? VISITOR;
   host.store.createVisitor(visitorId, 12, new Date(NOW_MS).toISOString());
@@ -73,6 +76,7 @@ function conversation(input: { visitorId?: string; daysAgo: number; sessionId?: 
     chatbotUserId: 12,
     visitorId,
     sessionId: input.sessionId === undefined ? 'brain-ch-chatbot-12:visitor-1' : input.sessionId,
+    ip: VISITOR_IP,
     retentionDays: TEST_LIMITS.retentionDays!,
     now: new Date(NOW_MS - input.daysAgo * 86_400_000).toISOString(),
   });
@@ -92,7 +96,8 @@ function conversation(input: { visitorId?: string; daysAgo: number; sessionId?: 
   return turnId;
 }
 
-/** Everything the plugin holds about one visitor, as counts. */
+/** Everything the plugin holds about one visitor, as counts. `addresses` is the visitor's IP: it lives on
+ *  the conversation row, so it has to go exactly when the conversation goes. */
 function holdings(visitorId = VISITOR): Record<string, number> {
   const count = (sql: string): number => (host.db.prepare(sql).get(12, visitorId) as { count: number }).count;
   return {
@@ -102,6 +107,7 @@ function holdings(visitorId = VISITOR): Record<string, number> {
     actions: count(`SELECT COUNT(*) AS count FROM p_chatbot_actions WHERE turn_id IN (
                       SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`),
     conversations: count('SELECT COUNT(*) AS count FROM p_chatbot_conversations WHERE chatbot_user_id = ? AND visitor_id = ?'),
+    addresses: count('SELECT COUNT(*) AS count FROM p_chatbot_conversations WHERE chatbot_user_id = ? AND visitor_id = ? AND last_ip IS NOT NULL'),
   };
 }
 
@@ -116,7 +122,7 @@ describe('when a conversation becomes due', () => {
     expect(result).toMatchObject({ deleted: 1, deferred: 0 });
     // Nothing about that visitor is left: not the transcript projection, not the action audit, not the
     // conversation row itself.
-    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
   });
 
   it('leaves a conversation alone until its due date, and a live one alone however old', async () => {
@@ -127,8 +133,8 @@ describe('when a conversation becomes due', () => {
 
     expect(core.asked).toHaveLength(0);
     expect(result).toMatchObject({ deleted: 0, deferred: 0 });
-    expect(holdings()).toMatchObject({ conversations: 1 });
-    expect(holdings('visitor-2')).toMatchObject({ conversations: 1, turns: 1, events: 1, actions: 1 });
+    expect(holdings()).toMatchObject({ conversations: 1, addresses: 1 });
+    expect(holdings('visitor-2')).toMatchObject({ conversations: 1, turns: 1, events: 1, actions: 1, addresses: 1 });
   });
 
   it('removes a conversation that never ran anything, without asking core about a session it never had', async () => {
@@ -138,7 +144,7 @@ describe('when a conversation becomes due', () => {
 
     expect(core.asked).toHaveLength(0);
     expect(result).toMatchObject({ deleted: 1 });
-    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
   });
 
   it('works off a backlog in bounded batches rather than in one pass', async () => {
@@ -194,7 +200,7 @@ describe('when a conversation becomes due', () => {
       expect(result, answer.reason).toMatchObject({ deleted: 0, deferred: 1 });
       // The plugin's copy stays with it: a transcript this plugin could not confirm deleted is a transcript
       // that is still there, and dropping its own record of it would hide exactly that.
-      expect(holdings(), answer.reason).toEqual({ turns: 1, events: 1, actions: 1, conversations: 1 });
+      expect(holdings(), answer.reason).toEqual({ turns: 1, events: 1, actions: 1, conversations: 1, addresses: 1 });
       expect(warnings.some((warning) => warning.includes('core did not confirm'))).toBe(true);
     }
   });
@@ -203,7 +209,7 @@ describe('when a conversation becomes due', () => {
     conversation({ daysAgo: TEST_LIMITS.retentionDays! + 1 });
     const core = fakeCore({ ok: true, outcome: 'absent' });
     expect(await cleaner(core.bridge).run()).toMatchObject({ deleted: 1 });
-    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
   });
 });
 
@@ -249,6 +255,7 @@ describe('the sweeps around retention', () => {
       chatbotUserId: 12,
       visitorId: issued.body.visitorId as string,
       sessionId: null,
+      ip: null,
       retentionDays: TEST_LIMITS.retentionDays!,
       now: new Date(NOW_MS).toISOString(),
     });
@@ -295,6 +302,31 @@ describe('the conversation clock', () => {
     expect(conversation.last_activity_at).toBe(new Date(NOW_MS).toISOString());
     expect(conversation.delete_after).toBe(new Date(NOW_MS + TEST_LIMITS.retentionDays! * 86_400_000).toISOString());
   });
+
+  it('keeps the visitor\'s LAST address the host vouched for, and only that', async () => {
+    const issued = await issueToken(host);
+    const visitorId = issued.body.visitorId as string;
+    const submit = (clientTurnId: string, origin: { value: string; kind: 'ip'; trusted: boolean }) => host.handler(postRequest({
+      path: 'turns',
+      headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
+      body: { schemaVersion: 2, clientTurnId, message: 'ahoj', page: TURN_PAGE },
+      origin,
+    }));
+
+    const first = await submit(UUID, { value: '203.0.113.9', kind: 'ip', trusted: true });
+    await settledTurn(host, (first.body as { turnId: string }).turnId);
+    // The turn finishing re-stamps the conversation, and must not forget the address it was admitted from.
+    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('203.0.113.9');
+
+    // A value the host does not vouch for is refused before anything is written, so it can never be stored.
+    expect(await submit(randomUUID(), { value: '192.0.2.66', kind: 'ip', trusted: false })).toMatchObject({ status: 403 });
+    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('203.0.113.9');
+
+    // The visitor moved networks: the next admitted message replaces the address rather than adding one.
+    const second = await submit(randomUUID(), { value: '198.51.100.20', kind: 'ip', trusted: true });
+    await settledTurn(host, (second.body as { turnId: string }).turnId);
+    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('198.51.100.20');
+  });
 });
 
 describe('the plugin holds nothing after a visitor is gone', () => {
@@ -316,7 +348,7 @@ describe('the plugin holds nothing after a visitor is gone', () => {
     host.store.deleteBot(12);
     expect(host.store.botByUserId(12)).toBeNull();
     expect(host.store.botByPublicId(host.store.listBots()[0]?.public_id ?? '')).toBeNull();
-    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings()).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
     expect(host.store.budgetDay(12, DAY).admitted_turns).toBe(0);
     expect(host.store.visitor(VISITOR)).toBeNull();
   });
@@ -425,8 +457,8 @@ describe('when an operator erases a chatbot\'s conversations', () => {
     expect(result).toEqual({ deleted: 2, kept: 0 });
     // Core was asked first for every one of them, and nothing of the plugin's own survives.
     expect(core.asked).toHaveLength(2);
-    expect(holdings('v-old')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
-    expect(holdings('v-today')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0 });
+    expect(holdings('v-old')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
+    expect(holdings('v-today')).toEqual({ turns: 0, events: 0, actions: 0, conversations: 0, addresses: 0 });
   });
 
   it('leaves a conversation whose answer is still being written, and says so', async () => {
@@ -439,7 +471,7 @@ describe('when an operator erases a chatbot\'s conversations', () => {
 
     expect(result).toEqual({ deleted: 0, kept: 0 });
     expect(core.asked).toHaveLength(0);
-    expect(holdings('v-live').conversations).toBe(1);
+    expect(holdings('v-live')).toMatchObject({ conversations: 1, addresses: 1 });
   });
 
   it('keeps the plugin\'s rows when core does not confirm the delete', async () => {
@@ -451,6 +483,6 @@ describe('when an operator erases a chatbot\'s conversations', () => {
     }, { chatbotUserId: 12, limit: 50 });
 
     expect(result).toEqual({ deleted: 0, kept: 1 });
-    expect(holdings('v-kept').conversations).toBe(1);
+    expect(holdings('v-kept')).toMatchObject({ conversations: 1, addresses: 1 });
   });
 });

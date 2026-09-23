@@ -330,6 +330,17 @@ interface ChatbotComponents {
     disabled?: boolean;
     className?: string;
   }>;
+  /** The host's canonical single-choice field. With `picker="always"` it is a row trigger opening the shared
+   *  searchable picker, which is what the conversations register narrows by visitor with: a visitor is
+   *  found by typing part of their address or id, never by typing a whole id into a box. */
+  ChoiceField: ComponentType<{
+    title: string;
+    options: { value: string; label: string; icon?: ReactNode }[];
+    value: string;
+    onChange(value: string): void;
+    picker?: 'auto' | 'always';
+    manageAriaLabel?: string;
+  }>;
   /** The host's real chart: ticks, cursor tooltip and one axis per unit. Recharts lives in the app and
    *  loads lazily there, so this bundle never carries a charting library. */
   Progress: ComponentType<{ value: number; indicatorClassName?: string; 'aria-label': string; 'aria-valuetext'?: string }>;
@@ -453,15 +464,17 @@ export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH', body: unknown): Re
  *  second definition of what the route accepts, and the server validates these names strictly. */
 export const chatbotApi = {
   bots: (): string => '/plugins/chatbot/api/bots',
-  conversations: (input: { chatbotUserId: number; limit: number; offset: number; visitor: string }): string => {
+  /** One page of the register, of every visitor or of the one visitor picked. */
+  conversations: (input: { chatbotUserId: number; limit: number; offset: number; visitorId: string | null }): string => {
     const query = new URLSearchParams({
       chatbotUserId: String(input.chatbotUserId),
       limit: String(input.limit),
       offset: String(input.offset),
     });
-    if (input.visitor !== '') query.set('visitor', input.visitor);
+    if (input.visitorId !== null) query.set('visitor', input.visitorId);
     return `/plugins/chatbot/api/conversations?${query}`;
   },
+  visitors: (chatbotUserId: number): string => `/plugins/chatbot/api/visitors?chatbotUserId=${chatbotUserId}`,
   eraseConversations: (chatbotUserId: number): string =>
     `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>

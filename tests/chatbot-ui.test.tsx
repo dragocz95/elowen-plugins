@@ -99,8 +99,18 @@ const botsBody = (bots = [bot, broken, second]) => ({
   requiredTools: [REQUIRED_TOOL],
 });
 
+/** The last address the host vouched for, per fixture visitor. `visitor-untitled` has none: its
+ *  conversation is from before addresses were kept. */
+const VISITOR_IPS: Record<string, string | null> = {
+  'visitor-ured': '203.0.113.9',
+  'visitor-other': '198.51.100.20',
+  'visitor-untitled': null,
+  'visitor-skola': '192.0.2.44',
+};
+
 const conversationOf = (visitorId: string, turns: number, title: string | null) => ({
   visitorId,
+  ip: VISITOR_IPS[visitorId] ?? null,
   sessionId: `session-${visitorId}`,
   title,
   turns,
@@ -110,18 +120,24 @@ const conversationOf = (visitorId: string, turns: number, title: string | null) 
   lastStatus: 'done',
 });
 
+/** Each fixture chatbot's conversations, newest activity first. */
+const conversationsOf = (chatbotUserId: number) => chatbotUserId === second.chatbotUserId
+  ? [conversationOf('visitor-skola', 1, 'Admissions')]
+  : [conversationOf('visitor-ured', 4, 'Office hours'), conversationOf('visitor-other', 3, 'Payment question'), conversationOf('visitor-untitled', 1, null)];
+
 /** What each request the page makes last asked for, so a test can prove the SCOPE that travelled rather
  *  than only what the screen happened to render. */
 const asked: {
   conversations: number[];
-  visitorQueries: string[];
+  visitorQueries: (string | null)[];
+  visitors: number[];
   stats: number[];
   usage: string[];
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
   impersonate: number[];
-} = { conversations: [], visitorQueries: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
+} = { conversations: [], visitorQueries: [], visitors: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -174,17 +190,22 @@ setDefaults(
   }),
   http.get('/api/plugins/chatbot/api/conversations', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
-    const visitorQuery = url.searchParams.get('visitor') ?? '';
+    const visitor = url.searchParams.get('visitor');
     asked.conversations.push(chatbotUserId);
-    asked.visitorQueries.push(visitorQuery);
-    const all = chatbotUserId === second.chatbotUserId
-      ? [conversationOf('visitor-skola', 1, 'Admissions')]
-      : [conversationOf('visitor-ured', 4, 'Office hours'), conversationOf('visitor-other', 3, 'Payment question'), conversationOf('visitor-untitled', 1, null)];
-    const matching = all.filter((conversation) => conversation.visitorId.includes(visitorQuery));
+    asked.visitorQueries.push(visitor);
+    const matching = conversationsOf(chatbotUserId).filter((conversation) => visitor === null || conversation.visitorId === visitor);
     const limit = Number(url.searchParams.get('limit') ?? 25);
     const offset = Number(url.searchParams.get('offset') ?? 0);
     const conversations = matching.slice(offset, offset + limit);
     return HttpResponse.json({ conversations, total: matching.length, limit, offset });
+  }),
+  http.get('/api/plugins/chatbot/api/visitors', ({ url }) => {
+    const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
+    asked.visitors.push(chatbotUserId);
+    return HttpResponse.json({
+      visitors: conversationsOf(chatbotUserId).map(({ visitorId, ip, lastAt }) => ({ visitorId, ip, lastAt })),
+      truncated: false,
+    });
   }),
   http.get('/api/plugins/chatbot/api/stats', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
@@ -258,6 +279,7 @@ afterEach(() => {
   resetHandlers();
   asked.conversations = [];
   asked.visitorQueries = [];
+  asked.visitors = [];
   asked.stats = [];
   openBrainSessionWindow.mockReset();
   asked.usage = [];
@@ -758,55 +780,116 @@ describe('the conversations section', () => {
     await screen.findByRole('combobox', { name: strings.pickerLabel! });
   };
 
-  it('names each row by its core session title, with the visitor one hover away, and switches chatbots', async () => {
+  it('names each row by its core session title, with the visitor and their address one hover away, and switches chatbots', async () => {
     await openConversations();
-    // The title core gave the session is the row's name; the visitor id is the row's tooltip, not its text.
-    expect((await screen.findByText('Office hours')).closest('[role="row"]')).toHaveAttribute('title', 'visitor-ured');
-    expect(screen.getByText('Payment question').closest('[role="row"]')).toHaveAttribute('title', 'visitor-other');
+    // The title core gave the session is the row's name; the visitor and their last address are the row's
+    // tooltip, not its text.
+    expect((await screen.findByText('Office hours')).closest('[role="row"]')).toHaveAttribute('title', '203.0.113.9 · visitor-ured');
+    expect(screen.getByText('Payment question').closest('[role="row"]')).toHaveAttribute('title', '198.51.100.20 · visitor-other');
     expect(screen.queryByText('visitor-ured')).not.toBeInTheDocument();
-    // A session core has not named yet still reads as a conversation, never as an empty cell.
-    expect(screen.getByText(strings.conversationUntitled!).closest('[role="row"]')).toHaveAttribute('title', 'visitor-untitled');
-    // The first chatbot of the register until somebody says otherwise, and the request named it.
+    // A session core has not named yet still reads as a conversation, never as an empty cell, and an address
+    // that was never kept is said to be unknown rather than left blank.
+    expect(screen.getByText(strings.conversationUntitled!).closest('[role="row"]'))
+      .toHaveAttribute('title', `${strings.visitorIpUnknown!} · visitor-untitled`);
+    // The first chatbot of the register until somebody says otherwise, and the requests named it.
     expect(asked.conversations).toEqual([bot.chatbotUserId]);
+    await waitFor(() => expect(asked.visitors).toEqual([bot.chatbotUserId]));
 
     fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
     expect(await screen.findByText('Admissions')).toBeInTheDocument();
     // Nothing of the previous chatbot is left under the new one's name.
     expect(screen.queryByText('Office hours')).not.toBeInTheDocument();
     expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
+    await waitFor(() => expect(asked.visitors).toEqual([bot.chatbotUserId, second.chatbotUserId]));
   });
 
-  it('filters visitors on the server and restores the full list when cleared', async () => {
+  /** Open the visitor picker, type into its search, pick the one option whose label is given, and save. */
+  const pickVisitor = async (search: string, label: string) => {
+    fireEvent.click(await screen.findByRole('button', { name: strings.visitorFilter! }));
+    const picker = top();
+    fireEvent.change(within(picker).getByRole('searchbox'), { target: { value: search } });
+    fireEvent.click(within(picker).getByRole('button', { name: label }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Save changes' }));
+  };
+
+  it('offers each visitor by address and id, searchable, and narrows the register to the one picked', async () => {
     await openConversations();
     await screen.findByText('Office hours');
-    const search = screen.getByRole('searchbox', { name: strings.visitorSearch! });
+    fireEvent.click(await screen.findByRole('button', { name: strings.visitorFilter! }));
+    const picker = top();
+    // Every visitor of THIS chatbot, address first, and the one with no kept address says so.
+    for (const label of [strings.visitorAll!, '203.0.113.9 · visitor-ured', '198.51.100.20 · visitor-other', `${strings.visitorIpUnknown!} · visitor-untitled`]) {
+      expect(within(picker).getByRole('button', { name: label })).toBeInTheDocument();
+    }
+    // Typing a fragment of the address narrows the offer to that visitor.
+    fireEvent.change(within(picker).getByRole('searchbox'), { target: { value: '198.51' } });
+    expect(within(picker).queryByRole('button', { name: '203.0.113.9 · visitor-ured' })).not.toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole('button', { name: '198.51.100.20 · visitor-other' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Save changes' }));
 
-    fireEvent.change(search, { target: { value: 'visitor-other' } });
     expect(await screen.findByText('Payment question')).toBeInTheDocument();
     expect(screen.queryByText('Office hours')).not.toBeInTheDocument();
+    // The server was asked for exactly that visitor, never for a fragment.
     expect(asked.visitorQueries.at(-1)).toBe('visitor-other');
 
-    fireEvent.change(search, { target: { value: 'missing-visitor' } });
-    expect(await screen.findByText(strings.conversationsNoVisitorMatches!)).toBeInTheDocument();
-    expect(screen.queryByText(strings.conversationsEmptyTitle!)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: strings.visitorSearchClear! }));
+    // Picking every visitor again restores the whole register, and the request names no visitor at all.
+    await pickVisitor('', strings.visitorAll!);
     expect(await screen.findByText('Office hours')).toBeInTheDocument();
     expect(screen.getByText('Payment question')).toBeInTheDocument();
-    expect(asked.visitorQueries.at(-1)).toBe('');
+    expect(asked.visitorQueries.at(-1)).toBeNull();
   });
 
-  // Erasing removes every conversation of the chatbot, while a filtered answer counts only the matches, so
-  // the confirmation would name the wrong number. It is offered on the unfiltered register only.
-  it('offers erasing only on the unfiltered register', async () => {
+  it('finds a visitor by a fragment of the id as well', async () => {
+    await openConversations();
+    await screen.findByText('Office hours');
+    await pickVisitor('ured', '203.0.113.9 · visitor-ured');
+    await waitFor(() => expect(asked.visitorQueries.at(-1)).toBe('visitor-ured'));
+    expect(await screen.findByText('Office hours')).toBeInTheDocument();
+    expect(screen.queryByText('Payment question')).not.toBeInTheDocument();
+  });
+
+  it('says so when the picked visitor has no conversation any more', async () => {
+    use(http.get('/api/plugins/chatbot/api/conversations', ({ url }) => {
+      const visitor = url.searchParams.get('visitor');
+      const all = conversationsOf(bot.chatbotUserId);
+      // The picked visitor's conversation was deleted after the picker was filled.
+      const matching = visitor === null ? all : [];
+      return HttpResponse.json({ conversations: matching, total: matching.length, limit: 25, offset: 0 });
+    }));
+    await openConversations();
+    await screen.findByText('Office hours');
+    await pickVisitor('198.51', '198.51.100.20 · visitor-other');
+    expect(await screen.findByText(strings.conversationsVisitorGone!)).toBeInTheDocument();
+    expect(screen.queryByText(strings.conversationsEmptyTitle!)).not.toBeInTheDocument();
+  });
+
+  it('says when the picker offers only the most recently active visitors, and when it could not be read', async () => {
+    use(http.get('/api/plugins/chatbot/api/visitors', () => HttpResponse.json({
+      visitors: conversationsOf(bot.chatbotUserId).map(({ visitorId, ip, lastAt }) => ({ visitorId, ip, lastAt })),
+      truncated: true,
+    })));
+    await openConversations();
+    expect(await screen.findByText(strings.visitorsTruncated!.replace('{n}', '3'))).toBeInTheDocument();
+
+    cleanup();
+    use(http.get('/api/plugins/chatbot/api/visitors', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
+    await openConversations();
+    expect(await screen.findByText(new RegExp(strings.visitorsLoadError!))).toBeInTheDocument();
+    // The register itself still reads: the picker is a narrowing, not a precondition.
+    expect(await screen.findByText('Office hours')).toBeInTheDocument();
+  });
+
+  // Erasing removes every conversation of the chatbot, while a narrowed answer counts only one visitor's, so
+  // the confirmation would name the wrong number. It is offered on the whole register only.
+  it('offers erasing only on the whole register', async () => {
     await openConversations();
     await screen.findByText('Office hours');
     const erase = () => screen.getByRole('button', { name: 'Delete all conversations' });
     expect(erase()).toBeEnabled();
-    fireEvent.change(screen.getByRole('searchbox', { name: strings.visitorSearch! }), { target: { value: 'visitor-other' } });
-    expect(await screen.findByText('Payment question')).toBeInTheDocument();
+    await pickVisitor('198.51', '198.51.100.20 · visitor-other');
+    await waitFor(() => expect(screen.queryByText('Office hours')).not.toBeInTheDocument());
     expect(erase()).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: strings.visitorSearchClear! }));
+    await pickVisitor('', strings.visitorAll!);
     expect(await screen.findByText('Office hours')).toBeInTheDocument();
     expect(erase()).toBeEnabled();
   });

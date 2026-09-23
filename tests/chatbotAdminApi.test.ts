@@ -85,13 +85,14 @@ function recordTurn(host: ChatbotHost, input: {
 }
 
 describe('the admin routes are admin-only, whatever the manifest says', () => {
-  it.each(['list', 'conversations', 'stats'] as const)('refuses a non-admin caller at %s', async (method) => {
+  it.each(['list', 'conversations', 'visitors', 'stats'] as const)('refuses a non-admin caller at %s', async (method) => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
     const answer = method === 'list'
       ? await api.list(VIEWER)
       : method === 'conversations' ? await api.conversations(VIEWER, { chatbotUserId: '12' })
-        : await api.stats(VIEWER, { chatbotUserId: '12' });
+        : method === 'visitors' ? await api.visitors(VIEWER, { chatbotUserId: '12' })
+          : await api.stats(VIEWER, { chatbotUserId: '12' });
     expect(answer).toMatchObject({ status: 403, body: { error: 'forbidden' } });
   });
 });
@@ -278,8 +279,8 @@ describe('one chatbot\'s conversations', () => {
     expect(first.body).toMatchObject({ total: 2, limit: 25, offset: 0 });
     // Newest activity first, with the counts of the turns behind each conversation.
     expect((first.body as { conversations: unknown[] }).conversations).toEqual([
-      { visitorId: 'v2', sessionId: 'core-session-v2', title: null, turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
-      { visitorId: 'v1', sessionId: 'core-session-v1', title: null, turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
+      { visitorId: 'v2', ip: null, sessionId: 'core-session-v2', title: null, turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
+      { visitorId: 'v1', ip: null, sessionId: 'core-session-v1', title: null, turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
     ]);
 
     // Paging is the server's: the second page of one per page holds the other conversation, and nothing of
@@ -335,33 +336,85 @@ describe('one chatbot\'s conversations', () => {
       .toMatchObject({ status: 403, body: { error: 'forbidden' } });
   });
 
-  it('narrows the register to one visitor on the server, and restores it when the filter is cleared', async () => {
+  it('narrows the register to exactly the visitor picked, and restores it when the pick is cleared', async () => {
     const host = twoChatbots();
     const { api } = adminApiFor(host);
     registerBot(host, { chatbotUserId: 12 });
     registerBot(host, { chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}` });
     const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
-    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: 'ab12', at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
-    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: 'cd34', at: dayMs + HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
-    recordTurn(host, { turnId: 'c', chatbotUserId: 13, visitorId: 'ab99', at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    const [first, second, foreign] = ['ab12'.padEnd(32, '0'), 'ab12'.padEnd(32, '1'), 'ab12'.padEnd(32, '2')];
+    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: first, at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: second, at: dayMs + HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'c', chatbotUserId: 13, visitorId: foreign, at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
     const visitors = (answer: { body: object }) =>
       (answer.body as { conversations: { visitorId: string }[] }).conversations.map((row) => row.visitorId);
 
-    // A fragment of the id, typed in any case: the id is lowercase hex, and the count follows the filter so
-    // the pager never offers a page the filtered read would answer empty.
-    const filtered = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: ' AB ' });
-    expect(filtered.body).toMatchObject({ total: 1, offset: 0 });
-    expect(visitors(filtered)).toEqual(['ab12']);
+    // The pick is one whole id, so two visitors sharing a prefix are two different answers, and the count
+    // follows the pick so the pager never offers a page the narrowed read would answer empty.
+    const picked = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: first });
+    expect(picked.body).toMatchObject({ total: 1, offset: 0 });
+    expect(visitors(picked)).toEqual([first]);
 
-    const none = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: 'ff' });
-    expect(none.body).toMatchObject({ total: 0, conversations: [] });
+    // Another chatbot's visitor is not this chatbot's history, even when named exactly.
+    expect((await api.conversations(ADMIN, { chatbotUserId: '12', visitor: foreign })).body).toMatchObject({ total: 0, conversations: [] });
 
-    const cleared = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: '' });
+    const cleared = await api.conversations(ADMIN, { chatbotUserId: '12' });
     expect(cleared.body).toMatchObject({ total: 2 });
-    expect(visitors(cleared)).toEqual(['cd34', 'ab12']);
+    expect(visitors(cleared)).toEqual([second, first]);
 
-    // Longer than any visitor id this plugin issues is not a search, it is a malformed request.
-    expect(await api.conversations(ADMIN, { chatbotUserId: '12', visitor: 'x'.repeat(33) })).toMatchObject({ status: 400 });
+    // A fragment is no longer a filter: anything that is not a whole visitor id is a malformed request.
+    for (const visitor of ['ab12', first.toUpperCase(), '', `${first}0`]) {
+      expect(await api.conversations(ADMIN, { chatbotUserId: '12', visitor }), visitor).toMatchObject({ status: 400 });
+    }
+  });
+
+  it('lists a chatbot\'s visitors for the picker, newest activity first, with the last address or none', async () => {
+    const host = twoChatbots();
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    registerBot(host, { chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}` });
+    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
+    const [older, newer, foreign] = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: older, at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: newer, at: dayMs + HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'c', chatbotUserId: 13, visitorId: foreign, at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    // Only the newer visitor was admitted through a host that vouched for an address; the older row is one
+    // written before addresses were kept.
+    host.db.prepare("UPDATE p_chatbot_conversations SET last_ip = '203.0.113.9' WHERE visitor_id = ?").run(newer);
+
+    const answer = await api.visitors(ADMIN, { chatbotUserId: '12' });
+    expect(answer).toEqual({
+      status: 200,
+      body: {
+        visitors: [
+          { visitorId: newer, ip: '203.0.113.9', lastAt: iso(dayMs + HOUR) },
+          { visitorId: older, ip: null, lastAt: iso(dayMs) },
+        ],
+        truncated: false,
+      },
+    });
+    // The register shows the same address beside the same visitor.
+    expect((await api.conversations(ADMIN, { chatbotUserId: '12', visitor: newer })).body)
+      .toMatchObject({ conversations: [{ visitorId: newer, ip: '203.0.113.9' }] });
+
+    expect(await api.visitors(VIEWER, { chatbotUserId: '12' })).toMatchObject({ status: 403, body: { error: 'forbidden' } });
+    expect(await api.visitors(ADMIN, { chatbotUserId: '99' })).toMatchObject({ status: 404 });
+    expect(await api.visitors(ADMIN, {})).toMatchObject({ status: 400 });
+  });
+
+  it('bounds the picker to the most recently active visitors, and says so', async () => {
+    const host = twoChatbots();
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
+    for (let index = 0; index <= 500; index += 1) {
+      recordTurn(host, { turnId: `t${index}`, chatbotUserId: 12, visitorId: index.toString(16).padStart(32, '0'), at: dayMs + index * 1_000, status: 'queued', message: 'ahoj' });
+    }
+    const body = (await api.visitors(ADMIN, { chatbotUserId: '12' })).body as { visitors: { visitorId: string }[]; truncated: boolean };
+    expect(body.truncated).toBe(true);
+    expect(body.visitors).toHaveLength(500);
+    // The one left out is the one least recently active.
+    expect(body.visitors.at(-1)!.visitorId).toBe((1).toString(16).padStart(32, '0'));
   });
 
   it('refuses a chatbot it does not know, and a request that names none', async () => {

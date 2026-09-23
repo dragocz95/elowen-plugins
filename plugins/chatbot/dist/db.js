@@ -275,6 +275,16 @@ const MIGRATIONS = [
             }
         },
     },
+    {
+        /** Step 9: the visitor's last network address, kept where the conversation lives so it is deleted by
+         *  exactly the paths that delete the conversation (retention, an operator's erase, the account going
+         *  away). One value per conversation, overwritten on each admitted message, never a history. A
+         *  conversation written before this step has no address, and none is invented for it. */
+        version: 9,
+        up(db) {
+            db.exec('ALTER TABLE p_chatbot_conversations ADD COLUMN last_ip TEXT;');
+        },
+    },
 ];
 /** The message as the widget composed it before step 8: an optional label, the visitor's words, and a
  *  labelled JSON object with the page's address and title after the LAST marker (JSON text carries no raw
