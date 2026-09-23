@@ -1,5 +1,11 @@
 {
   "description": "Plánované prompty: opakované úlohy (\"every 30m\", \"daily 07:30\") a jednorazové prebudenia (\"in 20m\", \"at 18:30\"). Osobné plány bežia s oprávneniami svojho vlastníka a výsledok doručia do vlastnej konverzácie alebo späť do priameho chatu, kde vznikli. Úlohy pre celú inštanciu bežia s oprávneniami jej vlastníka a výsledok posielajú do oznamovacieho kanála; spravovať ich môže len vlastník inštancie.",
+  "alerts": {
+    "runFailed.title": "Naplánovaná úloha „{job}“ zlyhala",
+    "runFailed.body": "Podrobnosti nájdete v histórii na stránke Automatizácia. Chyba: {error}",
+    "runUndelivered.title": "Výsledok úlohy „{job}“ sa nepodarilo doručiť",
+    "runUndelivered.body": "Úloha prebehla, ale výsledok sa do vašej konverzácie nedostal. Nájdete ho v histórii na stránke Automatizácia."
+  },
   "fields": {
     "sec_scheduler": {
       "label": "Plánovač",

@@ -1,5 +1,10 @@
 # Changelog
 
+## cronjob 0.6.14 - 2026-09-23
+
+- The owner of a personal scheduled job or wake-up is now told on the bell, with a push notification, when a run fails or its result does not reach their conversation. The alert names the job and the error and links to the Automation page. Before, the failure was written only to the server log and the run history, so a wake-up that promised "It will reply in this conversation" could fail without anybody learning about it.
+- A job that keeps failing keeps one alert instead of adding a new one on every run: the alert shows the latest error, rings again only after the job has worked in between, and stays hidden once dismissed. A run that works clears it. Instance-wide jobs are unchanged and still report to the notification channel.
+
 ## skills 0.5.0 - 2026-09-22
 
 - Saving, editing, moving or deleting a skill no longer restarts Elowen. The plugin hands the host its complete new skill set and the host swaps it into the running daemon, so the change shows up from the next message while running turns, sub-agents and open questions carry on untouched.

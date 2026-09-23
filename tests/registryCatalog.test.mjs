@@ -177,8 +177,10 @@ const EXPECTED_CAPABILITIES = {
   // change. Without it the index cannot see a managed project's files at all.
   codebase: { reads: ['embeddings', 'controls'], network: true },
   // `controls` resolves the environment provider a scheduled project run executes in; `stores`
-  // re-authorizes owners and `db` holds the plugin-owned run journal and retention aggregates.
-  cronjob: { reads: ['controls', 'db', 'stores'] },
+  // re-authorizes owners and `db` holds the plugin-owned run journal and retention aggregates. `alerts`
+  // raises a bell alert for the OWNER of a personal job whose run failed or never reached them, scoped to
+  // that one account; it reaches no other account's bell and no other plugin's alerts.
+  cronjob: { reads: ['alerts', 'controls', 'db', 'stores'] },
   // `controls` routes managed reads, writes and uploads through the guest boundary instead of the host
   // filesystem; `project-files` remains the host-project path.
   editor: { reads: ['controls', 'project-files', 'stores'] },
