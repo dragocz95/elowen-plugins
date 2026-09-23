@@ -132,6 +132,7 @@ export function register(published) {
     ctx.registerApiRoute({ path: 'conversations', method: 'DELETE', access: 'admin', handler: async (req) => adminApi.eraseConversations(req.auth, req.query) });
     ctx.registerApiRoute({ path: 'visitors', method: 'GET', access: 'admin', handler: async (req) => adminApi.visitors(req.auth, req.query) });
     ctx.registerApiRoute({ path: 'stats', method: 'GET', access: 'admin', handler: async (req) => adminApi.stats(req.auth, req.query) });
+    ctx.registerApiRoute({ path: 'feedback', method: 'GET', access: 'admin', handler: async (req) => adminApi.feedback(req.auth, req.query) });
     /** Turn off every ENABLED chatbot that could no longer run a turn: its account is gone, is not a chatbot
      *  account, is an administrator, or it no longer has exactly one usable managed Project.
      *

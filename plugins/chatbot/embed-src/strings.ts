@@ -25,6 +25,13 @@ export interface WidgetStrings {
   /** Accessible label of the group of quick buttons under the greeting. Their own text is the chatbot's. */
   quickButtons: string;
   offerOptions: string;
+  feedbackGroup: string;
+  feedbackUp: string;
+  feedbackDown: string;
+  feedbackComment: string;
+  feedbackSend: string;
+  feedbackSkip: string;
+  feedbackError: string;
   /** Shown while the answer keeps failing to arrive. */
   reconnecting: string;
   /** A turn that failed on the server after the visitor submitted it. */
@@ -63,6 +70,13 @@ const CS: WidgetStrings = {
   intro: 'Dobrý den. Pomohu vám s vyplněním formuláře na této stránce.',
   quickButtons: 'Rychlé dotazy',
   offerOptions: 'Nabídnuté možnosti',
+  feedbackGroup: 'Hodnocení odpovědi',
+  feedbackUp: 'Odpověď pomohla',
+  feedbackDown: 'Odpověď nepomohla',
+  feedbackComment: 'Doplňující komentář',
+  feedbackSend: 'Odeslat',
+  feedbackSkip: 'Přeskočit',
+  feedbackError: 'Hodnocení se nepodařilo uložit. Zkuste to prosím znovu.',
   reconnecting: 'Spojení se přerušilo, zkouším se znovu připojit.',
   errorTurn: 'Odpověď se nepodařilo dokončit. Zkuste to prosím znovu.',
   errorUnavailable: 'Chatbot teď není dostupný. Zkuste to prosím později.',
@@ -91,6 +105,13 @@ const SK: WidgetStrings = {
   intro: 'Dobrý deň. Pomôžem vám s vyplnením formulára na tejto stránke.',
   quickButtons: 'Rýchle otázky',
   offerOptions: 'Ponúkané možnosti',
+  feedbackGroup: 'Hodnotenie odpovede',
+  feedbackUp: 'Odpoveď pomohla',
+  feedbackDown: 'Odpoveď nepomohla',
+  feedbackComment: 'Doplňujúci komentár',
+  feedbackSend: 'Odoslať',
+  feedbackSkip: 'Preskočiť',
+  feedbackError: 'Hodnotenie sa nepodarilo uložiť. Skúste to prosím znova.',
   reconnecting: 'Spojenie sa prerušilo, skúšam sa znova pripojiť.',
   errorTurn: 'Odpoveď sa nepodarilo dokončiť. Skúste to prosím znova.',
   errorUnavailable: 'Chatbot teraz nie je dostupný. Skúste to prosím neskôr.',
@@ -119,6 +140,13 @@ const EN: WidgetStrings = {
   intro: 'Hello. I can help you fill in the form on this page.',
   quickButtons: 'Quick questions',
   offerOptions: 'Suggested options',
+  feedbackGroup: 'Rate this answer',
+  feedbackUp: 'Helpful answer',
+  feedbackDown: 'Unhelpful answer',
+  feedbackComment: 'Optional comment',
+  feedbackSend: 'Send',
+  feedbackSkip: 'Skip',
+  feedbackError: 'Your feedback could not be saved. Please try again.',
   reconnecting: 'The connection dropped. Reconnecting.',
   errorTurn: 'The answer could not be finished. Please try again.',
   errorUnavailable: 'The chatbot is not available right now. Please try again later.',

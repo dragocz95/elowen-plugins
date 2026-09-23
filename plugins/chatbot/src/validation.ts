@@ -10,6 +10,9 @@ import {
   ACTION_DECISIONS,
   ACTION_OUTCOMES,
   MESSAGE_MAX_BYTES,
+  FEEDBACK_COMMENT_MAX_CHARS,
+  FEEDBACK_RATINGS,
+  type FeedbackRating,
   PAGE_FAILURE_DETAILS,
   PAGE_STATE_MAX_BYTES,
   PAGE_TEXT_MAX_CHARS,
@@ -127,6 +130,25 @@ export function isPublicId(value: string): boolean {
 }
 
 // ── public hook payloads ─────────────────────────────────────────────────────────────────────────────
+
+export function validateFeedback(body: unknown): Validated<{ rating: FeedbackRating; comment: string | null }> {
+  const object = strictObject(body, ['schemaVersion', 'rating', 'comment'], ['schemaVersion', 'rating']);
+  if (!object.ok) return object;
+  const version = readSchemaVersion(object.value);
+  if (!version.ok) return version;
+  const { rating, comment } = object.value;
+  if (typeof rating !== 'string' || !(FEEDBACK_RATINGS as readonly string[]).includes(rating)) {
+    return { ok: false, error: '"rating" must be up or down' };
+  }
+  if (comment !== undefined && comment !== null && typeof comment !== 'string') {
+    return { ok: false, error: '"comment" must be text or null' };
+  }
+  const trimmed = typeof comment === 'string' ? comment.trim() : null;
+  if (trimmed !== null && trimmed.length > FEEDBACK_COMMENT_MAX_CHARS) {
+    return { ok: false, error: '"comment" is too long' };
+  }
+  return { ok: true, value: { rating: rating as FeedbackRating, comment: trimmed || null } };
+}
 
 /** The public bootstrap and token-issuance requests name a chatbot by its public id. Authority comes from
  *  the allowed `Origin`, the trusted request origin and the chatbot being enabled, never from this field. */

@@ -293,6 +293,31 @@ export function createAdminApi(deps) {
             const total = store.conversationCount({ chatbotUserId, visitorId });
             return { status: 200, body: { conversations, total, limit, offset } };
         },
+        async feedback(auth, query) {
+            const refusal = requireAdmin(auth);
+            if (refusal)
+                return refusal;
+            const chatbotUserId = query.chatbotUserId === undefined ? null : readChatbotUserId(query.chatbotUserId);
+            if (query.chatbotUserId !== undefined && chatbotUserId === null) {
+                return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
+            }
+            if (chatbotUserId !== null) {
+                const bot = requireBot(chatbotUserId);
+                if (isRefusal(bot))
+                    return bot;
+            }
+            const rating = query.rating ?? 'all';
+            if (rating !== 'all' && rating !== 'up' && rating !== 'down') {
+                return { status: 400, body: { error: 'invalid_request', detail: '"rating" must be all, up or down' } };
+            }
+            const offset = query.offset === undefined ? 0 : Number(query.offset);
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+                return { status: 400, body: { error: 'invalid_request', detail: '"offset" must be a nonnegative integer' } };
+            }
+            const limit = clampLimit(query.limit, CONVERSATIONS_DEFAULT_LIMIT, CONVERSATIONS_MAX_LIMIT);
+            const result = store.feedbackList({ chatbotUserId, rating: rating === 'all' ? null : rating, limit, offset });
+            return { status: 200, body: { ...result, limit, offset } };
+        },
         /** The visitors the register can be narrowed to, for the picker: most recently active first, each with
          *  the last address the host vouched for. Searching happens in the picker, over this bounded list. */
         async visitors(auth, query) {

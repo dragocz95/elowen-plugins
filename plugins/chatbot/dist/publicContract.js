@@ -70,6 +70,8 @@ export const SNAPSHOT_ID_PATTERN = /^s[0-9a-f]{16}$/;
 export const VISITOR_AUTHORIZATION_SCHEME = 'ChatbotVisitor';
 /** The query parameter a stream resumes from: the last sequence number a widget already rendered. */
 export const EVENTS_AFTER_QUERY = 'after';
+export const FEEDBACK_COMMENT_MAX_CHARS = 500;
+export const FEEDBACK_RATINGS = ['up', 'down'];
 /** The path segments the public surface is built from. Named once so the widget cannot spell a URL
  *  differently from the handler that answers it, and so a route is renamed in one place or not at all. */
 export const PUBLIC_SEGMENTS = {
@@ -79,6 +81,7 @@ export const PUBLIC_SEGMENTS = {
     refresh: 'refresh',
     turns: 'turns',
     events: 'events',
+    feedback: 'feedback',
     actions: 'actions',
     result: 'result',
     confirmation: 'confirmation',
@@ -98,6 +101,7 @@ export const PUBLIC_PATHS = {
      *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
     avatar: PUBLIC_SEGMENTS.avatar,
     events: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
+    feedback: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.feedback}`,
     actionResult: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
     actionDecision: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.confirmation}`,
     widget: PUBLIC_SEGMENTS.widget,

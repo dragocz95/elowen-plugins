@@ -183,6 +183,7 @@ export function mount(): ElowenChatbotApi | null {
     // The panel already showed the visitor's message; the conversation is told that it did.
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),
     onStop: () => session?.stopWatching(),
+    onFeedback: (turnId, rating, comment) => session!.sendFeedback(turnId, rating, comment),
     onOpen: () => {
       visitorEngaged = true;
       void look().then((value) => {

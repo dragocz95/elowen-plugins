@@ -6,7 +6,7 @@ import { parseStoredAppearance, resolveAppearance } from './appearanceContract.j
 import { AVATAR_CACHE_CONTROL } from './avatarProxy.js';
 import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { isCanonicalUuid, validateActionDecision, validateActionResult, validatePublicBotRequest, validateTurnSubmission } from './validation.js';
+import { isCanonicalUuid, validateActionDecision, validateActionResult, validatePublicBotRequest, validateTurnSubmission, validateFeedback } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
 /** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
  *  restoration aid rather than a history export, and because the whole answer has to stay small enough for
@@ -320,6 +320,7 @@ export function createPublicRoute(deps) {
         const seqs = store.lastSeqsOf(ids);
         const replies = store.doneRepliesOf(ids);
         const offers = store.offersOf(ids);
+        const feedback = store.feedbackOf(ids);
         // Newest first while the answer still fits. A reconnect has to be able to rebuild what the visitor saw
         // most recently, so the newest turn is always included and older ones drop off once the budget is spent.
         const turns = [];
@@ -339,6 +340,7 @@ export function createPublicRoute(deps) {
                 message: turn.message,
                 reply: replies.get(turn.turn_id) ?? null,
                 offer: offers.get(turn.turn_id) ?? null,
+                feedback: feedback.has(turn.turn_id) ? { rating: feedback.get(turn.turn_id).rating, comment: feedback.get(turn.turn_id).comment } : null,
                 errorCode: turn.error_code,
             };
             // One byte for the comma that joins the entries, which is what makes this an upper bound.
@@ -357,6 +359,42 @@ export function createPublicRoute(deps) {
             truncated,
             turns,
         }, corsHeaders(origin));
+    };
+    /** A rating belongs only to a finished answer by this token's visitor. */
+    const handleFeedback = async (req, origin, requestOrigin, turnId) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        if (!checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id)).ok) {
+            return reply(403, { error: 'origin_not_allowed' });
+        }
+        const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
+        if (!turn || turn.chatbot_user_id !== admitted.bot.chatbot_user_id
+            || turn.visitor_id !== admitted.visitorId || turn.status !== 'done') {
+            return reply(404, { error: 'not_found' }, corsHeaders(origin));
+        }
+        const notJson = requireJsonBody(req, origin);
+        if (notJson)
+            return notJson;
+        const body = await readJson(req);
+        if (!body.ok)
+            return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
+        const parsed = validateFeedback(body.value);
+        if (!parsed.ok)
+            return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+        const limited = store.consumeVisitorRate({
+            bot: admitted.bot, visitorId: admitted.visitorId, originValue: requestOrigin.value, nowMs: now().getTime(),
+        });
+        if (limited)
+            return admissionReply(limited, origin);
+        const saved = store.saveFeedback({
+            turnId, chatbotUserId: admitted.bot.chatbot_user_id, visitorId: admitted.visitorId,
+            ...parsed.value, now: iso(),
+        });
+        if (!saved)
+            return reply(404, { error: 'not_found' }, corsHeaders(origin));
+        return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, rating: saved.rating, comment: saved.comment,
+            updatedAt: saved.updated_at }, corsHeaders(origin));
     };
     /** `GET v1/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
      *  documented for AUTHENTICATED plugin API only and this endpoint is public, so the stream is one this
@@ -561,6 +599,10 @@ export function createPublicRoute(deps) {
             return handleAvatar(req, origin);
         if (req.method === 'GET' && path === PUBLIC_PATHS.conversation)
             return handleConversation(req, origin);
+        if (req.method === 'POST' && segments.length === 3
+            && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.feedback) {
+            return handleFeedback(req, origin, requestOrigin, segments[1]);
+        }
         if (req.method === 'GET' && segments.length === 3
             && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.events) {
             return handleTurnEvents(req, origin, segments[1]);

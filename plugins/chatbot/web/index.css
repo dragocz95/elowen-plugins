@@ -436,6 +436,11 @@
       display: none;
     }
   }
+  @container (width >= 40rem) {
+    .\@min-\[40rem\]\:hidden {
+      display: none;
+    }
+  }
 }
 @property --tw-rotate-x {
   syntax: "*";

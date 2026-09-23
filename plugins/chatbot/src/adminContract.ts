@@ -115,6 +115,24 @@ interface ChatbotConversationView {
 
 /** `GET api/conversations?chatbotUserId=&limit=&offset=[&visitor=]`. `total` counts the conversations of
  *  THIS chatbot, or of the one visitor picked, so a pager never offers a page the server would answer empty. */
+export interface ChatbotFeedbackAnswer {
+  rows: {
+    turnId: string;
+    chatbotUserId: number;
+    chatbotName: string;
+    visitorId: string;
+    sessionId: string | null;
+    rating: 'up' | 'down';
+    comment: string | null;
+    updatedAt: string;
+    message: string;
+    reply: string;
+  }[];
+  totals: { up: number; down: number; total: number };
+  limit: number;
+  offset: number;
+}
+
 export interface ChatbotConversationsAnswer {
   conversations: ChatbotConversationView[];
   total: number;

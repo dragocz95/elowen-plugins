@@ -41,6 +41,7 @@ export const APPEARANCE_ICONS = [
   { id: 'smile', path: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M9 9.5h.01 M15 9.5h.01 M8 14a6 6 0 0 0 8 0' },
   { id: 'heart', path: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.8-7.8 1-1.1a5.5 5.5 0 0 0 0-7.8Z' },
   { id: 'thumb-up', path: 'M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3Z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3' },
+  { id: 'thumb-down', path: 'M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.4 15H10Z M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3' },
 ] as const satisfies readonly AppearanceIcon[];
 export type AppearanceIconId = (typeof APPEARANCE_ICONS)[number]['id'];
 

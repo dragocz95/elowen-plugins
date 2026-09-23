@@ -5,6 +5,7 @@ import type {
   BotRow,
   BudgetDayRow,
   ConversationRow,
+  FeedbackRow,
   RateWindowRow,
   TokenRow,
   TurnEventRow,
@@ -23,7 +24,7 @@ import {
   type RateScope,
 } from './rateLimit.js';
 import { isActionKind } from './actions.js';
-import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome } from './publicContract.js';
+import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome, type FeedbackRating } from './publicContract.js';
 import type { TurnPage } from './validation.js';
 
 /** The origin core attributes one chatbot's spend to, as `usage_by_origin.orgin` stores it: the platform name
@@ -234,6 +235,7 @@ export class ChatbotStore {
 
   deleteBot(chatbotUserId: number): void {
     this.db.transaction(() => {
+      this.stmt('DELETE FROM p_chatbot_feedback WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_actions WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turn_events WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ?').run(chatbotUserId);
@@ -453,6 +455,27 @@ export class ChatbotStore {
       .all(turnId, after) as TurnEventRow[];
   }
 
+  /** The ownership and terminal state are rechecked under the write lock before replacing a rating. */
+  saveFeedback(input: { turnId: string; chatbotUserId: number; visitorId: string; rating: FeedbackRating; comment: string | null; now: string }): FeedbackRow | null {
+    return this.db.transaction(() => {
+      const turn = this.stmt('SELECT status FROM p_chatbot_turns WHERE turn_id = ? AND chatbot_user_id = ? AND visitor_id = ?')
+        .get(input.turnId, input.chatbotUserId, input.visitorId) as { status: string } | undefined;
+      if (turn?.status !== 'done') return null;
+      this.stmt(`INSERT INTO p_chatbot_feedback (turn_id, chatbot_user_id, visitor_id, rating, comment, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (turn_id) DO UPDATE SET rating = excluded.rating, comment = excluded.comment, updated_at = excluded.updated_at`)
+        .run(input.turnId, input.chatbotUserId, input.visitorId, input.rating, input.comment, input.now);
+      return this.stmt('SELECT * FROM p_chatbot_feedback WHERE turn_id = ?').get(input.turnId) as FeedbackRow;
+    });
+  }
+
+  feedbackOf(turnIds: readonly string[]): Map<string, FeedbackRow> {
+    if (turnIds.length === 0) return new Map();
+    const rows = this.stmt(`SELECT * FROM p_chatbot_feedback WHERE turn_id IN (${placeholders(turnIds.length)})`)
+      .all(...turnIds) as FeedbackRow[];
+    return new Map(rows.map((row) => [row.turn_id, row]));
+  }
+
   /** The visitor's own conversation, newest first. A widget that lost its connection rebuilds what it
    *  showed from these rows and the answers below, never by reading a transcript this plugin does not own.
    *  The bound is the caller's: a reconnect is a bounded read, not a history export. */
@@ -546,22 +569,7 @@ export class ChatbotStore {
     if (!limits) return { ok: false, reason: 'limits_missing' };
     const chatbotUserId = input.bot.chatbot_user_id;
 
-    const limited = this.db.transaction(() => {
-      const scopes: { scope: RateScope; key: string; limit: number }[] = [
-        { scope: 'ip', key: ipScopeKey(chatbotUserId, input.originValue), limit: limits.rateIpPerMinute },
-        { scope: 'chatbot', key: chatbotScopeKey(chatbotUserId), limit: limits.rateChatbotPerMinute },
-        { scope: 'conversation', key: conversationScopeKey(chatbotUserId, input.visitorId), limit: limits.rateConversationPerMinute },
-      ];
-      const exceeded: string[] = [];
-      for (const scope of scopes) {
-        const row = this.countRateWindow(scope.scope, scope.key, input.nowMs);
-        if (row.count > scope.limit) exceeded.push(row.expires_at);
-      }
-      // Every exceeded window has to clear, so the wait is the longest of them rather than the first found.
-      return exceeded.length === 0
-        ? null
-        : { ok: false as const, reason: 'rate_limited' as const, retryAfterSeconds: Math.max(...exceeded.map((iso) => retryAfterSeconds(iso, input.nowMs))) };
-    });
+    const limited = this.consumeVisitorRate({ bot: input.bot, visitorId: input.visitorId, originValue: input.originValue, nowMs: input.nowMs });
     if (limited) return limited;
 
     try {
@@ -623,6 +631,29 @@ export class ChatbotStore {
       now: input.now,
     });
     return { ok: true, turn: this.createTurn(input) };
+  }
+
+  /** One shared rate gate for visitor turns and feedback writes. Refused attempts count too. */
+  consumeVisitorRate(input: { bot: BotRow; visitorId: string; originValue: string; nowMs: number }):
+    { ok: false; reason: 'rate_limited'; retryAfterSeconds: number } | { ok: false; reason: 'limits_missing' } | null {
+    const limits = readBotLimits(input.bot);
+    if (!limits) return { ok: false, reason: 'limits_missing' };
+    const chatbotUserId = input.bot.chatbot_user_id;
+    return this.db.transaction(() => {
+      const scopes: { scope: RateScope; key: string; limit: number }[] = [
+        { scope: 'ip', key: ipScopeKey(chatbotUserId, input.originValue), limit: limits.rateIpPerMinute },
+        { scope: 'chatbot', key: chatbotScopeKey(chatbotUserId), limit: limits.rateChatbotPerMinute },
+        { scope: 'conversation', key: conversationScopeKey(chatbotUserId, input.visitorId), limit: limits.rateConversationPerMinute },
+      ];
+      const exceeded: string[] = [];
+      for (const scope of scopes) {
+        const row = this.countRateWindow(scope.scope, scope.key, input.nowMs);
+        if (row.count > scope.limit) exceeded.push(row.expires_at);
+      }
+      return exceeded.length === 0
+        ? null
+        : { ok: false as const, reason: 'rate_limited' as const, retryAfterSeconds: Math.max(...exceeded.map((iso) => retryAfterSeconds(iso, input.nowMs))) };
+    });
   }
 
   /** Increment one (scope, key, minute) window and return it. The upsert is the atomic step: `count` is the
@@ -758,6 +789,8 @@ export class ChatbotStore {
    *  crash cannot leave a conversation without its turns or turns without their conversation. */
   deleteConversation(conversation: ConversationRow): void {
     this.db.transaction(() => {
+      this.stmt('DELETE FROM p_chatbot_feedback WHERE chatbot_user_id = ? AND visitor_id = ?')
+        .run(conversation.chatbot_user_id, conversation.visitor_id);
       this.stmt(`DELETE FROM p_chatbot_actions WHERE turn_id IN (
                    SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`)
         .run(conversation.chatbot_user_id, conversation.visitor_id);
@@ -931,6 +964,40 @@ export class ChatbotStore {
   }
 
   // ── what an administrator reads: conversations, their transcript, and the counters ────────────────
+
+  /** Filtered feedback and totals read from the same owned rows. Text comes from the public turn projection. */
+  feedbackList(input: { chatbotUserId: number | null; rating: FeedbackRating | null; limit: number; offset: number }): {
+    rows: { turnId: string; chatbotUserId: number; chatbotName: string; visitorId: string; sessionId: string | null;
+      rating: FeedbackRating; comment: string | null; updatedAt: string; message: string; reply: string }[];
+    totals: { up: number; down: number; total: number };
+  } {
+    const where = 'WHERE (? IS NULL OR f.chatbot_user_id = ?) AND (? IS NULL OR f.rating = ?)';
+    const args = [input.chatbotUserId, input.chatbotUserId, input.rating, input.rating];
+    const counts = this.stmt(`SELECT COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN f.rating = 'up' THEN 1 ELSE 0 END), 0) AS up,
+      COALESCE(SUM(CASE WHEN f.rating = 'down' THEN 1 ELSE 0 END), 0) AS down
+      FROM p_chatbot_feedback f ${where}`).get(...args) as { total: number; up: number; down: number };
+    const rows = this.stmt(`SELECT f.turn_id AS turnId, f.chatbot_user_id AS chatbotUserId,
+      b.display_name AS chatbotName, f.visitor_id AS visitorId, c.session_id AS sessionId,
+      f.rating, f.comment, f.updated_at AS updatedAt, t.message
+      FROM p_chatbot_feedback f JOIN p_chatbot_turns t ON t.turn_id = f.turn_id
+      JOIN p_chatbot_bots b ON b.chatbot_user_id = f.chatbot_user_id
+      LEFT JOIN p_chatbot_conversations c ON c.chatbot_user_id = f.chatbot_user_id AND c.visitor_id = f.visitor_id
+      ${where} ORDER BY f.updated_at DESC, f.turn_id DESC LIMIT ? OFFSET ?`)
+      .all(...args, input.limit, input.offset) as {
+        turnId: string; chatbotUserId: number; chatbotName: string; visitorId: string; sessionId: string | null;
+        rating: FeedbackRating; comment: string | null; updatedAt: string; message: string;
+      }[];
+    const replies = this.doneRepliesOf(rows.map((row) => row.turnId));
+    return {
+      rows: rows.map((row) => {
+        const reply = replies.get(row.turnId);
+        if (reply === undefined) throw new Error(`chatbot: feedback turn ${row.turnId} has no completed answer`);
+        return { ...row, reply };
+      }),
+      totals: counts,
+    };
+  }
 
   /** This chatbot's conversations, newest activity first. A conversation is the plugin's own
    *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show

@@ -25,7 +25,7 @@
       "provides": {
         "platforms": 1,
         "httpRoutes": 1,
-        "apiRoutes": 5,
+        "apiRoutes": 6,
         "tools": 2
       }
     },

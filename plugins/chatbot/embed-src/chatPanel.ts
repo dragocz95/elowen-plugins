@@ -32,6 +32,8 @@ import { playTone, unlockSound } from './sound.js';
 import type { ChatView } from './session.js';
 import { allowedOfferUrl, type Offer } from '../src/offerContract.js';
 import { escapeHtml, offerHtml, offerStyles, disableOffers } from './offer.js';
+import { feedbackHtml, feedbackStyles } from './feedback.js';
+import { FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, type FeedbackRating, type FeedbackSelection } from '../src/publicContract.js';
 import type { WidgetStrings } from './strings.js';
 
 /** How much vertical room the panel leaves for the launcher and for a browser's own chrome. The visitor's
@@ -61,6 +63,7 @@ export interface ChatPanelOptions {
   onVisitorMessage: (text: string) => void;
   /** What the stop button does: stop watching the answer. The turn itself keeps running. */
   onStop: () => void;
+  onFeedback?: (turnId: string, rating: FeedbackRating, comment: string | null) => Promise<FeedbackSelection | null>;
   /** The panel was opened — a click the visitor made, and therefore the first thing the widget may ask the
    *  server for. See `mount()`. */
   onOpen?: () => void;
@@ -97,11 +100,38 @@ function introUtilities(
   appearance: ChatbotAppearance,
   onQuickButton: (text: string) => void,
   onOfferLink: (url: string) => void,
+  onFeedbackRate: (turnId: string, rating: FeedbackRating) => void,
+  onFeedbackSend: (turnId: string, comment: string) => void,
+  onFeedbackSkip: (turnId: string) => void,
 ): Record<string, { events?: Record<string, (event: { target: EventTarget | null }) => void>; styles?: Record<string, Record<string, string>> }> {
   const ramp = appearanceRamp(appearance);
   return {
     'cb-quick': {
       styles: { default: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', justifyContent: 'center' } },
+    },
+    'cb-feedback-thumb': {
+      events: { click: (event) => {
+        const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-cb-rating]') : null;
+        const group = button?.closest<HTMLElement>('[data-cb-feedback-turn]');
+        if (button && group && FEEDBACK_RATINGS.some((rating) => rating === button.dataset.cbRating)) {
+          onFeedbackRate(group.dataset.cbFeedbackTurn!, button.dataset.cbRating as FeedbackRating);
+        }
+      } },
+      styles: { default: { padding: '5px' }, ...buttonStyles(appearance) },
+    },
+    'cb-feedback-send': {
+      events: { click: (event) => {
+        const group = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-cb-feedback-turn]') : null;
+        if (group) onFeedbackSend(group.dataset.cbFeedbackTurn!, group.querySelector('textarea')?.value ?? '');
+      } },
+      styles: { default: { fontWeight: '600' }, ...buttonStyles(appearance) },
+    },
+    'cb-feedback-skip': {
+      events: { click: (event) => {
+        const group = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-cb-feedback-turn]') : null;
+        if (group) onFeedbackSkip(group.dataset.cbFeedbackTurn!);
+      } },
+      styles: { default: { opacity: '.8' }, ...buttonStyles(appearance) },
     },
     'cb-offer-link': {
       events: {
@@ -164,6 +194,9 @@ function chatConfig(input: {
   avatar: string | null;
   onQuickButton: (text: string) => void;
   onOfferLink: (url: string) => void;
+  onFeedbackRate: (turnId: string, rating: FeedbackRating) => void;
+  onFeedbackSend: (turnId: string, comment: string) => void;
+  onFeedbackSkip: (turnId: string) => void;
   onStop: () => void;
 }): Record<string, unknown> {
   const { look, strings } = input;
@@ -265,7 +298,7 @@ function chatConfig(input: {
     // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
     // only the primary color source changes to the widget appearance's send color.
     auxiliaryStyle: `
-:host { --cb-stop-color: ${appearance.colors.sendButton}; }
+:host { --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton}; --cb-feedback-ink: ${appearanceInk(appearance.colors.sendButton)}; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
 .input-button:has([data-cb-stop-icon]) { right: .33em !important; }
@@ -285,7 +318,7 @@ function chatConfig(input: {
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
 ${chatEffectsCss(appearance)}
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()}`,
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()} ${feedbackStyles()}`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -294,7 +327,7 @@ ${chatEffectsCss(appearance)}
         strings,
       }),
     },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink),
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink, input.onFeedbackRate, input.onFeedbackSend, input.onFeedbackSkip),
     avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
   };
@@ -475,6 +508,9 @@ export class ChatPanel implements ChatView {
   private readonly queued: ({ role: string; text: string } | { role: string; html: string })[] = [];
   private offerOrigins: string[] = [];
   private offerActive = false;
+  private readonly feedbackState = new Map<string, { selection: FeedbackSelection | null; commentOpen: boolean; index: number }>();
+  private readonly feedbackBusy = new Set<string>();
+  private readonly onFeedback: ChatPanelOptions['onFeedback'];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
   private redrawPending = false;
@@ -496,6 +532,7 @@ export class ChatPanel implements ChatView {
     this.look = options.look;
     this.onVisitorMessage = options.onVisitorMessage;
     this.onStop = options.onStop;
+    this.onFeedback = options.onFeedback;
     this.onOpen = options.onOpen;
     this.loadAvatar = options.loadAvatar;
     this.storage = options.storage;
@@ -765,11 +802,72 @@ export class ChatPanel implements ChatView {
     this.draw({ role: 'ai', html: offerHtml(offer, this.offerOrigins, this.strings, active) });
   }
 
+  /** A finished answer has one native deep-chat HTML message for its own feedback controls. */
+  showFeedback(turnId: string, selection: FeedbackSelection | null): void {
+    const index = this.ready ? this.chat.getMessages().length : this.queued.length;
+    this.feedbackState.set(turnId, { selection, commentOpen: false, index });
+    this.draw({ role: 'ai', html: feedbackHtml({ turnId, selection, commentOpen: false, strings: this.strings }) });
+  }
+
+  private updateFeedback(turnId: string): void {
+    const state = this.feedbackState.get(turnId);
+    if (!state) return;
+    const html = feedbackHtml({ turnId, ...state, strings: this.strings });
+    if (!this.ready) this.queued[state.index] = { role: 'ai', html };
+    else {
+      this.chat.updateMessage({ html }, state.index);
+      requestAnimationFrame(() => this.scrollToLatest());
+    }
+  }
+
+  private async rateFeedback(turnId: string, rating: FeedbackRating): Promise<void> {
+    const state = this.feedbackState.get(turnId);
+    if (!state || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
+    this.feedbackBusy.add(turnId);
+    try {
+      const saved = await this.onFeedback(turnId, rating, state.selection?.comment ?? null);
+      if (!saved) { this.notice(this.strings.feedbackError); return; }
+      state.selection = saved;
+      state.commentOpen = true;
+      this.updateFeedback(turnId);
+    } catch {
+      this.notice(this.strings.feedbackError);
+    } finally {
+      this.feedbackBusy.delete(turnId);
+    }
+  }
+
+  private async sendFeedbackComment(turnId: string, comment: string): Promise<void> {
+    const state = this.feedbackState.get(turnId);
+    if (!state?.selection || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
+    if (comment.length > FEEDBACK_COMMENT_MAX_CHARS) { this.notice(this.strings.feedbackError); return; }
+    this.feedbackBusy.add(turnId);
+    try {
+      const saved = await this.onFeedback(turnId, state.selection.rating, comment.trim() || null);
+      if (!saved) { this.notice(this.strings.feedbackError); return; }
+      state.selection = saved;
+      state.commentOpen = false;
+      this.updateFeedback(turnId);
+    } catch {
+      this.notice(this.strings.feedbackError);
+    } finally {
+      this.feedbackBusy.delete(turnId);
+    }
+  }
+
+  private skipFeedbackComment(turnId: string): void {
+    const state = this.feedbackState.get(turnId);
+    if (!state || this.feedbackBusy.has(turnId)) return;
+    state.commentOpen = false;
+    this.updateFeedback(turnId);
+  }
+
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
-  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[]): void {
+  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[]): void {
     for (const message of messages) {
       this.draw(message);
+      if (message.role === 'ai' && message.turnId) this.showFeedback(message.turnId, message.feedback ?? null);
       if (message.offer) this.showOffer(message.offer, message.offerActive === true);
     }
     // A restored transcript opens where the visitor left off, which is its END: a reload that lands on the
@@ -830,6 +928,9 @@ export class ChatPanel implements ChatView {
       avatar: this.avatarSource(),
       onQuickButton: (text) => this.sendQuick(text),
       onOfferLink: (url) => { if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url); },
+      onFeedbackRate: (turnId, rating) => { void this.rateFeedback(turnId, rating); },
+      onFeedbackSend: (turnId, comment) => { void this.sendFeedbackComment(turnId, comment); },
+      onFeedbackSkip: (turnId) => this.skipFeedbackComment(turnId),
       onStop: () => this.stopAnswer(),
     });
   }

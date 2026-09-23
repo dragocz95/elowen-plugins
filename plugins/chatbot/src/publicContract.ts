@@ -90,6 +90,10 @@ export const VISITOR_AUTHORIZATION_SCHEME = 'ChatbotVisitor';
 
 /** The query parameter a stream resumes from: the last sequence number a widget already rendered. */
 export const EVENTS_AFTER_QUERY = 'after';
+export const FEEDBACK_COMMENT_MAX_CHARS = 500;
+export const FEEDBACK_RATINGS = ['up', 'down'] as const;
+export type FeedbackRating = (typeof FEEDBACK_RATINGS)[number];
+export interface FeedbackSelection { rating: FeedbackRating; comment: string | null }
 
 /** The path segments the public surface is built from. Named once so the widget cannot spell a URL
  *  differently from the handler that answers it, and so a route is renamed in one place or not at all. */
@@ -100,6 +104,7 @@ export const PUBLIC_SEGMENTS = {
   refresh: 'refresh',
   turns: 'turns',
   events: 'events',
+  feedback: 'feedback',
   actions: 'actions',
   result: 'result',
   confirmation: 'confirmation',
@@ -121,6 +126,8 @@ export const PUBLIC_PATHS = {
   avatar: PUBLIC_SEGMENTS.avatar,
   events: (turnId: string): string =>
     `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
+  feedback: (turnId: string): string =>
+    `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.feedback}`,
   actionResult: (turnId: string, actionId: string): string =>
     `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
   actionDecision: (turnId: string, actionId: string): string =>

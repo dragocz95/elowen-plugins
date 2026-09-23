@@ -132,12 +132,13 @@ const asked: {
   visitorQueries: (string | null)[];
   visitors: number[];
   stats: number[];
+  feedback: { chatbotUserId: string | null; rating: string }[];
   usage: string[];
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
   impersonate: number[];
-} = { conversations: [], visitorQueries: [], visitors: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
+} = { conversations: [], visitorQueries: [], visitors: [], stats: [], feedback: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -198,6 +199,22 @@ setDefaults(
     const offset = Number(url.searchParams.get('offset') ?? 0);
     const conversations = matching.slice(offset, offset + limit);
     return HttpResponse.json({ conversations, total: matching.length, limit, offset });
+  }),
+  http.get('/api/plugins/chatbot/api/feedback', ({ url }) => {
+    const chatbotUserId = url.searchParams.get('chatbotUserId');
+    const rating = url.searchParams.get('rating') ?? 'all';
+    asked.feedback.push({ chatbotUserId, rating });
+    const entries = [
+      { turnId: 'vote-1', chatbotUserId: 12, chatbotName: 'Městský úřad', visitorId: 'visitor-ured', sessionId: 'core-session-visitor-ured',
+        rating: 'up', comment: 'Very helpful', updatedAt: '2026-09-21T17:00:00.000Z', message: 'Where?', reply: 'Office hours are Monday to Friday.' },
+      { turnId: 'vote-2', chatbotUserId: 14, chatbotName: 'Gymnázium', visitorId: 'visitor-skola', sessionId: 'core-session-visitor-skola',
+        rating: 'down', comment: null, updatedAt: '2026-09-21T18:00:00.000Z', message: 'When?', reply: 'Admissions open in October.' },
+    ].filter(row => (chatbotUserId === null || row.chatbotUserId === Number(chatbotUserId)) && (rating === 'all' || row.rating === rating));
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 25);
+    return HttpResponse.json({ rows: entries.slice(offset, offset + limit), totals: {
+      total: entries.length, up: entries.filter(row => row.rating === 'up').length, down: entries.filter(row => row.rating === 'down').length,
+    }, limit, offset });
   }),
   http.get('/api/plugins/chatbot/api/visitors', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
@@ -281,6 +298,7 @@ afterEach(() => {
   asked.visitorQueries = [];
   asked.visitors = [];
   asked.stats = [];
+  asked.feedback = [];
   openBrainSessionWindow.mockReset();
   asked.usage = [];
   asked.userPatch = [];
@@ -297,7 +315,7 @@ afterAll(() => close());
  *  overlay rewrites its own history entry and re-renders the frame it already has mounted. Everything the
  *  deck is holding therefore survives the move — which is exactly what a suite about the column's search
  *  has to be able to observe, and what the fixture's `navigate` alone (an address, recorded) cannot show. */
-type SectionId = 'bots' | 'conversations' | 'statistics' | 'shared';
+type SectionId = 'bots' | 'conversations' | 'feedback' | 'statistics' | 'shared';
 
 const restOf = (id: SectionId): string[] => {
   const route = CHATBOT_SECTIONS.find((section) => section.id === id)!.route;
@@ -465,6 +483,7 @@ describe('what a chatbot is found by', () => {
 describe('the heading each section wears', () => {
   it.each([
     ['conversations', 'sectionConversations', 'sectionConversationsHint'],
+    ['feedback', 'sectionFeedback', 'sectionFeedbackHint'],
     ['statistics', 'sectionStatistics', 'sectionStatisticsHint'],
     ['shared', 'sectionShared', 'sectionSharedHint'],
   ] as const)('names the %s section and says in one line what it holds', async (id, name, hint) => {
@@ -473,6 +492,26 @@ describe('the heading each section wears', () => {
     // drift; the line under it is what tells the reader where the surface begins.
     expect(await screen.findByRole('heading', { name: strings[name]! })).toBeInTheDocument();
     expect(screen.getByText(strings[hint]!)).toBeInTheDocument();
+  });
+});
+
+describe('the feedback section', () => {
+  it('renders votes with icons, filters both dimensions and opens the matching conversation', async () => {
+    renderSection('feedback');
+    expect(await screen.findByText('Office hours are Monday to Friday.')).toBeInTheDocument();
+    expect(screen.getByText('Admissions open in October.')).toBeInTheDocument();
+    expect(screen.getAllByText('Very helpful')).toHaveLength(2);
+    expect(asked.feedback.at(-1)).toEqual({ chatbotUserId: null, rating: 'all' });
+    const link = screen.getByRole('button', { name: strings.feedbackOpen!.replace('{visitor}', 'visitor-ured') });
+    fireEvent.click(link);
+    expect(openBrainSessionWindow).toHaveBeenCalledWith('core-session-visitor-ured');
+    fireEvent.change(screen.getByRole('combobox', { name: strings.feedbackBotFilter! }), { target: { value: '14' } });
+    await waitFor(() => expect(asked.feedback.at(-1)).toEqual({ chatbotUserId: '14', rating: 'all' }));
+    expect(await screen.findByText('Admissions open in October.')).toBeInTheDocument();
+    expect(screen.queryByText('Office hours are Monday to Friday.')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: strings.feedbackRatingFilter! }), { target: { value: 'up' } });
+    await waitFor(() => expect(asked.feedback.at(-1)).toEqual({ chatbotUserId: '14', rating: 'up' }));
+    expect(await screen.findByText(strings.feedbackEmpty!)).toBeInTheDocument();
   });
 });
 

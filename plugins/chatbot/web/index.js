@@ -73,6 +73,11 @@ var chatbotApi = {
     if (input.visitorId !== null) query.set("visitor", input.visitorId);
     return `/plugins/chatbot/api/conversations?${query}`;
   },
+  feedback: (input) => {
+    const query = new URLSearchParams({ rating: input.rating, limit: String(input.limit), offset: String(input.offset) });
+    if (input.chatbotUserId !== null) query.set("chatbotUserId", String(input.chatbotUserId));
+    return `/plugins/chatbot/api/feedback?${query}`;
+  },
   visitors: (chatbotUserId) => `/plugins/chatbot/api/visitors?chatbotUserId=${chatbotUserId}`,
   eraseConversations: (chatbotUserId) => `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
@@ -85,7 +90,7 @@ var chatbotApi = {
 };
 
 // plugins/chatbot/web-src/ChatbotDeck.tsx
-var import_react12 = __toESM(require_react(), 1);
+var import_react13 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
@@ -274,6 +279,18 @@ var ListOrdered = createLucideIcon("ListOrdered", [
   ["path", { d: "M6 18H4c0-1 2-2 2-3s-1-1.5-2-1", key: "m9a95d" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/message-square-heart.js
+var MessageSquareHeart = createLucideIcon("MessageSquareHeart", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }],
+  [
+    "path",
+    {
+      d: "M14.8 7.5a1.84 1.84 0 0 0-2.6 0l-.2.3-.3-.3a1.84 1.84 0 1 0-2.4 2.8L12 13l2.7-2.7c.9-.9.8-2.1.1-2.8",
+      key: "1blaws"
+    }
+  ]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/messages-square.js
 var MessagesSquare = createLucideIcon("MessagesSquare", [
   ["path", { d: "M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z", key: "p1xzt8" }],
@@ -409,6 +426,30 @@ var Sparkles = createLucideIcon("Sparkles", [
   ["path", { d: "M5 18H3", key: "zchphs" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/thumbs-down.js
+var ThumbsDown = createLucideIcon("ThumbsDown", [
+  ["path", { d: "M17 14V2", key: "8ymqnk" }],
+  [
+    "path",
+    {
+      d: "M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z",
+      key: "m61m77"
+    }
+  ]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/thumbs-up.js
+var ThumbsUp = createLucideIcon("ThumbsUp", [
+  ["path", { d: "M7 10v12", key: "1qc93n" }],
+  [
+    "path",
+    {
+      d: "M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z",
+      key: "emmmcr"
+    }
+  ]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/timer.js
 var Timer = createLucideIcon("Timer", [
   ["line", { x1: "10", x2: "14", y1: "2", y2: "2", key: "14vaq8" }],
@@ -481,6 +522,8 @@ var WIDGET_ASSET_NAME = "widget.js";
 var MESSAGE_MAX_BYTES = 2 * 1024;
 var PAGE_STATE_MAX_BYTES = 32 * 1024;
 var WIDGET_MAX_ACTIONS_PER_TURN = 50;
+var FEEDBACK_COMMENT_MAX_CHARS = 500;
+var FEEDBACK_RATINGS = ["up", "down"];
 var PUBLIC_SEGMENTS = {
   handoff: "handoff",
   bootstrap: "bootstrap",
@@ -488,6 +531,7 @@ var PUBLIC_SEGMENTS = {
   refresh: "refresh",
   turns: "turns",
   events: "events",
+  feedback: "feedback",
   actions: "actions",
   result: "result",
   confirmation: "confirmation",
@@ -506,6 +550,7 @@ var PUBLIC_PATHS = {
    *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
   avatar: PUBLIC_SEGMENTS.avatar,
   events: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.events}`,
+  feedback: (turnId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.feedback}`,
   actionResult: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.result}`,
   actionDecision: (turnId, actionId) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.actions}/${actionId}/${PUBLIC_SEGMENTS.confirmation}`,
   widget: PUBLIC_SEGMENTS.widget
@@ -904,7 +949,8 @@ var APPEARANCE_ICONS = [
   // are one stroked path and they are offered to quick buttons as well as to the launcher.
   { id: "smile", path: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M9 9.5h.01 M15 9.5h.01 M8 14a6 6 0 0 0 8 0" },
   { id: "heart", path: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.8-7.8 1-1.1a5.5 5.5 0 0 0 0-7.8Z" },
-  { id: "thumb-up", path: "M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3Z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" }
+  { id: "thumb-up", path: "M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.3a2 2 0 0 0 2-1.7l1.4-9a2 2 0 0 0-2-2.3Z M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" },
+  { id: "thumb-down", path: "M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.4 15H10Z M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" }
 ];
 var APPEARANCE_BOUNDS = {
   width: { min: 280, max: 640 },
@@ -1566,6 +1612,13 @@ var CS = {
   intro: "Dobr\xFD den. Pomohu v\xE1m s vypln\u011Bn\xEDm formul\xE1\u0159e na t\xE9to str\xE1nce.",
   quickButtons: "Rychl\xE9 dotazy",
   offerOptions: "Nab\xEDdnut\xE9 mo\u017Enosti",
+  feedbackGroup: "Hodnocen\xED odpov\u011Bdi",
+  feedbackUp: "Odpov\u011B\u010F pomohla",
+  feedbackDown: "Odpov\u011B\u010F nepomohla",
+  feedbackComment: "Dopl\u0148uj\xEDc\xED koment\xE1\u0159",
+  feedbackSend: "Odeslat",
+  feedbackSkip: "P\u0159esko\u010Dit",
+  feedbackError: "Hodnocen\xED se nepoda\u0159ilo ulo\u017Eit. Zkuste to pros\xEDm znovu.",
   reconnecting: "Spojen\xED se p\u0159eru\u0161ilo, zkou\u0161\xEDm se znovu p\u0159ipojit.",
   errorTurn: "Odpov\u011B\u010F se nepoda\u0159ilo dokon\u010Dit. Zkuste to pros\xEDm znovu.",
   errorUnavailable: "Chatbot te\u010F nen\xED dostupn\xFD. Zkuste to pros\xEDm pozd\u011Bji.",
@@ -1593,6 +1646,13 @@ var SK = {
   intro: "Dobr\xFD de\u0148. Pom\xF4\u017Eem v\xE1m s vyplnen\xEDm formul\xE1ra na tejto str\xE1nke.",
   quickButtons: "R\xFDchle ot\xE1zky",
   offerOptions: "Pon\xFAkan\xE9 mo\u017Enosti",
+  feedbackGroup: "Hodnotenie odpovede",
+  feedbackUp: "Odpove\u010F pomohla",
+  feedbackDown: "Odpove\u010F nepomohla",
+  feedbackComment: "Dopl\u0148uj\xFAci koment\xE1r",
+  feedbackSend: "Odosla\u0165",
+  feedbackSkip: "Presko\u010Di\u0165",
+  feedbackError: "Hodnotenie sa nepodarilo ulo\u017Ei\u0165. Sk\xFAste to pros\xEDm znova.",
   reconnecting: "Spojenie sa preru\u0161ilo, sk\xFA\u0161am sa znova pripoji\u0165.",
   errorTurn: "Odpove\u010F sa nepodarilo dokon\u010Di\u0165. Sk\xFAste to pros\xEDm znova.",
   errorUnavailable: "Chatbot teraz nie je dostupn\xFD. Sk\xFAste to pros\xEDm nesk\xF4r.",
@@ -1620,6 +1680,13 @@ var EN = {
   intro: "Hello. I can help you fill in the form on this page.",
   quickButtons: "Quick questions",
   offerOptions: "Suggested options",
+  feedbackGroup: "Rate this answer",
+  feedbackUp: "Helpful answer",
+  feedbackDown: "Unhelpful answer",
+  feedbackComment: "Optional comment",
+  feedbackSend: "Send",
+  feedbackSkip: "Skip",
+  feedbackError: "Your feedback could not be saved. Please try again.",
   reconnecting: "The connection dropped. Reconnecting.",
   errorTurn: "The answer could not be finished. Please try again.",
   errorUnavailable: "The chatbot is not available right now. Please try again later.",
@@ -19947,6 +20014,40 @@ function offerStyles() {
 `;
 }
 
+// plugins/chatbot/embed-src/feedback.ts
+function feedbackHtml(input) {
+  const { turnId, selection, commentOpen, strings } = input;
+  const votes = ["up", "down"].map((rating) => {
+    const label = rating === "up" ? strings.feedbackUp : strings.feedbackDown;
+    return `<button type="button" class="cb-quick-item cb-feedback-thumb" data-cb-rating="${rating}"
+      aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${selection?.rating === rating}">${appearanceIconSvg(rating === "up" ? "thumb-up" : "thumb-down")}</button>`;
+  }).join("");
+  return `<div class="cb-feedback" data-cb-feedback-turn="${escapeHtml(turnId)}" role="group"
+      aria-label="${escapeHtml(strings.feedbackGroup)}">
+    <div class="cb-feedback-votes">${votes}</div>
+    ${commentOpen ? `<div class="cb-feedback-comment">
+      <textarea maxlength="${FEEDBACK_COMMENT_MAX_CHARS}" aria-label="${escapeHtml(strings.feedbackComment)}"
+        placeholder="${escapeHtml(strings.feedbackComment)}">${escapeHtml(selection?.comment ?? "")}</textarea>
+      <div><button type="button" class="cb-quick-item cb-feedback-send">${escapeHtml(strings.feedbackSend)}</button>
+      <button type="button" class="cb-quick-item cb-feedback-skip">${escapeHtml(strings.feedbackSkip)}</button></div>
+    </div>` : ""}
+  </div>`;
+}
+function feedbackStyles() {
+  return `
+.outer-message-container:has(.cb-feedback) .name { display:none; }
+.cb-feedback { display:grid; gap:6px; }
+.cb-feedback-votes { display:flex; gap:6px; }
+.cb-feedback-thumb { min-width:44px; min-height:44px; justify-content:center; }
+.cb-feedback-thumb svg { width:24px; height:24px; }
+.cb-feedback-thumb[aria-pressed="true"] { border-color:var(--cb-feedback-accent) !important; color:var(--cb-feedback-ink) !important; background:var(--cb-feedback-accent) !important; }
+.cb-feedback-thumb[aria-pressed="true"] svg { fill:color-mix(in srgb, currentColor 20%, transparent); }
+.cb-feedback-comment { display:grid; gap:6px; width:min(240px,100%); }
+.cb-feedback-comment textarea { box-sizing:border-box; width:100%; min-height:58px; resize:vertical; border:1px solid currentColor; border-radius:8px; padding:7px; font:inherit; color:inherit; background:transparent; }
+.cb-feedback-comment > div { display:flex; flex-wrap:wrap; gap:6px; }
+`;
+}
+
 // plugins/chatbot/embed-src/chatPanel.ts
 var LAUNCHER_GAP_PX = 12;
 function appearanceViewportInset(appearance) {
@@ -19959,11 +20060,35 @@ function introHtml(input) {
   const buttons = appearance.quickButtons.map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? "" : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`).join("");
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
-function introUtilities(appearance, onQuickButton, onOfferLink) {
+function introUtilities(appearance, onQuickButton, onOfferLink, onFeedbackRate, onFeedbackSend, onFeedbackSkip) {
   const ramp = appearanceRamp(appearance);
   return {
     "cb-quick": {
       styles: { default: { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px", justifyContent: "center" } }
+    },
+    "cb-feedback-thumb": {
+      events: { click: (event) => {
+        const button = event.target instanceof Element ? event.target.closest("[data-cb-rating]") : null;
+        const group = button?.closest("[data-cb-feedback-turn]");
+        if (button && group && FEEDBACK_RATINGS.some((rating) => rating === button.dataset.cbRating)) {
+          onFeedbackRate(group.dataset.cbFeedbackTurn, button.dataset.cbRating);
+        }
+      } },
+      styles: { default: { padding: "5px" }, ...buttonStyles(appearance) }
+    },
+    "cb-feedback-send": {
+      events: { click: (event) => {
+        const group = event.target instanceof Element ? event.target.closest("[data-cb-feedback-turn]") : null;
+        if (group) onFeedbackSend(group.dataset.cbFeedbackTurn, group.querySelector("textarea")?.value ?? "");
+      } },
+      styles: { default: { fontWeight: "600" }, ...buttonStyles(appearance) }
+    },
+    "cb-feedback-skip": {
+      events: { click: (event) => {
+        const group = event.target instanceof Element ? event.target.closest("[data-cb-feedback-turn]") : null;
+        if (group) onFeedbackSkip(group.dataset.cbFeedbackTurn);
+      } },
+      styles: { default: { opacity: ".8" }, ...buttonStyles(appearance) }
     },
     "cb-offer-link": {
       events: {
@@ -20109,7 +20234,7 @@ function chatConfig(input) {
     // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
     // only the primary color source changes to the widget appearance's send color.
     auxiliaryStyle: `
-:host { --cb-stop-color: ${appearance.colors.sendButton}; }
+:host { --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton}; --cb-feedback-ink: ${appearanceInk(appearance.colors.sendButton)}; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
 .input-button:has([data-cb-stop-icon]) { right: .33em !important; }
@@ -20129,7 +20254,7 @@ function chatConfig(input) {
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
 ${chatEffectsCss(appearance)}
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()}`,
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()} ${feedbackStyles()}`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -20138,7 +20263,7 @@ ${chatEffectsCss(appearance)}
         strings
       })
     },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink),
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink, input.onFeedbackRate, input.onFeedbackSend, input.onFeedbackSkip),
     avatars: input.avatar === null ? void 0 : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" }, user: { style: { display: "none" } } } : void 0
   };
@@ -20304,6 +20429,9 @@ var ChatPanel = class {
   queued = [];
   offerOrigins = [];
   offerActive = false;
+  feedbackState = /* @__PURE__ */ new Map();
+  feedbackBusy = /* @__PURE__ */ new Set();
+  onFeedback;
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
   redrawPending = false;
@@ -20324,6 +20452,7 @@ var ChatPanel = class {
     this.look = options.look;
     this.onVisitorMessage = options.onVisitorMessage;
     this.onStop = options.onStop;
+    this.onFeedback = options.onFeedback;
     this.onOpen = options.onOpen;
     this.loadAvatar = options.loadAvatar;
     this.storage = options.storage;
@@ -20549,11 +20678,76 @@ var ChatPanel = class {
     this.offerActive = active;
     this.draw({ role: "ai", html: offerHtml(offer, this.offerOrigins, this.strings, active) });
   }
+  /** A finished answer has one native deep-chat HTML message for its own feedback controls. */
+  showFeedback(turnId, selection) {
+    const index = this.ready ? this.chat.getMessages().length : this.queued.length;
+    this.feedbackState.set(turnId, { selection, commentOpen: false, index });
+    this.draw({ role: "ai", html: feedbackHtml({ turnId, selection, commentOpen: false, strings: this.strings }) });
+  }
+  updateFeedback(turnId) {
+    const state = this.feedbackState.get(turnId);
+    if (!state) return;
+    const html = feedbackHtml({ turnId, ...state, strings: this.strings });
+    if (!this.ready) this.queued[state.index] = { role: "ai", html };
+    else {
+      this.chat.updateMessage({ html }, state.index);
+      requestAnimationFrame(() => this.scrollToLatest());
+    }
+  }
+  async rateFeedback(turnId, rating) {
+    const state = this.feedbackState.get(turnId);
+    if (!state || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
+    this.feedbackBusy.add(turnId);
+    try {
+      const saved = await this.onFeedback(turnId, rating, state.selection?.comment ?? null);
+      if (!saved) {
+        this.notice(this.strings.feedbackError);
+        return;
+      }
+      state.selection = saved;
+      state.commentOpen = true;
+      this.updateFeedback(turnId);
+    } catch {
+      this.notice(this.strings.feedbackError);
+    } finally {
+      this.feedbackBusy.delete(turnId);
+    }
+  }
+  async sendFeedbackComment(turnId, comment) {
+    const state = this.feedbackState.get(turnId);
+    if (!state?.selection || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
+    if (comment.length > FEEDBACK_COMMENT_MAX_CHARS) {
+      this.notice(this.strings.feedbackError);
+      return;
+    }
+    this.feedbackBusy.add(turnId);
+    try {
+      const saved = await this.onFeedback(turnId, state.selection.rating, comment.trim() || null);
+      if (!saved) {
+        this.notice(this.strings.feedbackError);
+        return;
+      }
+      state.selection = saved;
+      state.commentOpen = false;
+      this.updateFeedback(turnId);
+    } catch {
+      this.notice(this.strings.feedbackError);
+    } finally {
+      this.feedbackBusy.delete(turnId);
+    }
+  }
+  skipFeedbackComment(turnId) {
+    const state = this.feedbackState.get(turnId);
+    if (!state || this.feedbackBusy.has(turnId)) return;
+    state.commentOpen = false;
+    this.updateFeedback(turnId);
+  }
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages) {
     for (const message of messages) {
       this.draw(message);
+      if (message.role === "ai" && message.turnId) this.showFeedback(message.turnId, message.feedback ?? null);
       if (message.offer) this.showOffer(message.offer, message.offerActive === true);
     }
     this.cancelDrawScroll();
@@ -20606,6 +20800,13 @@ var ChatPanel = class {
       onOfferLink: (url) => {
         if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url);
       },
+      onFeedbackRate: (turnId, rating) => {
+        void this.rateFeedback(turnId, rating);
+      },
+      onFeedbackSend: (turnId, comment) => {
+        void this.sendFeedbackComment(turnId, comment);
+      },
+      onFeedbackSkip: (turnId) => this.skipFeedbackComment(turnId),
       onStop: () => this.stopAnswer()
     });
   }
@@ -22044,9 +22245,141 @@ function ConversationsSection() {
   ] });
 }
 
-// plugins/chatbot/web-src/StatsView.tsx
+// plugins/chatbot/web-src/FeedbackView.tsx
 var import_react11 = __toESM(require_react(), 1);
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var PAGE_SIZE2 = 25;
+var COLUMNS2 = "8rem 4rem minmax(0,1.7fr) minmax(0,1fr) 8rem 1.25rem";
+var MOBILE_COLUMNS2 = "3rem minmax(0,1fr) 1rem";
+var HIDE_MOBILE = "@max-[40rem]:hidden";
+function FeedbackSection() {
+  const { components: C, hooks, utils } = runtime();
+  const s = hooks.usePluginStrings("chatbot");
+  const { locale } = hooks.useTranslation();
+  const register = useChatbots();
+  const [chatbotUserId, setChatbotUserId] = (0, import_react11.useState)(null);
+  const [rating, setRating] = (0, import_react11.useState)("all");
+  const [page, setPage] = (0, import_react11.useState)(0);
+  const [refresh, setRefresh] = (0, import_react11.useState)(0);
+  const [answer, setAnswer] = (0, import_react11.useState)(null);
+  const [loadError, setLoadError] = (0, import_react11.useState)(null);
+  const requestSequence = (0, import_react11.useRef)(0);
+  const heading = { title: s.sectionFeedback, description: s.sectionFeedbackHint, icon: MessageSquareHeart };
+  (0, import_react11.useEffect)(() => {
+    const request = ++requestSequence.current;
+    setAnswer(null);
+    setLoadError(null);
+    if (register.isLoading || register.loadError !== null) return;
+    void apiJson(chatbotApi.feedback({
+      chatbotUserId,
+      rating,
+      limit: PAGE_SIZE2,
+      offset: page * PAGE_SIZE2
+    })).then((result) => {
+      if (request === requestSequence.current) setAnswer(result);
+    }).catch((error) => {
+      if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.feedbackLoadError);
+    });
+  }, [chatbotUserId, page, rating, refresh, register.isLoading, register.loadError, s.feedbackLoadError, utils]);
+  if (register.loadError) {
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: register.loadError, onRetry: register.reload }) });
+  }
+  if (register.isLoading || register.bots.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: MessageSquareHeart }) });
+  }
+  const body = loadError ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: loadError, onRetry: () => setRefresh((current) => current + 1) }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : answer.totals.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.feedbackEmpty, description: s.feedbackEmptyHint, icon: MessageSquareHeart }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.Badge, { tone: "success", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ThumbsUp, { size: 14, "aria-hidden": "true" }),
+        " ",
+        s.feedbackTotalUp.replace("{count}", integer(answer.totals.up, locale))
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.Badge, { tone: "danger", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ThumbsDown, { size: 14, "aria-hidden": "true" }),
+        " ",
+        s.feedbackTotalDown.replace("{count}", integer(answer.totals.down, locale))
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTable, { ariaLabel: s.sectionFeedback, columns: COLUMNS2, compactColumns: COLUMNS2, mobileColumns: MOBILE_COLUMNS2, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTableRow, { header: true, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackBotFilter }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.feedbackRatingFilter }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.feedbackAnswer }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackComment }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackUpdated }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableChevronCell, {})
+      ] }),
+      answer.rows.map((row) => {
+        const Icon3 = row.rating === "up" ? ThumbsUp : ThumbsDown;
+        const label = row.rating === "up" ? s.feedbackUp : s.feedbackDown;
+        return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+          C.DataTableRow,
+          {
+            interactive: row.sessionId !== null,
+            onOpen: row.sessionId === null ? void 0 : () => utils.openBrainSessionWindow(row.sessionId),
+            openLabel: row.sessionId === null ? void 0 : s.feedbackOpen.replace("{visitor}", row.visitorId),
+            title: row.message,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: HIDE_MOBILE, children: row.chatbotName || s.botFallback }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { title: label, "aria-label": label, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Icon3, { size: 18, "aria-hidden": "true" }) }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTableCell, { lines: "auto", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "block truncate", title: row.reply, children: row.reply }),
+                /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "@min-[40rem]:hidden text-xs text-muted-foreground", children: [
+                  row.chatbotName || s.botFallback,
+                  " \xB7 ",
+                  formatDateTime(row.updatedAt, locale)
+                ] }),
+                row.comment ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "@min-[40rem]:hidden block text-xs text-muted-foreground", children: row.comment }) : null
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", className: HIDE_MOBILE, children: row.comment ?? "\u2014" }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: HIDE_MOBILE, children: formatDateTime(row.updatedAt, locale) }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableChevronCell, {})
+            ]
+          },
+          row.turnId
+        );
+      })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.Pager, { page, pageSize: PAGE_SIZE2, total: answer.totals.total, onPageChange: setPage, ariaLabel: s.sectionFeedback })
+  ] });
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, actions: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      C.SelectMenu,
+      {
+        label: s.feedbackBotFilter,
+        variant: "line",
+        value: chatbotUserId === null ? "" : String(chatbotUserId),
+        onChange: (value) => {
+          setChatbotUserId(value === "" ? null : Number(value));
+          setPage(0);
+        },
+        options: [{ value: "", label: s.feedbackAllBots }, ...register.bots.map((bot) => ({
+          value: String(bot.chatbotUserId),
+          label: bot.displayName || s.botFallback
+        }))]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      C.SelectMenu,
+      {
+        label: s.feedbackRatingFilter,
+        variant: "line",
+        value: rating,
+        onChange: (value) => {
+          if (value === "all" || value === "up" || value === "down") {
+            setRating(value);
+            setPage(0);
+          }
+        },
+        options: [{ value: "all", label: s.feedbackAllRatings }, { value: "up", label: s.feedbackUp }, { value: "down", label: s.feedbackDown }]
+      }
+    )
+  ] }), children: body });
+}
+
+// plugins/chatbot/web-src/StatsView.tsx
+var import_react12 = __toESM(require_react(), 1);
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var STATS_MAX_DAYS = 366;
 var DAY_MS = 864e5;
 var SERIES_COLOURS = {
@@ -22087,27 +22420,27 @@ function StatsSection() {
   const { locale, t } = hooks.useTranslation();
   const register = useChatbots();
   const bots = register.bots;
-  const [selected, setSelected] = (0, import_react11.useState)(null);
+  const [selected, setSelected] = (0, import_react12.useState)(null);
   const [rangeRaw, setRangeRaw] = hooks.usePersistentState(
     "elowen.chatbot.stats.range",
     utils.serializeRange(utils.DEFAULT_RANGE),
     utils.isStoredRange
   );
-  const { range, now } = (0, import_react11.useMemo)(() => ({
+  const { range, now } = (0, import_react12.useMemo)(() => ({
     range: utils.parseRange(rangeRaw) ?? utils.DEFAULT_RANGE,
     now: Date.now()
   }), [rangeRaw, utils]);
-  const hostBounds = (0, import_react11.useMemo)(() => utils.rangeBounds(range, now), [now, range, utils]);
-  const window2 = (0, import_react11.useMemo)(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
-  const [answer, setAnswer] = (0, import_react11.useState)(null);
-  const [loadError, setLoadError] = (0, import_react11.useState)(null);
+  const hostBounds = (0, import_react12.useMemo)(() => utils.rangeBounds(range, now), [now, range, utils]);
+  const window2 = (0, import_react12.useMemo)(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
+  const [answer, setAnswer] = (0, import_react12.useState)(null);
+  const [loadError, setLoadError] = (0, import_react12.useState)(null);
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
-  (0, import_react11.useEffect)(() => {
+  (0, import_react12.useEffect)(() => {
     setAnswer(null);
     setLoadError(null);
   }, [chatbotUserId, window2.from, window2.to]);
-  const load = (0, import_react11.useCallback)(() => {
+  const load = (0, import_react12.useCallback)(() => {
     if (chatbotUserId === null) return;
     setLoadError(null);
     void apiJson(chatbotApi.stats({
@@ -22116,7 +22449,7 @@ function StatsSection() {
       to: window2.to
     })).then(setAnswer).catch((error) => setLoadError(utils.apiErrorMessage(error) || s.statsLoadError));
   }, [chatbotUserId, s.statsLoadError, utils, window2.from, window2.to]);
-  (0, import_react11.useEffect)(() => {
+  (0, import_react12.useEffect)(() => {
     load();
   }, [load]);
   const spend = answer === null ? null : answer.spend.reduce((sum, { usage }) => {
@@ -22148,7 +22481,7 @@ function StatsSection() {
   const changeRange = (next) => setRangeRaw(utils.serializeRange(next));
   const filters = [
     pageFilterField(
-      { id: "range", label: t.common.rangeLabel, control: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DateRangeFilter, { value: range, onChange: changeRange }) },
+      { id: "range", label: t.common.rangeLabel, control: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.DateRangeFilter, { value: range, onChange: changeRange }) },
       utils.serializeRange(range) !== utils.serializeRange(utils.DEFAULT_RANGE),
       `${t.common.rangeLabel}: ${rangeLabel}`,
       () => changeRange(utils.DEFAULT_RANGE)
@@ -22156,55 +22489,55 @@ function StatsSection() {
   ];
   const heading = { title: s.sectionStatistics, description: s.sectionStatisticsHint, icon: Activity };
   if (register.loadError !== null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
   }
   if (bot === null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: Activity }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: Activity }) });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       C.SettingsGroup,
       {
         ...heading,
-        actions: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }),
-        children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.PageFilters, { fields: filters }),
-          loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.statsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.TimeSeriesChart, { data: chartData, series, height: 240, ariaLabel: s.chartTitle, emptyText: s.chartEmpty }),
-            unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "text-xs text-muted-foreground", children: s.costUnknownHint }) : null
+        actions: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }),
+        children: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.PageFilters, { fields: filters }),
+          loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: `${s.statsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.TimeSeriesChart, { data: chartData, series, height: 240, ariaLabel: s.chartTitle, emptyText: s.chartEmpty }),
+            unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: "text-xs text-muted-foreground", children: s.costUnknownHint }) : null
           ] })
         ] })
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       C.SettingsRow,
       {
         label: s.spendTitle,
         icon: Coins,
         description: s.spendHint,
-        status: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "text-xs text-destructive", children: s.spendLoadError }) : spend === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingLine, { layout: "inline" }) : spend.turns === 0 && spend.cost === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "text-xs text-muted-foreground", children: s.spendEmptyTitle }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "font-mono text-xs tabular-nums", children: s.spendLine.replace("{turns}", integer(spend.turns, locale)).replace("{tokens}", spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale)).replace("{cost}", spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale)) })
+        status: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-destructive", children: s.spendLoadError }) : spend === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingLine, { layout: "inline" }) : spend.turns === 0 && spend.cost === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-muted-foreground", children: s.spendEmptyTitle }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-mono text-xs tabular-nums", children: s.spendLine.replace("{turns}", integer(spend.turns, locale)).replace("{tokens}", spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale)).replace("{cost}", spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale)) })
       }
     ) })
   ] });
 }
 
 // plugins/chatbot/web-src/SharedSettings.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 function SharedSettings({ plugin }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const { requiredTools } = useChatbots();
   const detail = hooks.usePluginDetail(plugin);
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { title: s.sectionShared, description: s.sectionSharedHint, icon: SlidersHorizontal }),
-    detail.isError ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: s.sharedLoadError, onRetry: () => detail.refetch() }) : detail.data === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(SharedPluginConfig, { plugin, detail: detail.data }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.SettingsGroup, { title: s.sharedRequirementsTitle, icon: ShieldCheck, density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: "flex flex-col gap-3", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(C.SettingsGroup, { title: s.sectionShared, description: s.sectionSharedHint, icon: SlidersHorizontal }),
+    detail.isError ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(C.ErrorState, { message: s.sharedLoadError, onRetry: () => detail.refetch() }) : detail.data === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(C.SettingsDocument, { children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedPluginConfig, { plugin, detail: detail.data }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(C.SettingsGroup, { title: s.sharedRequirementsTitle, icon: ShieldCheck, density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       C.SettingsRow,
       {
         label: s.toolsRequiredLabel,
         description: s.toolsRequiredHint,
         icon: Wrench,
-        status: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-mono text-xs", children: requiredTools.length === 0 ? "\u2014" : requiredTools.join(", ") })
+        status: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "font-mono text-xs", children: requiredTools.length === 0 ? "\u2014" : requiredTools.join(", ") })
       }
     ) })
   ] });
@@ -22221,7 +22554,7 @@ function SharedPluginConfig({ plugin, detail }) {
     label: translated?.[field.key]?.options?.[option.value] ?? option.label
   }));
   const riskText = (risk) => risk === "high" ? t.pluginDetail.riskHigh : risk === "medium" ? t.pluginDetail.riskMedium : t.pluginDetail.riskLow;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
     C.PluginConfigEditor,
     {
       name: plugin,
@@ -22237,12 +22570,13 @@ function SharedPluginConfig({ plugin, detail }) {
 }
 
 // plugins/chatbot/web-src/sections.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var CHATBOT_SECTIONS = [
-  { id: "bots", route: "", label: (s) => s.sectionBots, icon: Bot, render: ({ plugin, openBotId, onOpenBot }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(BotsSection, { plugin, openBotId, onOpenBot }) },
-  { id: "conversations", route: "conversations", label: (s) => s.sectionConversations, icon: MessagesSquare, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ConversationsSection, {}) },
-  { id: "statistics", route: "statistics", label: (s) => s.sectionStatistics, icon: Activity, render: () => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(StatsSection, {}) },
-  { id: "shared", route: "shared", label: (s) => s.sectionShared, icon: SlidersHorizontal, render: ({ plugin }) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SharedSettings, { plugin }) }
+  { id: "bots", route: "", label: (s) => s.sectionBots, icon: Bot, render: ({ plugin, openBotId, onOpenBot }) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(BotsSection, { plugin, openBotId, onOpenBot }) },
+  { id: "conversations", route: "conversations", label: (s) => s.sectionConversations, icon: MessagesSquare, render: () => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(ConversationsSection, {}) },
+  { id: "feedback", route: "feedback", label: (s) => s.sectionFeedback, icon: MessageSquareHeart, render: () => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(FeedbackSection, {}) },
+  { id: "statistics", route: "statistics", label: (s) => s.sectionStatistics, icon: Activity, render: () => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(StatsSection, {}) },
+  { id: "shared", route: "shared", label: (s) => s.sectionShared, icon: SlidersHorizontal, render: ({ plugin }) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(SharedSettings, { plugin }) }
 ];
 function sectionForRoute(route) {
   return CHATBOT_SECTIONS.find((section) => section.route === route) ?? CHATBOT_SECTIONS[0];
@@ -22252,13 +22586,13 @@ function sectionHref(plugin, route) {
 }
 
 // plugins/chatbot/web-src/ChatbotDeck.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function ChatbotDeck({ plugin, rest }) {
   const { components: C, hooks, navigate } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const register = useChatbots();
-  const [query, setQuery] = (0, import_react12.useState)("");
-  const [openBotId, setOpenBotId] = (0, import_react12.useState)(null);
+  const [query, setQuery] = (0, import_react13.useState)("");
+  const [openBotId, setOpenBotId] = (0, import_react13.useState)(null);
   const active = sectionForRoute(rest.join("/"));
   const needle = normalizeQuery(query);
   const found = needle === "" ? [] : matchingBots(register.bots, query);
@@ -22289,12 +22623,12 @@ function ChatbotDeck({ plugin, rest }) {
       }];
     })
   }];
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
     C.SectionDeck,
     {
       testId: "chatbot-deck",
       contentLabel: active.label(s),
-      navigation: (layout, className) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      navigation: (layout, className) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
         C.DeckNavigation,
         {
           label: s.sectionsLabel,

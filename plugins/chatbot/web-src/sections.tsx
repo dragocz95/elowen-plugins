@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { Activity, Bot, MessagesSquare, SlidersHorizontal, type LucideIcon } from 'lucide-react';
+import { Activity, Bot, MessageSquareHeart, MessagesSquare, SlidersHorizontal, type LucideIcon } from 'lucide-react';
 import { BotsSection } from './BotsSection';
 import { ConversationsSection } from './ConversationsView';
+import { FeedbackSection } from './FeedbackView';
 import { StatsSection } from './StatsView';
 import { SharedSettings } from './SharedSettings';
 
@@ -10,7 +11,7 @@ import { SharedSettings } from './SharedSettings';
  *
  *  The chatbot a drawer shows belongs to the DECK rather than to the register, for two reasons that are
  *  the same reason: the deck's own column can open one from a search match, and the deck is what the host
- *  keeps mounted while the address moves between the four sections. State a section holds is gone the
+ *  keeps mounted while the address moves between the five sections. State a section holds is gone the
  *  moment the reader looks at another section; state the deck holds survives the whole visit. */
 interface ChatbotDeckFrame {
   plugin: string;
@@ -20,7 +21,7 @@ interface ChatbotDeckFrame {
 }
 
 export interface ChatbotSection {
-  id: 'bots' | 'conversations' | 'statistics' | 'shared';
+  id: 'bots' | 'conversations' | 'feedback' | 'statistics' | 'shared';
   /** The address inside this plugin's own modal, relative to `/p/chatbot`. */
   route: string;
   /** This section's name, read from the bundle's own strings. The name is the BUNDLE's now — the deck's
@@ -32,7 +33,7 @@ export interface ChatbotSection {
   render(frame: ChatbotDeckFrame): ReactNode;
 }
 
-/** WHAT THIS PLUGIN'S MODAL IS MADE OF, in one place: four sections, each an id, an address, a name, a
+/** WHAT THIS PLUGIN'S MODAL IS MADE OF, in one place: five sections, each an id, an address, a name, a
  *  glyph and what it renders.
  *
  *  This one list is both what the deck's navigation is built from and what the bundle registers as its
@@ -42,6 +43,7 @@ export interface ChatbotSection {
 export const CHATBOT_SECTIONS: readonly ChatbotSection[] = [
   { id: 'bots', route: '', label: (s) => s.sectionBots!, icon: Bot, render: ({ plugin, openBotId, onOpenBot }) => <BotsSection plugin={plugin} openBotId={openBotId} onOpenBot={onOpenBot} /> },
   { id: 'conversations', route: 'conversations', label: (s) => s.sectionConversations!, icon: MessagesSquare, render: () => <ConversationsSection /> },
+  { id: 'feedback', route: 'feedback', label: (s) => s.sectionFeedback!, icon: MessageSquareHeart, render: () => <FeedbackSection /> },
   { id: 'statistics', route: 'statistics', label: (s) => s.sectionStatistics!, icon: Activity, render: () => <StatsSection /> },
   { id: 'shared', route: 'shared', label: (s) => s.sectionShared!, icon: SlidersHorizontal, render: ({ plugin }) => <SharedSettings plugin={plugin} /> },
 ];

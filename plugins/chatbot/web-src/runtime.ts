@@ -474,6 +474,11 @@ export const chatbotApi = {
     if (input.visitorId !== null) query.set('visitor', input.visitorId);
     return `/plugins/chatbot/api/conversations?${query}`;
   },
+  feedback: (input: { chatbotUserId: number | null; rating: 'all' | 'up' | 'down'; limit: number; offset: number }): string => {
+    const query = new URLSearchParams({ rating: input.rating, limit: String(input.limit), offset: String(input.offset) });
+    if (input.chatbotUserId !== null) query.set('chatbotUserId', String(input.chatbotUserId));
+    return `/plugins/chatbot/api/feedback?${query}`;
+  },
   visitors: (chatbotUserId: number): string => `/plugins/chatbot/api/visitors?chatbotUserId=${chatbotUserId}`,
   eraseConversations: (chatbotUserId: number): string =>
     `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,

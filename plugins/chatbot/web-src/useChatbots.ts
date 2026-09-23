@@ -1,7 +1,7 @@
 import { apiJson, chatbotApi, runtime } from './runtime';
 import type { ChatbotBotView, ChatbotsAnswer } from './types';
 
-/** THE REGISTER, read once for all four sections.
+/** THE REGISTER, read once for all five sections.
  *
  *  Each section is mounted on its own by the host — they are four addresses in Settings → Plugins, not
  *  four panels of one component this bundle owns — so a register loaded inside a section would be loaded

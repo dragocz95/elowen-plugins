@@ -23,6 +23,8 @@ import {
   WIDGET_MAX_ACTIONS_PER_TURN,
   type ActionOutcome,
   type PageFailureDetail,
+  type FeedbackRating,
+  type FeedbackSelection,
 } from '../src/publicContract.js';
 import { readOffer, type Offer } from '../src/offerContract.js';
 import { parseAppearance, type ChatbotLook } from '../src/appearanceContract.js';
@@ -42,6 +44,7 @@ import {
 } from './protocol.js';
 import { FORM_INVALID, TARGET_GONE, type ActionReport, type PerformableAction } from './pageActions.js';
 import { fillTemplate, type WidgetStrings } from './strings.js';
+import { readFeedback } from './feedback.js';
 
 /** The panel, as the conversation needs it: it shows, it asks, and it never decides. */
 export interface ChatView {
@@ -53,11 +56,12 @@ export interface ChatView {
   streamAnswer(text: string): void;
   /** The answer as it finally stands. Used for the terminal frame and for a restored transcript. */
   finishAnswer(text: string): Promise<void> | void;
+  showFeedback(turnId: string, feedback: FeedbackSelection | null): void;
   /** Something the visitor should know that is not an answer: a decline, a reconnection. */
   notice(text: string): void;
   error(text: string): void;
   /** A transcript rebuilt from the server's projection. */
-  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[]): void;
+  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[]): void;
   setAllowedOrigins(origins: string[]): void;
   showOffer(offer: Offer, active: boolean): void;
   /** Ask the visitor to confirm an irreversible action. Resolves true ONLY for a click the visitor
@@ -153,7 +157,7 @@ export class ChatSession {
     if (this.token === null) return;
     const conversation = await this.getConversation();
     if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
-    const messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[] = [];
+    const messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[] = [];
     for (const [index, turn] of conversation.turns.entries()) {
       if (typeof turn.message !== 'string') continue;
       messages.push({ role: 'user', text: turn.message });
@@ -163,7 +167,7 @@ export class ChatSession {
       } else {
         if (typeof turn.reply === 'string' && turn.reply !== '') {
           const offer = readOffer(turn.offer, this.allowedOrigins);
-          messages.push({ role: 'ai', text: turn.reply, ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
+          messages.push({ role: 'ai', text: turn.reply, turnId: turn.turnId, feedback: readFeedback(turn.feedback), ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
         }
         this.cursors.set(turn.turnId, turn.lastSeq);
       }
@@ -270,6 +274,16 @@ export class ChatSession {
     await this.follow(turnId);
   }
 
+  async sendFeedback(turnId: string, rating: FeedbackRating, comment: string | null): Promise<FeedbackSelection | null> {
+    const submit = () => this.request(this.token, 'POST', PUBLIC_PATHS.feedback(turnId),
+      { schemaVersion: PUBLIC_SCHEMA_VERSION, rating, comment });
+    let response = await submit();
+    if (await invalidCredential(response) && await this.refreshToken() === 'rotated') response = await submit();
+    if (!response?.ok) return null;
+    const body = await readJson(response);
+    return readFeedback(body);
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.aborter?.abort();
@@ -372,6 +386,7 @@ export class ChatSession {
       case 'done': {
         const text = frame.data.text;
         await this.deps.view.finishAnswer(typeof text === 'string' ? text : '');
+        this.deps.view.showFeedback(turnId, null);
         const offer = this.offers.get(turnId);
         this.offers.delete(turnId);
         if (offer) this.deps.view.showOffer(offer, true);
@@ -623,6 +638,7 @@ export class ChatSession {
         message: record.message,
         reply: record.reply,
         offer: record.offer,
+        feedback: record.feedback,
         lastSeq: typeof record.lastSeq === 'number' && record.lastSeq >= 0 ? record.lastSeq : 0,
         pendingActions: Array.isArray(record.pendingActions) ? record.pendingActions.filter((id): id is string => typeof id === 'string') : [],
       });
@@ -737,6 +753,7 @@ interface ConversationTurn {
   message: unknown;
   reply: unknown;
   offer: unknown;
+  feedback: unknown;
   lastSeq: number;
   pendingActions: string[];
 }

@@ -287,6 +287,21 @@ const MIGRATIONS = [
       db.exec('ALTER TABLE p_chatbot_conversations ADD COLUMN last_ip TEXT;');
     },
   },
+  {
+    /** Step 10: one visitor rating for each finished answer, removed with its turn. */
+    version: 10,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`CREATE TABLE p_chatbot_feedback (
+        turn_id TEXT PRIMARY KEY,
+        chatbot_user_id INTEGER NOT NULL,
+        visitor_id TEXT NOT NULL,
+        rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+        comment TEXT CHECK (comment IS NULL OR length(comment) <= 500),
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX p_chatbot_feedback_register ON p_chatbot_feedback (chatbot_user_id, rating, updated_at DESC);`);
+    },
+  },
 ];
 
 /** The message as the widget composed it before step 8: an optional label, the visitor's words, and a
@@ -380,6 +395,15 @@ export interface TurnRow {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+export interface FeedbackRow {
+  turn_id: string;
+  chatbot_user_id: number;
+  visitor_id: string;
+  rating: 'up' | 'down';
+  comment: string | null;
+  updated_at: string;
 }
 
 export interface TurnEventRow {

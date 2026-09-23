@@ -114,9 +114,10 @@ function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): Vi
     finishAnswer: (text) => { log.answers[log.answers.length - 1] = text; },
     notice: (text) => { log.notices.push(text); },
     error: (text) => { log.errors.push(text); },
-    restore: (messages) => { log.restored.push(...messages); },
+    restore: (messages) => { log.restored.push(...messages.map(({ role, text }) => ({ role, text }))); },
     setAllowedOrigins: () => undefined,
     showOffer: (offer, active) => { log.offered.push({ offer, active }); },
+    showFeedback: () => undefined,
     confirm: (request) => {
       log.confirmRequests.push(request.title);
       return typeof confirmAnswer === 'function' ? confirmAnswer() : Promise.resolve(confirmAnswer);
@@ -1543,5 +1544,55 @@ describe('offer messages in deep-chat', () => {
     await harness.session.send('Choose');
     expect(view.offered).toEqual([{ offer: last, active: true }]);
     expect(view.answers.at(-1)).toBe('Pick one.');
+  });
+});
+
+describe('visitor feedback controls', () => {
+  it('posts a thumb, skips or sends a comment, changes the vote and restores its selected icon', async () => {
+    const saved: { rating: 'up' | 'down'; comment: string | null }[] = [];
+    const turnId = '550e8400-e29b-41d4-a716-446655440000';
+    const panel = new ChatPanel({
+      strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined,
+      onFeedback: async (_turn, rating, comment) => {
+        saved.push({ rating, comment });
+        return { rating, comment };
+      },
+    });
+    document.body.append(panel.host);
+    panel.restore([{ role: 'ai', text: 'An answer', turnId, feedback: null }]);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as unknown as {
+      getMessages(): { html?: string }[];
+      htmlClassUtilities: Record<string, { events?: { click?: (event: { target: EventTarget | null }) => void } }>;
+    };
+    const html = () => chat.getMessages()[1]!.html!;
+    const group = () => { const node = document.createElement('div'); node.innerHTML = html(); return node.querySelector<HTMLElement>('.cb-feedback')!; };
+    const click = (key: string, button: HTMLButtonElement) => chat.htmlClassUtilities[key]!.events!.click!({ target: button });
+    expect(html()).toContain('aria-pressed="false"');
+    click('cb-feedback-thumb', group().querySelector('[data-cb-rating="down"]')!);
+    await flush();
+    expect(saved).toEqual([{ rating: 'down', comment: null }]);
+    expect(html()).toContain('aria-pressed="true"');
+    expect(html()).toContain('<textarea');
+    click('cb-feedback-skip', group().querySelector('.cb-feedback-skip')!);
+    expect(html()).not.toContain('<textarea');
+    click('cb-feedback-thumb', group().querySelector('[data-cb-rating="up"]')!);
+    await flush();
+    const withComment = group();
+    withComment.querySelector('textarea')!.value = 'Useful detail';
+    click('cb-feedback-send', withComment.querySelector('.cb-feedback-send')!);
+    await flush();
+    expect(saved).toEqual([{ rating: 'down', comment: null }, { rating: 'up', comment: null }, { rating: 'up', comment: 'Useful detail' }]);
+    expect(html()).not.toContain('<textarea');
+    panel.destroy();
+
+    const restored = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(restored.host);
+    restored.restore([{ role: 'ai', text: 'An answer', turnId, feedback: { rating: 'up', comment: 'Useful detail' } }]);
+    const again = (restored.host.shadowRoot!.querySelector('deep-chat') as unknown as { getMessages(): { html?: string }[] }).getMessages()[1]!.html!;
+    expect(again).toContain('data-cb-rating="up"');
+    expect(again).toContain('aria-pressed="true"');
+    restored.destroy();
   });
 });
