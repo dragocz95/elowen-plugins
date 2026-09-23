@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { STATS_SERIES_COLORS } from '../palette';
+import { percentage } from '../format';
 
 export interface PieDatum {
   id: string;
@@ -37,10 +38,11 @@ export function calculatePieSegments(data: PieDatum[]): PieSegment[] {
 
 /** `renderIcon` is how the host's ModelIcon reaches this file without importing the UI runtime here,
  *  which keeps the segment maths a pure function the tests can drive without a browser. */
-export function PieChart({ title, data, emptyText, renderIcon }: {
+export function PieChart({ title, data, emptyText, renderIcon, locale }: {
   title: string;
   data: PieDatum[];
   emptyText: string;
+  locale: string;
   renderIcon?: (datum: PieDatum) => ReactNode;
 }) {
   const segments = calculatePieSegments(data);
@@ -80,7 +82,7 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
           {active ? (
             <>
               {renderIcon?.(active)}
-              <span className="font-mono text-sm tabular-nums text-foreground">{active.percentage.toFixed(1)}%</span>
+              <span className="font-mono text-sm tabular-nums text-foreground">{percentage(active.percentage, locale)}</span>
               <span className="w-full truncate text-[0.65rem] text-muted-foreground">{active.valueLabel}</span>
             </>
           ) : null}
@@ -101,7 +103,7 @@ export function PieChart({ title, data, emptyText, renderIcon }: {
               </span>
               <span className="truncate text-foreground" title={segment.label}>{segment.label}</span>
               <span className="whitespace-nowrap font-mono tabular-nums text-muted-foreground">
-                {segment.percentage.toFixed(1)}% · {segment.valueLabel}
+                {percentage(segment.percentage, locale)} · {segment.valueLabel}
               </span>
             </li>
           ))}

@@ -41,7 +41,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
     // a labelled region instead, which is what this actually is — seven small agendas side by side.
     <div
       aria-label={s.tabCalendar || 'Calendar'}
-      className="grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-border/80 bg-document"
+      className="grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-hairline bg-raised"
       data-testid="cron-week-grid"
     >
       {days.map((day) => {
@@ -64,7 +64,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
                 }}
                 className="flex w-full flex-col items-center gap-0.5 px-2 py-2.5 transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)]"
               >
-                <span className={`text-[10px] font-medium uppercase tracking-[0.08em] ${selected ? 'text-foreground' : 'text-muted-foreground'}`}>
+                <span className={`text-meta font-medium uppercase tracking-[0.08em] ${selected ? 'text-foreground' : 'text-muted-foreground'}`}>
                   {weekdayLabel(day.localDate, locale)}
                 </span>
                 <span
@@ -143,10 +143,10 @@ export function MobileDayStrip({ days, selectedDate, todayLocalDate, onSelectDat
             type="button"
             aria-current={selected ? 'date' : undefined}
             onClick={() => onSelectDate(day.localDate)}
-            className={`flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? 'border-primary/60 bg-primary/10' : 'border-border/70 bg-card'}`}
+            className={`flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? 'border-primary/60 bg-primary/10' : 'border-border/70 bg-control'}`}
           >
             <span className="sr-only">{shortDay(day.localDate, locale)}</span>
-            <span aria-hidden className={`text-[10px] font-medium uppercase tracking-[0.08em] ${selected ? 'text-primary' : 'text-muted-foreground'}`}>
+            <span aria-hidden className={`text-meta font-medium uppercase tracking-[0.08em] ${selected ? 'text-primary' : 'text-muted-foreground'}`}>
               {weekdayLabel(day.localDate, locale)}
             </span>
             <span

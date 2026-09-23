@@ -8,7 +8,9 @@ export const integer = (value: number, locale: string): string => new Intl.Numbe
 export const money = (value: number | null, locale: string): string =>
   value == null ? '—' : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value);
 
-/** Short absolute timestamp for "first seen / last seen". Absolute rather than relative on purpose —
- *  the question the drawer answers is forensic, and "3 days ago" is not something anyone can act on. */
+export const percentage = (value: number | null, locale: string): string =>
+  value == null ? '—' : `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)}%`;
+
+/** Short absolute timestamp for "first seen / last seen". */
 export const shortDateTime = (ms: number, locale: string): string =>
   new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(ms));

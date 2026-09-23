@@ -68,9 +68,9 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
           aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${card.localTime} · ${owner} · ${stateLabel(card.state, s)}`}
         >
           <span className={`size-1.5 shrink-0 rounded-full ${dotTone(card.state)}`} />
-          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{card.localTime}</span>
+          <span className="shrink-0 font-mono text-meta tabular-nums text-muted-foreground">{card.localTime}</span>
           <span className="truncate text-xs text-foreground">{job.name}</span>
-          {card.remaining > 1 ? <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">+{card.remaining - 1}</span> : null}
+          {card.remaining > 1 ? <span className="ml-auto shrink-0 text-meta tabular-nums text-muted-foreground">+{card.remaining - 1}</span> : null}
         </button>
         {/* Centred with `inset-y-0` and flex, NEVER with a transform: a transformed box becomes a
             stacking context, and the menu it holds — however high its own z-index — is then trapped
@@ -87,7 +87,7 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
     // stacking context, and the actions menu inside it was then painted under the following cards and
     // faded along with them — the three dots were unreadable and the panel see-through.
     <div
-      className="relative min-w-0 rounded-lg border border-border/80 bg-card"
+      className="relative min-w-0 rounded-lg border border-hairline bg-control"
       data-testid={`cron-card-${card.jobId}`}
     >
       <button
@@ -105,9 +105,9 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
         </span>
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium text-foreground">{job.name}</span>
-          <span className="truncate text-[11px] text-muted-foreground">{owner}</span>
+          <span className="truncate text-meta text-muted-foreground">{owner}</span>
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-meta text-muted-foreground">
           {card.remaining > 1 ? <span className="tabular-nums">+{card.remaining - 1}</span> : null}
           {hidden > 0 ? <span className="tabular-nums">+{hidden}</span> : null}
           <C.Avatar name={owner} src={job.owner?.avatar || undefined} size={20} />

@@ -43,7 +43,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.14",
+      "version": "0.6.15",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
@@ -200,13 +200,13 @@
     },
     {
       "name": "stats",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "2",
       "provides": {},
-      "requiresCore": "0.28.51"
+      "requiresCore": "0.28.53"
     },
     {
       "name": "telegram",

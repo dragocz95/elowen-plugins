@@ -4,7 +4,7 @@ import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
 import { OriginDrawer } from './OriginDrawer';
-import { integer } from './format';
+import { integer, percentage } from './format';
 import { runtime, type PageFilterField } from './runtime';
 import type { DayUsage, ModelUsage, TokenUsage, UsageScope } from './types';
 
@@ -71,7 +71,6 @@ export function padDailyUsage(rows: DayUsage[], days: number, window: { fromMs: 
   return padded;
 }
 
-const percent = (value: number | null) => value == null ? '—' : `${value.toFixed(1)}%`;
 const cacheTokens = (usage: TokenUsage) => usage.cacheRead + usage.cacheWrite;
 
 function ModelDetail({ model, locale, strings }: { model: ModelUsage; locale: string; strings: Record<string, string> }) {
@@ -88,7 +87,7 @@ function ModelDetail({ model, locale, strings }: { model: ModelUsage; locale: st
     [strings.detailOutput, integer(usage.output, locale)],
     [strings.detailCacheRead, integer(usage.cacheRead, locale)],
     [strings.detailCacheWrite, integer(usage.cacheWrite, locale)],
-    [strings.detailCacheRate, percent(cacheRate)],
+    [strings.detailCacheRate, percentage(cacheRate, locale)],
     [strings.detailCostSource, costSource],
   ];
   return (
@@ -124,7 +123,7 @@ export function StatsView() {
   const scope = me.data?.user?.is_admin === true ? requestedScope : 'personal';
   const usage = useModelUsage(window, scope);
   const daily = useUsageByDay(trendDays, scope);
-  const summary = buildUsageSummary(usage.data);
+  const summary = buildUsageSummary(usage.data, locale);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UsageFilter>('all');
   const [page, setPage] = useState(0);
@@ -163,18 +162,18 @@ export function StatsView() {
     return `${from} – ${to}`;
   }, [window, s.originRangeOpen, s.originRangeNow]);
   const trend = useMemo(() => padDailyUsage(daily.data ?? [], trendDays, window, now), [daily.data, now, trendDays, window]);
-  const rowByExec = useMemo(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
+  const rowByExec = new Map(summary.rows.map((row) => [row.exec, row]));
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.total,
-    valueLabel: rowByExec.get(model.exec)?.tokensLabel ?? integer(model.usage.total, locale),
+    valueLabel: rowByExec.get(model.exec)!.tokensLabel,
   }));
   const pieCosts = (usage.data ?? []).filter((model) => model.usage.costUsd != null).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.costUsd ?? 0,
-    valueLabel: rowByExec.get(model.exec)?.costLabel ?? '—',
+    valueLabel: rowByExec.get(model.exec)!.costLabel,
   }));
 
   const resetPage = () => setPage(0);
@@ -306,19 +305,19 @@ export function StatsView() {
                   ) : (
                     <>
                       <div className="grid gap-4 xl:grid-cols-2">
-                        <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                        <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                           <h2 className="text-sm font-semibold text-foreground">{s.tokensByModel}</h2>
                           <p className="mb-4 text-xs text-muted-foreground">{s.tokensByModelHint}</p>
-                          <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} renderIcon={renderModelIcon} />
+                          <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} renderIcon={renderModelIcon} locale={locale} />
                         </section>
-                        <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                        <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                           <h2 className="text-sm font-semibold text-foreground">{s.costByModel}</h2>
                           <p className="mb-4 text-xs text-muted-foreground">{s.costByModelHint}</p>
-                          <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} renderIcon={renderModelIcon} />
+                          <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} renderIcon={renderModelIcon} locale={locale} />
                         </section>
                       </div>
 
-                      <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
+                      <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                         <h2 className="text-sm font-semibold text-foreground">{s.trendTitle}</h2>
                         <p className="mb-4 text-xs text-muted-foreground">{s.trendHint}</p>
                         <UsageTrend data={trend} locale={locale} tokenLabel={s.trendTokens} costLabel={s.trendCost} emptyText={trendUnavailable ? s.trendUnavailable : s.noChartData} />
@@ -366,7 +365,7 @@ export function StatsView() {
                                   <DataTableCell lines={1} className="font-mono text-xs text-foreground">{row.exec}</DataTableCell>
                                   <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{row.tokensLabel}</DataTableCell>
                                   <DataTableCell lines={1} className="text-right font-mono text-xs tabular-nums text-foreground">{row.costLabel}</DataTableCell>
-                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{percent(row.cacheHitPct)}</DataTableCell>
+                                  <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{percentage(row.cacheHitPct, locale)}</DataTableCell>
                                   <DataTableCell lines={1} priority="wide" className="text-right font-mono text-xs tabular-nums text-muted-foreground">{row.speedLabel}</DataTableCell>
                                   <DataTableChevronCell />
                                 </DataTableRow>

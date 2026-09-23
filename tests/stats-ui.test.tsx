@@ -5,6 +5,7 @@ import { http, HttpResponse, onUnhandledRequest, setupServer } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import manifest from '../plugins/stats/elowen-plugin.json' with { type: 'json' };
+import { integer, percentage } from '../plugins/stats/web-src/format';
 
 ensurePluginUiRuntime();
 const registered = vi.fn();
@@ -42,6 +43,14 @@ const renderStats = () => {
   const { wrapper: Wrapper } = createWrapper();
   return render(<Wrapper><StatsView /></Wrapper>);
 };
+
+describe('usage numbers', () => {
+  it.each(['cs', 'sk', 'en'])('formats values and percentages in %s', (locale) => {
+    const number = new Intl.NumberFormat(locale);
+    expect(integer(1234567, locale)).toBe(number.format(1234567));
+    expect(percentage(18.5, locale)).toBe(`${number.format(18.5)}%`);
+  });
+});
 
 describe('daily usage window', () => {
   it('pads missing UTC days and counts calendar days without DST drift', () => {
@@ -153,7 +162,7 @@ describe('StatsView', () => {
     renderStats();
     const tokenHeading = await screen.findByText(strings.tokensByModel);
     const tokenCard = tokenHeading.closest('section');
-    expect(tokenCard).toHaveClass('bg-card', 'text-card-foreground');
+    expect(tokenCard).toHaveClass('bg-raised', 'border-hairline');
     expect(tokenHeading).toHaveClass('text-foreground');
     expect(screen.getByText(strings.tokensByModelHint)).toHaveClass('text-muted-foreground');
 
@@ -166,7 +175,7 @@ describe('StatsView', () => {
 
     const trendHeading = screen.getByText(strings.trendTitle);
     const trendCard = trendHeading.closest('section')!;
-    expect(trendCard).toHaveClass('bg-card', 'text-card-foreground');
+    expect(trendCard).toHaveClass('bg-raised', 'border-hairline');
     const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
     const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
     expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');
