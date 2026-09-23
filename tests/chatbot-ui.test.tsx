@@ -928,6 +928,25 @@ describe('the statistics section', () => {
     expect(await screen.findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
   });
 
+  it('draws the series that coincide as marks that cannot cover each other', async () => {
+    // Answered equals turns on every day without a failure, and the spend runs in step with the turns on
+    // its own axis, so all three land on the same pixels. Two of them drawn as lines is one line painted
+    // over the other, and the legend then names a series nobody can see.
+    const components = (window as unknown as { ElowenUiRuntime: { components: { TimeSeriesChart: (props: { series: { key: string; colour: string; variant?: string }[] }) => unknown } } }).ElowenUiRuntime.components;
+    const chart = vi.spyOn(components, 'TimeSeriesChart');
+    try {
+      await openStats();
+      await waitFor(() => expect(chart).toHaveBeenCalled());
+      const series = chart.mock.lastCall![0].series;
+      const coinciding = series.filter((entry) => ['turns', 'done', 'cost'].includes(entry.key));
+      expect(coinciding).toHaveLength(3);
+      expect(coinciding.filter((entry) => entry.variant !== 'bar')).toHaveLength(1);
+      expect(new Set(series.map((entry) => entry.colour)).size).toBe(series.length);
+    } finally {
+      chart.mockRestore();
+    }
+  });
+
   it('renders zero-valued days in the merged chart', async () => {
     use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => HttpResponse.json({
       chatbotUserId: Number(url.searchParams.get('chatbotUserId')),

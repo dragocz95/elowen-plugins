@@ -21494,8 +21494,8 @@ function StatsSection() {
   const chartData = points.map((point) => ({ ...point, label: formatDay(point.label, locale) }));
   const unknownCost = points.some((point) => point.cost === null);
   const series = [
-    { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "line", axis: "left", format: (value) => integer(value, locale) },
-    { key: "done", label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: "line", axis: "left", format: (value) => integer(value, locale) },
+    { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "bar", axis: "left", format: (value) => integer(value, locale) },
+    { key: "done", label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: "bar", axis: "left", format: (value) => integer(value, locale) },
     { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) },
     { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => money(value, locale) }
   ];

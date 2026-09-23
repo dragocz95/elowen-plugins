@@ -116,9 +116,13 @@ export function StatsSection() {
   const points = answer === null ? [] : chartPoints(answer.days, answer.spend, answer.from, answer.to);
   const chartData = points.map((point) => ({ ...point, label: formatDay(point.label, locale) }));
   const unknownCost = points.some((point) => point.cost === null);
+  // Answered equals turns on every day without a failure, and the spend tracks the turns on its own axis,
+  // so as three lines they share one path and only the last one painted shows. Turns and answered are
+  // therefore paired bars, which sit side by side at equal heights, and they state each day's count
+  // exactly instead of a curve between days.
   const series = [
-    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
-    { key: 'done', label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'done', label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
   ];
