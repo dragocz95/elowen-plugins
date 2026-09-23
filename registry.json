@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.4.7",
+      "version": "0.4.8",
       "requiresCore": "0.28.50",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
@@ -16,8 +16,8 @@
     },
     {
       "name": "chatbot",
-      "version": "0.2.0",
-      "requiresCore": "0.28.50",
+      "version": "0.2.1",
+      "requiresCore": "0.28.53",
       "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v2, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
       "category": "chat",
       "author": "Elowen",
@@ -43,12 +43,12 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.15",
+      "version": "0.6.16",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "2",
-      "requiresCore": "0.28.52",
+      "requiresCore": "0.28.53",
       "provides": {
         "tools": 5,
         "apiRoutes": 5,
@@ -74,8 +74,8 @@
     },
     {
       "name": "editor",
-      "version": "0.5.1",
-      "requiresCore": "0.28.50",
+      "version": "0.5.2",
+      "requiresCore": "0.28.53",
       "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. A managed project offers two separate roots: Project, at the project's own directory inside its environment, and System, the whole persistent environment filesystem; Git history belongs to the Project root. Administrators may also browse and edit persisted host files through the System (/) root; kernel virtual filesystems are excluded. Disabling it removes the editor UI and makes its grandfathered file API unavailable while project registration and task Git history remain available.",
       "category": "tools",
       "author": "Elowen",
@@ -86,8 +86,8 @@
     },
     {
       "name": "github",
-      "version": "0.1.23",
-      "requiresCore": "0.28.50",
+      "version": "0.1.24",
+      "requiresCore": "0.28.53",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
       "author": "Elowen",
@@ -126,8 +126,8 @@
     },
     {
       "name": "lsp",
-      "version": "0.3.1",
-      "requiresCore": "0.28.50",
+      "version": "0.3.2",
+      "requiresCore": "0.28.53",
       "description": "Language-server code intelligence: type-check an edit the moment it lands (LspDiagnostics), jump to a definition, find every reference, read a hover signature and list document or workspace symbols — all answered by the real language server for the file, not a text search. Elowen drives the servers it knows (TypeScript, Pyright, gopls, rust-analyzer, clangd, …) and can install the npm-based ones into its own prefix. Disabling it stops every language server and withdraws the tools.",
       "category": "tools",
       "author": "Elowen",
@@ -140,8 +140,8 @@
     },
     {
       "name": "msteams",
-      "version": "0.8.4",
-      "requiresCore": "0.28.50",
+      "version": "0.8.5",
+      "requiresCore": "0.28.53",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",
@@ -158,7 +158,7 @@
     },
     {
       "name": "onedrive",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "requiresCore": "0.28.50",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
@@ -173,7 +173,7 @@
     },
     {
       "name": "skills",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "requiresCore": "0.28.52",
       "description": "Loads markdown skills from disk and exposes them to the Elowen brain.",
       "category": "automation",
@@ -186,8 +186,8 @@
     },
     {
       "name": "sites",
-      "version": "0.14.10",
-      "requiresCore": "0.28.50",
+      "version": "0.14.11",
+      "requiresCore": "0.28.53",
       "description": "Publish an address for an application running inside an explicit managed Project, and see a picture of every published page. Each address keeps independent visibility rules for owners, Project members, signed-in accounts, named guests or the public.",
       "category": "productivity",
       "author": "Elowen",
@@ -224,8 +224,8 @@
     },
     {
       "name": "todo",
-      "version": "0.14.16",
-      "requiresCore": "0.28.50",
+      "version": "0.14.17",
+      "requiresCore": "0.28.53",
       "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",
       "category": "automation",
       "author": "Elowen",
@@ -249,7 +249,7 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.22",
+      "version": "0.2.23",
       "requiresCore": "0.28.50",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",

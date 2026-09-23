@@ -1,8 +1,8 @@
 {
   "name": "sites",
-  "version": "0.14.10",
+  "version": "0.14.11",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
+  "requiresCore": "0.28.53",
   "description": "Publish an application from a selected managed Project and preview it. Each site has its own visibility settings.",
   "entry": "dist/index.js",
   "consumesControls": ["sandbox", "browserCapture", "publishedSitesGateway"],
