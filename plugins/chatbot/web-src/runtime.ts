@@ -462,6 +462,8 @@ export const chatbotApi = {
     if (input.visitor !== '') query.set('visitor', input.visitor);
     return `/plugins/chatbot/api/conversations?${query}`;
   },
+  eraseConversations: (chatbotUserId: number): string =>
+    `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
     `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports

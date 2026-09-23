@@ -24,6 +24,7 @@ const SURFACES: readonly SurfaceContract[] = [
   // failed, which no debounce can express.
   { path: 'plugins/chatbot/web-src/BotDetail.tsx', mode: 'explicit-save', reason: 'whole-row compare-and-set save, plus a separately confirmed enable/disable' },
   { path: 'plugins/chatbot/web-src/CreateBotDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit multi-owner submit whose retry resumes at the failed step' },
+  { path: 'plugins/chatbot/web-src/ConversationsView.tsx', mode: 'explicit-save', reason: 'erasing every conversation of a chatbot is a confirmed destructive action' },
   { path: 'plugins/cronjob/web-src/JobDrawer.tsx', mode: 'canonical' },
   { path: 'plugins/cronjob/web-src/AutomationPage.tsx', mode: 'explicit-save', reason: 'run-now and pause are immediate operational actions; JobDrawer owns canonical field autosave' },
   { path: 'plugins/cronjob/web-src/CreateJobDialog.tsx', mode: 'explicit-save', reason: 'creation is ONE explicit submit: an idempotent requestId guards the retry, not a debounced autosave' },

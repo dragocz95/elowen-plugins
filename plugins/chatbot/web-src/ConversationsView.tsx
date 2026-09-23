@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessagesSquare } from 'lucide-react';
+import { MessagesSquare, Trash2 } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
@@ -24,6 +24,7 @@ export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const register = useChatbots();
   const bots = register.bots;
   // The section's own heading, worn by whichever card its state renders: the reader is told what this is
@@ -36,6 +37,12 @@ export function ConversationsSection() {
   const [page, setPage] = useState(0);
   const [visitorQuery, setVisitorQuery] = useState('');
   const requestSequence = useRef(0);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [eraseError, setEraseError] = useState<string | null>(null);
+  // Erasing removes EVERY conversation of the chatbot, while a filtered answer counts only the matches. The
+  // confirmation would then name the wrong number, so erasing is offered on the unfiltered register only.
+  const filtering = visitorQuery.trim() !== '';
 
   // The first chatbot until the reader picks another, and back to a real one if the picked chatbot left
   // the register.
@@ -73,11 +80,41 @@ export function ConversationsSection() {
   useEffect(() => {
     requestSequence.current += 1;
     setAnswer(null);
+    setEraseError(null);
     setPage(0);
     setVisitorQuery('');
   }, [chatbotUserId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const erase = async () => {
+    if (chatbotUserId === null || deleting || filtering || answer === null || answer.total === 0) return;
+    setDeleting(true);
+    setEraseError(null);
+    let deleted = 0;
+    try {
+      let remaining: number;
+      do {
+        const result = await apiJson<{ deleted: number; kept: number; remaining: number }>(
+          chatbotApi.eraseConversations(chatbotUserId), { method: 'DELETE' },
+        );
+        deleted += result.deleted;
+        remaining = result.remaining;
+        if (result.deleted === 0) break;
+      } while (remaining > 0);
+      toast(remaining > 0
+        ? s.conversationsEraseKept.replace('{deleted}', integer(deleted, locale)).replace('{kept}', integer(remaining, locale))
+        : s.conversationsEraseDone.replace('{deleted}', integer(deleted, locale)));
+    } catch (reason) {
+      setEraseError(utils.apiErrorMessage(reason) || s.conversationsEraseError);
+    } finally {
+      setConfirming(false);
+      setDeleting(false);
+      setAnswer(null);
+      setPage(0);
+      if (page === 0) load();
+    }
+  };
 
   const statusTone = (status: string): 'success' | 'danger' | 'warning' | undefined =>
     status === 'done' ? 'success' : status === 'error' ? 'danger' : 'warning';
@@ -98,8 +135,8 @@ export function ConversationsSection() {
     );
   }
 
-  const emptyTitle = visitorQuery.trim() !== '' ? s.conversationsNoVisitorMatches : s.conversationsEmptyTitle;
-  const emptyDescription = visitorQuery.trim() !== '' ? s.conversationsNoVisitorMatchesDescription : s.conversationsEmptyDescription;
+  const emptyTitle = filtering ? s.conversationsNoVisitorMatches : s.conversationsEmptyTitle;
+  const emptyDescription = filtering ? s.conversationsNoVisitorMatchesDescription : s.conversationsEmptyDescription;
   const body = loadError !== null ? <C.ErrorState message={`${s.conversationsLoadError} — ${loadError}`} onRetry={load} />
     : answer === null ? <C.LoadingState variant="list" />
       : answer.total === 0 ? <C.EmptyState title={emptyTitle} description={emptyDescription} icon={MessagesSquare} />
@@ -141,9 +178,8 @@ export function ConversationsSection() {
         );
 
   return (
-    <C.SettingsGroup
-      {...heading}
-      actions={(
+    <>
+      <C.SettingsGroup {...heading} actions={(
         <>
           <C.RegisterSearch
             value={visitorQuery}
@@ -153,11 +189,28 @@ export function ConversationsSection() {
             onClear={() => changeVisitorQuery('')}
             clearLabel={s.visitorSearchClear}
           />
-          <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />
+          <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} disabled={confirming || deleting} />
+          <C.IconButton icon={Trash2} variant="danger" label={s.conversationsEraseAction}
+            disabled={filtering || answer === null || answer.total === 0 || loadError !== null || deleting || confirming}
+            onClick={() => { setEraseError(null); setConfirming(true); }} />
         </>
-      )}
-    >
-      {body}
-    </C.SettingsGroup>
+      )}>
+        {eraseError !== null ? <p className="text-xs text-destructive" role="alert">{eraseError}</p> : null}
+        {deleting ? <C.LoadingLine label={s.conversationsErasing} layout="inline" /> : null}
+        {body}
+      </C.SettingsGroup>
+      <C.ConfirmDialog
+        open={confirming}
+        title={s.conversationsEraseTitle}
+        description={s.conversationsEraseDescription
+          .replace('{bot}', bot.displayName || s.botFallback)
+          .replace('{count}', integer(answer?.total ?? 0, locale))}
+        confirmLabel={s.conversationsEraseConfirm}
+        confirmVariant="danger"
+        pending={deleting}
+        onConfirm={() => void erase()}
+        onClose={() => { if (!deleting) setConfirming(false); }}
+      />
+    </>
   );
 }
