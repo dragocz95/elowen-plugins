@@ -28,20 +28,18 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs
+// node_modules/elowen-plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs"(exports, module) {
-    "use strict";
+  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs
+// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
-    "use strict";
+  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -558,12 +556,12 @@ function IntervalsStrip({ intervals, jobs, referenceDate, onOpenJob }) {
         {
           type: "button",
           onClick: () => onOpenJob(row.jobId),
-          className: `flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? "text-foreground" : "text-muted-foreground opacity-70"}`,
+          className: `flex min-h-8 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? "text-foreground" : "text-muted-foreground opacity-70"}`,
           "aria-label": `${(s.openJob || "Open \u201C{name}\u201D").replace("{name}", job.name)} \xB7 ${label}${nextHere ? ` \xB7 ${s.nextRun || "Next run"} ${nextHere}` : ""}${state}`,
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "truncate", children: job.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "font-mono text-meta text-muted-foreground", children: label }),
-            nextHere ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex items-center gap-0.5 font-mono text-meta tabular-nums text-muted-foreground", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "shrink-0 whitespace-nowrap font-mono text-meta text-muted-foreground", children: label }),
+            nextHere ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "flex shrink-0 items-center gap-0.5 font-mono text-meta tabular-nums text-muted-foreground", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ArrowRight, { size: 11, "aria-hidden": true }),
               nextHere
             ] }) : null,

@@ -40,13 +40,13 @@ export function IntervalsStrip({ intervals, jobs, referenceDate, onOpenJob }: {
               key={row.jobId}
               type="button"
               onClick={() => onOpenJob(row.jobId)}
-              className={`flex min-h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? 'text-foreground' : 'text-muted-foreground opacity-70'}`}
+              className={`flex min-h-8 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border px-2.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-[var(--touch-target)] ${row.enabled ? 'text-foreground' : 'text-muted-foreground opacity-70'}`}
               aria-label={`${(s.openJob || 'Open “{name}”').replace('{name}', job.name)} · ${label}${nextHere ? ` · ${s.nextRun || 'Next run'} ${nextHere}` : ''}${state}`}
             >
               <span className="truncate">{job.name}</span>
-              <span className="font-mono text-meta text-muted-foreground">{label}</span>
+              <span className="shrink-0 whitespace-nowrap font-mono text-meta text-muted-foreground">{label}</span>
               {nextHere ? (
-                <span className="flex items-center gap-0.5 font-mono text-meta tabular-nums text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-0.5 font-mono text-meta tabular-nums text-muted-foreground">
                   <ArrowRight size={11} aria-hidden />{nextHere}
                 </span>
               ) : null}
