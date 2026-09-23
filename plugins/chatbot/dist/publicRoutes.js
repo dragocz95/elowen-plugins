@@ -368,6 +368,11 @@ export function createPublicRoute(deps) {
         if (!checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id)).ok) {
             return reply(403, { error: 'origin_not_allowed' });
         }
+        const limited = store.consumeVisitorRate({
+            bot: admitted.bot, visitorId: admitted.visitorId, originValue: requestOrigin.value, nowMs: now().getTime(),
+        });
+        if (limited)
+            return admissionReply(limited, origin);
         const turn = isCanonicalUuid(turnId) ? store.turn(turnId) : null;
         if (!turn || turn.chatbot_user_id !== admitted.bot.chatbot_user_id
             || turn.visitor_id !== admitted.visitorId || turn.status !== 'done') {
@@ -382,11 +387,6 @@ export function createPublicRoute(deps) {
         const parsed = validateFeedback(body.value);
         if (!parsed.ok)
             return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
-        const limited = store.consumeVisitorRate({
-            bot: admitted.bot, visitorId: admitted.visitorId, originValue: requestOrigin.value, nowMs: now().getTime(),
-        });
-        if (limited)
-            return admissionReply(limited, origin);
         const saved = store.saveFeedback({
             turnId, chatbotUserId: admitted.bot.chatbot_user_id, visitorId: admitted.visitorId,
             ...parsed.value, now: iso(),

@@ -52,6 +52,18 @@ describe('visitor feedback', () => {
     expect(host.store.feedbackOf([turnId]).size).toBe(0);
   });
 
+  it('counts unknown turn ids and malformed bodies before validation, then refuses the next attempt', async () => {
+    const host = createChatbotHost();
+    registerBot(host, { limits: { ...TEST_LIMITS, rateConversationPerMinute: 2 } });
+    await host.adapter.connect();
+    const { token, visitorId } = (await issueToken(host)).body;
+    const owned = record(host, visitorId);
+    expect((await vote(host, token, randomUUID(), 'up')).status).toBe(404);
+    expect((await vote(host, token, owned, 'sideways')).status).toBe(400);
+    expect((await vote(host, token, owned, 'sideways')).status).toBe(429);
+    expect(host.store.feedbackOf([owned]).size).toBe(0);
+  });
+
   it('uses the same rate windows as messages and removes votes when a bot is deleted', async () => {
     const host = createChatbotHost();
     registerBot(host, { limits: { ...TEST_LIMITS, rateConversationPerMinute: 1 } });
