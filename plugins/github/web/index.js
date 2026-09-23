@@ -561,7 +561,7 @@ function GitHubProjectPanel({ project }) {
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "min-w-0", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "text-sm font-semibold text-foreground", children: s.projectRepository }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "mt-1 truncate font-mono text-xs text-muted-foreground", children: mappingLabel }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "mt-1 truncate font-mono text-[11px] text-subtle-foreground", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "mt-1 truncate font-mono text-caption text-subtle-foreground", children: [
               s.pushRepository,
               ": ",
               pushLabel
@@ -600,7 +600,7 @@ function GitHubProjectPanel({ project }) {
                   " ",
                   pull.title
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-[11px] text-subtle-foreground", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "truncate font-mono text-caption text-subtle-foreground", children: [
                   pull.headRef,
                   " \u2192 ",
                   pull.baseRef

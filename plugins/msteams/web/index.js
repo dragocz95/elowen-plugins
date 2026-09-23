@@ -401,7 +401,7 @@ function IdentityCard({ person, users, onDetail }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "text-sm text-foreground", children: profile?.displayName || person.name || s.personFallback }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-muted-foreground", children: profile?.userPrincipalName || person.upn || "\u2014" }),
         profile?.mail && profile.mail !== profile.userPrincipalName ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all text-xs text-muted-foreground", children: profile.mail }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-[11px] text-subtle-foreground", children: profile?.id || person.aadObjectId || "\u2014" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "break-all font-mono text-caption text-subtle-foreground", children: profile?.id || person.aadObjectId || "\u2014" }),
         profile ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "text-xs text-muted-foreground", children: [
           profile.userType,
           " \xB7 ",
@@ -526,7 +526,7 @@ function PeopleAccess({ draft, response, search, filter, onIdentityDetail }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "min-w-0", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "truncate text-base font-semibold text-foreground", children: selected.name || s.personFallback }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "truncate text-sm text-muted-foreground", children: selected.upn || selected.aadObjectId }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 break-all font-mono text-[11px] text-subtle-foreground", children: selected.aadObjectId || selected.teamsId }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "mt-1 break-all font-mono text-caption text-subtle-foreground", children: selected.aadObjectId || selected.teamsId }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Badge, { tone: policy ? "accent" : void 0, children: policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped }),
             selected.hasPersonalChat ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "inline-flex items-center gap-1 text-xs text-muted-foreground", children: [
