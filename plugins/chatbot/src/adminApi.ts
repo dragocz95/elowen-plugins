@@ -16,7 +16,6 @@ import type {
   ChatbotConversationsAnswer,
   ChatbotModelView,
   ChatbotStatsAnswer,
-  ChatbotTranscriptAnswer,
 } from './adminContract.js';
 
 /** The administrator's surface over the plugin's own rows. It creates nothing in core: the chatbot ACCOUNT
@@ -46,11 +45,9 @@ interface Reply {
   body: object;
 }
 
-/** How many conversations one page of the register holds, and how many turns one transcript read returns.
- *  Both are bounded reads on purpose: this surface is a register and a transcript, not an export. */
+/** How many conversations one page of the register holds. */
 const CONVERSATIONS_DEFAULT_LIMIT = 25;
 const CONVERSATIONS_MAX_LIMIT = 100;
-const TRANSCRIPT_MAX_TURNS = 200;
 
 /** How far back a statistics read may reach, and the window it uses when a caller names none. Bounded so a
  *  request can never ask the daemon to walk the whole history of an account for a chart nobody can read. */
@@ -323,37 +320,6 @@ export function createAdminApi(deps: AdminApiDeps) {
       if (isRefusal(bot)) return bot;
       const { deleted, kept } = await deps.erase({ chatbotUserId, limit: CONVERSATIONS_MAX_LIMIT });
       return { status: 200, body: { deleted, kept, remaining: store.conversationCount(chatbotUserId) } };
-    },
-
-    /** One conversation, as an administrator may read it: the visitor's own words and the answer the
-     *  plugin published. Tool calls and reasoning are core transcript and are not part of this contract —
-     *  they are never read here, so they can never leak through this route. */
-    async conversation(auth: PluginApiAuth, query: Record<string, string>): Promise<Reply> {
-      const refusal = requireAdmin(auth);
-      if (refusal) return refusal;
-      const chatbotUserId = readChatbotUserId(query.chatbotUserId);
-      if (chatbotUserId === null) return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
-      const visitorId = typeof query.visitorId === 'string' ? query.visitorId : '';
-      if (visitorId === '') return { status: 400, body: { error: 'invalid_request', detail: '"visitorId" is required' } };
-      const bot = requireBot(chatbotUserId);
-      if (isRefusal(bot)) return bot;
-      const turns = store.conversationTurns({ chatbotUserId, visitorId, limit: TRANSCRIPT_MAX_TURNS });
-      const replies = store.doneRepliesOf(turns.map((turn) => turn.turn_id));
-      return {
-        status: 200,
-        body: {
-          chatbotUserId,
-          visitorId,
-          turns: turns.map((turn) => ({
-            turnId: turn.turn_id,
-            visitorText: turn.message,
-            reply: replies.get(turn.turn_id) ?? null,
-            status: turn.status,
-            errorCode: turn.error_code,
-            at: turn.created_at,
-          })),
-        } satisfies ChatbotTranscriptAnswer,
-      };
     },
 
     /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */

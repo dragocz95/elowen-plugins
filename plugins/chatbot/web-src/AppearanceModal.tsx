@@ -1,6 +1,6 @@
 /** Edits a linked template and explicit overrides. The chatbot's name stays in its own column. */
 import { useId, useMemo, useState, type ReactNode } from 'react';
-import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Save, Trash2, Type, UserRound, Send } from 'lucide-react';
+import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Trash2, Type, UserRound, Send } from 'lucide-react';
 import {
   APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_TEMPLATES,
   APPEARANCE_INTRO_MAX_CHARS, APPEARANCE_AVATAR_URL_MAX_CHARS, APPEARANCE_SUBTITLE_MAX_CHARS,
@@ -52,14 +52,21 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
   const [revision, setRevision] = useState(bot.updatedAt);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editVersion, setEditVersion] = useState(0);
   const appearance = useMemo(() => resolveAppearance(stored), [stored]);
   const look = useMemo(() => ({ name, appearance }), [name, appearance]);
 
-  const patch = (path: AppearanceOverridePath, value: unknown) => setStored(current => setAppearanceOverride(current, path, value));
+  const patch = (path: AppearanceOverridePath, value: unknown) => {
+    setStored(current => setAppearanceOverride(current, path, value));
+    setEditVersion(version => version + 1);
+  };
   const reset = (path: AppearanceOverridePath, label: string, compact = false) => {
     if (!isAppearanceOverridden(stored, path)) return null;
     const title = s.appearanceReset.replace('{value}', label);
-    const onClick = () => setStored(current => resetAppearanceOverride(current, path));
+    const onClick = () => {
+      setStored(current => resetAppearanceOverride(current, path));
+      setEditVersion(version => version + 1);
+    };
     return compact
       ? <C.IconButton icon={RotateCcw} disabled={pending} label={title} onClick={onClick} />
       : <C.Button variant="ghost" size="sm" icon={RotateCcw} disabled={pending} aria-label={title} onClick={onClick}>{s.appearanceOverridden}</C.Button>;
@@ -105,7 +112,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
     setDraftButton('');
   };
   const valid = parseAppearanceSelection(stored).ok;
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setPending(true);
     setError(null);
     try {
@@ -116,10 +123,15 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
       setStored(answer.bot.appearance);
       onChanged(answer.bot);
       toast(s.appearanceSaved);
+      return true;
     } catch (reason) {
       setError(utils.apiErrorMessage(reason) || s.appearanceSaveFailed);
+      return false;
     } finally { setPending(false); }
   };
+  const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
+    if (!(await save())) throw new Error(error ?? s.appearanceSaveFailed);
+  }, { savable: name.trim() !== '' && valid, delay: 900 });
 
   return <>
     <C.Modal title={s.appearanceTitle} icon={Palette} size="lg" presentation="center" closeLabel={s.cancel} closeDisabled={pending} {...(pending ? { 'aria-busy': true as const } : {})} onClose={onClose}>
@@ -159,7 +171,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
               </>)}
               {section(s.appearanceHeaderGroup, <UserRound size={18} />, <>
                 {color('header', s.appearanceColorHeader)}
-                <C.Field label={s.appearanceNameLabel} hint={s.appearanceNameHint}><C.Input aria-label={s.appearanceNameLabel} value={name} maxLength={DISPLAY_NAME_MAX_CHARS} disabled={pending} onChange={event => setName(event.target.value)} /></C.Field>
+                <C.Field label={s.appearanceNameLabel} hint={s.appearanceNameHint}><C.Input aria-label={s.appearanceNameLabel} value={name} maxLength={DISPLAY_NAME_MAX_CHARS} disabled={pending} onChange={event => { setName(event.target.value); setEditVersion(version => version + 1); }} /></C.Field>
                 {textField('header.subtitle', s.appearanceSubtitle, appearance.header.subtitle, APPEARANCE_SUBTITLE_MAX_CHARS)}
                 {toggle('header.showAvatar', s.appearanceShowAvatar, appearance.header.showAvatar)}
                 {textField('avatarUrl', s.appearanceAvatarLabel, appearance.avatarUrl, APPEARANCE_AVATAR_URL_MAX_CHARS, s.appearanceAvatarPlaceholder, s.appearanceAvatarHint)}
@@ -197,10 +209,10 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
       <C.ModalFooter>
         {error !== null ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
         {!valid ? <p className="text-xs text-destructive" role="alert">{s.appearanceInvalid}</p> : null}
-        <C.Button variant="ghost" disabled={pending} onClick={onClose}>{s.cancel}</C.Button>
-        <C.Button variant="accent" icon={Save} disabled={pending || name.trim() === '' || !valid} onClick={() => void save()}>{pending ? s.appearanceSaving : s.appearanceSave}</C.Button>
+        <C.AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
+        <C.Button variant="ghost" disabled={pending || autosave.status === 'saving'} onClick={onClose}>{s.cancel}</C.Button>
       </C.ModalFooter>
     </C.Modal>
-    <C.ConfirmDialog open={templateChoice !== null} title={s.appearanceTemplateConfirm} description={s.appearanceTemplateReplace} confirmLabel={s.appearanceTemplateApply} onClose={() => setTemplateChoice(null)} onConfirm={() => { if (templateChoice !== null) { setStored(selectAppearanceTemplate(templateChoice)); setDraftButton(''); setDraftIcon(null); setTemplateChoice(null); } }} />
+    <C.ConfirmDialog open={templateChoice !== null} title={s.appearanceTemplateConfirm} description={s.appearanceTemplateReplace} confirmLabel={s.appearanceTemplateApply} onClose={() => setTemplateChoice(null)} onConfirm={() => { if (templateChoice !== null) { setStored(selectAppearanceTemplate(templateChoice)); setEditVersion(version => version + 1); setDraftButton(''); setDraftIcon(null); setTemplateChoice(null); } }} />
   </>;
 }

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  BadgeCheck, Bot, Check, ChevronRight, ClipboardCopy, Code2, Gauge, Palette, Power, Save, ShieldCheck,
+  BadgeCheck, Bot, ChevronRight, ClipboardCopy, Code2, Gauge, Palette, Power, ShieldCheck,
 } from 'lucide-react';
 import { LIMIT_FIELDS } from '../src/limits';
 import { apiJson, chatbotApi, jsonRequest, runtime } from './runtime';
@@ -52,10 +52,13 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
   const [pending, setPending] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<'enable' | 'disable' | 'discard' | null>(null);
+  const [confirming, setConfirming] = useState<'enable' | 'disable' | null>(null);
   const [opened, setOpened] = useState<'limits' | 'appearance' | null>(null);
+  const [openingAppearance, setOpeningAppearance] = useState(false);
+  const expectedUpdatedAt = useRef(bot.updatedAt);
 
   useEffect(() => {
+    expectedUpdatedAt.current = bot.updatedAt;
     setOrigins(bot.origins);
     setLimits(limitDraftOf(bot.limits));
     setMaySubmitForms(bot.maySubmitForms);
@@ -67,25 +70,41 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     || maySubmitForms !== bot.maySubmitForms;
   const blockers = blockerText(bot.blockers, bot.projects.length, s);
 
-  const save = async (action: 'enable' | 'disable' | null) => {
+  const save = async (action: 'enable' | 'disable' | null): Promise<boolean> => {
     setPending(true);
     setError(null);
     try {
       const answer = await apiJson<{ bot: ChatbotBotView }>(chatbotApi.bots(), jsonRequest('PATCH', {
         chatbotUserId: bot.chatbotUserId,
-        expectedUpdatedAt: bot.updatedAt,
+        expectedUpdatedAt: expectedUpdatedAt.current,
         displayName: bot.displayName,
         origins,
         limits,
         maySubmitForms,
         ...(action === null ? {} : { action }),
       }));
+      expectedUpdatedAt.current = answer.bot.updatedAt;
       onChanged(answer.bot);
       setConfirming(null);
+      return true;
     } catch (reason) {
       setError(utils.apiErrorMessage(reason) || unknownError);
+      return false;
     } finally {
       setPending(false);
+    }
+  };
+
+  const autosave = hooks.useAutoSaveStatus([origins, limits, maySubmitForms], async () => {
+    if (dirty && !(await save(null))) throw new Error(error ?? unknownError);
+  }, { savable: dirty, delay: 900 });
+
+  const openAppearance = async () => {
+    setOpeningAppearance(true);
+    try {
+      if (await autosave.flush() !== 'error') setOpened('appearance');
+    } finally {
+      setOpeningAppearance(false);
     }
   };
 
@@ -112,7 +131,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     }
   };
 
-  const leave = () => { if (dirty) setConfirming('discard'); else onClose(); };
+  const leave = onClose;
 
   return (
     <C.Modal
@@ -170,7 +189,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
           <C.SettingsGroup title={s.appearanceTitle} icon={Palette} density="compact">
             <C.SettingsRow
               label={s.appearanceAction}
-              actions={<C.IconButton icon={ChevronRight} label={s.appearanceAction} disabled={pending} onClick={() => setOpened('appearance')} />}
+              actions={<C.IconButton icon={ChevronRight} label={s.appearanceAction} disabled={pending || openingAppearance} onClick={() => void openAppearance()} />}
             />
             {bot.embedSnippet === null ? null : (
               <C.SettingsRow
@@ -220,19 +239,23 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
         ) : (
           <C.Button variant="outline" icon={Power} disabled={pending || dirty} onClick={() => setConfirming('enable')}>{s.enableAction}</C.Button>
         )}
-        <C.Button variant="accent" icon={dirty ? Save : Check} disabled={pending || !dirty} onClick={() => void save(null)}>
-          {pending ? s.saveSaving : s.saveAction}
-        </C.Button>
+        <C.AutoSaveStatus status={autosave.status} onRetry={autosave.retry} />
       </C.ModalFooter>
 
       <C.ConfirmDialog
         open={confirming !== null}
-        title={confirming === 'enable' ? s.enableTitle : confirming === 'disable' ? s.disableTitle : s.discardTitle}
-        description={confirming === 'enable' ? s.enableBody : confirming === 'disable' ? s.disableBody : s.discardBody}
-        confirmLabel={confirming === 'enable' ? s.enableConfirm : confirming === 'disable' ? s.disableConfirm : s.discardConfirm}
+        title={confirming === 'enable' ? s.enableTitle : s.disableTitle}
+        description={confirming === 'enable' ? s.enableBody : s.disableBody}
+        confirmLabel={confirming === 'enable' ? s.enableConfirm : s.disableConfirm}
         confirmVariant={confirming === 'enable' ? 'accent' : 'danger'}
-        pending={pending}
-        onConfirm={() => { if (confirming === 'discard') onClose(); else void save(confirming); }}
+        pending={pending || autosave.status === 'saving'}
+        onConfirm={() => {
+          const action = confirming;
+          if (action === null) return;
+          void (async () => {
+            if (await autosave.flush() !== 'error') await save(action);
+          })();
+        }}
         onClose={() => setConfirming(null)}
       />
 

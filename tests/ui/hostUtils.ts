@@ -11,6 +11,9 @@
 import { Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image,
   ListChecks, Palette, Radio, Rocket, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
 import type { ModelUsage } from './hostClient';
+import { vi } from 'vitest';
+
+export const openBrainSessionWindow = vi.fn<(sessionId: string) => void>();
 
 // The plugin is untyped .mjs, so the import is given the one signature this file uses.
 const { parseSchedule } = await import('../../plugins/cronjob/index.mjs') as {

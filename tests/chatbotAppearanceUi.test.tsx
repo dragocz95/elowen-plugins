@@ -183,7 +183,7 @@ describe('the appearance editor', () => {
     expect(preview.chat.names.ai.text).toBe(bot.displayName);
   });
 
-  it('follows every control into the preview without saving anything', async () => {
+  it('follows every control into the preview and auto-saves the appearance', async () => {
     const dialog = await openEditor();
     const chat = () => previewPanel(dialog).chat;
     const css = () => previewPanel(dialog).style.textContent ?? '';
@@ -206,10 +206,9 @@ describe('the appearance editor', () => {
 
     fireEvent.change(nameField(dialog, bot.displayName), { target: { value: 'Podatelna' } });
     expect(chat().names.ai.text).toBe('Podatelna');
-    // The name is part of the look: the panel's own header carries it too.
+    // The name is part of the look and autosaves in the same snapshot as the appearance.
     expect(previewPanel(dialog).host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
-    // Nothing was saved by any of it.
-    expect(saved.body).toBeNull();
+    await waitFor(() => expect(saved.body?.displayName).toBe('Podatelna'), { timeout: 3000 });
   });
 
   it('draws the quick buttons under the greeting, and a click on one is the visitor\'s own message', async () => {
@@ -232,6 +231,7 @@ describe('the appearance editor', () => {
     button.setAttribute('data-cb-text', 'Chci vyplnit formulář');
     utilities['cb-quick-item']!.events!.click!({ target: button });
     expect(previewPanel(dialog).chat.getMessages()).toEqual([{ role: 'user', text: 'Chci vyplnit formulář' }]);
+    await waitFor(() => expect(saved.body).not.toBeNull());
   });
 
   it('confirms a template replacement, dropping changes only after approval', async () => {
@@ -245,7 +245,6 @@ describe('the appearance editor', () => {
     fireEvent.click(within(confirmation).getByRole('button', { name: strings.appearanceTemplateApply! }));
     await waitFor(() => expect(previewPanel(dialog).style.textContent).toContain(`background: ${APPEARANCE_TEMPLATES.clean.colors.panel}`));
     expect(within(dialog).queryByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorPanel!) })).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'clean', overrides: {} }));
   });
 
@@ -262,12 +261,10 @@ describe('the appearance editor', () => {
     expect(preview.host.shadowRoot!.querySelector('.subtitle')).toHaveAttribute('hidden');
     fireEvent.change(header, { target: { value: '#442255' } });
     expect(previewPanel(dialog).style.textContent).toContain('background: #442255');
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: { colors: { header: '#442255' } } }));
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorHeader!) }));
     expect(header).toHaveValue(templateRamp.header);
     expect(previewPanel(dialog).style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: {} }));
   });
 
@@ -278,7 +275,6 @@ describe('the appearance editor', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceWidthLabel!) }));
     expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue(String(DEFAULT_APPEARANCE.width));
     expect(slider(dialog, strings.appearanceHeightLabel!)).toHaveValue('640');
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'elowen', overrides: { height: 640 } }));
   });
 
@@ -300,6 +296,7 @@ describe('the appearance editor', () => {
     expect(preview.chat.submitButtonStyles.submit.svg.styles.default.color).toBe('#abcdef');
     expect(preview.style.textContent).toContain('background: #123456');
     expect(preview.chat.submitButtonStyles.submit.container.default.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.sendButton);
+    await waitFor(() => expect(saved.body).not.toBeNull());
   });
 
   it('cancels a template change without losing manual values', async () => {
@@ -311,6 +308,7 @@ describe('the appearance editor', () => {
     fireEvent.click(cancel);
     expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue('500');
     expect(within(dialog).getByRole('button', { name: strings.appearanceTemplate_elowen! })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(saved.body).not.toBeNull());
   });
 
   it('previews header, typography, shape, launcher geometry and local fonts', async () => {
@@ -336,6 +334,7 @@ describe('the appearance editor', () => {
     expect(preview.style.textContent).toContain('right: 40px; bottom: 40px;');
     expect(preview.style.textContent).toContain('min-height: 72px');
     expect(preview.style.textContent).not.toContain('@import');
+    await waitFor(() => expect(saved.body).not.toBeNull());
   });
 
   it('adds an icon chip with Enter, removes it and saves the object shape', async () => {
@@ -345,10 +344,10 @@ describe('the appearance editor', () => {
     fireEvent.change(input, { target: { value: 'Book' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(previewPanel(dialog).chat.introMessage.html).toContain(appearanceIconSvg('calendar'));
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.quickButtons).toEqual([{ text: 'Book', icon: 'calendar' }]));
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceQuickRemove!.replace('{value}', 'Book') }));
     expect(within(dialog).queryByText('Book')).not.toBeInTheDocument();
+    await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.quickButtons).toEqual([]));
   });
 
   it('shows an avatar once one is given, and keeps an obviously wrong address out of a save', async () => {
@@ -361,7 +360,7 @@ describe('the appearance editor', () => {
 
     fireEvent.change(avatar, { target: { value: 'logo.svg' } });
     expect(within(dialog).getByText(strings.appearanceInvalid!)).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: strings.appearanceSave! })).toBeDisabled();
+    expect(saved.body).toBeNull();
   });
 
   it('keeps a message the preview already drew when the look changes under it', async () => {
@@ -382,14 +381,14 @@ describe('the appearance editor', () => {
     expect(after).not.toBe(before);
     expect(after.messageStyles.default.ai.bubble.borderRadius).toBe('24px');
     expect(after.getMessages()).toEqual([{ role: 'user', text: 'Kde je podatelna?' }]);
+    await waitFor(() => expect(saved.body).not.toBeNull());
   });
 
-  it('saves the whole look and the name together, on an explicit click', async () => {
+  it('auto-saves the whole look and the name together', async () => {
     const dialog = await openEditor();
     fireEvent.change(slider(dialog, strings.appearanceHeightLabel!), { target: { value: '640' } });
     fireEvent.change(within(dialog).getByPlaceholderText(strings.appearanceIntroPlaceholder!), { target: { value: 'Dobrý den.' } });
     fireEvent.change(nameField(dialog, bot.displayName), { target: { value: 'Podatelna města' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
 
     await waitFor(() => expect(saved.body).not.toBeNull());
     expect(saved.body!.chatbotUserId).toBe(bot.chatbotUserId);
@@ -405,7 +404,6 @@ describe('the appearance editor', () => {
     // …and a second save compares against the row the first one wrote, so an editor is never left holding a
     // token the server has already moved past.
     fireEvent.change(slider(dialog, strings.appearanceRadiusLabel!), { target: { value: '9' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect((saved.body!.appearance as StoredAppearance).overrides.radius).toBe(9));
     expect(saved.body!.expectedUpdatedAt).toBe('2026-09-21T17:00:00.000Z');
   });
@@ -414,9 +412,8 @@ describe('the appearance editor', () => {
     use(http.put('/api/plugins/chatbot/api/appearance', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
     const dialog = await openEditor();
     fireEvent.change(slider(dialog, strings.appearanceRadiusLabel!), { target: { value: '2' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
-    expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: strings.appearanceSave! })).toBeEnabled();
+    expect(await within(dialog).findByText('boom')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
 
   it('refuses a second identical quick button, and stops at the ceiling', async () => {
@@ -468,7 +465,6 @@ describe('the appearance editor', () => {
     fireEvent.change(within(dialog).getByLabelText(strings.appearanceColorPresence!), { target: { value: '#abcdef' } });
     expect(css()).toContain('background: #abcdef');
 
-    fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceSave! }));
     await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.launcher)
       .toEqual({ icon: 'smile', presenceDot: true, presenceDotColor: '#abcdef' }));
   });

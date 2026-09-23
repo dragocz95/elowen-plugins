@@ -1,6 +1,7 @@
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
+import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
@@ -58,7 +59,7 @@ export interface PluginConfigField {
 /** The host's own plugin detail, narrowed to what the config form reads. `i18n` carries the manifest's
  *  own translations (`i18n/<lang>.json` `fields`), which is where this plugin's config labels are
  *  localized: they are NOT page copy and must not be restated as bundle strings. */
-interface PluginDetail {
+export interface PluginDetail {
   name: string;
   config: Record<string, unknown>;
   configSchema: PluginConfigField[];
@@ -87,6 +88,7 @@ interface QueryResult<T> {
 interface ChatbotHooks {
   /** This plugin's own page copy: its manifest's English fallback, with the active locale's overrides. */
   usePluginStrings(plugin: string): Record<string, string>;
+  useAutoSaveStatus: UseAutoSaveStatus;
   /** This plugin's own instance configuration, read through the host's admin route. The shared-settings
    *  section edits exactly this and nothing else: a second editor for the same record is a second thing
    *  that can disagree with it. */
@@ -337,6 +339,7 @@ interface ChatbotComponents {
     ariaLabel?: string;
   }>;
   Toggle: ComponentType<{ checked: boolean; onChange(checked: boolean): void; label?: string; disabled?: boolean }>;
+  AutoSaveStatus: ComponentType<AutoSaveStatusProps>;
   /** The host's "?" mark, for a row this bundle lays out itself instead of handing to `SettingsRow` — the
    *  limits window, where every row is a slider — so an explanation always sits in the same affordance. */
   HelpTip: ComponentType<{ children: ReactNode; align?: 'left' | 'right' }>;
@@ -383,6 +386,7 @@ export interface ChatbotRuntime {
     parseRange(raw: string): DateRange | null;
     rangeBounds(range: DateRange, now: number): { fromMs: number; toMs: number };
     serializeRange(range: DateRange): string;
+    openBrainSessionWindow(sessionId: string): void;
   };
   api(path: string, init?: RequestInit): Promise<unknown>;
   navigate(href: string): void;
@@ -428,9 +432,9 @@ export function runtime(): ChatbotRuntime {
  *
  *  API 19 is what publishes `SectionDeck` and `DeckNavigation`; the manifest's `web.requiresApiVersion`
  *  and the number below must agree, because the host gates the load on the manifest's copy and the mount
- *  on this one. */
+ *  on this one. API 20 adds the host-owned window opener for stored chat sessions. */
 export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 19, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 20, pages });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -449,8 +453,6 @@ export const chatbotApi = {
   bots: (): string => '/plugins/chatbot/api/bots',
   conversations: (input: { chatbotUserId: number; limit: number; offset: number }): string =>
     `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
-  conversation: (input: { chatbotUserId: number; visitorId: string }): string =>
-    `/plugins/chatbot/api/conversation?chatbotUserId=${input.chatbotUserId}&visitorId=${encodeURIComponent(input.visitorId)}`,
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
     `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports

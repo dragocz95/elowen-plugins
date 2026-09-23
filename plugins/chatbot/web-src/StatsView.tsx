@@ -8,9 +8,13 @@ import { formatDay, integer, money } from './format';
 import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
 const STATS_MAX_DAYS = 366;
-const PAGE_SIZE = 20;
 const DAY_MS = 86_400_000;
-const SERIES_COLOURS = { turns: 'var(--color-chart-1)', cost: 'var(--color-chart-3)' } as const;
+const SERIES_COLOURS = {
+  turns: 'var(--color-chart-1)',
+  done: 'var(--color-chart-2)',
+  errors: 'var(--color-chart-4)',
+  cost: 'var(--color-chart-3)',
+} as const;
 
 const dayStart = (timestamp: number): number => {
   const date = new Date(timestamp);
@@ -78,7 +82,6 @@ export function StatsSection() {
   const window = useMemo(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
 
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
@@ -86,7 +89,6 @@ export function StatsSection() {
   useEffect(() => {
     setAnswer(null);
     setLoadError(null);
-    setPage(0);
   }, [chatbotUserId, window.from, window.to]);
 
   const load = useCallback(() => {
@@ -112,13 +114,16 @@ export function StatsSection() {
     };
   }, { turns: 0, tokens: 0, cost: 0 });
   const points = answer === null ? [] : chartPoints(answer.days, answer.spend, answer.from, answer.to);
+  const chartData = points.map((point) => ({ ...point, label: formatDay(point.label, locale) }));
   const unknownCost = points.some((point) => point.cost === null);
-  const pageCount = Math.max(1, Math.ceil(points.length / PAGE_SIZE));
-  const clampedPage = Math.min(page, pageCount - 1);
-  const rows = points.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
   const series = [
     { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
+  ];
+  const dailySeries = [
+    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'done', label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
   ];
 
   const rangeLabels: Record<DateRange['preset'], string> = {
@@ -168,36 +173,9 @@ export function StatsSection() {
           : answer === null ? <C.LoadingState variant="block" />
             : (
               <>
-                <C.TimeSeriesChart data={points} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
+                <C.TimeSeriesChart data={chartData} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
                 {unknownCost ? <p className="text-xs text-muted-foreground">{s.costUnknownHint}</p> : null}
-                <div className="mt-4 flex flex-col gap-3">
-                  <h3 className="text-sm font-semibold">{s.statsTableTitle}</h3>
-                  <C.DataTable ariaLabel={s.statsTableTitle} columns="minmax(8rem,1fr) 7rem 7rem 7rem" compactColumns="minmax(0,1fr) 5rem 5rem" mobileColumns="minmax(0,1fr) 3rem 3.5rem">
-                    <C.DataTableRow header>
-                      <C.DataTableCell header>{s.statsColumnDay}</C.DataTableCell>
-                      <C.DataTableCell header className="text-right">{s.chartTurns}</C.DataTableCell>
-                      <C.DataTableCell header priority="wide" className="text-right">{s.statsColumnDone}</C.DataTableCell>
-                      <C.DataTableCell header className="text-right">{s.chartErrors}</C.DataTableCell>
-                    </C.DataTableRow>
-                    <div role="rowgroup">
-                      {rows.map((row) => (
-                        <C.DataTableRow key={row.label} interactive={false}>
-                          <C.DataTableCell>{formatDay(row.label, locale)}</C.DataTableCell>
-                          <C.DataTableCell className="text-right font-mono tabular-nums">{integer(row.turns, locale)}</C.DataTableCell>
-                          <C.DataTableCell priority="wide" className="text-right font-mono tabular-nums">{integer(row.done, locale)}</C.DataTableCell>
-                          <C.DataTableCell className="text-right font-mono tabular-nums">{integer(row.errors, locale)}</C.DataTableCell>
-                        </C.DataTableRow>
-                      ))}
-                    </div>
-                  </C.DataTable>
-                  <C.Pager
-                    page={clampedPage}
-                    pageSize={PAGE_SIZE}
-                    total={points.length}
-                    onPageChange={setPage}
-                    ariaLabel={s.statsTableTitle}
-                  />
-                </div>
+                <C.TimeSeriesChart data={chartData} series={dailySeries} height={240} ariaLabel={s.dailyChartTitle} emptyText={s.chartEmpty} />
               </>
             )}
         </div>
