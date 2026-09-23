@@ -93,3 +93,37 @@ test('rejects orphaned field and enum option translations', () => {
   assert.match(result.stderr, /fields\.method\.options\.removed has no matching manifest option/);
   assert.match(result.stderr, /fields\.removedField has no matching settings field/);
 });
+
+// Alert templates are rendered by the host in the recipient's locale, from the manifest `alerts` section
+// and the i18n `alerts` overrides. A missing override shows English in a Czech bell, and a dropped
+// placeholder silently removes the detail the alert exists to deliver.
+function withAlerts({ plugin, translation }, cs, sk) {
+  const manifest = JSON.parse(readFileSync(join(plugin, 'elowen-plugin.json'), 'utf8'));
+  manifest.alerts = { 'failed.title': 'Job {job} failed', 'failed.body': 'Error: {error}' };
+  writeFileSync(join(plugin, 'elowen-plugin.json'), JSON.stringify(manifest));
+  writeFileSync(join(plugin, 'i18n', 'cs.json'), JSON.stringify({ ...translation, alerts: cs }));
+  writeFileSync(join(plugin, 'i18n', 'sk.json'), JSON.stringify({ ...translation, alerts: sk }));
+}
+
+test('accepts alert templates translated in every locale with the same placeholders', () => {
+  const fx = fixture();
+  const alerts = { 'failed.title': 'Úloha {job} selhala', 'failed.body': 'Chyba: {error}' };
+  withAlerts(fx, alerts, alerts);
+
+  const result = run(fx.root);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('rejects missing, orphaned and placeholder-drifted alert translations', () => {
+  const fx = fixture();
+  withAlerts(fx,
+    { 'failed.title': 'Úloha selhala', 'failed.body': 'Chyba: {error}', 'gone.title': 'Pryč' },
+    { 'failed.title': 'Úloha {job} zlyhala' });
+
+  const result = run(fx.root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /plugin demo \(cs\): alerts\.failed\.title placeholder mismatch/);
+  assert.match(result.stderr, /plugin demo \(cs\): alerts\.gone\.title has no matching manifest alerts key/);
+  assert.match(result.stderr, /plugin demo \(sk\): missing alerts\.failed\.body translation/);
+  assert.doesNotMatch(result.stderr, /unknown top-level key "alerts"/);
+});

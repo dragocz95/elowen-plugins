@@ -16,8 +16,14 @@ function loadPlugin(dataRoot) {
   const platforms = [];
   const session = { identity: null, sessionId: undefined, deliveryTarget: undefined, admin: false };
   const db = pluginDb();
+  // What the plugin asked the host's bell for, in order: `{ raise: input }` or `{ clear: key }`.
+  const alerts = [];
   const ctx = {
     db: () => db,
+    alerts: {
+      raise: async (input) => { alerts.push({ raise: input }); return { recipients: 1 }; },
+      clear: async (key) => { alerts.push({ clear: key }); return 0; },
+    },
     logger: log,
     config: {},
     dataDir: () => join(dataRoot, 'cronjob'),
@@ -54,7 +60,7 @@ function loadPlugin(dataRoot) {
     registerSkill() {},
   };
   register(ctx);
-  return { tools, adapter: platforms[0], session };
+  return { tools, adapter: platforms[0], session, alerts };
 }
 
 async function asTurn(plugin, state, fn) {
@@ -130,4 +136,108 @@ test('cron persists direct delivery targets and suppresses generic notify after 
     deliveryTarget: 'destination:whatsapp:4201@s.whatsapp.net',
   });
   assert.deepEqual(notified, []);
+});
+
+// ── An owned run that fails or cannot reach its owner tells the owner on the bell ──────────────────
+// Production, 2026-09-23: a one-shot wake-up fired at 03:00, the send into its origin conversation threw
+// at once, and the only trace was a daemon log line. The owner had been told "It will reply in this
+// conversation" and never learnt that it did not.
+
+function ownedPlugin(t, jobs) {
+  const dataRoot = mkdtempSync(join(tmpdir(), 'elowen-cron-alert-'));
+  t.after(() => rmSync(dataRoot, { recursive: true, force: true }));
+  mkdirSync(join(dataRoot, 'cronjob'), { recursive: true });
+  writeFileSync(join(dataRoot, 'cronjob/jobs.json'), JSON.stringify(jobs));
+  const plugin = loadPlugin(dataRoot);
+  const notified = [];
+  plugin.adapter.deliver = async (text) => { notified.push(text); };
+  return { ...plugin, notified, jobsFile: join(dataRoot, 'cronjob/jobs.json') };
+}
+
+const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
+const dueWakeup = (extra = {}) => ({
+  id: 'w1', name: 'ping', schedule: 'in 30m', prompt: 'say hi', ownerUserId: 1,
+  originSessionId: 'brain-1-abc', originUserId: 1,
+  runAt: new Date(Date.now() - 1_000).toISOString(), createdAt: minutesAgo(30), ...extra,
+});
+const dueRecurring = (extra = {}) => ({
+  id: 'r1', name: 'digest', schedule: 'every 15m', prompt: 'digest', ownerUserId: 1,
+  createdAt: minutesAgo(60), lastRun: minutesAgo(20), ...extra,
+});
+/** Make every stored job due again, as the next interval slot would. */
+const makeDue = (jobsFile) => {
+  const jobs = JSON.parse(readFileSync(jobsFile, 'utf8'));
+  writeFileSync(jobsFile, JSON.stringify(jobs.map((job) => ({ ...job, lastRun: minutesAgo(20) }))));
+};
+
+test('a failed owned wake-up raises a bell alert for its owner naming the job and the error', async (t) => {
+  const plugin = ownedPlugin(t, [dueWakeup()]);
+  wireCronHost(plugin.adapter, async () => { throw new Error('brain not started for user 1'); });
+  await plugin.adapter.tick();
+
+  assert.deepEqual(plugin.alerts, [{
+    raise: {
+      key: 'run:w1',
+      scope: { user: 1 },
+      severity: 'warning',
+      message: { titleKey: 'runFailed.title', bodyKey: 'runFailed.body', params: { job: 'ping', error: 'brain not started for user 1' } },
+      url: '/p/cronjob/settings/jobs',
+    },
+  }]);
+  // The operator's catch-all channel still does not receive somebody else's result.
+  assert.deepEqual(plugin.notified, []);
+});
+
+test('an owned result that never reached the owner conversation raises a bell alert', async (t) => {
+  const plugin = ownedPlugin(t, [dueRecurring()]);
+  // The turn completed, but the host never confirmed the owner's conversation as its route.
+  wireCronHost(plugin.adapter, async () => 'the digest');
+  await plugin.adapter.tick();
+
+  assert.deepEqual(plugin.alerts, [{
+    raise: {
+      key: 'run:r1',
+      scope: { user: 1 },
+      severity: 'warning',
+      message: { titleKey: 'runUndelivered.title', bodyKey: 'runUndelivered.body', params: { job: 'digest' } },
+      url: '/p/cronjob/settings/jobs?job=r1',
+    },
+  }]);
+  assert.deepEqual(plugin.notified, []);
+});
+
+test('a recurring failure keeps one alert key and a delivered run clears it', async (t) => {
+  const plugin = ownedPlugin(t, [dueRecurring()]);
+  let reply = async () => { throw new Error('provider down'); };
+  wireCronHost(plugin.adapter, (src, text, onEvent) => reply(src, text, onEvent));
+  // One attempt per run keeps the retry backoff out of the test.
+  plugin.adapter.turnAttempts = 1;
+  await plugin.adapter.tick();
+  makeDue(plugin.jobsFile);
+  await plugin.adapter.tick();
+  // Same key every time: the host's alert store keeps ONE row per key, so a standing failure updates it
+  // in place instead of ringing the owner's phone on every run.
+  assert.deepEqual(plugin.alerts.map((entry) => entry.raise?.key), ['run:r1', 'run:r1']);
+
+  reply = async (src, _text, onEvent) => { onEvent({ type: 'session', sessionId: src.origin.sessionId }); return 'all good'; };
+  makeDue(plugin.jobsFile);
+  await plugin.adapter.tick();
+  assert.deepEqual(plugin.alerts.at(-1), { clear: 'run:r1' });
+});
+
+test('a quiet owned reply and an instance job failure raise nothing', async (t) => {
+  const plugin = ownedPlugin(t, [
+    dueWakeup({ originDeliveryTarget: 'destination:whatsapp:4201@s.whatsapp.net' }),
+    { id: 'i1', name: 'instance', schedule: 'every 15m', prompt: 'p', createdAt: minutesAgo(60), lastRun: minutesAgo(20) },
+  ]);
+  plugin.adapter.turnAttempts = 1;
+  // A quiet reply is never delivered to a platform chat, so no delivery confirmation arrives for it.
+  wireCronHost(plugin.adapter, async (src) => {
+    if (src.origin) return 'NOTHING_TO_REPORT';
+    throw new Error('provider down');
+  });
+  await plugin.adapter.tick();
+
+  assert.equal(plugin.alerts.some((entry) => entry.raise), false);
+  assert.match(plugin.notified.join('\n'), /provider down/);
 });

@@ -16,6 +16,7 @@ const pluginNames = readdirSync(pluginsDir)
 
 const hasText = (value) => typeof value === 'string' && value.trim() !== '';
 const asFields = (value) => Array.isArray(value) ? value : [];
+const placeholders = (value) => new Set(String(value).match(/\{[a-zA-Z0-9_]+\}/g) ?? []);
 
 for (const name of pluginNames) {
   const dir = join(pluginsDir, name);
@@ -53,7 +54,7 @@ for (const name of pluginNames) {
     }
 
     for (const key of Object.keys(i18n)) {
-      if (!['description', 'userConfigLabel', 'fields', 'web'].includes(key)) {
+      if (!['description', 'userConfigLabel', 'fields', 'web', 'alerts'].includes(key)) {
         errors.push(`plugin ${name} (${locale}): unknown top-level key "${key}"`);
       }
     }
@@ -73,6 +74,25 @@ for (const name of pluginNames) {
     }
     if (hasText(i18n.userConfigLabel) && !hasText(manifest.userConfigLabel)) {
       errors.push(`plugin ${name} (${locale}): userConfigLabel has no matching manifest userConfigLabel`);
+    }
+
+    // Alert templates are rendered by the host in the recipient's locale. Coverage and placeholder
+    // parity are strict because a dropped placeholder silently removes the detail the alert delivers.
+    const manifestAlerts = manifest.alerts ?? {};
+    for (const key of Object.keys(i18n.alerts ?? {})) {
+      if (!(key in manifestAlerts)) errors.push(`plugin ${name} (${locale}): alerts.${key} has no matching manifest alerts key`);
+    }
+    for (const [key, template] of Object.entries(manifestAlerts)) {
+      const translated = i18n.alerts?.[key];
+      if (!hasText(translated)) {
+        errors.push(`plugin ${name} (${locale}): missing alerts.${key} translation`);
+        continue;
+      }
+      const expected = placeholders(template);
+      const actual = placeholders(translated);
+      if ([...expected].some((token) => !actual.has(token)) || [...actual].some((token) => !expected.has(token))) {
+        errors.push(`plugin ${name} (${locale}): alerts.${key} placeholder mismatch (en: ${[...expected].join(' ') || '-'} | ${locale}: ${[...actual].join(' ') || '-'})`);
+      }
     }
 
     for (const [key, override] of Object.entries(i18n.fields ?? {})) {

@@ -1,6 +1,6 @@
 {
   "name": "cronjob",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "apiVersion": "2",
   "requiresCore": "0.28.52",
   "requiresSharedApi": 4,
@@ -13,8 +13,15 @@
     "reads": [
       "stores",
       "controls",
-      "db"
+      "db",
+      "alerts"
     ]
+  },
+  "alerts": {
+    "runFailed.title": "Scheduled job “{job}” failed",
+    "runFailed.body": "Details are in the history on the Automation page. Error: {error}",
+    "runUndelivered.title": "The result of scheduled job “{job}” could not be delivered",
+    "runUndelivered.body": "The job ran, but its result did not reach your conversation. You can find it in the history on the Automation page."
   },
   "userGrantable": true,
   "provides": {

@@ -56,6 +56,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *  conversation across runs and restarts without storing a pointer that could go stale; the host owns
  *  its creation. */
 const jobSessionId = (ownerUserId, jobId) => `brain-${ownerUserId}-job-${jobId}`;
+/** The Automation page, where a job's settings and run history live. Owner alerts link here. */
+const AUTOMATION_PAGE = '/p/cronjob/settings/jobs';
 
 /** WHERE A JOB'S TURNS RUN, in one place, because two callers ask it and they must never disagree: the
  *  scheduler, which routes the run itself, and the navigation seam, which tells a conversation listing
@@ -183,8 +185,10 @@ class CronAdapter {
   // multiplying every cron echo into dozens of Discord messages.
   // `timezone` is a LIVE getter, not a captured string: the operator can change the zone in Settings and
   // the very next tick must schedule against it, without a plugin reload.
-  constructor(store, deliveryStore, journal, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true, projectRuntime) {
+  constructor(store, deliveryStore, journal, logger, deliver, config = {}, timezone = systemZone, ownerIsAdmin = () => true, ownerMaySchedule = () => true, projectRuntime, alerts) {
     this.projectRuntime = projectRuntime;
+    // The host's bell (ctx.alerts): how an owned job's owner learns that a run failed or never reached them.
+    this.alerts = alerts;
     this.journal = journal;
     this.checkAbort = new AbortController();
     this.store = store; this.deliveryStore = deliveryStore; this.log = logger; this.deliver = deliver;
@@ -552,15 +556,25 @@ class CronAdapter {
       this.runningJobId = null;
       const trimmed = String(reply ?? '').trim();
       const failed = trimmed.startsWith('Error:');
+      const errorMessage = failed ? trimmed.slice('Error:'.length).trim() || 'scheduled turn failed' : null;
       this.journal.close(receipt.id, {
         outcome: failed ? 'error' : 'ok',
         preview: String(reply ?? ''),
-        ...(failed ? { errorMessage: trimmed.slice('Error:'.length).trim() || 'scheduled turn failed' } : {}),
+        ...(failed ? { errorMessage } : {}),
         ...(Number.isSafeInteger(idle?.durationMs) ? { durationMs: idle.durationMs } : {}),
         ...(typeof idle?.completedAt === 'string' && Number.isFinite(Date.parse(idle.completedAt))
           ? { finishedMs: Date.parse(idle.completedAt) }
           : {}),
       });
+      // An owned job's owner was promised the result. A failed run, or a result with something to say
+      // that no conversation of theirs confirmed receiving, reaches them on the bell instead; every other
+      // outcome clears that alert, because the job works again.
+      if (owner !== null) {
+        const undelivered = !failed && origin !== undefined && !boundDelivery && trimmed !== '' && !isQuietReply(trimmed);
+        await this.alertOwner(job, owner, failed ? { kind: 'runFailed', params: { error: errorMessage } }
+          : undelivered ? { kind: 'runUndelivered', params: {} }
+            : null);
+      }
       // Origin-bound delivery: a successful result already landed in the originating conversation, so the
       // generic notification sink must not send it a second time. Direct platform origins are confirmed only
       // after adapter delivery; owner-chat bound sends keep their existing session confirmation. A failed
@@ -568,15 +582,15 @@ class CronAdapter {
       if (boundDelivery && (origin?.deliveryTarget !== undefined || !trimmed.startsWith('Error:'))) continue;
       // An owned job does not echo to the operator's DEFAULT notification channel: that channel belongs
       // to the operator and this result belongs to somebody else. When the bound delivery could not land
-      // (the owner has no conversation yet, or it changed hands) the outcome stays in the job's own
-      // last-result field, which is what its owner sees on the Automation page.
+      // (the owner has no conversation yet, or it changed hands) the outcome stays in the run history
+      // and the owner was alerted above.
       //
       // A job that names its OWN channel is the exception, because that is an explicit destination
       // chosen for this job rather than the operator's catch-all — and only an operator-level account is
       // allowed to set one. Without this, giving an existing reporting job an owner would silently
       // switch off the report the room depends on.
       if (owner !== null && !(typeof job.notifyChannelId === 'string' && job.notifyChannelId.trim())) {
-        if (!boundDelivery) this.log.error(`cron job ${job.id} (${job.name}) could not reach its owner's conversation — result kept in the job's last result`);
+        if (!boundDelivery) this.log.error(`cron job ${job.id} (${job.name}) could not reach its owner's conversation — result kept in the run history`);
         continue;
       }
       // Echo the outcome to the notification channel (Discord) so it reaches the user proactively.
@@ -657,6 +671,32 @@ class CronAdapter {
     if (job.runAt) this.store.save(jobs.filter((j) => j.id !== job.id));
     else this.store.patch(job.id, { lastRun: new Date(now).toISOString(), lastSlot: slot });
     return job;
+  }
+
+  /** Raise or clear the owner's bell alert for one owned job. ONE key per job, so the host's alert store
+   *  keeps a single row for it: a recurring job that keeps failing refreshes that row (latest error) and
+   *  rings the owner's phone only when the alert is new or returns after a run that worked, and an alert
+   *  the owner dismissed stays dismissed while the failure lasts. A one-shot's id is unique, so each
+   *  wake-up gets its own alert. A bell that cannot be reached is logged and never stops the tick: the
+   *  run itself is already settled in the journal. */
+  async alertOwner(job, owner, problem) {
+    const key = `run:${job.id}`;
+    try {
+      if (!problem) {
+        await this.alerts.clear(key);
+        return;
+      }
+      await this.alerts.raise({
+        key,
+        scope: { user: owner },
+        severity: 'warning',
+        message: { titleKey: `${problem.kind}.title`, bodyKey: `${problem.kind}.body`, params: { job: job.name, ...problem.params } },
+        // A one-shot is deleted before it runs, so only a recurring job can still be opened.
+        url: job.runAt ? AUTOMATION_PAGE : `${AUTOMATION_PAGE}?job=${encodeURIComponent(job.id)}`,
+      });
+    } catch (e) {
+      this.log.error(`could not update the owner alert of cron job ${job.id} (${job.name}): ${e?.message ?? e}`);
+    }
   }
 
   /** Persist the prepared payload as a PENDING delivery before attempting to send it — so a delivery
@@ -2409,7 +2449,7 @@ export function register(ctx) {
       await provider.environmentFor({ project, accountUserId: job.ownerUserId });
     },
     check: (job, timeoutMs, signal) => projectCheck(ctx, job, timeoutMs, undefined, signal),
-  });
+  }, ctx.alerts);
   // Both of these settle rows in `p_cronjob_runs`, which lives in the DAEMON's database — and a forked
   // sub-agent runner loads this plugin too, in its own process, against that same database. Reconciling
   // there does not repair anything: it reads a run the daemon is still executing and closes it as
