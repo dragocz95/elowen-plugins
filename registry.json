@@ -206,7 +206,7 @@
       "author": "Elowen",
       "apiVersion": "2",
       "provides": {},
-      "requiresCore": "0.28.51"
+      "requiresCore": "0.28.53"
     },
     {
       "name": "telegram",

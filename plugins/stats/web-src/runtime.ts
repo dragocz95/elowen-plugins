@@ -49,7 +49,7 @@ interface StatsRuntime {
     useTranslation(): { t: Record<string, any>; locale: string };
   };
   utils: {
-    buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary;
+    buildUsageSummary(data: ModelUsage[] | undefined, locale: string): UsageSummary;
     DEFAULT_RANGE: DateRange;
     isStoredRange(raw: string): boolean;
     parseRange(raw: string): DateRange | null;
@@ -147,5 +147,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 11, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 21, pages });
 }

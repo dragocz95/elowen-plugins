@@ -163,6 +163,12 @@
       border-color: color-mix(in oklab, var(--color-border, #242424) 70%, transparent);
     }
   }
+  .border-hairline {
+    border-color: var(--color-hairline, color-mix(in srgb, #f7f3f0 9%, transparent));
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: var(--color-hairline, color-mix(in srgb, var(--color-foreground) 9%, transparent));
+    }
+  }
   .border-warning\/40 {
     border-color: color-mix(in srgb, #edae49 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -180,6 +186,9 @@
   }
   .bg-primary {
     background-color: var(--color-primary, #ff5236);
+  }
+  .bg-raised {
+    background-color: var(--color-raised, var(--color-card));
   }
   .bg-warning\/10 {
     background-color: color-mix(in srgb, #edae49 10%, transparent);
@@ -245,14 +254,14 @@
   .whitespace-nowrap {
     white-space: nowrap;
   }
-  .text-card-foreground {
-    color: var(--color-card-foreground, var(--color-foreground));
-  }
   .text-foreground {
     color: var(--color-foreground, #f7f3f0);
   }
   .text-muted-foreground {
     color: var(--color-muted-foreground, #9d948e);
+  }
+  .text-raised-foreground {
+    color: var(--color-raised-foreground, var(--color-card-foreground));
   }
   .text-warning {
     color: var(--color-warning, #edae49);

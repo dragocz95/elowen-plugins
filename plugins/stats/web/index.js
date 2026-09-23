@@ -28,18 +28,20 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -53,7 +55,7 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 11, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 21, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
@@ -239,15 +241,7 @@ var STATS_TREND_COLORS = {
 // plugins/stats/web-src/format.ts
 var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
 var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
-var compact = (value, locale) => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-var cost = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 4,
-  maximumFractionDigits: 4
-}).format(value);
 var percentage = (value, locale) => value == null ? "\u2014" : `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)}%`;
-var speed = (value, locale) => value == null || !Number.isFinite(value) || value <= 0 ? "\u2014" : value < 0.1 ? `<${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(0.1)} tok/s` : `${new Intl.NumberFormat(locale, { maximumFractionDigits: value < 1 ? 1 : 0 }).format(value)} tok/s`;
 var shortDateTime = (ms, locale) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(ms));
 
 // plugins/stats/web-src/components/PieChart.tsx
@@ -671,11 +665,7 @@ function StatsView() {
   const scope = me.data?.user?.is_admin === true ? requestedScope : "personal";
   const usage = useModelUsage(window2, scope);
   const daily = useUsageByDay(trendDays, scope);
-  const summary = buildUsageSummary(usage.data);
-  const measured = (usage.data ?? []).filter(({ usage: u }) => u.effectiveTps != null && Number.isFinite(u.effectiveTps) && u.effectiveTps > 0 && Number.isFinite(u.effectiveMeasuredOutput ?? 0) && (u.effectiveMeasuredOutput ?? 0) > 0);
-  const measuredOutput = measured.reduce((total, { usage: u }) => total + (u.effectiveMeasuredOutput ?? 0), 0);
-  const measuredSeconds = measured.reduce((total, { usage: u }) => total + (u.effectiveMeasuredOutput ?? 0) / u.effectiveTps, 0);
-  const avgSpeed = measuredSeconds > 0 ? measuredOutput / measuredSeconds : null;
+  const summary = buildUsageSummary(usage.data, locale);
   const [query, setQuery] = (0, import_react7.useState)("");
   const [filter, setFilter] = (0, import_react7.useState)("all");
   const [page, setPage] = (0, import_react7.useState)(0);
@@ -690,22 +680,16 @@ function StatsView() {
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
   const modelByExec = (0, import_react7.useMemo)(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
-  const formattedRows = (0, import_react7.useMemo)(() => summary.rows.map((row) => ({
-    ...row,
-    tokensLabel: compact(row.totalTokens, locale),
-    costLabel: cost(row.costUsd, locale),
-    speedLabel: speed(modelByExec.get(row.exec)?.usage.effectiveTps, locale)
-  })), [summary.rows, modelByExec, locale]);
   const filtered = (0, import_react7.useMemo)(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return formattedRows.filter((row) => {
+    return summary.rows.filter((row) => {
       const model = modelByExec.get(row.exec);
       if (needle && !row.exec.toLocaleLowerCase().includes(needle)) return false;
       if (filter === "costed" && row.costUsd == null) return false;
       if (filter === "cached" && (!model || cacheTokens(model.usage) === 0)) return false;
       return true;
     });
-  }, [filter, modelByExec, query, formattedRows]);
+  }, [filter, modelByExec, query, summary.rows]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize);
@@ -718,18 +702,18 @@ function StatsView() {
     return `${from} \u2013 ${to}`;
   }, [window2, s.originRangeOpen, s.originRangeNow]);
   const trend = (0, import_react7.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
-  const rowByExec = new Map(formattedRows.map((row) => [row.exec, row]));
+  const rowByExec = new Map(summary.rows.map((row) => [row.exec, row]));
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.total,
-    valueLabel: rowByExec.get(model.exec)?.tokensLabel ?? integer(model.usage.total, locale)
+    valueLabel: rowByExec.get(model.exec).tokensLabel
   }));
   const pieCosts = (usage.data ?? []).filter((model) => model.usage.costUsd != null).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.costUsd ?? 0,
-    valueLabel: rowByExec.get(model.exec)?.costLabel ?? "\u2014"
+    valueLabel: rowByExec.get(model.exec).costLabel
   }));
   const resetPage = () => setPage(0);
   const changeRange = (next) => {
@@ -815,10 +799,10 @@ function StatsView() {
         scope === "personal" && summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Button3, { variant: "ghost-danger", icon: Trash2, onClick: () => setResetOpen(true), children: s.reset }) : null
       ] }) : void 0,
       metrics: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricTokens, value: compact(summary.totalTokens, locale), icon: ChartColumn }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCost, value: cost(summary.totalCost, locale), icon: DollarSign }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCache, value: compact(summary.totalCacheTokens, locale), icon: Database }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: speed(avgSpeed, locale), icon: Gauge })
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricTokens, value: summary.totalTokensLabel, icon: ChartColumn }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCost, value: summary.totalCostLabel, icon: DollarSign }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricCache, value: summary.totalCacheLabel, icon: Database }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(WorkspaceMetric, { label: s.metricSpeed, value: summary.avgSpeedLabel, icon: Gauge })
       ] })
     }, toolbar: {
       search: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
@@ -858,18 +842,18 @@ function StatsView() {
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border p-4 text-card-foreground", style: { backgroundColor: "var(--color-raised)", borderColor: "var(--color-hairline)" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon, locale })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border p-4 text-card-foreground", style: { backgroundColor: "var(--color-raised)", borderColor: "var(--color-hairline)" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon, locale })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border p-4 text-card-foreground", style: { backgroundColor: "var(--color-raised)", borderColor: "var(--color-hairline)" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })

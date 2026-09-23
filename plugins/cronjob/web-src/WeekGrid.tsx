@@ -41,7 +41,7 @@ export function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDat
     // a labelled region instead, which is what this actually is — seven small agendas side by side.
     <div
       aria-label={s.tabCalendar || 'Calendar'}
-      className="grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border" style={{ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' }}
+      className="grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-hairline bg-raised"
       data-testid="cron-week-grid"
     >
       {days.map((day) => {
@@ -143,7 +143,7 @@ export function MobileDayStrip({ days, selectedDate, todayLocalDate, onSelectDat
             type="button"
             aria-current={selected ? 'date' : undefined}
             onClick={() => onSelectDate(day.localDate)}
-            className={`flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? 'border-primary/60 bg-primary/10' : 'border-border/70'}`} style={selected ? undefined : { backgroundColor: 'var(--color-control)' }}
+            className={`flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? 'border-primary/60 bg-primary/10' : 'border-border/70 bg-control'}`}
           >
             <span className="sr-only">{shortDay(day.localDate, locale)}</span>
             <span aria-hidden className={`text-meta font-medium uppercase tracking-[0.08em] ${selected ? 'text-primary' : 'text-muted-foreground'}`}>

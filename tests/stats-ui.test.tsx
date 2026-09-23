@@ -5,7 +5,7 @@ import { http, HttpResponse, onUnhandledRequest, setupServer } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import manifest from '../plugins/stats/elowen-plugin.json' with { type: 'json' };
-import { compact, cost, integer, percentage, speed } from '../plugins/stats/web-src/format';
+import { integer, percentage } from '../plugins/stats/web-src/format';
 
 ensurePluginUiRuntime();
 const registered = vi.fn();
@@ -48,10 +48,7 @@ describe('usage numbers', () => {
   it.each(['cs', 'sk', 'en'])('formats values and percentages in %s', (locale) => {
     const number = new Intl.NumberFormat(locale);
     expect(integer(1234567, locale)).toBe(number.format(1234567));
-    expect(compact(1234, locale)).toBe(new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(1234));
-    expect(cost(12.5, locale)).toBe(new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(12.5));
     expect(percentage(18.5, locale)).toBe(`${number.format(18.5)}%`);
-    expect(speed(18.5, locale)).toBe(`${number.format(19)} tok/s`);
   });
 });
 
@@ -165,7 +162,7 @@ describe('StatsView', () => {
     renderStats();
     const tokenHeading = await screen.findByText(strings.tokensByModel);
     const tokenCard = tokenHeading.closest('section');
-    expect(tokenCard).toHaveStyle({ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' });
+    expect(tokenCard).toHaveClass('bg-raised', 'border-hairline');
     expect(tokenHeading).toHaveClass('text-foreground');
     expect(screen.getByText(strings.tokensByModelHint)).toHaveClass('text-muted-foreground');
 
@@ -178,7 +175,7 @@ describe('StatsView', () => {
 
     const trendHeading = screen.getByText(strings.trendTitle);
     const trendCard = trendHeading.closest('section')!;
-    expect(trendCard).toHaveStyle({ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' });
+    expect(trendCard).toHaveClass('bg-raised', 'border-hairline');
     const tokenSeriesLabel = within(trendCard).getByText(strings.trendTokens);
     const tokenSeriesMark = tokenSeriesLabel.parentElement?.querySelector('[aria-hidden]') as HTMLElement;
     expect(tokenSeriesMark.style.background).toBe('var(--color-chart-1)');

@@ -87,7 +87,7 @@ export function DayCard({ card, job, localDate, compact = false, onOpen, onRun, 
     // stacking context, and the actions menu inside it was then painted under the following cards and
     // faded along with them — the three dots were unreadable and the panel see-through.
     <div
-      className="relative min-w-0 rounded-lg border" style={{ backgroundColor: 'var(--color-control)', borderColor: 'var(--color-hairline)' }}
+      className="relative min-w-0 rounded-lg border border-hairline bg-control"
       data-testid={`cron-card-${card.jobId}`}
     >
       <button

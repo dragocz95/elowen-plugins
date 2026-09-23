@@ -258,6 +258,12 @@
       border-color: color-mix(in oklab, var(--color-destructive, #e94d42) 40%, transparent);
     }
   }
+  .border-hairline {
+    border-color: var(--color-hairline, color-mix(in srgb, #f7f3f0 9%, transparent));
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: var(--color-hairline, color-mix(in srgb, var(--color-foreground) 9%, transparent));
+    }
+  }
   .border-muted-foreground\/60 {
     border-color: color-mix(in srgb, #9d948e 60%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -281,6 +287,9 @@
   }
   .bg-background {
     background-color: var(--color-background, #000000);
+  }
+  .bg-control {
+    background-color: var(--color-control, var(--color-card));
   }
   .bg-destructive {
     background-color: var(--color-destructive, #e94d42);
@@ -329,6 +338,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-primary, #ff5236) 3%, transparent);
     }
+  }
+  .bg-raised {
+    background-color: var(--color-raised, var(--color-card));
   }
   .bg-transparent {
     background-color: transparent;

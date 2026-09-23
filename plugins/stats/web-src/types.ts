@@ -10,8 +10,6 @@ export interface TokenUsage {
   costSource?: string;
   outputTps?: number | null;
   measuredOutput?: number;
-  effectiveTps?: number | null;
-  effectiveMeasuredOutput?: number;
 }
 
 export interface ModelUsage { exec: string; usage: TokenUsage }

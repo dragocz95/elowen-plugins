@@ -4,7 +4,7 @@ import { PieChart } from './components/PieChart';
 import { UsageTrend } from './components/UsageTrend';
 import { ResetUsageModal } from './ResetUsageModal';
 import { OriginDrawer } from './OriginDrawer';
-import { compact, cost, integer, percentage, speed } from './format';
+import { integer, percentage } from './format';
 import { runtime, type PageFilterField } from './runtime';
 import type { DayUsage, ModelUsage, TokenUsage, UsageScope } from './types';
 
@@ -123,14 +123,7 @@ export function StatsView() {
   const scope = me.data?.user?.is_admin === true ? requestedScope : 'personal';
   const usage = useModelUsage(window, scope);
   const daily = useUsageByDay(trendDays, scope);
-  const summary = buildUsageSummary(usage.data);
-  // Match the host's duration-weighted rate from measured output, never from untimed tokens.
-  const measured = (usage.data ?? []).filter(({ usage: u }) =>
-    u.effectiveTps != null && Number.isFinite(u.effectiveTps) && u.effectiveTps > 0 &&
-    Number.isFinite((u.effectiveMeasuredOutput ?? 0)) && (u.effectiveMeasuredOutput ?? 0) > 0);
-  const measuredOutput = measured.reduce((total, { usage: u }) => total + (u.effectiveMeasuredOutput ?? 0), 0);
-  const measuredSeconds = measured.reduce((total, { usage: u }) => total + (u.effectiveMeasuredOutput ?? 0) / u.effectiveTps!, 0);
-  const avgSpeed = measuredSeconds > 0 ? measuredOutput / measuredSeconds : null;
+  const summary = buildUsageSummary(usage.data, locale);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UsageFilter>('all');
   const [page, setPage] = useState(0);
@@ -145,22 +138,16 @@ export function StatsView() {
   const hasError = usage.isError || daily.isError;
   const isLoading = usage.isLoading || daily.isLoading || !usage.data || !daily.data;
   const modelByExec = useMemo(() => new Map((usage.data ?? []).map((model) => [model.exec, model])), [usage.data]);
-  const formattedRows = useMemo(() => summary.rows.map((row) => ({
-    ...row,
-    tokensLabel: compact(row.totalTokens, locale),
-    costLabel: cost(row.costUsd, locale),
-    speedLabel: speed(modelByExec.get(row.exec)?.usage.effectiveTps, locale),
-  })), [summary.rows, modelByExec, locale]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return formattedRows.filter((row) => {
+    return summary.rows.filter((row) => {
       const model = modelByExec.get(row.exec);
       if (needle && !row.exec.toLocaleLowerCase().includes(needle)) return false;
       if (filter === 'costed' && row.costUsd == null) return false;
       if (filter === 'cached' && (!model || cacheTokens(model.usage) === 0)) return false;
       return true;
     });
-  }, [filter, modelByExec, query, formattedRows]);
+  }, [filter, modelByExec, query, summary.rows]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const clampedPage = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize);
@@ -175,18 +162,18 @@ export function StatsView() {
     return `${from} – ${to}`;
   }, [window, s.originRangeOpen, s.originRangeNow]);
   const trend = useMemo(() => padDailyUsage(daily.data ?? [], trendDays, window, now), [daily.data, now, trendDays, window]);
-  const rowByExec = new Map(formattedRows.map((row) => [row.exec, row]));
+  const rowByExec = new Map(summary.rows.map((row) => [row.exec, row]));
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.total,
-    valueLabel: rowByExec.get(model.exec)?.tokensLabel ?? integer(model.usage.total, locale),
+    valueLabel: rowByExec.get(model.exec)!.tokensLabel,
   }));
   const pieCosts = (usage.data ?? []).filter((model) => model.usage.costUsd != null).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.costUsd ?? 0,
-    valueLabel: rowByExec.get(model.exec)?.costLabel ?? '—',
+    valueLabel: rowByExec.get(model.exec)!.costLabel,
   }));
 
   const resetPage = () => setPage(0);
@@ -271,10 +258,10 @@ export function StatsView() {
             </>
           : undefined,
         metrics: <>
-          <WorkspaceMetric label={s.metricTokens} value={compact(summary.totalTokens, locale)} icon={BarChart3} />
-          <WorkspaceMetric label={s.metricCost} value={cost(summary.totalCost, locale)} icon={DollarSign} />
-          <WorkspaceMetric label={s.metricCache} value={compact(summary.totalCacheTokens, locale)} icon={Database} />
-          <WorkspaceMetric label={s.metricSpeed} value={speed(avgSpeed, locale)} icon={Gauge} />
+          <WorkspaceMetric label={s.metricTokens} value={summary.totalTokensLabel} icon={BarChart3} />
+          <WorkspaceMetric label={s.metricCost} value={summary.totalCostLabel} icon={DollarSign} />
+          <WorkspaceMetric label={s.metricCache} value={summary.totalCacheLabel} icon={Database} />
+          <WorkspaceMetric label={s.metricSpeed} value={summary.avgSpeedLabel} icon={Gauge} />
         </>,
       }} toolbar={{
         search: (
@@ -318,19 +305,19 @@ export function StatsView() {
                   ) : (
                     <>
                       <div className="grid gap-4 xl:grid-cols-2">
-                        <section className="rounded-lg border p-4 text-card-foreground" style={{ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' }}>
+                        <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                           <h2 className="text-sm font-semibold text-foreground">{s.tokensByModel}</h2>
                           <p className="mb-4 text-xs text-muted-foreground">{s.tokensByModelHint}</p>
                           <PieChart title={s.tokensByModel} data={pieTokens} emptyText={s.noChartData} renderIcon={renderModelIcon} locale={locale} />
                         </section>
-                        <section className="rounded-lg border p-4 text-card-foreground" style={{ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' }}>
+                        <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                           <h2 className="text-sm font-semibold text-foreground">{s.costByModel}</h2>
                           <p className="mb-4 text-xs text-muted-foreground">{s.costByModelHint}</p>
                           <PieChart title={s.costByModel} data={pieCosts} emptyText={s.noChartData} renderIcon={renderModelIcon} locale={locale} />
                         </section>
                       </div>
 
-                      <section className="rounded-lg border p-4 text-card-foreground" style={{ backgroundColor: 'var(--color-raised)', borderColor: 'var(--color-hairline)' }}>
+                      <section className="rounded-lg border border-hairline bg-raised p-4 text-raised-foreground">
                         <h2 className="text-sm font-semibold text-foreground">{s.trendTitle}</h2>
                         <p className="mb-4 text-xs text-muted-foreground">{s.trendHint}</p>
                         <UsageTrend data={trend} locale={locale} tokenLabel={s.trendTokens} costLabel={s.trendCost} emptyText={trendUnavailable ? s.trendUnavailable : s.noChartData} />

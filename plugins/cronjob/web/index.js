@@ -28,18 +28,20 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -434,8 +436,7 @@ function DayCard({ card, job, localDate, compact = false, onOpen, onRun, onToggl
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "div",
       {
-        className: "relative min-w-0 rounded-lg border",
-        style: { backgroundColor: "var(--color-control)", borderColor: "var(--color-hairline)" },
+        className: "relative min-w-0 rounded-lg border border-hairline bg-control",
         "data-testid": `cron-card-${card.jobId}`,
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
@@ -725,8 +726,7 @@ function WeekGrid({ days, jobs, selectedDate, todayLocalDate, onSelectDate, onOp
       "div",
       {
         "aria-label": s.tabCalendar || "Calendar",
-        className: "grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border",
-        style: { backgroundColor: "var(--color-raised)", borderColor: "var(--color-hairline)" },
+        className: "grid min-w-0 grid-cols-7 overflow-hidden rounded-xl border border-hairline bg-raised",
         "data-testid": "cron-week-grid",
         children: days.map((day) => {
           const selected = day.localDate === selectedDate;
@@ -826,8 +826,7 @@ function MobileDayStrip({ days, selectedDate, todayLocalDate, onSelectDate }) {
         type: "button",
         "aria-current": selected ? "date" : void 0,
         onClick: () => onSelectDate(day.localDate),
-        className: `flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? "border-primary/60 bg-primary/10" : "border-border/70"}`,
-        style: selected ? void 0 : { backgroundColor: "var(--color-control)" },
+        className: `flex min-h-[44px] min-w-[4rem] snap-center flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 pointer-coarse:min-h-[var(--touch-target)] ${selected ? "border-primary/60 bg-primary/10" : "border-border/70 bg-control"}`,
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sr-only", children: shortDay(day.localDate, locale) }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": true, className: `text-meta font-medium uppercase tracking-[0.08em] ${selected ? "text-primary" : "text-muted-foreground"}`, children: weekdayLabel(day.localDate, locale) }),
