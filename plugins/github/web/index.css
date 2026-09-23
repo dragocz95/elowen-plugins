@@ -38,9 +38,6 @@
   .min-h-28 {
     min-height: calc(var(--spacing, 0.25rem) * 28);
   }
-  .w-full {
-    width: 100%;
-  }
   .min-w-0 {
     min-width: 0px;
   }
@@ -93,9 +90,6 @@
   }
   .rounded-lg {
     border-radius: var(--radius-lg, 0.75rem);
-  }
-  .rounded-md {
-    border-radius: var(--radius-md, 0.625rem);
   }
   .rounded-xl {
     border-radius: var(--radius-xl, 1rem);
