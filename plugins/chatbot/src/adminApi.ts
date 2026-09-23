@@ -1,7 +1,7 @@
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import type { BotRow } from './db.js';
 import type { ChatbotStore } from './store.js';
-import { newPublicId } from './token.js';
+import { newPublicId, VISITOR_ID_CHARS } from './token.js';
 import { inspectAccount } from './preflight.js';
 import { isUsableOrigin } from './origin.js';
 import { LIMIT_FIELDS, readBotLimits, incompleteValues, missingLimits, storedLimits, type LimitValues, type MandatoryLimitField } from './limits.js';
@@ -299,12 +299,29 @@ export function createAdminApi(deps: AdminApiDeps) {
       if (refusal) return refusal;
       const chatbotUserId = readChatbotUserId(query.chatbotUserId);
       if (chatbotUserId === null) return { status: 400, body: { error: 'invalid_request', detail: '"chatbotUserId" must be a positive integer' } };
+      const visitorQuery = (query.visitor ?? '').trim().toLowerCase();
+      // Visitor ids are lowercase hex, so the filter is a case-insensitive fragment of one.
+      if (visitorQuery.length > VISITOR_ID_CHARS) {
+        return { status: 400, body: { error: 'invalid_request', detail: `"visitor" must be at most ${VISITOR_ID_CHARS} characters` } };
+      }
       const bot = requireBot(chatbotUserId);
       if (isRefusal(bot)) return bot;
+      // The core projection needs the verified caller to decide the scope; a request without an account has
+      // no scope to ask for.
+      const actorUserId = auth.userId;
+      if (actorUserId === null) return { status: 403, body: { error: 'forbidden' } };
       const limit = clampLimit(query.limit, CONVERSATIONS_DEFAULT_LIMIT, CONVERSATIONS_MAX_LIMIT);
       const offset = Math.max(0, Math.floor(Number(query.offset)) || 0);
-      const conversations = store.conversations({ chatbotUserId, limit, offset });
-      const total = store.conversationCount(chatbotUserId);
+      // A conversation's title is core's own (the auto-titler names the session, a person may rename it), so
+      // it is read per row from the host's conversation projection, scoped to the chatbot account that owns
+      // these sessions, rather than stored here as a second copy that would go stale.
+      const conversations = store.conversations({ chatbotUserId, visitorQuery, limit, offset }).map((row) => {
+        const target = row.sessionId === null
+          ? null
+          : stores.conversationsRead.resolve({ actorUserId, ownerUserId: chatbotUserId, sessionId: row.sessionId });
+        return { ...row, title: target === null || target.title === '' ? null : target.title };
+      });
+      const total = store.conversationCount({ chatbotUserId, visitorQuery });
       return { status: 200, body: { conversations, total, limit, offset } satisfies ChatbotConversationsAnswer };
     },
 
@@ -319,7 +336,7 @@ export function createAdminApi(deps: AdminApiDeps) {
       const bot = requireBot(chatbotUserId);
       if (isRefusal(bot)) return bot;
       const { deleted, kept } = await deps.erase({ chatbotUserId, limit: CONVERSATIONS_MAX_LIMIT });
-      return { status: 200, body: { deleted, kept, remaining: store.conversationCount(chatbotUserId) } };
+      return { status: 200, body: { deleted, kept, remaining: store.conversationCount({ chatbotUserId, visitorQuery: '' }) } };
     },
 
     /** This chatbot's admission counters and core origin usage over the same bounded UTC window. */

@@ -99,9 +99,10 @@ const botsBody = (bots = [bot, broken, second]) => ({
   requiredTools: [REQUIRED_TOOL],
 });
 
-const conversationOf = (visitorId: string, turns: number) => ({
+const conversationOf = (visitorId: string, turns: number, title: string | null) => ({
   visitorId,
   sessionId: `session-${visitorId}`,
+  title,
   turns,
   errors: 0,
   firstAt: '2026-09-20T09:00:00.000Z',
@@ -113,13 +114,14 @@ const conversationOf = (visitorId: string, turns: number) => ({
  *  than only what the screen happened to render. */
 const asked: {
   conversations: number[];
+  visitorQueries: string[];
   stats: number[];
   usage: string[];
   userPatch: Record<string, unknown>[];
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
   impersonate: number[];
-} = { conversations: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
+} = { conversations: [], visitorQueries: [], stats: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -172,11 +174,17 @@ setDefaults(
   }),
   http.get('/api/plugins/chatbot/api/conversations', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
+    const visitorQuery = url.searchParams.get('visitor') ?? '';
     asked.conversations.push(chatbotUserId);
-    const conversations = chatbotUserId === second.chatbotUserId
-      ? [conversationOf('visitor-skola', 1)]
-      : [conversationOf('visitor-ured', 4)];
-    return HttpResponse.json({ conversations, total: conversations.length, limit: 25, offset: 0 });
+    asked.visitorQueries.push(visitorQuery);
+    const all = chatbotUserId === second.chatbotUserId
+      ? [conversationOf('visitor-skola', 1, 'Admissions')]
+      : [conversationOf('visitor-ured', 4, 'Office hours'), conversationOf('visitor-other', 3, 'Payment question'), conversationOf('visitor-untitled', 1, null)];
+    const matching = all.filter((conversation) => conversation.visitorId.includes(visitorQuery));
+    const limit = Number(url.searchParams.get('limit') ?? 25);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const conversations = matching.slice(offset, offset + limit);
+    return HttpResponse.json({ conversations, total: matching.length, limit, offset });
   }),
   http.get('/api/plugins/chatbot/api/stats', ({ url }) => {
     const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
@@ -249,6 +257,7 @@ afterEach(() => {
   cleanup();
   resetHandlers();
   asked.conversations = [];
+  asked.visitorQueries = [];
   asked.stats = [];
   openBrainSessionWindow.mockReset();
   asked.usage = [];
@@ -478,7 +487,7 @@ describe('the chatbots section', () => {
     const drawer = await openBot('Městský úřad');
     // Conversations and statistics are sections of their own, each with a picker over the same register,
     // so the drawer offers no second way into them.
-    expect(within(drawer).queryByText(strings.columnVisitor!)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(strings.columnTitle!)).not.toBeInTheDocument();
     expect(within(drawer).queryByText(strings.spendTitle!)).not.toBeInTheDocument();
     // What it does carry is this chatbot's own configuration.
     expect(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! })).toBeInTheDocument();
@@ -749,17 +758,42 @@ describe('the conversations section', () => {
     await screen.findByRole('combobox', { name: strings.pickerLabel! });
   };
 
-  it('reads one chatbot at a time, and switches with the picker', async () => {
+  it('names each row by its core session title, with the visitor one hover away, and switches chatbots', async () => {
     await openConversations();
-    expect(await screen.findByText('visitor-ured')).toBeInTheDocument();
+    // The title core gave the session is the row's name; the visitor id is the row's tooltip, not its text.
+    expect((await screen.findByText('Office hours')).closest('[role="row"]')).toHaveAttribute('title', 'visitor-ured');
+    expect(screen.getByText('Payment question').closest('[role="row"]')).toHaveAttribute('title', 'visitor-other');
+    expect(screen.queryByText('visitor-ured')).not.toBeInTheDocument();
+    // A session core has not named yet still reads as a conversation, never as an empty cell.
+    expect(screen.getByText(strings.conversationUntitled!).closest('[role="row"]')).toHaveAttribute('title', 'visitor-untitled');
     // The first chatbot of the register until somebody says otherwise, and the request named it.
     expect(asked.conversations).toEqual([bot.chatbotUserId]);
 
     fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
-    expect(await screen.findByText('visitor-skola')).toBeInTheDocument();
+    expect(await screen.findByText('Admissions')).toBeInTheDocument();
     // Nothing of the previous chatbot is left under the new one's name.
-    expect(screen.queryByText('visitor-ured')).not.toBeInTheDocument();
+    expect(screen.queryByText('Office hours')).not.toBeInTheDocument();
     expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
+  });
+
+  it('filters visitors on the server and restores the full list when cleared', async () => {
+    await openConversations();
+    await screen.findByText('Office hours');
+    const search = screen.getByRole('searchbox', { name: strings.visitorSearch! });
+
+    fireEvent.change(search, { target: { value: 'visitor-other' } });
+    expect(await screen.findByText('Payment question')).toBeInTheDocument();
+    expect(screen.queryByText('Office hours')).not.toBeInTheDocument();
+    expect(asked.visitorQueries.at(-1)).toBe('visitor-other');
+
+    fireEvent.change(search, { target: { value: 'missing-visitor' } });
+    expect(await screen.findByText(strings.conversationsNoVisitorMatches!)).toBeInTheDocument();
+    expect(screen.queryByText(strings.conversationsEmptyTitle!)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.visitorSearchClear! }));
+    expect(await screen.findByText('Office hours')).toBeInTheDocument();
+    expect(screen.getByText('Payment question')).toBeInTheDocument();
+    expect(asked.visitorQueries.at(-1)).toBe('');
   });
 
   it('opens the stored core session in a new host chat window without a transcript drawer', async () => {
@@ -768,7 +802,7 @@ describe('the conversations section', () => {
 
     expect(openBrainSessionWindow).toHaveBeenCalledWith('session-visitor-ured');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByText('visitor-ured')).toBeInTheDocument();
+    expect(screen.getByText('Office hours')).toBeInTheDocument();
   });
 
   it('says the register is empty instead of rendering an empty table', async () => {

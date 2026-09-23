@@ -15,6 +15,8 @@ const RANDOM_BYTES = 16;
 export function newSecret() {
     return randomBytes(32).toString('base64url');
 }
+/** How long a visitor id is: the hex spelling of {@link RANDOM_BYTES}. A search longer than this cannot match. */
+export const VISITOR_ID_CHARS = RANDOM_BYTES * 2;
 export function newVisitorId() {
     return randomBytes(RANDOM_BYTES).toString('hex');
 }

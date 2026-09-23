@@ -99,6 +99,10 @@ interface ChatbotConversationView {
   visitorId: string;
   /** The core session reported by the relay, not an id the plugin derives. */
   sessionId: string | null;
+  /** The title core gave that session, read through the host's conversation projection when the page is
+   *  answered and never copied into this plugin. Null while core has not named it yet, and for a session
+   *  core no longer lists. */
+  title: string | null;
   turns: number;
   errors: number;
   firstAt: string;

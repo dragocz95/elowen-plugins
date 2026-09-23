@@ -158,6 +158,8 @@ interface ChatbotComponents {
     height?: 'standard' | 'tall';
     onOpen?: () => void;
     openLabel?: string;
+    /** The host row forwards native div attributes; this plugin uses the tooltip only. */
+    title?: string;
     className?: string;
   }>;
   DateRangeFilter: ComponentType<{ value: DateRange; onChange(range: DateRange): void; compact?: boolean }>;
@@ -451,8 +453,15 @@ export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH', body: unknown): Re
  *  second definition of what the route accepts, and the server validates these names strictly. */
 export const chatbotApi = {
   bots: (): string => '/plugins/chatbot/api/bots',
-  conversations: (input: { chatbotUserId: number; limit: number; offset: number }): string =>
-    `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
+  conversations: (input: { chatbotUserId: number; limit: number; offset: number; visitor: string }): string => {
+    const query = new URLSearchParams({
+      chatbotUserId: String(input.chatbotUserId),
+      limit: String(input.limit),
+      offset: String(input.offset),
+    });
+    if (input.visitor !== '') query.set('visitor', input.visitor);
+    return `/plugins/chatbot/api/conversations?${query}`;
+  },
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
     `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports

@@ -679,10 +679,11 @@ export class ChatbotStore {
                                 ON conversations.chatbot_user_id = turns.chatbot_user_id
                                AND conversations.visitor_id = turns.visitor_id
                              WHERE turns.chatbot_user_id = ?
+                               AND instr(turns.visitor_id, ?) > 0
                           GROUP BY turns.visitor_id, conversations.session_id
                           ORDER BY last_at DESC, turns.visitor_id
                              LIMIT ? OFFSET ?`)
-            .all(input.chatbotUserId, input.limit, input.offset);
+            .all(input.chatbotUserId, input.visitorQuery, input.limit, input.offset);
         return rows.map((row) => ({
             visitorId: row.visitor_id,
             sessionId: row.session_id,
@@ -693,10 +694,11 @@ export class ChatbotStore {
             lastStatus: row.last_status,
         }));
     }
-    /** How many conversations this chatbot has, so a pager never offers a page the server answers empty. */
-    conversationCount(chatbotUserId) {
-        const row = this.stmt('SELECT COUNT(DISTINCT visitor_id) AS count FROM p_chatbot_turns WHERE chatbot_user_id = ?')
-            .get(chatbotUserId);
+    /** How many conversations this chatbot has under the same visitor filter as its page. */
+    conversationCount(input) {
+        const row = this.stmt(`SELECT COUNT(DISTINCT visitor_id) AS count FROM p_chatbot_turns
+                            WHERE chatbot_user_id = ? AND instr(visitor_id, ?) > 0`)
+            .get(input.chatbotUserId, input.visitorQuery);
         return row.count;
     }
     /** This chatbot's own admission counters per UTC day, over an inclusive range of days. Read from the

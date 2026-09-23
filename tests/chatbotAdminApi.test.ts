@@ -17,6 +17,7 @@ const ADMIN = { admin: true, userId: 1 } as PluginApiAuth;
 const VIEWER = { admin: false, userId: 2 } as PluginApiAuth;
 
 const HOUR = 3_600_000;
+const NOW_ISO = new Date(NOW_MS).toISOString();
 const iso = (ms: number): string => new Date(ms).toISOString();
 
 function adminApiFor(host: ChatbotHost, clock: { ms: number } = { ms: NOW_MS }) {
@@ -276,8 +277,8 @@ describe('one chatbot\'s conversations', () => {
     expect(first.body).toMatchObject({ total: 2, limit: 25, offset: 0 });
     // Newest activity first, with the counts of the turns behind each conversation.
     expect((first.body as { conversations: unknown[] }).conversations).toEqual([
-      { visitorId: 'v2', sessionId: 'core-session-v2', turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
-      { visitorId: 'v1', sessionId: 'core-session-v1', turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
+      { visitorId: 'v2', sessionId: 'core-session-v2', title: null, turns: 1, errors: 0, firstAt: iso(dayMs + 2 * HOUR), lastAt: iso(dayMs + 2 * HOUR), lastStatus: 'done' },
+      { visitorId: 'v1', sessionId: 'core-session-v1', title: null, turns: 2, errors: 1, firstAt: iso(dayMs), lastAt: iso(dayMs + HOUR), lastStatus: 'error' },
     ]);
 
     // Paging is the server's: the second page of one per page holds the other conversation, and nothing of
@@ -288,6 +289,78 @@ describe('one chatbot\'s conversations', () => {
 
     const other = await api.conversations(ADMIN, { chatbotUserId: '13' });
     expect((other.body as { conversations: { visitorId: string }[] }).conversations.map((row) => row.visitorId)).toEqual(['v9']);
+  });
+
+  it('names each conversation with the title core gave its session, and never another account\'s', async () => {
+    const target = (id: string, title: string, ownerUserId: number) =>
+      ({ id, key: `key-${id}`, title, ownerUserId, platform: 'chatbot', direct: false, updatedAt: NOW_ISO });
+    const host = createChatbotHost({
+      accounts: twoChatbots().stores.usersRead.list(),
+      conversations: [
+        target('core-session-v1', 'Otevírací doba podatelny', 12),
+        // Core has the row but has not named it yet.
+        target('core-session-v2', '', 12),
+        // A session of the SAME id under another owner must not lend this chatbot its title.
+        target('core-session-v3', 'Cizí konverzace', 13),
+      ],
+    });
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
+    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: 'v1', at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: 'v2', at: dayMs + HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'c', chatbotUserId: 12, visitorId: 'v3', at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    // Admitted but not answered yet: no core session was reported, so there is nothing to ask core about.
+    recordTurn(host, { turnId: 'd', chatbotUserId: 12, visitorId: 'v4', at: dayMs + 3 * HOUR, status: 'queued', message: 'ahoj' });
+
+    const answer = await api.conversations(ADMIN, { chatbotUserId: '12' });
+    expect(answer.status).toBe(200);
+    expect((answer.body as { conversations: { visitorId: string; title: string | null }[] }).conversations
+      .map(({ visitorId, title }) => ({ visitorId, title }))).toEqual([
+      { visitorId: 'v4', title: null },
+      { visitorId: 'v3', title: null },
+      { visitorId: 'v2', title: null },
+      { visitorId: 'v1', title: 'Otevírací doba podatelny' },
+    ]);
+    // Core decides the scope from the verified caller, and the plugin asks only for this chatbot's sessions.
+    expect(host.conversationReads).toEqual([
+      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v3' },
+      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v2' },
+      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v1' },
+    ]);
+
+    // Without an account there is no scope to ask core for.
+    expect(await api.conversations({ admin: true, userId: null } as PluginApiAuth, { chatbotUserId: '12' }))
+      .toMatchObject({ status: 403, body: { error: 'forbidden' } });
+  });
+
+  it('narrows the register to one visitor on the server, and restores it when the filter is cleared', async () => {
+    const host = twoChatbots();
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    registerBot(host, { chatbotUserId: 13, publicId: `cbt_${'c'.repeat(24)}` });
+    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
+    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: 'ab12', at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: 'cd34', at: dayMs + HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'c', chatbotUserId: 13, visitorId: 'ab99', at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    const visitors = (answer: { body: object }) =>
+      (answer.body as { conversations: { visitorId: string }[] }).conversations.map((row) => row.visitorId);
+
+    // A fragment of the id, typed in any case: the id is lowercase hex, and the count follows the filter so
+    // the pager never offers a page the filtered read would answer empty.
+    const filtered = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: ' AB ' });
+    expect(filtered.body).toMatchObject({ total: 1, offset: 0 });
+    expect(visitors(filtered)).toEqual(['ab12']);
+
+    const none = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: 'ff' });
+    expect(none.body).toMatchObject({ total: 0, conversations: [] });
+
+    const cleared = await api.conversations(ADMIN, { chatbotUserId: '12', visitor: '' });
+    expect(cleared.body).toMatchObject({ total: 2 });
+    expect(visitors(cleared)).toEqual(['cd34', 'ab12']);
+
+    // Longer than any visitor id this plugin issues is not a search, it is a malformed request.
+    expect(await api.conversations(ADMIN, { chatbotUserId: '12', visitor: 'x'.repeat(33) })).toMatchObject({ status: 400 });
   });
 
   it('refuses a chatbot it does not know, and a request that names none', async () => {

@@ -63,7 +63,15 @@ function jsonRequest(method, body) {
 }
 var chatbotApi = {
   bots: () => "/plugins/chatbot/api/bots",
-  conversations: (input) => `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
+  conversations: (input) => {
+    const query = new URLSearchParams({
+      chatbotUserId: String(input.chatbotUserId),
+      limit: String(input.limit),
+      offset: String(input.offset)
+    });
+    if (input.visitor !== "") query.set("visitor", input.visitor);
+    return `/plugins/chatbot/api/conversations?${query}`;
+  },
   stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports
    *  what the account can reach rather than keeping an opinion of its own about it. */
@@ -21277,16 +21285,37 @@ function ConversationsSection() {
   const [answer, setAnswer] = (0, import_react10.useState)(null);
   const [loadError, setLoadError] = (0, import_react10.useState)(null);
   const [page, setPage] = (0, import_react10.useState)(0);
+  const [visitorQuery, setVisitorQuery] = (0, import_react10.useState)("");
+  const requestSequence = (0, import_react10.useRef)(0);
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
   const load = (0, import_react10.useCallback)(() => {
+    const request = ++requestSequence.current;
     if (chatbotUserId === null) return;
     setLoadError(null);
-    void apiJson(chatbotApi.conversations({ chatbotUserId, limit: PAGE_SIZE, offset: page * PAGE_SIZE })).then(setAnswer).catch((error) => setLoadError(utils.apiErrorMessage(error) || s.conversationsLoadError));
-  }, [chatbotUserId, page, s.conversationsLoadError, utils]);
+    void apiJson(chatbotApi.conversations({
+      chatbotUserId,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      visitor: visitorQuery.trim()
+    })).then((result) => {
+      if (request === requestSequence.current) setAnswer(result);
+    }).catch((error) => {
+      if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.conversationsLoadError);
+    });
+  }, [chatbotUserId, page, s.conversationsLoadError, utils, visitorQuery]);
+  const changeVisitorQuery = (value) => {
+    requestSequence.current += 1;
+    setAnswer(null);
+    setLoadError(null);
+    setPage(0);
+    setVisitorQuery(value);
+  };
   (0, import_react10.useEffect)(() => {
+    requestSequence.current += 1;
     setAnswer(null);
     setPage(0);
+    setVisitorQuery("");
   }, [chatbotUserId]);
   (0, import_react10.useEffect)(() => {
     load();
@@ -21299,10 +21328,12 @@ function ConversationsSection() {
   if (bot === null) {
     return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: MessagesSquare }) });
   }
-  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: s.conversationsEmptyTitle, description: s.conversationsEmptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+  const emptyTitle = visitorQuery.trim() !== "" ? s.conversationsNoVisitorMatches : s.conversationsEmptyTitle;
+  const emptyDescription = visitorQuery.trim() !== "" ? s.conversationsNoVisitorMatchesDescription : s.conversationsEmptyDescription;
+  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: emptyTitle, description: emptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COMPACT_COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableRow, { header: true, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnVisitor }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTitle }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.columnLastSeen }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTurns }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnLastTurn }),
@@ -21311,11 +21342,12 @@ function ConversationsSection() {
       answer.conversations.map((conversation) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         C.DataTableRow,
         {
+          title: conversation.visitorId,
           interactive: conversation.sessionId !== null,
           onOpen: conversation.sessionId === null ? void 0 : () => utils.openBrainSessionWindow(conversation.sessionId),
           openLabel: conversation.sessionId === null ? void 0 : s.openConversation.replace("{visitor}", conversation.visitorId),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, title: conversation.visitorId, className: "font-mono text-xs", children: conversation.visitorId }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, children: conversation.title ?? s.conversationUntitled }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: formatDateTime(conversation.lastAt, locale) }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableCell, { lines: 1, children: [
               integer(conversation.turns, locale),
@@ -21334,7 +21366,27 @@ function ConversationsSection() {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Pager, { page, pageSize: PAGE_SIZE, total: answer.total, onPageChange: setPage, ariaLabel: s.conversationsTab })
   ] });
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }), children: body });
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    C.SettingsGroup,
+    {
+      ...heading,
+      actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+          C.RegisterSearch,
+          {
+            value: visitorQuery,
+            onChange: changeVisitorQuery,
+            placeholder: s.visitorSearch,
+            label: s.visitorSearch,
+            onClear: () => changeVisitorQuery(""),
+            clearLabel: s.visitorSearchClear
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel })
+      ] }),
+      children: body
+    }
+  );
 }
 
 // plugins/chatbot/web-src/StatsView.tsx
