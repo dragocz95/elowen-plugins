@@ -13,6 +13,14 @@ import { Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image,
 import type { ModelUsage } from './hostClient';
 import { vi } from 'vitest';
 
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
+  const n = bytes / 1024 ** i;
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
 export const openBrainSessionWindow = vi.fn<(sessionId: string) => void>();
 
 // The plugin is untyped .mjs, so the import is given the one signature this file uses.
