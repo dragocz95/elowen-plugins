@@ -3,9 +3,9 @@ import { Type } from 'typebox';
 import type { ActionAnswer, ActionRequestRefusal, PageActionService } from './actionService.js';
 import { ACTION_KINDS } from './publicContract.js';
 import type { ChatbotContext } from './coreSeams.js';
-import { inspectAccount } from './preflight.js';
 import type { ChatbotStore } from './store.js';
 import type { TurnRow } from './db.js';
+import { findVisitorTurn } from './visitorTurn.js';
 
 /** The tool a turn calls to do something on the visitor's own page.
  *
@@ -41,33 +41,25 @@ export interface PageActionToolDeps {
 export function registerPageActionTool(deps: PageActionToolDeps): void {
   const { ctx, store, service } = deps;
 
-  /** Prove that this call is happening inside a live visitor turn, and find it.
-   *
-   *  Three facts, in this order, and none of them comes from the model: the turn's platform is this
-   *  plugin's, the acting account is a chatbot account that may run a turn at all (the SAME rule the public
-   *  hook re-checks before every admitted message, never a second copy of it), and the visitor the turn
-   *  speaks for has a turn RUNNING right now. A tool call anywhere else — another platform, another kind of
-   *  account, a turn that already finished — is refused rather than answered. */
+  /** Prove that this call is happening inside a live visitor turn, and find it. A tool call anywhere else is
+   *  refused rather than answered, with the reason the lookup gave. */
   const requireVisitorTurn = (): { turn: TurnRow; chatbotUserId: number; sessionId: string | undefined } => {
-    const identity = ctx.currentIdentity();
-    if (!identity || identity.platform !== 'chatbot') {
-      throw new ToolError('This tool acts on a visitor\'s page and works only inside a chatbot visitor turn.');
-    }
-    const chatbotUserId = identity.elowenUserId;
-    if (typeof chatbotUserId !== 'number') {
-      throw new ToolError('This turn is not acting as a chatbot account, so it has no visitor page to act on.');
-    }
-    const { blockers } = inspectAccount(ctx.host.stores(), chatbotUserId);
-    if (blockers.length > 0) {
-      throw new ToolError(`This chatbot cannot run a turn right now (${blockers.join(', ')}), so nothing may be done on a page.`);
-    }
-    const turn = store.runningTurnOf(chatbotUserId, identity.userId);
-    if (!turn) {
-      throw new ToolError('No turn of this visitor is running, so there is no page description to act against.');
+    const live = findVisitorTurn(ctx, store);
+    if (!live.ok) {
+      switch (live.reason) {
+        case 'not_chatbot_turn':
+          throw new ToolError('This tool acts on a visitor\'s page and works only inside a chatbot visitor turn.');
+        case 'not_chatbot_account':
+          throw new ToolError('This turn is not acting as a chatbot account, so it has no visitor page to act on.');
+        case 'account_blocked':
+          throw new ToolError(`This chatbot cannot run a turn right now (${live.blockers.join(', ')}), so nothing may be done on a page.`);
+        case 'no_running_turn':
+          throw new ToolError('No turn of this visitor is running, so there is no page description to act against.');
+      }
     }
     // Read for the log line that ties an action to the conversation it happened in. It decides nothing:
-    // ownership is what `runningTurnOf` just established.
-    return { turn, chatbotUserId, sessionId: ctx.currentSessionId() };
+    // ownership is what the lookup just established.
+    return { turn: live.turn, chatbotUserId: live.chatbotUserId, sessionId: ctx.currentSessionId() };
   };
 
   ctx.registerTool(defineTool({

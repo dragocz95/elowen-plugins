@@ -448,8 +448,7 @@ var import_react7 = __toESM(require_react(), 1);
 
 // plugins/chatbot/src/publicContract.ts
 var WIDGET_ASSET_NAME = "widget.js";
-var MESSAGE_MAX_BYTES = 8 * 1024;
-var VISITOR_TEXT_MAX_BYTES = 2 * 1024;
+var MESSAGE_MAX_BYTES = 2 * 1024;
 var PAGE_STATE_MAX_BYTES = 32 * 1024;
 var WIDGET_MAX_ACTIONS_PER_TURN = 50;
 var PUBLIC_SEGMENTS = {

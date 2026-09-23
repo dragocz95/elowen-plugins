@@ -254,7 +254,54 @@ const MIGRATIONS = [
       );`);
         },
     },
+    {
+        /** Step 8: the page a message was written on gets its own columns, and the message keeps only what the
+         *  visitor wrote. Until now the widget composed both into one text, which every reader had to take apart
+         *  again; this step takes the stored rows apart once, so nothing after it knows the old shape. A row
+         *  that carried no page keeps both columns NULL, which is a turn that has no page to act on. */
+        version: 8,
+        up(db) {
+            db.exec(`
+        ALTER TABLE p_chatbot_turns ADD COLUMN page_url TEXT;
+        ALTER TABLE p_chatbot_turns ADD COLUMN page_title TEXT;
+      `);
+            const update = db.prepare('UPDATE p_chatbot_turns SET message = ?, page_url = ?, page_title = ? WHERE turn_id = ?');
+            const rows = db.prepare('SELECT turn_id, message FROM p_chatbot_turns').all();
+            for (const row of rows) {
+                const split = splitComposedMessage(row.message);
+                if (split.message === row.message && split.page === null)
+                    continue;
+                update.run(split.message, split.page?.url ?? null, split.page?.title ?? null, row.turn_id);
+            }
+        },
+    },
 ];
+/** The message as the widget composed it before step 8: an optional label, the visitor's words, and a
+ *  labelled JSON object with the page's address and title after the LAST marker (JSON text carries no raw
+ *  newline, so a marker the visitor typed can only come before it). A tail that is not such an object was
+ *  not written by the widget, and the text is then kept whole rather than guessed at. */
+function splitComposedMessage(composed) {
+    const label = 'Visitor message:\n';
+    const marker = '\n\nUntrusted page address and title:\n';
+    const text = composed.startsWith(label) ? composed.slice(label.length) : composed;
+    const at = text.lastIndexOf(marker);
+    if (at === -1)
+        return { message: text, page: null };
+    let parsed;
+    try {
+        parsed = JSON.parse(text.slice(at + marker.length));
+    }
+    catch {
+        return { message: text, page: null };
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        return { message: text, page: null };
+    const { url, title } = parsed;
+    return {
+        message: text.slice(0, at),
+        page: typeof url === 'string' ? { url, title: typeof title === 'string' ? title : '' } : null,
+    };
+}
 /** Create the plugin's tables. A no-op outside the daemon process (the host's handle reports that itself). */
 export function migrate(db) {
     db.migrate(MIGRATIONS.map((step) => ({ version: step.version, up: (handle) => step.up(handle) })));

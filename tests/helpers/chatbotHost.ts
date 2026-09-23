@@ -37,6 +37,9 @@ export const TRUSTED_REQUEST_ORIGIN = { value: '203.0.113.9', kind: 'ip' as cons
 
 export const CLIENT_TURN_ID = '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34';
 
+/** The page a fixture visitor writes from, as their widget reports it beside the message. */
+export const TURN_PAGE = { url: `${CHATBOT_SITE}/kontakt`, title: 'Kontakt | Městský úřad' };
+
 /** The bytes the fixture's image host serves: a PNG signature, which is all this route passes through
  *  without reading. What the route decides about an answer is its media type and its size, never its
  *  contents. */

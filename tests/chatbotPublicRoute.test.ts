@@ -13,6 +13,7 @@ import {
   TEST_LIMITS,
   settledTurn,
   type ChatbotHost,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 import type { ChatbotAccountView, ChatbotProjectView } from '../plugins/chatbot/src/coreSeams.js';
 import { mintVisitorToken } from '../plugins/chatbot/src/token.js';
@@ -31,7 +32,7 @@ function submit(current: ChatbotHost, token: string, body: Record<string, unknow
   return current.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', ...body },
+    body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE, ...body },
   }));
 }
 
@@ -93,7 +94,7 @@ describe('admitting a public request', () => {
       method: 'POST',
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}`, 'content-type': 'text/plain' },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }));
     expect(answer).toMatchObject({ status: 415, body: { error: 'unsupported_media_type' } });
     expect(current.store.queuedTurns(10)).toHaveLength(0);
@@ -123,9 +124,9 @@ describe('the visitor token is the only visitor authority', () => {
     expect(issued.body.token).toMatch(/^v1\./);
     expect(issued.body.bot.publicId).toBe(current.store.listBots()[0]!.public_id);
 
-    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' } })))
+    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE } })))
       .toMatchObject({ status: 401, body: { error: 'token_required' } });
-    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE, authorization: 'ChatbotVisitor nonsense' }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' } })))
+    expect(await current.handler(postRequest({ path: 'turns', headers: { origin: SITE, authorization: 'ChatbotVisitor nonsense' }, body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE } })))
       .toMatchObject({ status: 401, body: { error: 'invalid_token' } });
   });
 
@@ -143,7 +144,7 @@ describe('the visitor token is the only visitor authority', () => {
     expect(await current.handler(postRequest({
       path: 'turns',
       headers: { origin: 'https://evil.cz', authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }))).toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
   });
 
@@ -244,7 +245,7 @@ describe('the message path', () => {
     await second.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${secondToken.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }));
     for (let attempt = 0; attempt < 200 && (current.calls.length < 1 || second.calls.length < 1); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(current.calls[0]!.src.access?.actAsUserId).toBe(12);
@@ -302,7 +303,7 @@ describe('the message path', () => {
     const post = () => live.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }));
     expect(await post()).toMatchObject({ status: 503, body: { error: 'bot_unavailable' } });
     expect(live.store.turnByClientId(12, issued.body.visitorId as string, UUID)).toBeNull();

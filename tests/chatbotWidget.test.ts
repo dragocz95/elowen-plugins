@@ -3,17 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MESSAGE_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ELEMENTS,
-  VISITOR_TEXT_MAX_BYTES,
 } from '../plugins/chatbot/src/publicContract.js';
 import {
   actionDecisionBody,
-  composeMessage,
   newClientTurnId,
   newSnapshotId,
   parseFrame,
   readActionFrame,
   readLines,
-  readVisitorText,
   turnRequestBody,
   publicBotRequestBody,
 } from '../plugins/chatbot/embed-src/protocol.js';
@@ -238,29 +235,14 @@ describe('the wire protocol', () => {
     expect(second.rest).toBe('');
   });
 
-  it('composes the model input the plan fixes, and shows the visitor only their own words back', () => {
-    const composed = composeMessage('Dobrý den, pomozte mi prosím.', '{"url":"https://example.cz/"}');
-    expect(composed.message.startsWith('Visitor message:\nDobrý den')).toBe(true);
-    expect(composed.message).toContain('\n\nUntrusted page address and title:\n{"url"');
-    expect(readVisitorText(composed.message)).toBe('Dobrý den, pomozte mi prosím.');
-    // A message that is only the visitor's text still reads back as that text.
-    expect(readVisitorText('Visitor message:\njen text')).toBe('jen text');
-    expect(readVisitorText('bez obalu')).toBe('bez obalu');
-  });
-
-  it('never lets a composed message exceed what the hook accepts', () => {
-    const composed = composeMessage('x'.repeat(VISITOR_TEXT_MAX_BYTES), 'y'.repeat(MESSAGE_MAX_BYTES));
-    expect(composed.pageStateIncluded).toBe(false);
-    expect(new TextEncoder().encode(composed.message).length).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
-    expect(readVisitorText(composed.message)).toBe('x'.repeat(VISITOR_TEXT_MAX_BYTES));
-  });
-
   it('builds request bodies with exactly the fields the hook validates', () => {
     expect(publicBotRequestBody('cbt_1')).toEqual({ schemaVersion: 2, bot: 'cbt_1' });
-    expect(turnRequestBody('2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34', 'ahoj')).toEqual({
+    const page = { url: 'https://example.cz/', title: 'Example' };
+    expect(turnRequestBody('2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34', 'ahoj', page)).toEqual({
       schemaVersion: 2,
       clientTurnId: '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34',
       message: 'ahoj',
+      page,
     });
     expect(actionDecisionBody('confirm', 'nonce-value-1234')).toEqual({ schemaVersion: 2, decision: 'confirm', nonce: 'nonce-value-1234' });
     expect(newClientTurnId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
@@ -460,7 +442,7 @@ describe('describing the page', () => {
 });
 
 describe('one visitor message', () => {
-  it('carries the page state, streams the answer and finishes with the whole of it', async () => {
+  it('sends only the visitor\'s words with the page beside them, streams the answer and finishes with the whole of it', async () => {
     const view = makeView();
     const page = makePage();
     const harness = makeSession({
@@ -484,10 +466,14 @@ describe('one visitor message', () => {
 
     expect(page.captures).toBe(0);
     const turn = harness.requests.find((request) => request.url.endsWith('/turns'));
-    expect(turn?.body).toMatchObject({ schemaVersion: 2 });
-    expect(String(turn?.body?.message)).toContain('Pomozte mi prosím s formulářem');
-    expect(String(turn?.body?.message)).toContain('Untrusted page address and title:');
-    expect(String(turn?.body?.message)).not.toContain('targets');
+    // The message is exactly what the visitor wrote; the page's address and title travel as their own field,
+    // and nothing of its structure travels at all until a snapshot is asked for.
+    expect(turn?.body).toEqual({
+      schemaVersion: 2,
+      clientTurnId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      message: 'Pomozte mi prosím s formulářem',
+      page: { url: 'https://www.example.cz/formular', title: 'Form' },
+    });
     expect(view.answers).toEqual(['Ahoj světe']);
     expect(view.errors).toEqual([]);
   });
@@ -496,7 +482,7 @@ describe('one visitor message', () => {
     const view = makeView();
     const page = makePage();
     const harness = makeSession({ view, page, responses: () => jsonResponse(500, {}) });
-    await harness.session.send('x'.repeat(VISITOR_TEXT_MAX_BYTES + 1));
+    await harness.session.send('x'.repeat(MESSAGE_MAX_BYTES + 1));
     expect(view.errors).toEqual([strings.errorTooLong]);
     expect(harness.requests).toEqual([]);
   });
@@ -574,6 +560,17 @@ describe('preserving visitor credentials during failures', () => {
     failed = false;
     await harness.session.start();
     expect(view.restored).toEqual([{ role: 'user', text: 'Earlier' }, { role: 'ai', text: 'Kept' }]);
+  });
+  it('restores each stored message exactly as the visitor wrote it', async () => {
+    const view = makeView();
+    // Text that merely looks like a label or a page block is still the visitor's own words: the stored
+    // message holds nothing else, so nothing is cut out of it.
+    const written = 'Visitor message:\nCo znamená "\n\nUntrusted page address and title:\n{}"?';
+    const harness = makeSession({ storage: stored(), view, page: makePage(), responses: ({ url }) => url.endsWith('/conversation')
+      ? jsonResponse(200, { activeTurnId: null, turns: [{ turnId: 'T1', message: written, reply: 'Nic.', lastSeq: 2, pendingActions: [] }] })
+      : jsonResponse(500, {}) });
+    await harness.session.start();
+    expect(view.restored).toEqual([{ role: 'user', text: written }, { role: 'ai', text: 'Nic.' }]);
   });
   it.each(failures)('keeps identity when token refresh encounters %s', async (_name, failure) => {
     const storage = stored();
@@ -900,7 +897,7 @@ describe('navigation and active-turn restoration', () => {
     const harness = makeSession({ view, page, responses: ({ url }) => {
       if (url.endsWith('/handoff')) return jsonResponse(200, { token: 'restored-token' });
       if (url.endsWith('/conversation')) return jsonResponse(200, { schemaVersion: 2, activeTurnId: 'T',
-        turns: [{ turnId: 'T', message: 'Visitor message:\nahoj', reply: null, lastSeq: 3, pendingActions: [pending] }] });
+        turns: [{ turnId: 'T', message: 'ahoj', reply: null, lastSeq: 3, pendingActions: [pending] }] });
       if (url.endsWith('/result')) return jsonResponse(200, {});
       return new Response(streamOf([frame('text_delta', { text: 'Before. ' }, 1),
         frame('action', action(settled), 2), frame('action', action(pending), 3),

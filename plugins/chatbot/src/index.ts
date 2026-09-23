@@ -15,6 +15,7 @@ import { RETENTION_INTERVAL_MS, createRetentionCleaner, eraseConversations } fro
 import { ChatbotStore } from './store.js';
 import { newSecret, TOKEN_SECRET_KEY } from './token.js';
 import { asChatbotContext } from './coreSeams.js';
+import { registerVisitorPageContext } from './visitorTurn.js';
 
 /** Default lifetime of a visitor token, in days. Declared in the manifest as `visitorTokenTtlDays` and
  *  read from configuration at issue time; this is only the fallback when a deployment stored no value. */
@@ -126,6 +127,9 @@ export function register(published: PluginContext): void {
   // created by an administrator at any time, so there is no single owner to scope it to. The tool itself
   // refuses every turn that is not a live chatbot visitor turn.
   registerPageActionTool({ ctx, store, service: actions });
+  // The page a visitor is writing from reaches the model beside their message, never inside it, so the
+  // conversation stores only what the visitor wrote.
+  registerVisitorPageContext({ ctx, store, warn });
 
   // One mount, dispatched by method, so the manifest declares exactly what exists.
   ctx.registerApiRoute({ path: 'bots', method: 'GET', access: 'admin', handler: async (req) => adminApi.list(req.auth) });
@@ -207,5 +211,5 @@ export function register(published: PluginContext): void {
   const cleaner = createRetentionCleaner(retentionDeps);
   ctx.registerInterval('chatbot-retention', async () => { await cleaner.run(); }, RETENTION_INTERVAL_MS);
 
-  logger.info(`chatbot plugin registered: platform, public hook ${PUBLIC_MOUNT}, the admin route, the page-action tool and the retention cleaner`);
+  logger.info(`chatbot plugin registered: platform, public hook ${PUBLIC_MOUNT}, the admin route, the page-action tool, the visitor page context and the retention cleaner`);
 }

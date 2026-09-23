@@ -17,6 +17,7 @@ import {
   registerBot,
   settledTurn,
   type ChatbotHost,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 
 /** The UTC day every test here counts in, taken from the fixture's own instant. */
@@ -65,7 +66,7 @@ function spend(input: {
 const submit = (token: string, clientTurnId: string) => host.handler(postRequest({
   path: 'turns',
   headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-  body: { schemaVersion: 2, clientTurnId, message: 'ahoj' },
+  body: { schemaVersion: 2, clientTurnId, message: 'ahoj', page: TURN_PAGE },
 }));
 
 const day = () => host.store.budgetDay(12, DAY);

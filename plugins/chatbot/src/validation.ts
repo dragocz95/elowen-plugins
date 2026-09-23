@@ -8,6 +8,8 @@ import {
   MESSAGE_MAX_BYTES,
   PAGE_FAILURE_DETAILS,
   PAGE_STATE_MAX_BYTES,
+  PAGE_TEXT_MAX_CHARS,
+  PAGE_URL_MAX_CHARS,
   PUBLIC_SCHEMA_VERSION,
   type ActionDecision,
   type ActionOutcome,
@@ -90,10 +92,18 @@ export function validatePublicBotRequest(body: unknown): Validated<{ bot: string
   return { ok: true, value: { bot: bot.value } };
 }
 
+/** The page a visitor wrote from, as their widget reports it: `origin + pathname` and the page's title.
+ *  Nobody has authenticated it, so it is kept apart from the visitor's words and only ever shown to the
+ *  model as data. */
+export interface TurnPage {
+  url: string;
+  title: string;
+}
+
 /** `POST v2/turns`. The visitor token is the authority and is read from the request headers, never from
  *  the body, so the body cannot claim to be someone else. */
-export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId: string; message: string }> {
-  const outer = strictObject(body, ['schemaVersion', 'clientTurnId', 'message'], ['schemaVersion', 'clientTurnId', 'message']);
+export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId: string; message: string; page: TurnPage }> {
+  const outer = strictObject(body, ['schemaVersion', 'clientTurnId', 'message', 'page'], ['schemaVersion', 'clientTurnId', 'message', 'page']);
   if (!outer.ok) return outer;
   const version = readSchemaVersion(outer.value);
   if (!version.ok) return version;
@@ -104,7 +114,40 @@ export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId:
   if (!message.ok) return message;
   if (message.value.trim() === '') return { ok: false, error: '"message" must not be empty' };
   if (utf8Length(message.value) > MESSAGE_MAX_BYTES) return { ok: false, error: '"message" is too long' };
-  return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value } };
+  const page = readTurnPage(outer.value.page);
+  if (!page.ok) return page;
+  return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value, page: page.value } };
+}
+
+function readTurnPage(input: unknown): Validated<TurnPage> {
+  const outer = strictObject(input, ['url', 'title'], ['url', 'title']);
+  if (!outer.ok) return { ok: false, error: `"page": ${outer.error}` };
+  const url = readString(outer.value, 'url', PAGE_URL_MAX_CHARS);
+  if (!url.ok) return url;
+  const where = readPageUrl(url.value);
+  if (!where.ok) return where;
+  const title = readString(outer.value, 'title', PAGE_TEXT_MAX_CHARS);
+  if (!title.ok) return title;
+  return { ok: true, value: { url: url.value, title: title.value } };
+}
+
+/** Where a page says it is. The widget sends `origin + pathname` and nothing else, so a value carrying a
+ *  query, a fragment or another scheme is not one this widget produced: it is refused rather than
+ *  normalised, because the action rule is decided against exactly what arrives. The one reading of a page
+ *  address, for the page a message was written on and for a snapshot alike. */
+export function readPageUrl(raw: unknown): Validated<{ origin: string; path: string }> {
+  if (typeof raw !== 'string' || raw === '') return { ok: false, error: 'the page carries no URL' };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { ok: false, error: 'the page carries an unparsable URL' };
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { ok: false, error: 'the page is not an http(s) page' };
+  if (url.origin === 'null' || url.host === '') return { ok: false, error: 'the page carries no origin' };
+  if (url.username || url.password) return { ok: false, error: 'the page carries URL credentials' };
+  if (url.search !== '' || url.hash !== '') return { ok: false, error: 'the page carries a query or a fragment' };
+  return { ok: true, value: { origin: url.origin, path: url.pathname } };
 }
 
 // ── page action reports ───────────────────────────────────────────────────────────────────────────────

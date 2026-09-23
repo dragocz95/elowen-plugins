@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { CHATBOT_SITE, NOW_MS, createChatbotHost, issueToken, postRequest, publicRequest, registerBot } from './helpers/chatbotHost.js';
 import { PUBLIC_SCHEMA_VERSION, HANDOFF_FRAGMENT_KEY } from '../plugins/chatbot/src/publicContract.js';
-import { composeMessage } from '../plugins/chatbot/embed-src/protocol.js';
 import { verifyVisitorToken, hashToken } from '../plugins/chatbot/src/token.js';
 import { CHATBOT_SECRET } from './helpers/chatbotHost.js';
 
@@ -21,7 +20,7 @@ async function setup() {
   const bot = host.store.listBots()[0]!;
   const turn = host.store.createTurn({ turnId: randomUUID(), chatbotUserId: bot.chatbot_user_id,
     visitorId: issued.body.visitorId, clientTurnId: randomUUID(),
-    message: composeMessage('Help', JSON.stringify({ url: CHATBOT_SITE + '/form', title: 'Form' })).message, now });
+    message: 'Help', page: { url: CHATBOT_SITE + '/form', title: 'Form' }, now });
   host.store.markTurnRunning(turn.turn_id, now);
   const ask = (kind: string, value: string | null = null, id: string | null = snapshotId, targetId: string | null = null) =>
     host.actions.request({ turn, chatbotUserId: 12, sessionId: undefined, request: { snapshotId: id, kind, value, targetId } });

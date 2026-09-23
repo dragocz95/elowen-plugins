@@ -233,6 +233,7 @@ export function createPublicRoute(deps) {
                 visitorId: admitted.visitorId,
                 clientTurnId: parsed.value.clientTurnId,
                 message: parsed.value.message,
+                page: parsed.value.page,
                 originValue: requestOrigin.value,
                 now: iso(),
                 nowMs: now().getTime(),

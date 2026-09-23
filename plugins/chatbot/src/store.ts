@@ -24,6 +24,7 @@ import {
 } from './rateLimit.js';
 import { isActionKind } from './actions.js';
 import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome } from './publicContract.js';
+import type { TurnPage } from './validation.js';
 
 /** The origin core attributes one chatbot's spend to, as `usage_by_origin.orgin` stores it: the platform name
  *  this plugin relays under. Read from the name rather than spelled out again, because a second spelling is a
@@ -304,11 +305,12 @@ export class ChatbotStore {
     visitorId: string;
     clientTurnId: string;
     message: string;
+    page: TurnPage;
     now: string;
   }): TurnRow {
-    this.stmt(`INSERT INTO p_chatbot_turns (turn_id, chatbot_user_id, visitor_id, client_turn_id, status, message, created_at)
-               VALUES (?, ?, ?, ?, 'queued', ?, ?)`)
-      .run(input.turnId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.message, input.now);
+    this.stmt(`INSERT INTO p_chatbot_turns (turn_id, chatbot_user_id, visitor_id, client_turn_id, status, message, page_url, page_title, created_at)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`)
+      .run(input.turnId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.message, input.page.url, input.page.title, input.now);
     return this.turn(input.turnId)!;
   }
 
@@ -507,6 +509,7 @@ export class ChatbotStore {
     visitorId: string;
     clientTurnId: string;
     message: string;
+    page: TurnPage;
     /** The address the HOST resolved for this request; the IP window's second half. */
     originValue: string;
     now: string;
@@ -557,6 +560,7 @@ export class ChatbotStore {
     visitorId: string;
     clientTurnId: string;
     message: string;
+    page: TurnPage;
     now: string;
     nowMs: number;
     limits: BotLimits;

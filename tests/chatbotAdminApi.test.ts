@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import { createAdminApi, percentileMs } from '../plugins/chatbot/src/adminApi.js';
 import { DEFAULT_LIMITS } from '../plugins/chatbot/src/limits.js';
-import { CHATBOT_SITE as SITE, NOW_MS, createChatbotHost, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
+import { CHATBOT_SITE as SITE, NOW_MS, TURN_PAGE, createChatbotHost, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
 
 /** The administrator's own surface: the conversations of ONE chatbot, what was said in one of them, the
  *  plugin's own counters over a window of days, and the page-action rules that travel with a bot.
@@ -66,6 +66,7 @@ function recordTurn(host: ChatbotHost, input: {
     visitorId: input.visitorId,
     clientTurnId: `uuid-${input.turnId}`,
     message: input.message,
+    page: TURN_PAGE,
     now: iso(input.at),
   });
   if (input.startedAt !== undefined) {

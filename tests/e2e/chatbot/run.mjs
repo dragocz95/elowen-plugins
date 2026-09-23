@@ -71,8 +71,6 @@ const PROJECT_ID = 4;
 const WIDGET_PATH = '/hooks/chatbot/v2/widget.js';
 const BOOTSTRAP_PATH = '/hooks/chatbot/v2/bootstrap';
 const MOUNT_PREFIX = '/hooks/chatbot/v2/';
-const PAGE_CONTEXT_LABEL = 'Untrusted page address and title:\n';
-const VISITOR_MESSAGE_LABEL = 'Visitor message:\n';
 const VISITOR_TEXT = 'Pomozte mi prosím vyplnit formulář.';
 const ANSWER_PARTS = ['Dobrý den, ', 'vyplním to s vámi. ', 'E-mail jsem doplnil, odešlete prosím žádost.'];
 const ANSWER = ANSWER_PARTS.join('');
@@ -348,7 +346,7 @@ async function modelTurn({ src, observer }) {
     observer?.onEvent({ type: 'text', delta: QUICK_ANSWER });
     return QUICK_ANSWER;
   }
-  assert(turn.message.includes(PAGE_CONTEXT_LABEL), 'the visitor message carried no metadata');
+  assert(turn.page_url !== null, 'the visitor message carried no page address');
   assert(!turn.message.includes('"targets"'), 'the visitor message carried a snapshot');
   const snapshot = await registeredTool.execute('call-snapshot', { action: 'snapshot' });
   assert(snapshot.details?.status === 'done', 'the requested snapshot did not complete');
@@ -657,7 +655,9 @@ try {
   hook.turnId = turn.turn_id;
   const composed = turn.message;
   const pageState = await poll('the on-demand snapshot result', () => readRawPageState());
-  assert(composed.startsWith(`${VISITOR_MESSAGE_LABEL}${VISITOR_TEXT}`), `the visitor's own words were not first in the message: ${composed.slice(0, 90)}`);
+  assert(composed === VISITOR_TEXT, `the stored message is not exactly the visitor's own words: ${composed.slice(0, 90)}`);
+  assert(turn.page_url === FORM_URL, `the page address beside the message is not the page's origin and path: ${turn.page_url}`);
+  assert(turn.page_title !== null && turn.page_title !== '', 'the page title did not travel beside the message');
   assert(!composed.includes('Jan Novák'), 'a field value travelled with the visitor message');
   assert(pageState.aria.includes('Jan Novák'), 'the snapshot did not carry the field value');
   assert(!composed.includes(SECRET_PASSWORD), 'the password the visitor typed travelled to the server');
@@ -666,7 +666,7 @@ try {
   assert(!JSON.stringify(pageState).includes(SECRET_PASSWORD), 'the snapshot disclosed the password');
   assert(!JSON.stringify(pageState).includes(SECRET_CARD), 'the snapshot disclosed the card');
   assert(!pageState.url.includes('zdroj=web'), 'the page state carried the page query string');
-  pass('the first message carries metadata only, and the snapshot tool result omits sensitive values');
+  pass('the first message is the visitor\'s words with the page address and title beside it, and the snapshot tool result omits sensitive values');
 
   // ── flow 2: the answer streams into the panel as it arrives ───────────────────────────────────────────
   await poll('the first part of the answer to arrive', async () => answerText(await observe()).includes(ANSWER_PARTS[0]));
@@ -799,7 +799,6 @@ try {
   });
   const restoredVisitor = restored.find((message) => message.role === 'user');
   assert(restoredVisitor?.text === VISITOR_TEXT, `the restored transcript did not show the visitor's own words: ${JSON.stringify(restoredVisitor)}`);
-  assert(!JSON.stringify(restored).includes(PAGE_CONTEXT_LABEL), 'the restored transcript carried the page state into the conversation');
   assert(restored.some((message) => message.role === 'ai' && message.text === ANSWER), 'the restored transcript lost the answer');
   // Drawing the transcript must not ASK for anything. Re-submitting the visitor's own restored message would
   // be a second turn of the same words — the same question asked of the model again, on every reload.
@@ -949,7 +948,7 @@ try {
   await quickButton.asElement().click();
   const quickTurn = await poll('the quick button to become the visitor\'s own message', () => {
     const newest = recordedTurn();
-    return newest !== null && newest.message.startsWith(`${VISITOR_MESSAGE_LABEL}${QUICK_TEXT}`) ? newest : null;
+    return newest !== null && newest.message === QUICK_TEXT ? newest : null;
   });
   assert(quickTurn !== null, 'the quick button sent nothing');
   const answered = await poll('the answer to the quick button', async () => {

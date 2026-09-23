@@ -23,6 +23,7 @@ import {
   registerBot,
   settledTurn,
   type ChatbotHost,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 
 let host: ChatbotHost;
@@ -36,7 +37,7 @@ async function submit(current: ChatbotHost, token: string, body: Record<string, 
   return current.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', ...body },
+    body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE, ...body },
   }));
 }
 
@@ -78,13 +79,13 @@ describe('the browser origin allowlist', () => {
     expect(await host.handler(postRequest({
       path: 'turns',
       headers: { origin: 'https://evil.cz', authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }))).toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
     expect(await host.handler(publicRequest({
       method: 'POST',
       path: 'turns',
       headers: { authorization: `ChatbotVisitor ${issued.body.token}`, 'content-type': 'application/json' },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }))).toMatchObject({ status: 403, body: { error: 'origin_not_allowed' } });
     expect(host.calls).toHaveLength(0);
   });
@@ -118,7 +119,7 @@ describe('the browser origin allowlist', () => {
       const answer = await host.handler(postRequest({
         path: 'turns',
         headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-        body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+        body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
         origin,
       }));
       expect(answer).toMatchObject({ status: 403, body: { error: 'trusted_origin_required' } });
@@ -160,7 +161,7 @@ describe('rate limits', () => {
     const from = (token: string, clientTurnId: string, address: string) => host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-      body: { schemaVersion: 2, clientTurnId, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId, message: 'ahoj', page: TURN_PAGE },
       origin: { value: address, kind: 'ip', trusted: true },
     }));
 
@@ -252,7 +253,7 @@ describe('the queue in front of a chatbot', () => {
     expect((retry.body as { turnId: string }).turnId).toBe((await host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }))).body.turnId);
     expect(host.store.turnByClientId(12, issued.body.visitorId as string, '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c45')).toBeNull();
   });
@@ -311,6 +312,7 @@ describe('the queue in front of a chatbot', () => {
       visitorId: 'visitor-1',
       clientTurnId: randomUUID(),
       message: 'ahoj',
+      page: TURN_PAGE,
       now: new Date(NOW_MS).toISOString(),
     });
     host.queue.submit(turn.turn_id);
@@ -430,32 +432,20 @@ describe('the limits themselves', () => {
 });
 
 describe('the per-turn action budget', () => {
-  /** A live visitor turn whose message records what the page looked like, exactly as the widget composes it. */
-  function liveTurn(current: ChatbotHost, message: string) {
+  /** A live visitor turn, written on the page its widget reported beside the message. */
+  function liveTurn(current: ChatbotHost) {
     const turn = current.store.createTurn({
       turnId: randomUUID(),
       chatbotUserId: 12,
       visitorId: 'visitor-1',
       clientTurnId: randomUUID(),
-      message,
+      message: 'ahoj',
+      page: { url: `${SITE}/form.html`, title: 'Kontaktní formulář' },
       now: new Date(NOW_MS).toISOString(),
     });
     current.store.markTurnRunning(turn.turn_id, new Date(NOW_MS).toISOString());
     return current.store.turn(turn.turn_id)!;
   }
-
-  const messageWithPage = (): string => `Visitor message:\nahoj\n\nUntrusted page address and title:\n${JSON.stringify({
-    snapshotId: 's0123456789abcdef',
-    url: `${SITE}/form.html`,
-    title: 'Kontaktní formulář',
-    viewport: { width: 390, height: 844 },
-    language: 'cs',
-    headings: [],
-    forms: [],
-    targets: [{ id: 'e0', tag: 'input', caps: ['read', 'fill', 'focus'], type: 'text', name: 'jmeno' }],
-    iframes: [],
-    truncated: false,
-  })}`;
 
   const askSnapshot = (current: ChatbotHost, turn: ReturnType<typeof liveTurn>) => current.actions.request({
     turn,
@@ -472,7 +462,7 @@ describe('the per-turn action budget', () => {
 
   it('is the CHATBOT\'s own number, enforced on the server', async () => {
     host.setLimits(12, { maxActionsPerTurn: 2 });
-    const turn = liveTurn(host, messageWithPage());
+    const turn = liveTurn(host);
     // Two actions are approved and answered by the page...
     for (let index = 0; index < 2; index += 1) {
       const pending = askSnapshot(host, turn);
@@ -489,7 +479,7 @@ describe('the per-turn action budget', () => {
     // No ceiling to act under is not a licence to act: the chatbot itself is what this decision is about, and
     // a turn running under a half-configured bot may not touch a page.
     host.db.prepare('UPDATE p_chatbot_bots SET max_actions_per_turn = NULL WHERE chatbot_user_id = 12').run();
-    const turn = liveTurn(host, messageWithPage());
+    const turn = liveTurn(host);
     await expect(askSnapshot(host, turn)).resolves.toEqual({ status: 'refused', reason: 'action_not_allowed' });
     expect(host.store.actionCountOfTurn(turn.turn_id)).toBe(0);
     expect(host.warnings.some((warning) => warning.includes('no usable limit configuration'))).toBe(true);

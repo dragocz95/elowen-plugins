@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { decideAction, isActionKind, type ActionRefusal, type ApprovedAction } from './actions.js';
 import type { TurnEventBroker } from './broker.js';
 import type { ActionRow, TurnRow } from './db.js';
-import { readRecordedPageState, readPageContext, type RecordedPageState } from './pageState.js';
+import { readRecordedPageState, type RecordedPageState } from './pageState.js';
 import {
   type ActionDecision as VisitorDecision,
   type ActionKind,
@@ -11,6 +11,7 @@ import {
 import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload, type ChatbotStore } from './store.js';
 import { hashToken, sameHash } from './token.js';
+import { readPageUrl } from './validation.js';
 
 /** How long one action may wait for the visitor's page before it is closed as unanswered.
  *
@@ -90,8 +91,10 @@ export class PageActionService {
     const { store, warn } = this.deps;
     if (!isActionKind(input.request.kind)) return this.refuse(input, 'unknown_action');
     const kind = input.request.kind;
-    const metadata = readPageContext(input.turn.message);
-    if (!metadata.ok) return this.refuse(input, 'no_page_state');
+    // The page the visitor's message was written on, as the turn stored it. A turn stored without one has
+    // no page to act on at all.
+    const metadata = input.turn.page_url === null ? null : readPageUrl(input.turn.page_url);
+    if (!metadata?.ok) return this.refuse(input, 'no_page_state');
     const latest = store.latestPageAction(input.turn.turn_id);
     const recorded = latest?.action === 'snapshot' && latest.status === 'done'
       ? readRecordedPageState(actionResultPayload(latest).detail ?? '') : null;

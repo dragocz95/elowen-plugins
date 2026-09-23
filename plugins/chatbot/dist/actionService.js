@@ -1,9 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { decideAction, isActionKind } from './actions.js';
-import { readRecordedPageState, readPageContext } from './pageState.js';
+import { readRecordedPageState } from './pageState.js';
 import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload } from './store.js';
 import { hashToken, sameHash } from './token.js';
+import { readPageUrl } from './validation.js';
 /** How long one action may wait for the visitor's page before it is closed as unanswered.
  *
  *  There is one number, not one per kind. A page performs an ordinary action at once, so the wait is only
@@ -37,8 +38,10 @@ export class PageActionService {
         if (!isActionKind(input.request.kind))
             return this.refuse(input, 'unknown_action');
         const kind = input.request.kind;
-        const metadata = readPageContext(input.turn.message);
-        if (!metadata.ok)
+        // The page the visitor's message was written on, as the turn stored it. A turn stored without one has
+        // no page to act on at all.
+        const metadata = input.turn.page_url === null ? null : readPageUrl(input.turn.page_url);
+        if (!metadata?.ok)
             return this.refuse(input, 'no_page_state');
         const latest = store.latestPageAction(input.turn.turn_id);
         const recorded = latest?.action === 'snapshot' && latest.status === 'done'

@@ -15,10 +15,10 @@
 
 import {
   EVENTS_AFTER_QUERY,
+  MESSAGE_MAX_BYTES,
   PUBLIC_PATHS,
   PUBLIC_SCHEMA_VERSION,
   VISITOR_CREDENTIAL_ERRORS,
-  VISITOR_TEXT_MAX_BYTES,
   VISITOR_AUTHORIZATION_SCHEME,
   WIDGET_MAX_ACTIONS_PER_TURN,
   type ActionOutcome,
@@ -30,12 +30,10 @@ import {
   actionDecisionBody,
   actionResultBody,
   byteLength,
-  composeMessage,
   newClientTurnId,
   parseFrame,
   readActionFrame,
   readLines,
-  readVisitorText,
   schemaVersionBody,
   turnRequestBody,
   publicBotRequestBody,
@@ -153,7 +151,7 @@ export class ChatSession {
     const messages: { role: 'user' | 'ai'; text: string }[] = [];
     for (const turn of conversation.turns) {
       if (typeof turn.message !== 'string') continue;
-      messages.push({ role: 'user', text: readVisitorText(turn.message) });
+      messages.push({ role: 'user', text: turn.message });
       if (turn.turnId === conversation.activeTurnId) {
         this.cursors.set(turn.turnId, 0);
         this.restoring.set(turn.turnId, { through: turn.lastSeq, pending: new Set(turn.pendingActions) });
@@ -225,10 +223,9 @@ export class ChatSession {
     if (this.destroyed) return;
     const message = text.trim();
     if (message === '') return;
-    // The message carries the page state as well as the visitor's words, so the visitor's own share of it is
-    // what has to fit: an overlong message is refused here rather than by the hook, where it would surface
-    // as a failure of the whole turn.
-    if (byteLength(message) > VISITOR_TEXT_MAX_BYTES) {
+    // An overlong message is refused here rather than by the hook, where it would surface as a failure of
+    // the whole turn.
+    if (byteLength(message) > MESSAGE_MAX_BYTES) {
       this.deps.view.error(this.strings.errorTooLong);
       return;
     }
@@ -243,11 +240,10 @@ export class ChatSession {
       return;
     }
 
-    // Only address and title accompany visitor text. Page structure requires an explicit snapshot action.
-    const composed = composeMessage(message, JSON.stringify(this.deps.page.metadata()));
-
+    // Only the address and title travel with the message, beside it. Page structure requires an explicit
+    // snapshot action.
     const clientTurnId = newClientTurnId();
-    const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, composed.message));
+    const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, message, this.deps.page.metadata()));
     if (!reply || reply.status !== 202) {
       await this.handleSendFailure(reply);
       return;

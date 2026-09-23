@@ -169,9 +169,9 @@ export class ChatbotStore {
      *  own transaction: a turn row that exists without the counters that admitted it would be a turn nobody
      *  accounted for. */
     createTurn(input) {
-        this.stmt(`INSERT INTO p_chatbot_turns (turn_id, chatbot_user_id, visitor_id, client_turn_id, status, message, created_at)
-               VALUES (?, ?, ?, ?, 'queued', ?, ?)`)
-            .run(input.turnId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.message, input.now);
+        this.stmt(`INSERT INTO p_chatbot_turns (turn_id, chatbot_user_id, visitor_id, client_turn_id, status, message, page_url, page_title, created_at)
+               VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`)
+            .run(input.turnId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.message, input.page.url, input.page.title, input.now);
         return this.turn(input.turnId);
     }
     queuedTurns(limit) {

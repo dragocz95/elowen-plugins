@@ -11,6 +11,7 @@ import {
   settledTurn,
   type ChatbotHost,
   type TurnInput,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 
 /** The seam this suite is about: the answer of a multi-step turn is assembled from the text of EVERY step,
@@ -48,7 +49,7 @@ async function submitTurn(host: ChatbotHost, token: string, clientTurnId = CLIEN
   const answer = await host.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 2, clientTurnId, message: 'ahoj' },
+    body: { schemaVersion: 2, clientTurnId, message: 'ahoj', page: TURN_PAGE },
   }));
   expect(answer.status).toBe(202);
   return (answer.body as Record<string, string>).turnId!;

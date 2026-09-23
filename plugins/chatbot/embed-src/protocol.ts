@@ -2,19 +2,15 @@
  *
  *  Every constant comes from `../src/publicContract.js` — the same module the daemon-side public route is
  *  compiled from — so a frame type, a path or a bound cannot be spelled differently on the two sides of
- *  the boundary. This module adds what only the client needs: composing a message, parsing a frame, and
- *  building a request body. */
+ *  the boundary. This module adds what only the client needs: parsing a frame and building a request body. */
 
 import {
   ACTION_DECISIONS,
   ACTION_KINDS,
   ACTION_OUTCOMES,
-  MESSAGE_MAX_BYTES,
-  PAGE_CONTEXT_LABEL,
   PUBLIC_FRAME_TYPES,
   PUBLIC_SCHEMA_VERSION,
   SNAPSHOT_ID_PATTERN,
-  VISITOR_MESSAGE_LABEL,
   requiresVisitorConfirmation,
   type ActionDecision,
   type ActionKind,
@@ -68,34 +64,6 @@ export function readLines(buffer: string): { lines: string[]; rest: string } {
   return { lines: parts, rest };
 }
 
-// ── the composed model input ─────────────────────────────────────────────────────────────────────────
-
-/** What the visitor wrote, and the page state that goes with it, as one message.
- *
- *  The page state is composed into the message TEXT because that is the only place the public hook takes
- *  it: the turn body is validated strictly and has no field for a snapshot, and a second endpoint carrying
- *  page contents would be one more surface to bound. The block is labelled for what it is — data from an
- *  unauthenticated page — so the model reads it as evidence about a page rather than as instructions. */
-export function composeMessage(visitorText: string, pageStateJson: string): { message: string; pageStateIncluded: boolean } {
-  const composed = `${VISITOR_MESSAGE_LABEL}\n${visitorText}\n\n${PAGE_CONTEXT_LABEL}\n${pageStateJson}`;
-  if (byteLength(composed) <= MESSAGE_MAX_BYTES) return { message: composed, pageStateIncluded: true };
-  // Both halves respect their own caps before they get here, so this is a belt rather than a path: rather
-  // than cut JSON in half and hand the model something unparsable, the page state is dropped and the
-  // visitor's own words still arrive.
-  return { message: `${VISITOR_MESSAGE_LABEL}\n${visitorText}`, pageStateIncluded: false };
-}
-
-/** The visitor's own words out of a composed message. A restored transcript shows what the visitor wrote,
- *  never the page state that travelled with it. */
-export function readVisitorText(composed: string): string {
-  const withoutLabel = composed.startsWith(`${VISITOR_MESSAGE_LABEL}\n`)
-    ? composed.slice(VISITOR_MESSAGE_LABEL.length + 1)
-    : composed;
-  const marker = `\n\n${PAGE_CONTEXT_LABEL}\n`;
-  const cut = withoutLabel.indexOf(marker);
-  return cut === -1 ? withoutLabel : withoutLabel.slice(0, cut);
-}
-
 // ── request bodies ───────────────────────────────────────────────────────────────────────────────────
 
 export function publicBotRequestBody(publicId: string): Record<string, unknown> {
@@ -108,8 +76,10 @@ export function schemaVersionBody(): Record<string, unknown> {
   return { schemaVersion: PUBLIC_SCHEMA_VERSION };
 }
 
-export function turnRequestBody(clientTurnId: string, message: string): Record<string, unknown> {
-  return { schemaVersion: PUBLIC_SCHEMA_VERSION, clientTurnId, message };
+/** One visitor message, and the page it was written on beside it rather than inside it: the message is only
+ *  what the visitor wrote, and the page's address and title are the page's own unverified report. */
+export function turnRequestBody(clientTurnId: string, message: string, page: { url: string; title: string }): Record<string, unknown> {
+  return { schemaVersion: PUBLIC_SCHEMA_VERSION, clientTurnId, message, page };
 }
 
 /** The outcome of one performed action, as the server records it. */

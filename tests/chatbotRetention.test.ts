@@ -21,6 +21,7 @@ import {
   registerBot,
   settledTurn,
   type ChatbotHost,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 
 const DAY = utcDay(NOW_MS);
@@ -77,7 +78,7 @@ function conversation(input: { visitorId?: string; daysAgo: number; sessionId?: 
   });
   const turnId = randomUUID();
   const at = new Date(NOW_MS).toISOString();
-  host.store.createTurn({ turnId, chatbotUserId: 12, visitorId, clientTurnId: randomUUID(), message: 'ahoj', now: at });
+  host.store.createTurn({ turnId, chatbotUserId: 12, visitorId, clientTurnId: randomUUID(), message: 'ahoj', page: TURN_PAGE, now: at });
   if (input.activeTurn === true) host.store.markTurnRunning(turnId, at);
   host.store.appendEvent(turnId, 'done', { text: 'Dobrý den.' }, at);
   // A settled turn, unless the test is about a live one: a conversation with a queued or running turn is
@@ -263,7 +264,7 @@ describe('the sweeps around retention', () => {
     expect(await host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }))).toMatchObject({ status: 202 });
     host.db.prepare(`INSERT INTO p_chatbot_rate_windows (scope, scope_key, window_started_at, count, expires_at)
                      VALUES ('ip', '12:203.0.113.9', ?, 4, ?)`)
@@ -282,7 +283,7 @@ describe('the conversation clock', () => {
     const accepted = await host.handler(postRequest({
       path: 'turns',
       headers: { origin: SITE, authorization: `ChatbotVisitor ${issued.body.token}` },
-      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj' },
+      body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }));
     const turnId = (accepted.body as { turnId: string }).turnId;
     await settledTurn(host, turnId);
@@ -305,6 +306,7 @@ describe('the plugin holds nothing after a visitor is gone', () => {
       visitorId: VISITOR,
       clientTurnId: randomUUID(),
       message: 'ahoj',
+      page: TURN_PAGE,
       originValue: '203.0.113.9',
       now: new Date(NOW_MS).toISOString(),
       nowMs: NOW_MS,
@@ -327,6 +329,7 @@ describe('the plugin holds nothing after a visitor is gone', () => {
       visitorId: VISITOR,
       clientTurnId: randomUUID(),
       message: 'ahoj',
+      page: TURN_PAGE,
       originValue: '203.0.113.9',
       now: new Date(NOW_MS).toISOString(),
       nowMs: NOW_MS,

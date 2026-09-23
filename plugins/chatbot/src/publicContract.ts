@@ -22,17 +22,18 @@ export const VISITOR_CREDENTIAL_ERRORS = { required: 'token_required', invalid: 
 /** The widget script a customer pastes into their site, relative to the mount. */
 export const WIDGET_ASSET_NAME = 'widget.js';
 
-/** The largest visitor message the hook accepts, in UTF-8 bytes. It bounds the visitor's own text AND the
- *  page state composed into the same message, because the composed text is what the hook receives. */
-export const MESSAGE_MAX_BYTES = 8 * 1024;
-
-/** What the visitor's own text may take of a message. The rest is the page state's budget below. */
-export const VISITOR_TEXT_MAX_BYTES = 2 * 1024;
+/** The largest visitor message the hook accepts, in UTF-8 bytes. The message is only what the visitor wrote:
+ *  the page it was written on travels beside it as its own field, so the widget refuses an overlong message
+ *  against this same number before sending it. */
+export const MESSAGE_MAX_BYTES = 2 * 1024;
 
 /** Ceiling on a snapshot action result, including aria text and its target capability list. */
 export const PAGE_STATE_MAX_BYTES = 32 * 1024;
 
-export const PAGE_CONTEXT_LABEL = 'Untrusted page address and title:';
+/** How long the page address sent with a message may be. The widget sends `origin + pathname` only, so this
+ *  is a bound on untrusted input that no real page address reaches, not a budget the widget has to fit. */
+export const PAGE_URL_MAX_CHARS = 4096;
+
 export const HANDOFF_FRAGMENT_KEY = 'elowen-handoff';
 export const HANDOFF_CODE_PATTERN = /^[0-9a-f]{64}$/;
 export const HANDOFF_TTL_MS = 60_000;
@@ -49,10 +50,6 @@ export const PAGE_FIELD_VALUE_MAX_CHARS = 200;
  *  One bound for all of them, because they are the same kind of value and a second number would only be a
  *  second thing to keep in step. */
 export const PAGE_TEXT_MAX_CHARS = 120;
-
-/** The two labels of the composed model input. The visitor's own words come first and the page state is
- *  labelled for what it is: data from a page nobody has authenticated, never an instruction. */
-export const VISITOR_MESSAGE_LABEL = 'Visitor message:';
 
 /** Every frame type a turn's public stream may carry. `ping` is never stored and only says the stream is
  *  alive; `action` is the server asking the page to do something it has already approved. A client that

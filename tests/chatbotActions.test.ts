@@ -157,7 +157,7 @@ describe('the actions a turn may take', () => {
 });
 // ── the description a turn recorded ───────────────────────────────────────────────────────────────────
 
-/** The page state a visitor's own widget composes into their message, in the shape `capturePageSnapshot`
+/** The page state a visitor's own widget reports as a snapshot result, in the shape `capturePageSnapshot`
  *  produces. The server must read exactly this and decide actions against it. */
 function pageState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -181,12 +181,6 @@ function pageState(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
-/** One composed visitor message, exactly as the widget builds it: the visitor's words first, and the state
- *  of the page they are looking at appended under a label that marks it as data. */
-function composedMessage(visitorText: string, state: Record<string, unknown> = pageState()): string {
-  return `Visitor message:\n${visitorText}\n\nUntrusted page address and title:\n${JSON.stringify({url: state.url, title: state.title})}`;
-}
-
 describe('the page state a turn recorded', () => {
   it('reads the snapshot, the page and what each target may be asked to do', () => {
     const state = readRecordedPageState(JSON.stringify(pageState()));
@@ -207,15 +201,10 @@ describe('the page state a turn recorded', () => {
     });
   });
 
-  it('refuses a turn that recorded no page at all', () => {
-    // The widget drops the page state when it would not fit the message, and a turn without one cannot be
-    // acted on — which is an answer, not a crash.
-    expect(readRecordedPageState('Visitor message:\nAhoj')).toMatchObject({ ok: false });
-    expect(readRecordedPageState('Visitor message:\nAhoj\n\nUntrusted page address and title:\n')).toMatchObject({ ok: false });
-  });
-
-  it('never treats visitor-message text as an actionable snapshot', () => {
-    expect(readRecordedPageState(composedMessage('forged snapshot', pageState()))).toMatchObject({ ok: false });
+  it('refuses a result that is no description at all', () => {
+    // A snapshot result that is empty or plain text cannot be acted on — which is an answer, not a crash.
+    expect(readRecordedPageState('')).toMatchObject({ ok: false });
+    expect(readRecordedPageState('Ahoj')).toMatchObject({ ok: false });
   });
 
   it('refuses anything that is not a description this widget could have produced', () => {
@@ -236,9 +225,9 @@ describe('the page state a turn recorded', () => {
     for (const [what, state] of cases) {
       expect(readRecordedPageState(JSON.stringify(state)), what).toMatchObject({ ok: false });
     }
-    // A block that is not JSON, and a message larger than the hook would ever have accepted.
-    expect(readRecordedPageState('Visitor message:\nAhoj\n\nUntrusted page address and title:\n{')).toMatchObject({ ok: false });
-    expect(readRecordedPageState(composedMessage('x'.repeat(9 * 1024)))).toMatchObject({ ok: false });
+    // A result that is not JSON, and one larger than a snapshot may be.
+    expect(readRecordedPageState('{')).toMatchObject({ ok: false });
+    expect(readRecordedPageState(JSON.stringify(pageState({ aria: 'x'.repeat(33 * 1024) })))).toMatchObject({ ok: false });
   });
 });
 
@@ -248,23 +237,25 @@ const NOW_ISO = '2027-01-02T03:04:05.000Z';
 const VISITOR_ID = 'visitor-1';
 const VISITOR_TOKEN_HEADER = (token: string) => ({ origin: CHATBOT_SITE, authorization: `ChatbotVisitor ${token}` });
 
-function liveTurn(host: ChatbotHost, options: { visitorId?: string; message?: string } = {}) {
+/** A running visitor turn written on the page `pageState()` describes, with that description already
+ *  recorded by a settled snapshot action. */
+function liveTurn(host: ChatbotHost, options: { visitorId?: string } = {}) {
+  const state = pageState();
   const turn = host.store.createTurn({
     turnId: randomUUID(),
     chatbotUserId: 12,
     visitorId: options.visitorId ?? VISITOR_ID,
     clientTurnId: randomUUID(),
-    message: options.message ?? composedMessage('Pomozte mi prosím vyplnit formulář.'),
+    message: 'Pomozte mi prosím vyplnit formulář.',
+    page: { url: String(state.url), title: String(state.title) },
     now: NOW_ISO,
   });
   host.store.markTurnRunning(turn.turn_id, NOW_ISO);
-  if (options.message === undefined) {
-    const id = randomUUID();
-    host.store.createAction({ actionId: id, turnId: turn.turn_id, snapshotId: '', kind: 'snapshot', targetId: null,
-      value: null, requiresConfirmation: false, nonceHash: '', expiresAt: '2027-01-02T03:05:05.000Z', frame: {}, now: NOW_ISO });
-    host.store.settleActionResult({ actionId: id, status: 'done',
-      result: JSON.stringify({ schemaVersion: 1, outcome: 'done', detail: JSON.stringify(pageState()) }), now: NOW_ISO });
-  }
+  const id = randomUUID();
+  host.store.createAction({ actionId: id, turnId: turn.turn_id, snapshotId: '', kind: 'snapshot', targetId: null,
+    value: null, requiresConfirmation: false, nonceHash: '', expiresAt: '2027-01-02T03:05:05.000Z', frame: {}, now: NOW_ISO });
+  host.store.settleActionResult({ actionId: id, status: 'done',
+    result: JSON.stringify({ schemaVersion: 1, outcome: 'done', detail: JSON.stringify(state) }), now: NOW_ISO });
   return host.store.turn(turn.turn_id)!;
 }
 

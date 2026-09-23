@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.2.0 - 2026-09-23
+
+- A visitor's message is now stored, relayed and shown exactly as the visitor wrote it. The page's address and title travel beside it in their own field and reach the model as unverified page data after the message, so conversations no longer show the "Visitor message:" label and the page JSON. Stored conversations are migrated once, and page actions read the page from the stored turn. A widget tab left open across the upgrade must be reloaded before its next message is accepted.
+
 ## cronjob 0.6.14 - 2026-09-23
 
 - The owner of a personal scheduled job or wake-up is now told on the bell, with a push notification, when a run fails or its result does not reach their conversation. The alert names the job and the error and links to the Automation page. Before, the failure was written only to the server log and the run history, so a wake-up that promised "It will reply in this conversation" could fail without anybody learning about it.

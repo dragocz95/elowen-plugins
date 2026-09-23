@@ -13,6 +13,7 @@ import {
   type ChatbotHookReply,
   type ChatbotHost,
   type RelayCall,
+  TURN_PAGE,
 } from './helpers/chatbotHost.js';
 
 /** The reconnectable half of the public path: the visitor's own conversation, one turn's public event log as
@@ -101,7 +102,7 @@ async function submitTurn(host: ChatbotHost, token: string, message = 'ahoj'): P
   const answer = await host.handler(postRequest({
     path: 'turns',
     headers: { origin: SITE, authorization: `ChatbotVisitor ${token}` },
-    body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message },
+    body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message, page: TURN_PAGE },
   }));
   expect(answer.status).toBe(202);
   return (answer.body as Record<string, string>).turnId!;
@@ -199,7 +200,7 @@ describe('the visitor;s own conversation', () => {
     sizes.forEach((size, index) => {
       const turnId = randomUUID();
       const at = new Date(1_800_000_000_000 + index * 1_000).toISOString();
-      host.store.createTurn({ turnId, chatbotUserId: 12, visitorId: visitorIdOf(token), clientTurnId: randomUUID(), message: 'x'.repeat(size), now: at });
+      host.store.createTurn({ turnId, chatbotUserId: 12, visitorId: visitorIdOf(token), clientTurnId: randomUUID(), message: 'x'.repeat(size), page: TURN_PAGE, now: at });
       host.store.appendEvent(turnId, 'done', { text: 'y'.repeat(size) }, at);
       host.store.finishTurn({ turnId, status: 'done', coreSessionId: null, errorCode: null, now: at });
     });
