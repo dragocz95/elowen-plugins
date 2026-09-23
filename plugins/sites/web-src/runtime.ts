@@ -326,7 +326,6 @@ interface RuntimeComponents {
     label: string;
     description?: string;
     hint?: string;
-    icon?: LucideIcon;
     iconNode?: ReactNode;
     control?: ReactNode;
     status?: ReactNode;
@@ -373,8 +372,8 @@ interface RuntimeComponents {
   DetailBlock: ComponentType<{ icon: LucideIcon; title: string; hint?: string; children: ReactNode }>;
   MotionPresence: ComponentType<{ mode?: 'sync' | 'wait' | 'popLayout'; children: ReactNode }>;
   MotionLayoutItem: ComponentType<{ layoutId?: string; role?: string; className?: string; children: ReactNode }>;
-  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
-  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'block'; height?: string }>;
+  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page' }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
 }
