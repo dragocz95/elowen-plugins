@@ -205,13 +205,6 @@ function registerOneDriveUi(project) {
 function jsonBody(value) {
   return { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) };
 }
-function humanBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "kB", "MB", "GB", "TB"];
-  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / 1024 ** index;
-  return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
-}
 
 // plugins/onedrive/web-src/OneDriveProjectPanel.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -376,7 +369,7 @@ function FolderPicker({ projectId, workspaceId, value, onChange, rootLabel }) {
   ] });
 }
 function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, onSync, busy }) {
-  const { components: C, hooks } = runtime();
+  const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("onedrive");
   const { locale } = hooks.useTranslation();
   const syncedAt = row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" }) : s.never;
@@ -395,7 +388,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "text-foreground", children: [
           row.fileCount,
           " \xB7 ",
-          humanBytes(row.byteCount)
+          utils.formatBytes(row.byteCount)
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { "aria-hidden": true, children: "\xB7" }),

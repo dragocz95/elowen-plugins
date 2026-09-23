@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Cloud, CloudOff, ExternalLink, Folder, FolderOpen, RefreshCw, TriangleAlert } from 'lucide-react';
-import { humanBytes, jsonBody, runtime, type ConflictRow, type MirrorRow, type Overview } from './runtime';
+import { jsonBody, runtime, type ConflictRow, type MirrorRow, type Overview } from './runtime';
 
 interface ProjectProp { id: number; slug: string; path: string }
 
@@ -184,7 +184,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
   onSync: () => void;
   busy: boolean;
 }) {
-  const { components: C, hooks } = runtime();
+  const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('onedrive');
   const { locale } = hooks.useTranslation();
   // WorkspaceMetric is hero furniture - big numerals, one per line. In a drawer this width it turned a
@@ -198,7 +198,7 @@ function MirrorCard({ row, onConflicts, onConfirmSync, onDisconnect, onPause, on
         <C.Badge tone={statusTone(row)}>{statusLabel(row, s)}</C.Badge>
         <span>{s.lastSync}: <span className="text-foreground">{syncedAt}</span></span>
         <span aria-hidden>·</span>
-        <span>{s.files}: <span className="text-foreground">{row.fileCount} · {humanBytes(row.byteCount)}</span></span>
+        <span>{s.files}: <span className="text-foreground">{row.fileCount} · {utils.formatBytes(row.byteCount)}</span></span>
         <span aria-hidden>·</span>
         <span>{s.mirroredFolder}: <span className="font-mono text-foreground" title={row.subpath || undefined}>
           {row.subpath || s.wholeProject}
