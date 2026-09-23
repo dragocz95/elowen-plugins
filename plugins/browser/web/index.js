@@ -14614,20 +14614,6 @@ var Hand = createLucideIcon("Hand", [
   ]
 ]);
 
-// node_modules/lucide-react/dist/esm/icons/hard-drive.js
-var HardDrive = createLucideIcon("HardDrive", [
-  ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
-  [
-    "path",
-    {
-      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
-      key: "oot6mr"
-    }
-  ],
-  ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
-  ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
-]);
-
 // node_modules/lucide-react/dist/esm/icons/image-off.js
 var ImageOff = createLucideIcon("ImageOff", [
   ["line", { x1: "2", x2: "22", y1: "2", y2: "22", key: "a6p6uj" }],
@@ -14853,7 +14839,6 @@ function BrowserAccount({ surface }) {
             children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
               SettingsRow,
               {
-                icon: HardDrive,
                 label: strings.storageUsed || "Space used",
                 hint: strings.clearBlocked || "Close every running session before the profile can be cleared.",
                 status: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex flex-wrap items-center gap-2", children: [
@@ -14887,7 +14872,6 @@ function BrowserAccount({ surface }) {
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                 SettingsRow,
                 {
-                  icon: Earth,
                   label: strings.noSessions || "No browser session is running",
                   description: strings.noSessionsDescription || "A session appears here when your agent opens the browser."
                 }
