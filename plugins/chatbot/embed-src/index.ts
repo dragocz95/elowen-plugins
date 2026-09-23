@@ -178,7 +178,7 @@ export function mount(): ElowenChatbotApi | null {
   panel = new ChatPanel({
     strings,
     publicId: options.publicId,
-    storage: safeStorage(),
+    storage: safeStorage('localStorage'),
     look: { name: '', appearance: DEFAULT_APPEARANCE },
     // The panel already showed the visitor's message; the conversation is told that it did.
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),
@@ -203,7 +203,7 @@ export function mount(): ElowenChatbotApi | null {
     view: panel,
     page,
     fetch: (...args) => fetch(...args),
-    storage: safeStorage(),
+    storage: safeStorage('sessionStorage'),
     strings,
   });
 
@@ -232,11 +232,11 @@ export function mount(): ElowenChatbotApi | null {
   return api;
 }
 
-/** Session storage, when the browser offers it. A browser that refuses it (private mode, a site that blocks
- *  storage) still gets a working conversation for as long as the page lives. */
-function safeStorage(): Storage | null {
+/** Prefer each browser store for its own purpose: lasting appearance choices versus the session token.
+ *  If a site blocks storage, the widget still works in memory for this page. */
+function safeStorage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
   try {
-    return window.sessionStorage;
+    return window[kind];
   } catch {
     return null;
   }

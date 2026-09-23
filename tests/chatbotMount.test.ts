@@ -4,11 +4,14 @@ const observed = vi.hoisted(() => ({
   code: null as string | null,
   lookPromise: null as Promise<{ name: string; appearance: { colors: { launcher: string } } } | null> | null,
   panels: [] as { host: HTMLDivElement; applyAppearance(look: { appearance: { colors: { launcher: string } } }): void }[],
+  panelStorage: null as Storage | null,
+  sessionStorage: null as Storage | null,
 }));
 vi.mock('../plugins/chatbot/embed-src/chatPanel.js', () => ({
   ChatPanel: class {
     host = document.createElement('div');
-    constructor(options: { look: { appearance: { colors: { launcher: string } } } }) {
+    constructor(options: { look: { appearance: { colors: { launcher: string } } }; storage: Storage | null }) {
+      observed.panelStorage = options.storage;
       this.host.style.backgroundColor = options.look.appearance.colors.launcher;
       observed.panels.push(this);
     }
@@ -21,7 +24,10 @@ vi.mock('../plugins/chatbot/embed-src/chatPanel.js', () => ({
 }));
 vi.mock('../plugins/chatbot/embed-src/session.js', () => ({
   ChatSession: class {
-    constructor(deps: { page: { takeHandoff(): string | null } }) { observed.code = deps.page.takeHandoff(); }
+    constructor(deps: { page: { takeHandoff(): string | null }; storage: Storage | null }) {
+      observed.code = deps.page.takeHandoff();
+      observed.sessionStorage = deps.storage;
+    }
     hasStoredToken(): boolean { return false; }
     loadAppearance(): Promise<{ name: string; appearance: { colors: { launcher: string } } } | null> {
       return observed.lookPromise ?? Promise.resolve(null);
@@ -37,9 +43,24 @@ afterEach(() => {
   history.replaceState(null, '', '/');
   observed.lookPromise = null;
   observed.panels.length = 0;
+  observed.panelStorage = null;
+  observed.sessionStorage = null;
 });
 
 describe('the handoff fragment at mount', () => {
+  it('keeps bot preferences across browser sessions, but keeps visitor tokens session-scoped', async () => {
+    const script = document.createElement('script');
+    script.src = 'https://elowen.example/hooks/chatbot/v2/widget.js';
+    script.dataset.chatbot = 'cbt_0123456789abcdef01234567';
+    document.body.append(script);
+    const { mount } = await import('../plugins/chatbot/embed-src/index.js');
+    window.ElowenChatbot?.destroy();
+    mount();
+    expect(observed.panelStorage).toBe(window.localStorage);
+    expect(observed.sessionStorage).toBe(window.sessionStorage);
+    expect(observed.panelStorage).not.toBe(observed.sessionStorage);
+  });
+
   it('cleans a late-loaded fragment through the router public history path', async () => {
     const code = 'a'.repeat(64);
     history.replaceState({ __NA: true, tree: 'framework-private' }, '', '/target#section&elowen-handoff=' + code);
