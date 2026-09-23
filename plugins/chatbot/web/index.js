@@ -20056,15 +20056,14 @@ var ChatPanel = class {
   isOpen() {
     return !this.panel.hidden;
   }
-  /** Draw the panel with a different look, and with the chatbot's own name.
-   *
-   *  A chat element cannot be restyled in place: setting any of its properties rebuilds its message list, so
-   *  the element is REPLACED and everything it was showing is carried over. There is one case where replacing
-   *  it would throw away something the visitor cannot get back — an element that has drawn no message yet
-   *  holds the message they are half-way through typing, and a first visit applies the look exactly then, one
-   *  round trip after the panel was opened. So an empty message element is reconfigured instead: its own
-   *  re-render draws the new look, and the visitor's draft stays where it is. */
+  /** Apply a changed look and chatbot name. A populated chat element is replaced with its messages carried
+   *  over; an empty one is reconfigured in place. Reapplying the SAME look after the visitor opens the panel
+   *  must leave the chat configuration alone, since deep-chat rebuilds its input when a property is assigned. */
   applyAppearance(look) {
+    if (this.look === look) {
+      this.requestAvatar();
+      return;
+    }
     this.look = look;
     this.applyChrome();
     this.requestAvatar();

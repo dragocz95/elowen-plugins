@@ -1122,13 +1122,11 @@ describe('the look a panel is given', () => {
   const groundOf = (instance: ChatPanel): string | undefined =>
     /\.messages \{[^}]*background: (#[0-9a-f]{6})/i.exec(instance.host.shadowRoot!.querySelector('style')!.textContent ?? '')?.[1];
 
-  it('reconfigures an empty message element in place, so a look that arrives while the visitor is typing keeps their draft', () => {
+  it('reconfigures an empty message element in place when the look changes', () => {
     const instance = panelWith(look());
     const before = chatOf(instance);
 
-    // A first visit applies the look one round trip after the panel was opened, which is exactly when the
-    // visitor may already be typing. Replacing the element there would throw their half-written message away,
-    // so an empty element is reconfigured instead — and it still takes the new look.
+    // An empty element can take a changed look in place; a populated one has its messages carried below.
     instance.applyAppearance({ name: 'Podatelna', appearance: { ...APPEARANCE_TEMPLATES.clean, header: { ...APPEARANCE_TEMPLATES.clean.header, showMessageName: true } } });
 
     const after = chatOf(instance);
@@ -1137,6 +1135,23 @@ describe('the look a panel is given', () => {
     expect(after.chatStyle.backgroundColor).toBe('transparent');
     expect(after.names.ai.text).toBe('Podatelna');
     expect(instance.host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
+    instance.destroy();
+  });
+
+  it('does not reconfigure the message input when the already-painted look is applied again', () => {
+    const instance = panelWith(look());
+    const configured = look(APPEARANCE_TEMPLATES.clean);
+    instance.applyAppearance(configured);
+    const chat = chatOf(instance);
+    let reconfigurations = 0;
+    Object.defineProperty(chat, 'introMessage', {
+      configurable: true,
+      set: () => { reconfigurations += 1; },
+    });
+
+    instance.applyAppearance(configured);
+    expect(chatOf(instance)).toBe(chat);
+    expect(reconfigurations).toBe(0);
     instance.destroy();
   });
 
@@ -1339,6 +1354,23 @@ describe('the avatar a customer\'s page is not asked to allow', () => {
     });
     expect(await harness.session.loadAvatar()).toBeNull();
     expect(harness.requests.filter((request) => request.url.endsWith('/avatar'))).toHaveLength(1);
+  });
+
+  it('can request a remote avatar after opening without resetting the unchanged chat input', async () => {
+    let asked = 0;
+    const instance = mounted(() => { asked += 1; return Promise.resolve(null); });
+    const configured = lookWithAvatar(REMOTE);
+    instance.applyAppearance(configured);
+    expect(asked).toBe(1);
+    const chat = instance.host.shadowRoot!.querySelector('deep-chat')!;
+    let reconfigurations = 0;
+    Object.defineProperty(chat, 'introMessage', { configurable: true, set: () => { reconfigurations += 1; } });
+
+    instance.applyAppearance(configured);
+    expect(asked).toBe(2);
+    expect(instance.host.shadowRoot!.querySelector('deep-chat')).toBe(chat);
+    expect(reconfigurations).toBe(0);
+    instance.destroy();
   });
 
   it('shows the owner\'s image from bytes the widget fetched, in the header and beside the answers', async () => {
