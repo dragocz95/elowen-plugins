@@ -1,6 +1,7 @@
 import { ChatbotAdapter } from './adapter.js';
 import { PageActionService } from './actionService.js';
 import { registerPageActionTool } from './actionsTool.js';
+import { registerOfferTool } from './offerTool.js';
 import { TurnEventBroker } from './broker.js';
 import { createCoreSessionBridge } from './coreSessions.js';
 import { migrate } from './db.js';
@@ -118,6 +119,7 @@ export function register(published) {
     // created by an administrator at any time, so there is no single owner to scope it to. The tool itself
     // refuses every turn that is not a live chatbot visitor turn.
     registerPageActionTool({ ctx, store, service: actions });
+    registerOfferTool({ ctx, store, broker, now: () => now().toISOString() });
     // The page a visitor is writing from reaches the model beside their message, never inside it, so the
     // conversation stores only what the visitor wrote.
     registerVisitorPageContext({ ctx, store, warn });

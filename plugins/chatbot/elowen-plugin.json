@@ -29,7 +29,8 @@
       "appearance"
     ],
     "tools": [
-      "ChatbotPageAction"
+      "ChatbotPageAction",
+      "ChatbotOffer"
     ]
   },
   "configSchema": [

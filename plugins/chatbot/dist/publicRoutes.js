@@ -157,6 +157,7 @@ export function createPublicRoute(deps) {
             schemaVersion: PUBLIC_SCHEMA_VERSION,
             name: admitted.bot.display_name,
             appearance: stored.appearance,
+            allowedOrigins: store.originsOf(admitted.bot.chatbot_user_id),
         }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
     };
     /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
@@ -318,6 +319,7 @@ export function createPublicRoute(deps) {
         const ids = recent.map((turn) => turn.turn_id);
         const seqs = store.lastSeqsOf(ids);
         const replies = store.doneRepliesOf(ids);
+        const offers = store.offersOf(ids);
         // Newest first while the answer still fits. A reconnect has to be able to rebuild what the visitor saw
         // most recently, so the newest turn is always included and older ones drop off once the budget is spent.
         const turns = [];
@@ -336,6 +338,7 @@ export function createPublicRoute(deps) {
                 pendingActions: store.pendingActions(turn.turn_id).map(action => action.id),
                 message: turn.message,
                 reply: replies.get(turn.turn_id) ?? null,
+                offer: offers.get(turn.turn_id) ?? null,
                 errorCode: turn.error_code,
             };
             // One byte for the comma that joins the entries, which is what makes this an upper bound.

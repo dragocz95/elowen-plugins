@@ -1428,6 +1428,7 @@ var CS = {
   placeholder: "Napi\u0161te zpr\xE1vu",
   intro: "Dobr\xFD den. Pomohu v\xE1m s vypln\u011Bn\xEDm formul\xE1\u0159e na t\xE9to str\xE1nce.",
   quickButtons: "Rychl\xE9 dotazy",
+  offerOptions: "Nab\xEDdnut\xE9 mo\u017Enosti",
   reconnecting: "Spojen\xED se p\u0159eru\u0161ilo, zkou\u0161\xEDm se znovu p\u0159ipojit.",
   errorTurn: "Odpov\u011B\u010F se nepoda\u0159ilo dokon\u010Dit. Zkuste to pros\xEDm znovu.",
   errorUnavailable: "Chatbot te\u010F nen\xED dostupn\xFD. Zkuste to pros\xEDm pozd\u011Bji.",
@@ -1451,6 +1452,7 @@ var SK = {
   placeholder: "Nap\xED\u0161te spr\xE1vu",
   intro: "Dobr\xFD de\u0148. Pom\xF4\u017Eem v\xE1m s vyplnen\xEDm formul\xE1ra na tejto str\xE1nke.",
   quickButtons: "R\xFDchle ot\xE1zky",
+  offerOptions: "Pon\xFAkan\xE9 mo\u017Enosti",
   reconnecting: "Spojenie sa preru\u0161ilo, sk\xFA\u0161am sa znova pripoji\u0165.",
   errorTurn: "Odpove\u010F sa nepodarilo dokon\u010Di\u0165. Sk\xFAste to pros\xEDm znova.",
   errorUnavailable: "Chatbot teraz nie je dostupn\xFD. Sk\xFAste to pros\xEDm nesk\xF4r.",
@@ -1474,6 +1476,7 @@ var EN = {
   placeholder: "Write a message",
   intro: "Hello. I can help you fill in the form on this page.",
   quickButtons: "Quick questions",
+  offerOptions: "Suggested options",
   reconnecting: "The connection dropped. Reconnecting.",
   errorTurn: "The answer could not be finished. Please try again.",
   errorUnavailable: "The chatbot is not available right now. Please try again later.",
@@ -19639,19 +19642,83 @@ O([P("object")], k.prototype, "demo");
 O([P("object")], k.prototype, "_insertKeyViewStyles");
 customElements.define("deep-chat", k);
 
-// plugins/chatbot/embed-src/chatPanel.ts
-var LAUNCHER_GAP_PX = 12;
-function appearanceViewportInset(appearance) {
-  return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
+// plugins/chatbot/src/offerContract.ts
+var OFFER_LIMITS = {
+  choices: 6,
+  links: 3,
+  cards: 4,
+  label: 40,
+  reply: 200,
+  title: 60,
+  subtitle: 120,
+  price: 24,
+  meta: 40,
+  url: 4096
+};
+function allowedOfferUrl(value, origins) {
+  if (value.length > OFFER_LIMITS.url) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.username === "" && url.password === "" && origins.includes(url.origin);
+  } catch {
+    return false;
+  }
 }
+
+// plugins/chatbot/embed-src/offer.ts
 function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, (character) => ({
+  return value.replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     '"': "&quot;",
     "'": "&#39;"
-  })[character] ?? character);
+  })[char]);
+}
+function offerHtml(offer, origins, strings, active = true) {
+  const disabled = active ? "" : " disabled";
+  const choice = (offer.choices ?? []).map(({ label, reply }) => `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(reply ?? label)}"${disabled}>${escapeHtml(label)}</button>`).join("");
+  const link = (label, url) => allowedOfferUrl(url, origins) ? `<button type="button" class="cb-quick-item cb-offer-link" data-cb-url="${escapeHtml(url)}"${disabled}>${escapeHtml(label)}</button>` : "";
+  const links = (offer.links ?? []).map(({ label, url }) => link(label, url)).join("");
+  const cards = (offer.cards ?? []).map((card) => {
+    const action = card.action ? "reply" in card.action ? `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(card.action.reply)}"${disabled}>${escapeHtml(card.action.label)}</button>` : link(card.action.label, card.action.url) : "";
+    return `<article class="cb-offer-card">${card.imageUrl && allowedOfferUrl(card.imageUrl, origins) ? `<img src="${escapeHtml(card.imageUrl)}" alt="" loading="lazy">` : ""}
+      <div class="cb-offer-content"><strong>${escapeHtml(card.title)}</strong>
+      ${card.subtitle ? `<span>${escapeHtml(card.subtitle)}</span>` : ""}
+      ${card.price ? `<b>${escapeHtml(card.price)}</b>` : ""}
+      ${card.meta ? `<small>${escapeHtml(card.meta)}</small>` : ""}
+      ${action}</div></article>`;
+  }).join("");
+  return `<div class="cb-offer" role="group" aria-label="${escapeHtml(strings.offerOptions)}">
+    ${choice || links ? `<div class="cb-offer-actions">${choice}${links}</div>` : ""}${cards}
+  </div>`;
+}
+function disableOffers(root) {
+  root?.querySelectorAll(".cb-offer button:not(:disabled)").forEach((button) => {
+    button.disabled = true;
+  });
+}
+function offerStyles() {
+  return `
+.outer-message-container:has(.cb-offer) .name { display:none; }
+.outer-message-container:has(.cb-offer) .inner-message-container { max-width:100%; }
+.cb-offer { display:grid; gap:8px; width:min(100%, 340px); box-sizing:border-box; }
+.cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid currentColor; border-radius:10px; opacity:.95; }
+.cb-offer-card img { display:block; width:100%; max-height:130px; object-fit:cover; }
+.cb-offer-content { display:flex; flex-direction:column; gap:4px; padding:10px; min-width:0; overflow-wrap:anywhere; }
+.cb-offer-content strong { font-size:14px; }
+.cb-offer-content span, .cb-offer-content small { font-size:12px; }
+.cb-offer-content b { font-size:13px; }
+.cb-offer-content button { align-self:flex-start; }
+.cb-offer button:disabled { opacity:.48; cursor:default; pointer-events:none; }
+`;
+}
+
+// plugins/chatbot/embed-src/chatPanel.ts
+var LAUNCHER_GAP_PX = 12;
+function appearanceViewportInset(appearance) {
+  return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
 }
 function introHtml(input) {
   const { greeting, appearance, strings } = input;
@@ -19660,18 +19727,33 @@ function introHtml(input) {
   const buttons = appearance.quickButtons.map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? "" : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`).join("");
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
-function introUtilities(appearance, onQuickButton) {
+function introUtilities(appearance, onQuickButton, onOfferLink) {
   const ramp = appearanceRamp(appearance);
   return {
     "cb-quick": {
       styles: { default: { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px", justifyContent: "center" } }
+    },
+    "cb-offer-link": {
+      events: {
+        click: (event) => {
+          const button = event.target instanceof Element ? event.target.closest("[data-cb-url]") : null;
+          if (button && !button.disabled) onOfferLink(button.getAttribute("data-cb-url") ?? "");
+        }
+      },
+      styles: { default: { textDecoration: "underline" }, hover: { textDecoration: "none" }, click: { opacity: ".75" } }
+    },
+    "cb-offer-button": {
+      styles: { default: { maxWidth: "100%" }, hover: { opacity: ".9" }, click: { opacity: ".75" } }
     },
     "cb-quick-item": {
       events: {
         click: (event) => {
           const target = event.target instanceof Element ? event.target.closest("[data-cb-text]") : null;
           const text = target?.getAttribute("data-cb-text") ?? "";
-          if (text !== "") onQuickButton(text);
+          if (text !== "" && target instanceof HTMLButtonElement && !target.disabled) {
+            disableOffers(target.getRootNode());
+            onQuickButton(text);
+          }
         }
       },
       styles: {
@@ -19809,7 +19891,7 @@ function chatConfig(input) {
   :host([data-answer-active]) .input-button:has([data-cb-stop-icon]),
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()}`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -19818,7 +19900,7 @@ function chatConfig(input) {
         strings
       })
     },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink),
     avatars: input.avatar === null ? void 0 : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" } } : void 0
   };
@@ -19953,6 +20035,8 @@ var ChatPanel = class {
   drawScrollFrame = null;
   layoutObserver = new ResizeObserver(() => this.flushScroll());
   queued = [];
+  offerOrigins = [];
+  offerActive = false;
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
   redrawPending = false;
@@ -20096,6 +20180,8 @@ var ChatPanel = class {
     this.draw({ role: "user", text });
   }
   beginAnswer() {
+    this.offerActive = false;
+    disableOffers(this.chat.shadowRoot);
     this.answer = "";
     this.answerIndex = null;
     this.clearStatus();
@@ -20117,12 +20203,16 @@ var ChatPanel = class {
     this.clearStatus();
     if (signals === null) {
       this.writeAnswer(this.answer);
-    } else {
-      const written = signals.onResponse({ text: this.answer, overwrite: true });
-      void Promise.resolve(written).then(() => signals.onClose(), () => signals.onClose());
+      this.answerIndex = null;
+      this.flushRedraw();
+      return;
     }
-    this.answerIndex = null;
-    this.flushRedraw();
+    const written = signals.onResponse({ text: this.answer, overwrite: true });
+    return Promise.resolve(written).finally(() => {
+      signals.onClose();
+      this.answerIndex = null;
+      this.flushRedraw();
+    });
   }
   /** What the panel has to say about the CONVERSATION rather than in it: a reconnection, a declined
    *  confirmation, a failure. It is a status line above the messages, never a message of its own — the
@@ -20139,10 +20229,22 @@ var ChatPanel = class {
     this.answerIndex = null;
     this.flushRedraw();
   }
+  setAllowedOrigins(origins) {
+    this.offerOrigins = origins;
+  }
+  /** Deep-chat owns the markup message and its quick-button event utilities. */
+  showOffer(offer, active) {
+    if (active) disableOffers(this.chat.shadowRoot);
+    this.offerActive = active;
+    this.draw({ role: "ai", html: offerHtml(offer, this.offerOrigins, this.strings, active) });
+  }
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages) {
-    for (const message of messages) this.draw(message);
+    for (const message of messages) {
+      this.draw(message);
+      if (message.offer) this.showOffer(message.offer, message.offerActive === true);
+    }
     this.cancelDrawScroll();
     this.scrollToLatest();
   }
@@ -20187,6 +20289,9 @@ var ChatPanel = class {
       strings: this.strings,
       avatar: this.avatarSource(),
       onQuickButton: (text) => this.sendQuick(text),
+      onOfferLink: (url) => {
+        if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url);
+      },
       onStop: () => this.stopAnswer()
     });
   }
@@ -20204,7 +20309,13 @@ var ChatPanel = class {
     chat.onComponentRender = () => {
       this.ready = true;
       this.syncAnswerControl();
-      for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
+      for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage(message);
+      const groups = chat.shadowRoot?.querySelectorAll(".cb-offer") ?? [];
+      groups.forEach((group, index) => {
+        if (index < groups.length - 1 || !this.offerActive) group.querySelectorAll("button").forEach((button) => {
+          button.disabled = true;
+        });
+      });
       this.scrollToLatest();
     };
     return chat;
@@ -20242,7 +20353,7 @@ var ChatPanel = class {
    *  panel that already has a conversation in it. */
   redrawChat() {
     const carryingAnswer = this.answerIndex !== null;
-    const carried = this.ready ? this.chat.getMessages().map((message) => ({ role: typeof message.role === "string" ? message.role : "ai", text: typeof message.text === "string" ? message.text : "" })).filter((message) => message.text !== "") : [];
+    const carried = this.ready ? this.chat.getMessages().map((message) => typeof message.html === "string" ? { role: typeof message.role === "string" ? message.role : "ai", html: message.html } : { role: typeof message.role === "string" ? message.role : "ai", text: typeof message.text === "string" ? message.text : "" }).filter((message) => "html" in message || message.text !== "") : [];
     this.layoutObserver.disconnect();
     this.cancelDrawScroll();
     this.chat.remove();
@@ -20294,6 +20405,7 @@ var ChatPanel = class {
    *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
    *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   sendQuick(text) {
+    this.offerActive = false;
     this.appendVisitor(text);
     this.onVisitorMessage(text);
   }
