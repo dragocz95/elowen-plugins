@@ -164,7 +164,7 @@ describe('GitHub plugin UI', () => {
     use(http.get('/api/plugins/github/api/status', () => { calls += 1; return calls === 1 ? HttpResponse.json({ error: 'down' }, { status: 500 }) : HttpResponse.json(disconnected); }));
     mountProject();
     expect(await screen.findByText(strings.loadError)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     expect(await screen.findByText(strings.disconnected)).toBeInTheDocument();
   });
 

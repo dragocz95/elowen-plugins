@@ -209,9 +209,9 @@ describe('registry AutoSaveStatus contract', () => {
   it('exposes Retry only for an error and invokes it', () => {
     const retry = vi.fn();
     const { rerender } = render(<AutoSaveStatus status="pending" onRetry={retry} />);
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     rerender(<AutoSaveStatus status="error" onRetry={retry} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(retry).toHaveBeenCalledOnce();
   });
 });

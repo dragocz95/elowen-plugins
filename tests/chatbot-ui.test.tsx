@@ -690,7 +690,7 @@ describe('the chatbots section', () => {
     await settled();
     // The retry action is the HOST's, labelled from its own dictionary — not the plugin's copy.
     await waitFor(() => expect(screen.getByText(strings.botsLoadError!, { exact: false })).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
   it('offers creation when there is nothing registered yet, and lists what it created', async () => {
@@ -812,7 +812,7 @@ describe('the conversations section', () => {
     use(http.get('/api/plugins/chatbot/api/conversations', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
     await openConversations();
     expect(await screen.findByText(strings.conversationsLoadError!, { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
   it('says there is nothing to read when no chatbot is registered', async () => {
@@ -931,7 +931,7 @@ describe('the statistics section', () => {
     use(http.get('/api/plugins/chatbot/api/stats', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
     await openStats();
     expect(await screen.findByText(strings.statsLoadError!, { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
 
@@ -979,7 +979,7 @@ describe('the shared settings section', () => {
     use(http.get('/api/plugins/chatbot', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
     await openShared();
     expect(await screen.findByText(strings.sharedLoadError!, { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
 

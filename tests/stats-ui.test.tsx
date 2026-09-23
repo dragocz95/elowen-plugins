@@ -224,7 +224,7 @@ describe('StatsView', () => {
       http.get('*/api/usage/by-day', () => new Promise<Response>(() => {})),
     );
     renderStats();
-    expect(await screen.findByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeTruthy();
     expect(screen.queryByLabelText('Loading')).toBeNull();
   });
 

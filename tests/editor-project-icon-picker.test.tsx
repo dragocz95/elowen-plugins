@@ -92,7 +92,7 @@ describe('project icon from a managed workspace', () => {
     mount(<ProjectIconPicker project={{ ...managed, executionKind: 'host', path: '/srv/analysis' }} onClose={() => {}} />);
     const dialog = within(await screen.findByRole('dialog', { name: 'Choose icon' }));
     expect(await dialog.findByText(/forbidden/i)).toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: 'Select' })).toBeDisabled();
     expect(requested.patched).toEqual([]);
   });
