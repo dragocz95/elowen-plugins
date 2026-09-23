@@ -959,7 +959,11 @@ describe('read-only appearance bootstrap on widget mount', () => {
         headers: { origin: CHATBOT_SITE },
         body,
       }));
-      return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status, headers: answer.headers });
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(answer.headers ?? {})) {
+        for (const item of Array.isArray(value) ? value : [value]) responseHeaders.append(name, item);
+      }
+      return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status, headers: responseHeaders });
     });
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

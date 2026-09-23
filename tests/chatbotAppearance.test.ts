@@ -26,10 +26,10 @@ import {
   type ChatbotAppearance,
 } from '../plugins/chatbot/src/appearanceContract.js';
 import { createAdminApi } from '../plugins/chatbot/src/adminApi.js';
-import { CHATBOT_SITE, createChatbotHost, postRequest, publicRequest, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
+import { CHATBOT_SITE, createChatbotHost, postRequest, registerBot, type ChatbotHost } from './helpers/chatbotHost.js';
 
 /** The look a chatbot is configured with: the ONE shape the server stores, the widget draws and the
- *  administrator previews, plus the two routes that carry it.
+ *  administrator previews, plus the public bootstrap that reads it.
  *
  *  The point of these tests is the boundary: an appearance is written by an authenticated administrator and
  *  read by an anonymous visitor's widget, so the same value has to survive both directions intact and a
@@ -46,6 +46,8 @@ const adminApi = (host: ChatbotHost): ReturnType<typeof createAdminApi> => creat
   stores: host.stores,
   publicBaseUrl: () => 'https://elowen.example.com',
   now: () => new Date(clockMs),
+  erase: async () => ({ deleted: 0, kept: 0 }),
+  warn: () => undefined,
 });
 
 let host: ChatbotHost;
@@ -324,25 +326,14 @@ describe('the appearance an administrator saves', () => {
 });
 
 describe('the appearance a visitor\'s widget reads', () => {
-  /** One live visitor, exactly as the widget gets one: the adapter has to be connected and the bot enabled
-   *  before the hook will issue a token at all, so a test that skips either would be testing a refusal. */
-  const liveVisitor = async (): Promise<{ token: string; visitorId: string }> => {
+  const readBootstrap = async (bot = host.store.listBots()[0]!.public_id, site = CHATBOT_SITE) => {
     await host.adapter.connect();
-    const answer = await host.handler(postRequest({
-      path: 'visitors',
-      headers: { origin: CHATBOT_SITE },
-      body: { schemaVersion: 2, bot: host.store.listBots()[0]!.public_id },
+    return host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: site },
+      body: { schemaVersion: 2, bot },
     }));
-    expect(answer.status).toBe(200);
-    const body = answer.body as { token: string; visitorId: string };
-    return { token: body.token, visitorId: body.visitorId };
   };
-
-  const withToken = (token: string) => publicRequest({
-    method: 'GET',
-    path: 'appearance',
-    headers: { origin: CHATBOT_SITE, authorization: `ChatbotVisitor ${token}` },
-  });
 
   it('hands the configured look and the chatbot\'s own name to the widget', async () => {
     registerBot(host);
@@ -355,29 +346,20 @@ describe('the appearance a visitor\'s widget reads', () => {
       now: '2026-09-21T12:00:00.000Z',
     });
 
-    await host.adapter.connect();
-    const bootstrap = await host.handler(postRequest({
-      path: 'bootstrap',
-      headers: { origin: CHATBOT_SITE },
-      body: { schemaVersion: 2, bot: bot.public_id },
-    }));
+    const bootstrap = await readBootstrap(bot.public_id);
     expect(bootstrap).toMatchObject({ status: 200, body: {
       name: 'Městský úřad',
       appearance: resolveAppearance(storedOf({ mode: 'light', quickButtons: [{ text: 'Kde je podatelna?', icon: 'question' }] })),
     } });
-    const issued = await liveVisitor();
-    const answer = await host.handler(withToken(issued.token));
-    expect(answer.status).toBe(200);
-    const body = answer.body as { schemaVersion: number; name: string; appearance: ChatbotAppearance };
+    const body = bootstrap.body as { schemaVersion: number; name: string; appearance: ChatbotAppearance };
     expect(body.schemaVersion).toBe(2);
     expect(body.name).toBe('Městský úřad');
     expect(body.appearance.mode).toBe('light');
     expect(body.appearance).not.toHaveProperty('template');
     expect(body.appearance).not.toHaveProperty('overrides');
     expect(body.appearance.quickButtons).toEqual([{ text: 'Kde je podatelna?', icon: 'question' }]);
-    // It is a read of state on a visitor's behalf, so nothing between the two ends may keep a copy.
-    expect(answer.headers?.['cache-control']).toBe('no-store');
-    expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
+    expect(bootstrap.headers?.['cache-control']).toBe('no-store');
+    expect(bootstrap.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
   });
 
   it('reads the look with token issuance gates and creates no visitor or token rows', async () => {
@@ -423,18 +405,11 @@ describe('the appearance a visitor\'s widget reads', () => {
       appearance: JSON.stringify(storedOf({ launcher: { presenceDot: true, presenceDotColor: '#123456' } })),
       now: '2026-09-21T12:00:00.000Z',
     });
-    const answer = await host.handler(withToken((await liveVisitor()).token));
+    const answer = await readBootstrap(bot.public_id);
     expect(answer.status).toBe(200);
     // The dot the visitor's widget draws is the one the owner saved, ringed in that launcher's own colour.
     expect((answer.body as { appearance: ChatbotAppearance }).appearance.launcher)
       .toEqual({ ...APPEARANCE_TEMPLATES.elowen.launcher, presenceDot: true, presenceDotColor: '#123456' });
-  });
-
-  it('answers the widget\'s own built-in look for a chatbot nobody has configured yet', async () => {
-    registerBot(host);
-    const answer = await host.handler(withToken((await liveVisitor()).token));
-    expect(answer.status).toBe(200);
-    expect((answer.body as { appearance: ChatbotAppearance }).appearance).toEqual(DEFAULT_APPEARANCE);
   });
 
   it('refuses a chatbot that is no longer enabled, or whose account has lost its Project', async () => {
@@ -442,72 +417,26 @@ describe('the appearance a visitor\'s widget reads', () => {
     host = createChatbotHost({ projects });
     api = adminApi(host);
     registerBot(host);
-    const { token } = await liveVisitor();
-    expect((await host.handler(withToken(token))).status).toBe(200);
+    expect((await readBootstrap()).status).toBe(200);
 
-    // Disabled while its visitor still holds a live token: the same refusal a message would meet.
     host.store.setBotStatus({ chatbotUserId: 12, status: 'disabled', now: '2026-09-21T12:00:00.000Z' });
-    expect((await host.handler(withToken(token))).status).toBe(404);
+    expect((await readBootstrap()).status).toBe(404);
     host.store.setBotStatus({ chatbotUserId: 12, status: 'enabled', now: '2026-09-21T12:00:01.000Z' });
 
-    // The account invariant is re-checked on every read, exactly as it is before every admitted message.
     projects.length = 0;
-    expect((await host.handler(withToken(token))).status).toBe(503);
-  });
-
-  it('refuses a caller with no token, and one whose token the server no longer honours', async () => {
-    registerBot(host);
-    const { token, visitorId } = await liveVisitor();
-    expect((await host.handler(publicRequest({
-      method: 'GET',
-      path: 'appearance',
-      headers: { origin: CHATBOT_SITE },
-    }))).status).toBe(401);
-    expect((await host.handler(withToken('not-a-token'))).status).toBe(401);
-
-    // A rotation revokes the token it replaced, so a widget holding the old one is refused immediately.
-    host.store.issueToken({
-      jti: 'a-fresh-token',
-      chatbotUserId: 12,
-      visitorId,
-      tokenHash: 'a-hash-that-will-not-match',
-      issuedAt: '2026-09-21T12:00:00.000Z',
-      expiresAt: '2026-09-21T13:00:00.000Z',
-      rotate: true,
-    });
-    expect((await host.handler(withToken(token))).status).toBe(401);
-  });
-
-  it('refuses a site the chatbot does not answer on', async () => {
-    registerBot(host);
-    const { token } = await liveVisitor();
-    const elsewhere = publicRequest({
-      method: 'GET',
-      path: 'appearance',
-      headers: { origin: 'https://www.nekdo-jiny.cz', authorization: `ChatbotVisitor ${token}` },
-    });
-    expect((await host.handler(elsewhere)).status).toBe(403);
+    expect((await readBootstrap()).status).toBe(503);
   });
 
   it('refuses rather than inventing a look when its own row can no longer be read', async () => {
     registerBot(host);
     const bot = host.store.listBots()[0]!;
-    const { token } = await liveVisitor();
     // A row only this plugin writes, corrupted. The bootstrap refuses it; nothing draws a look the customer never chose.
     host.db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?').run('{"schemaVersion":9}', bot.chatbot_user_id);
-    const answer = await host.handler(withToken(token));
-    expect(answer.status).toBe(503);
-    expect((answer.body as { error: string }).error).toBe('appearance_invalid');
-    const bootstrap = await host.handler(postRequest({
-      path: 'bootstrap',
-      headers: { origin: CHATBOT_SITE },
-      body: { schemaVersion: 2, bot: bot.public_id },
-    }));
+    const bootstrap = await readBootstrap(bot.public_id);
     expect(bootstrap).toMatchObject({ status: 503, body: { error: 'appearance_invalid' } });
     expect(bootstrap.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
-    // The grant travels with the refusal: without it a browser reports a CORS failure on the customer's own
-    // page instead of the refusal, which is a console error nobody can act on.
-    expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
+    expect(host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_visitors').get()).toMatchObject({ count: 0 });
+    expect(host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_tokens').get()).toMatchObject({ count: 0 });
     expect(host.warnings.some((warning) => warning.includes('unreadable appearance'))).toBe(true);
   });
 });

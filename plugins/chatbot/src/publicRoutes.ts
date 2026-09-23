@@ -90,8 +90,8 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return reply(503, { error: 'bot_unavailable' });
   };
 
-  /** The bot's own look, or the reason its row cannot be read. The public bootstrap, the document the widget
-   *  draws and the avatar it shows all read it through here, so none can grow its own idea of a stored row. */
+  /** The bot's own look, or the reason its row cannot be read. The bootstrap and avatar reader share this
+   *  resolution so neither can grow its own idea of a stored row. */
   const readAppearance = (bot: BotRow): { ok: true; appearance: ChatbotAppearance } | { ok: false; error: unknown } => {
     try {
       return { ok: true, appearance: resolveAppearance(parseStoredAppearance(bot.appearance)) };
@@ -282,34 +282,6 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return turnReceipt(outcome.turn, origin);
   };
 
-  /** Legacy `GET v2/appearance`: retain the token-gated look read for cached widgets and external consumers.
-   *
-   *  The current widget uses the read-only `POST v2/bootstrap` instead. This route is NOT a secret and is not
-   *  state, but it stays behind the visitor's token because answering a bare public id would map enabled
-   *  chatbots to anyone who guessed one. A missing, disabled or blocked chatbot is refused exactly as before. */
-  const handleAppearance = (req: ChatbotHookRequest, origin: string): Reply => {
-    const admitted = presentedToken(req);
-    if ('status' in admitted) return admitted;
-    const allowed = checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id));
-    if (!allowed.ok) return reply(403, { error: 'origin_not_allowed' });
-    const blocked = blockedReply(admitted.bot);
-    if (blocked) return blocked;
-
-    // A row this plugin wrote and can no longer read is a fact about the deployment, not something to paper
-    // over with a look the customer never chose. The refusal is logged and the widget stays unattached. The
-    // grant travels with the refusal like every other answer a widget can trigger: a cross-origin reply without
-    // it is unreadable in a browser, so this one would surface as a CORS error on the customer's page.
-    const stored = readAppearance(admitted.bot);
-    if (!stored.ok) {
-      warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${stored.error instanceof Error ? stored.error.message : String(stored.error)}`);
-      return reply(503, { error: 'appearance_invalid' }, corsHeaders(origin));
-    }
-    return reply(200, {
-      schemaVersion: PUBLIC_SCHEMA_VERSION,
-      name: admitted.bot.display_name,
-      appearance: stored.appearance,
-    }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
-  };
 
   /** `GET v2/avatar`: this chatbot's avatar as BYTES, over the connection the widget's page already allows.
    *
@@ -594,7 +566,6 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (req.method === 'POST' && path === PUBLIC_PATHS.visitors) return handleTokenIssuance(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.refresh) return handleRefresh(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.turns) return handleTurn(req, origin, requestOrigin);
-    if (req.method === 'GET' && path === PUBLIC_PATHS.appearance) return handleAppearance(req, origin);
     if (req.method === 'GET' && path === PUBLIC_PATHS.avatar) return handleAvatar(req, origin);
     if (req.method === 'GET' && path === PUBLIC_PATHS.conversation) return handleConversation(req, origin);
     if (req.method === 'GET' && segments.length === 3
