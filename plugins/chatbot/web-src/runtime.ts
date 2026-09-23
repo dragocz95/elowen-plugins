@@ -453,6 +453,8 @@ export const chatbotApi = {
   bots: (): string => '/plugins/chatbot/api/bots',
   conversations: (input: { chatbotUserId: number; limit: number; offset: number }): string =>
     `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
+  eraseConversations: (chatbotUserId: number): string =>
+    `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
     `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports

@@ -762,6 +762,67 @@ describe('the conversations section', () => {
     expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
   });
 
+  it('confirms the selected chatbot and erases every batch before resetting to the empty first page', async () => {
+    let total = 27;
+    const readOffsets: number[] = [];
+    const deleted: number[] = [];
+    use(
+      http.get('/api/plugins/chatbot/api/conversations', ({ url }) => {
+        readOffsets.push(Number(url.searchParams.get('offset')));
+        return HttpResponse.json({ conversations: total ? [conversationOf('visitor-skola', 1)] : [], total,
+          limit: 25, offset: Number(url.searchParams.get('offset')) });
+      }),
+      http.delete('/api/plugins/chatbot/api/conversations', ({ url }) => {
+        deleted.push(Number(url.searchParams.get('chatbotUserId')));
+        const count = Math.min(total, 25);
+        total -= count;
+        return HttpResponse.json({ deleted: count, kept: 0, remaining: total });
+      }),
+    );
+    await openConversations();
+    fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
+    await screen.findByText('visitor-skola');
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(readOffsets.at(-1)).toBe(25));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all conversations' }));
+    expect(within(top()).getByText(/27 conversations of Gymnázium/)).toBeInTheDocument();
+    expect(deleted).toEqual([]);
+    fireEvent.click(within(top()).getByRole('button', { name: 'Cancel' }));
+    expect(deleted).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all conversations' }));
+    fireEvent.click(within(top()).getByRole('button', { name: 'Delete conversations' }));
+    await waitFor(() => expect(deleted).toEqual([second.chatbotUserId, second.chatbotUserId]));
+    expect(await screen.findByText(strings.conversationsEmptyTitle!)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete all conversations' })).toBeDisabled();
+    expect(readOffsets.at(-1)).toBe(0);
+    expect(screen.getByRole('status')).toHaveTextContent('27 conversations deleted');
+  });
+
+  it('reports conversations kept during an answer and stops when no deletion is possible', async () => {
+    const deleted: number[] = [];
+    use(http.delete('/api/plugins/chatbot/api/conversations', ({ url }) => {
+      deleted.push(Number(url.searchParams.get('chatbotUserId')));
+      return HttpResponse.json({ deleted: 0, kept: 1, remaining: 1 });
+    }));
+    await openConversations();
+    await screen.findByText('visitor-ured');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all conversations' }));
+    fireEvent.click(within(top()).getByRole('button', { name: 'Delete conversations' }));
+    await waitFor(() => expect(deleted).toEqual([bot.chatbotUserId]));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Kept while an answer is in progress: 1'));
+    expect(screen.getByText('visitor-ured')).toBeInTheDocument();
+  });
+
+  it('reports a failed erase without claiming success or clearing the register', async () => {
+    use(http.delete('/api/plugins/chatbot/api/conversations', () => HttpResponse.json({ detail: 'Erase failed' }, { status: 500 })));
+    await openConversations();
+    await screen.findByText('visitor-ured');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all conversations' }));
+    fireEvent.click(within(top()).getByRole('button', { name: 'Delete conversations' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('api 500');
+    expect(screen.getByText('visitor-ured')).toBeInTheDocument();
+  });
+
   it('opens the stored core session in a new host chat window without a transcript drawer', async () => {
     await openConversations();
     fireEvent.click(await screen.findByRole('button', { name: strings.openConversation!.replace('{visitor}', 'visitor-ured') }));
@@ -782,6 +843,7 @@ describe('the conversations section', () => {
     await openConversations();
     expect(await screen.findByText(strings.conversationsLoadError!, { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.conversationsEraseAction! })).toBeDisabled();
   });
 
   it('says there is nothing to read when no chatbot is registered', async () => {
@@ -837,15 +899,11 @@ describe('the statistics section', () => {
     await waitFor(() => expect(screen.getAllByText(strings.chartTurns!).length).toBeGreaterThan(0));
     expect(screen.getAllByText(strings.chartErrors!).length).toBeGreaterThan(0);
     const figures = screen.getAllByRole('figure');
-    expect(figures).toHaveLength(2);
-    const spendLegend = figures[0]!.querySelector('figcaption')!;
-    expect(spendLegend.textContent).toContain(strings.chartTurns);
-    expect(spendLegend.textContent).toContain(strings.spendTitle);
-    expect(spendLegend.textContent).not.toContain(strings.chartErrors);
-    const dailyLegend = figures[1]!.querySelector('figcaption')!;
-    expect(dailyLegend.textContent).toContain(strings.chartTurns);
-    expect(dailyLegend.textContent).toContain(strings.statsColumnDone);
-    expect(dailyLegend.textContent).toContain(strings.chartErrors);
+    expect(figures).toHaveLength(1);
+    const legend = figures[0]!.querySelector('figcaption')!;
+    expect(legend.textContent).toBe(`${strings.chartTurns}${strings.statsColumnDone}${strings.chartErrors}${strings.spendTitle}`);
+    expect(legend.querySelectorAll('span.inline-flex')).toHaveLength(4);
+    expect(within(figures[0]!).getAllByText(new RegExp(`${strings.chartTurns} 9, ${strings.statsColumnDone} 8, ${strings.chartErrors} 1, ${strings.spendTitle} \\$12\\.50`)).length).toBeGreaterThan(0);
     expect(asked.stats).toEqual([bot.chatbotUserId]);
 
     // The spend is ONE line, from the instance's rollup for this account, over the same window.
@@ -870,7 +928,7 @@ describe('the statistics section', () => {
     expect(await screen.findByText(strings.spendEmptyTitle!)).toBeInTheDocument();
   });
 
-  it('renders zero-valued days in the daily chart', async () => {
+  it('renders zero-valued days in the merged chart', async () => {
     use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => HttpResponse.json({
       chatbotUserId: Number(url.searchParams.get('chatbotUserId')),
       from: url.searchParams.get('from'),
@@ -881,9 +939,9 @@ describe('the statistics section', () => {
       queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
     })));
     await openStats();
-    expect(await screen.findByText(strings.dailyChartTitle!)).toBeInTheDocument();
-    const dailyChart = screen.getAllByRole('figure')[1]!;
-    expect(within(dailyChart).getAllByText(new RegExp(`${strings.chartTurns} 0, ${strings.statsColumnDone} 0, ${strings.chartErrors} 0`)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(strings.chartTitle!)).toBeInTheDocument();
+    const chart = screen.getByRole('figure');
+    expect(within(chart).getAllByText(new RegExp(`${strings.chartTurns} 0, ${strings.statsColumnDone} 0, ${strings.chartErrors} 0, ${strings.spendTitle} —`)).length).toBeGreaterThan(0);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

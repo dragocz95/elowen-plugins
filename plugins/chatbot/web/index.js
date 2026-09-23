@@ -64,6 +64,7 @@ function jsonRequest(method, body) {
 var chatbotApi = {
   bots: () => "/plugins/chatbot/api/bots",
   conversations: (input) => `/plugins/chatbot/api/conversations?chatbotUserId=${input.chatbotUserId}&limit=${input.limit}&offset=${input.offset}`,
+  eraseConversations: (chatbotUserId) => `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
   /** The account's effective tool access, read from the host's own users panel route: the plugin reports
    *  what the account can reach rather than keeping an opinion of its own about it. */
@@ -21245,7 +21246,7 @@ var import_react10 = __toESM(require_react(), 1);
 
 // plugins/chatbot/web-src/BotPicker.tsx
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
-function BotPicker({ bots, value, onChange, label }) {
+function BotPicker({ bots, value, onChange, label, disabled }) {
   const { components: C, hooks } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
@@ -21253,6 +21254,7 @@ function BotPicker({ bots, value, onChange, label }) {
     {
       label,
       variant: "line",
+      disabled,
       value: String(value),
       onChange: (next) => onChange(Number(next)),
       options: bots.map((bot) => ({ value: String(bot.chatbotUserId), label: bot.displayName || s.botFallback }))
@@ -21270,6 +21272,7 @@ function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const { locale } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const register = useChatbots();
   const bots = register.bots;
   const heading = { title: s.sectionConversations, description: s.sectionConversationsHint, icon: MessagesSquare };
@@ -21277,6 +21280,9 @@ function ConversationsSection() {
   const [answer, setAnswer] = (0, import_react10.useState)(null);
   const [loadError, setLoadError] = (0, import_react10.useState)(null);
   const [page, setPage] = (0, import_react10.useState)(0);
+  const [confirming, setConfirming] = (0, import_react10.useState)(false);
+  const [deleting, setDeleting] = (0, import_react10.useState)(false);
+  const [eraseError, setEraseError] = (0, import_react10.useState)(null);
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
   const load = (0, import_react10.useCallback)(() => {
@@ -21286,11 +21292,39 @@ function ConversationsSection() {
   }, [chatbotUserId, page, s.conversationsLoadError, utils]);
   (0, import_react10.useEffect)(() => {
     setAnswer(null);
+    setEraseError(null);
     setPage(0);
   }, [chatbotUserId]);
   (0, import_react10.useEffect)(() => {
     load();
   }, [load]);
+  const erase = async () => {
+    if (chatbotUserId === null || deleting || answer === null || answer.total === 0) return;
+    setDeleting(true);
+    setEraseError(null);
+    let deleted = 0;
+    try {
+      let remaining;
+      do {
+        const result = await apiJson(
+          chatbotApi.eraseConversations(chatbotUserId),
+          { method: "DELETE" }
+        );
+        deleted += result.deleted;
+        remaining = result.remaining;
+        if (result.deleted === 0) break;
+      } while (remaining > 0);
+      toast(remaining > 0 ? s.conversationsEraseKept.replace("{deleted}", integer(deleted, locale)).replace("{kept}", integer(remaining, locale)) : s.conversationsEraseDone.replace("{deleted}", integer(deleted, locale)));
+    } catch (reason) {
+      setEraseError(utils.apiErrorMessage(reason) || s.conversationsEraseError);
+    } finally {
+      setConfirming(false);
+      setDeleting(false);
+      setAnswer(null);
+      setPage(0);
+      if (page === 0) load();
+    }
+  };
   const statusTone = (status) => status === "done" ? "success" : status === "error" ? "danger" : "warning";
   const statusLabel = (status) => s[`turnStatus_${status}`] ?? status;
   if (register.loadError !== null) {
@@ -21334,7 +21368,43 @@ function ConversationsSection() {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.Pager, { page, pageSize: PAGE_SIZE, total: answer.total, onPageChange: setPage, ariaLabel: s.conversationsTab })
   ] });
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }), children: body });
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.SettingsGroup, { ...heading, actions: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel, disabled: confirming || deleting }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+        C.IconButton,
+        {
+          icon: Trash2,
+          variant: "danger",
+          label: s.conversationsEraseAction,
+          disabled: answer === null || answer.total === 0 || loadError !== null || deleting || confirming,
+          onClick: () => {
+            setEraseError(null);
+            setConfirming(true);
+          }
+        }
+      )
+    ] }), children: [
+      eraseError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: eraseError }) : null,
+      deleting ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingLine, { label: s.conversationsErasing, layout: "inline" }) : null,
+      body
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      C.ConfirmDialog,
+      {
+        open: confirming,
+        title: s.conversationsEraseTitle,
+        description: s.conversationsEraseDescription.replace("{bot}", bot.displayName || s.botFallback).replace("{count}", integer(answer?.total ?? 0, locale)),
+        confirmLabel: s.conversationsEraseConfirm,
+        confirmVariant: "danger",
+        pending: deleting,
+        onConfirm: () => void erase(),
+        onClose: () => {
+          if (!deleting) setConfirming(false);
+        }
+      }
+    )
+  ] });
 }
 
 // plugins/chatbot/web-src/StatsView.tsx
@@ -21425,12 +21495,9 @@ function StatsSection() {
   const unknownCost = points.some((point) => point.cost === null);
   const series = [
     { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "line", axis: "left", format: (value) => integer(value, locale) },
-    { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => money(value, locale) }
-  ];
-  const dailySeries = [
-    { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "line", axis: "left", format: (value) => integer(value, locale) },
     { key: "done", label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: "line", axis: "left", format: (value) => integer(value, locale) },
-    { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) }
+    { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) },
+    { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => money(value, locale) }
   ];
   const rangeLabels = {
     today: t.common.rangeToday,
@@ -21467,8 +21534,7 @@ function StatsSection() {
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.PageFilters, { fields: filters }),
           loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: `${s.statsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.TimeSeriesChart, { data: chartData, series, height: 240, ariaLabel: s.chartTitle, emptyText: s.chartEmpty }),
-            unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "text-xs text-muted-foreground", children: s.costUnknownHint }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.TimeSeriesChart, { data: chartData, series: dailySeries, height: 240, ariaLabel: s.dailyChartTitle, emptyText: s.chartEmpty })
+            unknownCost ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: "text-xs text-muted-foreground", children: s.costUnknownHint }) : null
           ] })
         ] })
       }

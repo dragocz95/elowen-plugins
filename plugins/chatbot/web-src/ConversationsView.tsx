@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MessagesSquare } from 'lucide-react';
+import { MessagesSquare, Trash2 } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
@@ -24,6 +24,7 @@ export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
+  const { toast } = hooks.useToast();
   const register = useChatbots();
   const bots = register.bots;
   // The section's own heading, worn by whichever card its state renders: the reader is told what this is
@@ -34,6 +35,9 @@ export function ConversationsSection() {
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [eraseError, setEraseError] = useState<string | null>(null);
 
   // The first chatbot until the reader picks another, and back to a real one if the picked chatbot left
   // the register.
@@ -52,10 +56,40 @@ export function ConversationsSection() {
   // while the new read is in flight.
   useEffect(() => {
     setAnswer(null);
+    setEraseError(null);
     setPage(0);
   }, [chatbotUserId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const erase = async () => {
+    if (chatbotUserId === null || deleting || answer === null || answer.total === 0) return;
+    setDeleting(true);
+    setEraseError(null);
+    let deleted = 0;
+    try {
+      let remaining: number;
+      do {
+        const result = await apiJson<{ deleted: number; kept: number; remaining: number }>(
+          chatbotApi.eraseConversations(chatbotUserId), { method: 'DELETE' },
+        );
+        deleted += result.deleted;
+        remaining = result.remaining;
+        if (result.deleted === 0) break;
+      } while (remaining > 0);
+      toast(remaining > 0
+        ? s.conversationsEraseKept.replace('{deleted}', integer(deleted, locale)).replace('{kept}', integer(remaining, locale))
+        : s.conversationsEraseDone.replace('{deleted}', integer(deleted, locale)));
+    } catch (reason) {
+      setEraseError(utils.apiErrorMessage(reason) || s.conversationsEraseError);
+    } finally {
+      setConfirming(false);
+      setDeleting(false);
+      setAnswer(null);
+      setPage(0);
+      if (page === 0) load();
+    }
+  };
 
   const statusTone = (status: string): 'success' | 'danger' | 'warning' | undefined =>
     status === 'done' ? 'success' : status === 'error' ? 'danger' : 'warning';
@@ -114,8 +148,31 @@ export function ConversationsSection() {
         );
 
   return (
-    <C.SettingsGroup {...heading} actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}>
-      {body}
-    </C.SettingsGroup>
+    <>
+      <C.SettingsGroup {...heading} actions={(
+        <>
+          <BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} disabled={confirming || deleting} />
+          <C.IconButton icon={Trash2} variant="danger" label={s.conversationsEraseAction}
+            disabled={answer === null || answer.total === 0 || loadError !== null || deleting || confirming}
+            onClick={() => { setEraseError(null); setConfirming(true); }} />
+        </>
+      )}>
+        {eraseError !== null ? <p className="text-xs text-destructive" role="alert">{eraseError}</p> : null}
+        {deleting ? <C.LoadingLine label={s.conversationsErasing} layout="inline" /> : null}
+        {body}
+      </C.SettingsGroup>
+      <C.ConfirmDialog
+        open={confirming}
+        title={s.conversationsEraseTitle}
+        description={s.conversationsEraseDescription
+          .replace('{bot}', bot.displayName || s.botFallback)
+          .replace('{count}', integer(answer?.total ?? 0, locale))}
+        confirmLabel={s.conversationsEraseConfirm}
+        confirmVariant="danger"
+        pending={deleting}
+        onConfirm={() => void erase()}
+        onClose={() => { if (!deleting) setConfirming(false); }}
+      />
+    </>
   );
 }

@@ -118,12 +118,9 @@ export function StatsSection() {
   const unknownCost = points.some((point) => point.cost === null);
   const series = [
     { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
-    { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
-  ];
-  const dailySeries = [
-    { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'done', label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
+    { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
   ];
 
   const rangeLabels: Record<DateRange['preset'], string> = {
@@ -175,7 +172,6 @@ export function StatsSection() {
               <>
                 <C.TimeSeriesChart data={chartData} series={series} height={240} ariaLabel={s.chartTitle} emptyText={s.chartEmpty} />
                 {unknownCost ? <p className="text-xs text-muted-foreground">{s.costUnknownHint}</p> : null}
-                <C.TimeSeriesChart data={chartData} series={dailySeries} height={240} ariaLabel={s.dailyChartTitle} emptyText={s.chartEmpty} />
               </>
             )}
         </div>
