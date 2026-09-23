@@ -1348,7 +1348,7 @@ describe('browser plugin UI', () => {
       // The answer was "no picture right now", which is the placeholder's other cause and not an error:
       // the panel stays whole rather than dropping to the error state.
       expect(screen.getByRole('img', { name: `${strings.previewPending}: session-alph` })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     } finally {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     }
@@ -1451,7 +1451,7 @@ describe('browser plugin UI', () => {
     const Wrapper = wrapper();
     const view = render(<Wrapper><ToastProvider><BrowserAccount plugin="browser" params={{}} rest={[]} surface="deck" /></ToastProvider></Wrapper>);
 
-    expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
     // Nothing of the surface is drawn over a failed read, so no figure is shown as if it were real.
     expect(view.container.querySelectorAll('[data-settings-group]')).toHaveLength(0);
   });

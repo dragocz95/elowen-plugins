@@ -193,7 +193,7 @@ describe('custom domains in Site detail', () => {
 
     mount(site, domainResponse(), () => HttpResponse.json({ error: 'failed' }, { status: 500 }));
     expect(await screen.findByText('The domain addresses could not be loaded.')).toBeVisible();
-    expect(screen.getByRole('button', { name: /retry/i })).toBeVisible();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeVisible();
   });
 
   it('does not fetch or disclose manager domain data to a non-manager', async () => {

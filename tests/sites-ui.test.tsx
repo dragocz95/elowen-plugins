@@ -468,7 +468,7 @@ describe('the Sites workspace', () => {
     // never swallowed into a silent no-op.
     const refusals = await screen.findAllByText(/a picture of this site was taken a moment ago/);
     expect(refusals[0]).toBeVisible();
-    expect(screen.getByRole('button', { name: /retry/i })).toBeVisible();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeVisible();
   });
 
   it('explains why there is no picture, to the manager who could fix it', async () => {
