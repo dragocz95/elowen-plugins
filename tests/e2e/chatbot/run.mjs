@@ -18,7 +18,8 @@
 //
 // What the scenario asserts:
 //
-//   1. nothing at all is sent before the visitor writes, and an explicit snapshot action returns page structure;
+//   1. page load only reads the chatbot's look through bootstrap, without sending page data or creating a
+//      visitor/token/turn; an explicit snapshot action returns page structure;
 //   2. the answer streams into the panel as it arrives and ends with the whole of it;
 //   3. a stream cut mid-answer is resumed from the last frame the visitor saw, with no doubled text;
 //   4. read, fill, select, click and scroll all reach the page, each approved by the tool first;
@@ -51,6 +52,7 @@ import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { ChatbotAdapter } from '../../../plugins/chatbot/dist/adapter.js';
 import { selectAppearanceTemplate } from '../../../plugins/chatbot/dist/appearanceContract.js';
+import { PUBLIC_SCHEMA_VERSION } from '../../../plugins/chatbot/dist/publicContract.js';
 import { PageActionService } from '../../../plugins/chatbot/dist/actionService.js';
 import { createAdminApi } from '../../../plugins/chatbot/dist/adminApi.js';
 import { registerPageActionTool } from '../../../plugins/chatbot/dist/actionsTool.js';
@@ -67,6 +69,7 @@ const PUBLIC_ID = 'cbt_0123456789abcdef01234567';
 const CHATBOT_ACCOUNT = 12;
 const PROJECT_ID = 4;
 const WIDGET_PATH = '/hooks/chatbot/v2/widget.js';
+const BOOTSTRAP_PATH = '/hooks/chatbot/v2/bootstrap';
 const MOUNT_PREFIX = '/hooks/chatbot/v2/';
 const PAGE_CONTEXT_LABEL = 'Untrusted page address and title:\n';
 const VISITOR_MESSAGE_LABEL = 'Visitor message:\n';
@@ -137,16 +140,14 @@ const site = { submissions: [], requests: [] };
 /** Everything this scenario observed about the conversation, for the assertions and for the failure dump. */
 const hook = {
   requests: [],
+  allRequests: [],
   eventsRequests: [],
   cuts: 0,
   cutNextStream: false,
   /** Ends the stream that is open right now, as a lost connection would. Set while one is being piped. */
   cutOpenStream: null,
-  /** How long the read that carries the look is held back. A real deployment answers it in a round trip, and
-   *  a visitor reaches the panel and starts typing well inside that window: the delay makes that race the
-   *  normal case here instead of a coin toss, because what the panel does with their half-written message
-   *  when the look lands is the whole of the first flow. */
-  slowAppearanceMs: 400,
+  /** Hold bootstrap briefly so the page can finish loading before its first-painted launcher attaches. */
+  slowBootstrapMs: 400,
   /** What happened, in the order it happened: the ordering of a cut against an action is the whole point of
    *  the last flow, and two booleans cannot express it. */
   sequence: [],
@@ -164,6 +165,11 @@ const hook = {
 const db = makePluginDb(openDb(':memory:'), 'chatbot', { canMigrate: true });
 migrate(db);
 const store = new ChatbotStore(db);
+const visitorRows = () => ({
+  visitors: db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_visitors').get().count,
+  tokens: db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_tokens').get().count,
+  turns: db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_turns').get().count,
+});
 const accounts = [{ id: CHATBOT_ACCOUNT, username: 'ured-bot', name: 'Městský úřad', avatar: '', isAdmin: false, type: 'chatbot' }];
 const projects = [{ id: PROJECT_ID, slug: 'ured', path: '/ured', executionKind: 'managed', lifecycle: 'active' }];
 const stores = {
@@ -276,8 +282,10 @@ async function readBody(request) {
 async function hookHandler(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const origin = request.headers.origin;
-  hook.requests.push({ method: request.method, path: url.pathname + url.search, origin });
-  if (hook.slowAppearanceMs > 0 && url.pathname.endsWith('/appearance')) await sleep(hook.slowAppearanceMs);
+  const observed = { method: request.method, path: url.pathname + url.search, origin, hasAuthorization: Boolean(request.headers.authorization) };
+  hook.requests.push(observed);
+  hook.allRequests.push(observed);
+  if (hook.slowBootstrapMs > 0 && url.pathname === BOOTSTRAP_PATH) await sleep(hook.slowBootstrapMs);
 
   // The daemon answers a preflight with its permissive CORS middleware before any plugin handler runs. This
   // stand-in does the same, and nothing more: what ADMITS a request is the plugin's own decision.
@@ -293,6 +301,7 @@ async function hookHandler(request, response) {
   }
 
   const raw = await readBody(request);
+  if (url.pathname === BOOTSTRAP_PATH) observed.body = raw.toString('utf8');
   if (url.pathname.endsWith('/events')) {
     const after = Number(url.searchParams.get('after') ?? '0');
     hook.eventsRequests.push(after);
@@ -311,6 +320,7 @@ async function hookHandler(request, response) {
     json: async () => JSON.parse(raw.toString('utf8')),
     body: async () => raw,
   });
+  if (url.pathname === BOOTSTRAP_PATH) observed.status = reply.status;
   return writeReply(response, reply);
 }
 
@@ -509,6 +519,35 @@ const pass = (description) => {
   console.log(`  ok  ${description}`);
 };
 
+/** The script may load, but no conversation request or page data may leave before a message. */
+const assertBootstrapOnly = (requests) => {
+  assert(requests.filter((entry) => entry.path === WIDGET_PATH).every((entry) => entry.method === 'GET'),
+    `the widget asset received a non-GET request: ${JSON.stringify(requests)}`);
+  const reads = requests.filter((entry) => entry.path !== WIDGET_PATH);
+  const bootstraps = reads.filter((entry) => entry.method === 'POST' && entry.path === BOOTSTRAP_PATH);
+  const preflights = reads.filter((entry) => entry.method === 'OPTIONS' && entry.path === BOOTSTRAP_PATH);
+  assert(bootstraps.length === 1 && preflights.length <= 1 && reads.length === bootstraps.length + preflights.length,
+    `an untouched widget made a request other than bootstrap: ${JSON.stringify(requests)}`);
+  assert(reads.every((entry) => entry.origin === siteOrigin && !entry.hasAuthorization),
+    `bootstrap sent a credential or used a different origin: ${JSON.stringify(reads)}`);
+  assert(bootstraps[0].status === 200, `bootstrap did not return a look: ${JSON.stringify(bootstraps[0])}`);
+  const body = JSON.parse(bootstraps[0].body);
+  assert(body !== null && typeof body === 'object' && !Array.isArray(body)
+    && Object.keys(body).sort().join(',') === 'bot,schemaVersion'
+    && body.schemaVersion === PUBLIC_SCHEMA_VERSION && body.bot === PUBLIC_ID,
+    `bootstrap carried page data instead of only the chatbot id: ${bootstraps[0].body}`);
+};
+
+const assertNoNewVisitorState = async (before) => {
+  const after = visitorRows();
+  assert(JSON.stringify(after) === JSON.stringify(before), `bootstrap created visitor state: ${JSON.stringify({ before, after })}`);
+  const storage = await page.evaluate((publicId) => ({
+    entries: sessionStorage.length,
+    hasToken: sessionStorage.getItem(`elowen.chatbot.${publicId}.token`) !== null,
+  }), PUBLIC_ID);
+  assert(storage.entries === 0 && !storage.hasToken, `bootstrap stored a visitor credential: ${JSON.stringify(storage)}`);
+};
+
 const { server: hookServer, port: hookPort } = await listen(hookHandler);
 hookOrigin = `http://127.0.0.1:${hookPort}`;
 const { server: siteServer, port: sitePort } = await listen(siteHandler);
@@ -543,15 +582,18 @@ try {
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   });
+  const observePage = (tab) => {
+    tab.on('console', (message) => { allConsole.push(`${message.type()}: ${message.text()}`); if (message.type() === 'error') consoleErrors.push(message.text()); });
+    tab.on('pageerror', (error) => consoleErrors.push(String(error)));
+    tab.on('request', (request) => {
+      const url = request.url();
+      if (!url.startsWith('http')) return;
+      if (url.startsWith(siteOrigin) || url.startsWith(hookOrigin)) return;
+      external.push(url);
+    });
+  };
   page = await browser.newPage();
-  page.on('console', (message) => { allConsole.push(`${message.type()}: ${message.text()}`); if (message.type() === 'error') consoleErrors.push(message.text()); });
-  page.on('pageerror', (error) => consoleErrors.push(String(error)));
-  page.on('request', (request) => {
-    const url = request.url();
-    if (!url.startsWith('http')) return;
-    if (url.startsWith(siteOrigin) || url.startsWith(hookOrigin)) return;
-    external.push(url);
-  });
+  observePage(page);
 
   /** What the panel currently shows. One evaluate per read, reading through the OPEN shadow root exactly as
    *  the site's own script would. */
@@ -579,6 +621,9 @@ try {
     return state;
   };
 
+  const emptyVisitorRows = visitorRows();
+  assert(JSON.stringify(emptyVisitorRows) === JSON.stringify({ visitors: 0, tokens: 0, turns: 0 }),
+    `the scenario started with visitor state: ${JSON.stringify(emptyVisitorRows)}`);
   await page.goto(FORM_URL, { waitUntil: 'load' });
   await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
   // The visitor fills in their OWN form before opening the chat, so the description that travels with their
@@ -588,16 +633,23 @@ try {
   await page.type('#karta', SECRET_CARD);
   await sleep(400);
 
-  const beforeWriting = hook.requests.filter((entry) => entry.path !== WIDGET_PATH);
-  assert(beforeWriting.length === 0, `the widget called the hook before the visitor wrote: ${JSON.stringify(beforeWriting)}`);
-  pass('nothing is sent to the hook before the visitor writes');
+  await poll('the initial bootstrap to finish', () => hook.requests.find((entry) => entry.path === BOOTSTRAP_PATH && entry.status === 200));
+  await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]') !== null, { timeout: 10_000 });
+  assertBootstrapOnly(hook.requests);
+  await assertNoNewVisitorState(emptyVisitorRows);
+  assert((await panel()).mounted, 'the successful bootstrap did not attach the first-painted launcher');
+  pass('before a message, only bootstrap reads the look, with no page data or visitor state');
 
   // ── flow 1: the first message carries a bounded description of the page ───────────────────────────────
   const launcher = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher'));
   await launcher.asElement().click();
   assert((await panel()).open, 'the panel did not open on a click of the launcher');
+  await page.waitForFunction(() => Boolean(document.querySelector('[data-elowen-chatbot]')?.shadowRoot.querySelector('deep-chat')?.shadowRoot?.querySelector('#text-input')),
+    { timeout: 10_000 });
   await page.evaluate(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').focusInput());
   await page.keyboard.type(VISITOR_TEXT);
+  const typed = await page.evaluate(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('#text-input').textContent);
+  assert(typed === VISITOR_TEXT, `the visitor's text was lost before submission: ${JSON.stringify(typed)}`);
   hook.cutNextStream = true;
   await page.keyboard.press('Enter');
 
@@ -763,7 +815,7 @@ try {
   for (const [width, height, mobile] of [[320, 844, true], [1440, 900, false]]) {
     await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile });
     await page.goto(FORM_URL, { waitUntil: 'load' });
-    await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
+    await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]') !== null, { timeout: 10_000 });
     const launcherAt = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher'));
     await launcherAt.asElement().click();
     const geometry = await page.evaluate(() => {
@@ -808,18 +860,15 @@ try {
   assert(saved.status === 200, `the appearance save was refused: ${JSON.stringify(saved)}`);
   pass('an administrator\'s save of the look and the chatbot\'s name is accepted by the real route');
 
-  /** One load of the customer's page by a visitor who has never been here: no stored conversation, so the
-   *  panel opens on its greeting. Landing first and clearing afterwards matters: a viewport change can make
-   *  the browser load the page again by itself, and a load that happens while the old token is still in
-   *  storage is a RETURNING visit — the widget would read the conversation before this chapter starts
-   *  looking. The reload below is the load under observation, and what the run has seen of requests is
-   *  cleared immediately before it. */
+  /** A fresh browser tab has no previous visitor credential. Its only page load is the one observed:
+   *  bootstrap paints the configured launcher before anything is attached or a conversation is read. */
   const freshVisit = async (width, height, mobile) => {
+    await page.close();
+    page = await browser.newPage();
+    observePage(page);
     await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile });
-    await page.goto(FORM_URL, { waitUntil: 'load' });
-    await page.evaluate(() => window.sessionStorage.clear());
     hook.requests.length = 0;
-    await page.reload({ waitUntil: 'load' });
+    await page.goto(FORM_URL, { waitUntil: 'load' });
     await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
   };
 
@@ -862,21 +911,24 @@ try {
     const root = document.querySelector('[data-elowen-chatbot]').shadowRoot;
     return getComputedStyle(root.querySelector('.launcher')).backgroundColor;
   });
-  const lookReads = () => hook.requests.filter((entry) => entry.path.endsWith('/appearance'));
+  const bootstrapReads = () => hook.requests.filter((entry) => entry.method === 'POST' && entry.path === BOOTSTRAP_PATH);
 
-  // A page whose panel nobody has opened costs exactly one request — the script — and the look is asked for
-  // when the visitor OPENS the panel, which is the click that lets the widget speak at all. A visitor nobody
-  // has seen yet is drawn in the widget's own colour until that answer lands, and repainted with theirs when
-  // it does.
+  // A fresh visitor gets the owner's colours before the launcher first appears, without a visitor token.
+  const beforeFresh = visitorRows();
   await freshVisit(320, 844, true);
-  const untouched = hook.requests.filter((entry) => entry.path !== WIDGET_PATH);
-  assert(untouched.length === 0, `an untouched panel already asked the hook for something: ${JSON.stringify(untouched)}`);
-  assert(await launcherColour() === 'rgb(255, 106, 77)', `a launcher nobody has configured yet was painted ${await launcherColour()}`);
+  await poll('the fresh bootstrap to finish', () => bootstrapReads().length === 1 && bootstrapReads()[0].status === 200);
+  await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]') !== null, { timeout: 10_000 });
+  assertBootstrapOnly(hook.requests);
+  await assertNoNewVisitorState(beforeFresh);
+  assert(!(await panelLook()).open, 'a fresh visit opened the panel before the visitor did');
+  assert((await panelLook()).title === CONFIGURED_NAME, 'the launcher appeared before the saved name arrived');
+  assert(await launcherColour() === 'rgb(11, 110, 79)', `the launcher flashed an unconfigured colour: ${await launcherColour()}`);
   await openPanel();
-  await poll('the widget to read the configured look', () => lookReads().length === 1);
-  assert(lookReads().length === 1, `the look was read more than once for one open: ${JSON.stringify(hook.requests)}`);
+  assertBootstrapOnly(hook.requests);
+  await assertNoNewVisitorState(beforeFresh);
 
   const mobile = await poll('the panel to be drawn with the configured look', drawnWithTheLook);
+  await page.mouse.move(0, 0);
   assert(await launcherColour() === 'rgb(11, 110, 79)', `the launcher was not repainted in the configured colour: ${await launcherColour()}`);
   assert(mobile.background === 'rgb(16, 24, 32)', `the panel was not painted the configured colour: ${mobile.background}`);
   assert(mobile.radius === '4px', `the panel corners were not the configured radius: ${mobile.radius}`);
@@ -921,15 +973,19 @@ try {
   assert(staged.width === 300 && staged.height === 260, `the panel did not clamp itself to the room it was given: ${JSON.stringify(staged)}`);
   pass('the panel clamps itself to the room it is given, which is how the administrator\'s preview sizes it');
 
-  // A visitor who has been here before: the widget reads the look BEFORE anything is opened, so the launcher
-  // is already theirs and the transcript comes back into a panel drawn with it.
+  // A returning visitor also receives the saved look through bootstrap before the launcher appears;
+  // only their already-held token is used to restore the transcript.
   await page.setViewport({ width: 1440, height: 900, isMobile: false, hasTouch: false });
+  const beforeReturn = visitorRows();
   hook.requests.length = 0;
   await page.reload({ waitUntil: 'load' });
-  await page.waitForFunction(() => window.ElowenChatbot !== undefined, { timeout: 10_000 });
-  await poll('a returning visit to read the look', () => lookReads().length >= 1);
-  assert(lookReads().length === 1, `a returning visit read the look ${lookReads().length} times`);
-  await poll('a returning visit to be drawn with the look before anything is opened', async () => await launcherColour() === 'rgb(11, 110, 79)');
+  await poll('a returning bootstrap to finish', () => bootstrapReads().length === 1 && bootstrapReads()[0].status === 200);
+  await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]') !== null, { timeout: 10_000 });
+  assertBootstrapOnly(hook.requests.filter((entry) => entry.path !== '/hooks/chatbot/v2/conversation'));
+  assert(hook.requests.every((entry) => [WIDGET_PATH, BOOTSTRAP_PATH, '/hooks/chatbot/v2/conversation'].includes(entry.path)),
+    `a returning visit read an unexpected route: ${JSON.stringify(hook.requests)}`);
+  assert(JSON.stringify(visitorRows()) === JSON.stringify(beforeReturn), 'returning bootstrap issued a visitor token or created a turn');
+  assert(await launcherColour() === 'rgb(11, 110, 79)', `a returning launcher flashed an unconfigured colour: ${await launcherColour()}`);
   assert(!(await panelLook()).open, 'the returning visit opened the panel on its own');
   await openPanel();
   const desktop = await poll('the transcript to come back into the configured panel', async () => {
@@ -942,29 +998,28 @@ try {
   assert(desktop.messages.some((message) => message.text === QUICK_TEXT), `the returning visit lost the visitor's own message: ${JSON.stringify(desktop.messages)}`);
   pass('a returning visitor at 1440x900 gets the look before the panel is opened, at its configured 420x560, with the transcript restored into it');
 
-  // A row this plugin wrote and can no longer read is a REFUSAL, not a guess: the visitor keeps the widget's
-  // own panel rather than being shown a look nobody chose.
-  // A refused read is a resource the browser reports as failed, and every deployment's console will say so.
-  // This chapter states exactly that — the one error it adds is the refusal itself — and hands the error
-  // list back the way it found it, so the gate below still means "nothing else went wrong".
+  // An unreadable stored look is a refusal, not permission to flash a default launcher or create a visitor.
+  // The failed bootstrap produces one expected browser error; no panel is attached.
   const errorsBefore = consoleErrors.length;
   db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?')
     .run(JSON.stringify({ ...selectAppearanceTemplate('elowen'), schemaVersion: 9 }), CHATBOT_ACCOUNT);
+  const beforeRefusal = visitorRows();
   await freshVisit(1440, 900, false);
-  await openPanel();
   await poll('the refusal of a look its own row could not produce', () => hook.warnings.some((warning) => warning.includes('unreadable appearance')));
-  const fallback = await poll('the panel to open with the look its own row could not produce', async () => {
-    const state = await panelLook();
-    return state.open ? state : null;
-  });
-  assert(fallback.background !== 'rgb(16, 24, 32)', `a look the server refused was painted anyway: ${fallback.background}`);
-  assert(fallback.title !== CONFIGURED_NAME, `a name from a look the server refused was painted: ${fallback.title}`);
+  await poll('the refused bootstrap response', () => bootstrapReads().length === 1 && bootstrapReads()[0].status === 503);
+  assert(hook.requests.every((entry) => [WIDGET_PATH, BOOTSTRAP_PATH].includes(entry.path)),
+    `the refused look made another public request: ${JSON.stringify(hook.requests)}`);
+  await assertNoNewVisitorState(beforeRefusal);
+  assert(!(await panel()).mounted, 'a refused look attached a default panel or launcher');
+  await poll('the browser to report the refused bootstrap', () => consoleErrors.slice(errorsBefore).some((message) => message.includes('503')));
   const added = consoleErrors.slice(errorsBefore);
   assert(added.length === 1 && added[0].includes('503'), `the refusal put something other than itself in the console: ${JSON.stringify(added)}`);
   consoleErrors.length = errorsBefore;
-  pass('an appearance its own row can no longer produce is refused, and the widget keeps its own panel');
+  pass('an unreadable look is refused at bootstrap without attaching a panel or issuing visitor state');
 
   // ── the gates ─────────────────────────────────────────────────────────────────────────────────────────
+  assert(hook.allRequests.every((entry) => entry.path !== '/hooks/chatbot/v2/appearance'),
+    'the widget read the removed appearance route');
   assert(consoleErrors.length === 0, `the page logged console errors: ${JSON.stringify(consoleErrors)}`);
   assert(external.length === 0, `the widget reached outside the page and the hook: ${JSON.stringify(external)}`);
   pass('no console error, and no request beyond the customer\'s origin and the hook');
