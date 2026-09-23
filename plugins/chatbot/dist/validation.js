@@ -1,8 +1,56 @@
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
+import { OFFER_LIMITS, allowedOfferUrl, readOffer } from './offerContract.js';
+import { checkAllowedOrigin } from './origin.js';
 import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
 import { parseAppearanceSelection } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf } from './limits.js';
 import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, PAGE_FAILURE_DETAILS, PAGE_STATE_MAX_BYTES, PAGE_TEXT_MAX_CHARS, PAGE_URL_MAX_CHARS, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
+const offerText = (maxLength) => Type.String({ minLength: 1, maxLength });
+const offerLabel = offerText(OFFER_LIMITS.label);
+const offerUrl = offerText(OFFER_LIMITS.url);
+const replyAction = Type.Object({ label: offerLabel, reply: offerText(OFFER_LIMITS.reply) }, { additionalProperties: false });
+const linkAction = Type.Object({ label: offerLabel, url: offerUrl }, { additionalProperties: false });
+export const OFFER_SCHEMA = Type.Object({
+    choices: Type.Optional(Type.Array(Type.Object({
+        label: offerLabel, reply: Type.Optional(offerText(OFFER_LIMITS.reply)),
+    }, { additionalProperties: false }), { maxItems: OFFER_LIMITS.choices })),
+    links: Type.Optional(Type.Array(linkAction, { maxItems: OFFER_LIMITS.links })),
+    cards: Type.Optional(Type.Array(Type.Object({
+        title: offerText(OFFER_LIMITS.title),
+        subtitle: Type.Optional(offerText(OFFER_LIMITS.subtitle)),
+        price: Type.Optional(offerText(OFFER_LIMITS.price)),
+        meta: Type.Optional(offerText(OFFER_LIMITS.meta)),
+        imageUrl: Type.Optional(offerUrl),
+        action: Type.Optional(Type.Union([replyAction, linkAction])),
+    }, { additionalProperties: false }), { maxItems: OFFER_LIMITS.cards })),
+}, { additionalProperties: false });
+export function validateOffer(input, origins) {
+    if (!Value.Check(OFFER_SCHEMA, input)) {
+        const issue = Value.Errors(OFFER_SCHEMA, input)[0];
+        return { ok: false, error: `Offer is invalid: ${issue?.message ?? 'invalid value'}.` };
+    }
+    const offer = input;
+    if (!(offer.choices?.length || offer.links?.length || offer.cards?.length)) {
+        return { ok: false, error: 'Offer needs at least one choice, link, or card.' };
+    }
+    for (const [kind, url] of [
+        ...(offer.links ?? []).map((link) => ['link', link.url]),
+        ...(offer.cards ?? []).flatMap((card) => [
+            ...(card.imageUrl ? [['image', card.imageUrl]] : []),
+            ...(card.action && 'url' in card.action ? [['card action', card.action.url]] : []),
+        ]),
+    ]) {
+        if (url === undefined || !allowedOfferUrl(url, origins) || !checkAllowedOrigin(new URL(url).origin, origins).ok) {
+            return { ok: false, error: `Refused ${kind}: URL must be on this chatbot's allowed origins (HTTPS, or allowed HTTP).` };
+        }
+    }
+    const normalized = readOffer(offer, origins);
+    if (!normalized)
+        return { ok: false, error: 'Offer labels and text must not be blank, and all fields must be valid.' };
+    return { ok: true, value: normalized };
+}
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
  *  a cheap pre-check; the byte comparison in `validateTurnSubmission` is the real one. */

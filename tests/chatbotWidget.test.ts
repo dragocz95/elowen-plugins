@@ -33,8 +33,8 @@ vi.mock('deep-chat', () => {
      *  messages. The stub renders the moment it reaches the document, so that is when it calls back. */
     onComponentRender?: (ref: unknown) => void;
     connectedCallback(): void { this.onComponentRender?.(this); }
-    getMessages(): { role?: string; text?: string }[] { return this._messages; }
-    addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
+    getMessages(): { role?: string; text?: string; html?: string }[] { return this._messages; }
+    addMessage(message: { role?: string; text?: string; html?: string }): void { this._messages.push(message); }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     submitUserMessage(content: { text?: string }): void { this._messages.push({ role: 'user', text: content.text }); }
     focusInput(): void { /* no focus in jsdom */ }
@@ -43,7 +43,7 @@ vi.mock('deep-chat', () => {
     get clientHeight(): number { return this.closest('section')?.hidden ? 0 : 400; }
     scrollToBottom(): void { this.scrolledToBottom += 1; }
     scrolledToBottom = 0;
-    private readonly _messages: { role?: string; text?: string }[] = [];
+    private readonly _messages: { role?: string; text?: string; html?: string }[] = [];
   }
   if (!customElements.get('deep-chat')) customElements.define('deep-chat', StubChat);
   return { DeepChat: StubChat };
@@ -94,6 +94,7 @@ interface ViewLog {
   notices: string[];
   errors: string[];
   confirmRequests: string[];
+  offered: { offer: import('../plugins/chatbot/src/offerContract.js').Offer; active: boolean }[];
 }
 
 function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): ViewLog {
@@ -103,6 +104,7 @@ function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): Vi
     notices: [],
     errors: [],
     confirmRequests: [],
+    offered: [],
     view: undefined as unknown as ChatView,
   };
   log.view = {
@@ -113,6 +115,8 @@ function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): Vi
     notice: (text) => { log.notices.push(text); },
     error: (text) => { log.errors.push(text); },
     restore: (messages) => { log.restored.push(...messages); },
+    setAllowedOrigins: () => undefined,
+    showOffer: (offer, active) => { log.offered.push({ offer, active }); },
     confirm: (request) => {
       log.confirmRequests.push(request.title);
       return typeof confirmAnswer === 'function' ? confirmAnswer() : Promise.resolve(confirmAnswer);
@@ -1481,5 +1485,63 @@ describe('the avatar a customer\'s page is not asked to allow', () => {
     pending.resolve(bytes());
     await flush();
     expect(urls.created).toEqual([]);
+  });
+});
+
+describe('offer messages in deep-chat', () => {
+  it('draws escaped card text, keeps old choices disabled and sends a clicked active reply once', () => {
+    const sent: string[] = [];
+    const panel = new ChatPanel({
+      strings,
+      look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: (text) => { sent.push(text); },
+      onStop: () => undefined,
+    });
+    document.body.append(panel.host);
+    panel.setAllowedOrigins(['https://example.test']);
+    panel.restore([
+      { role: 'ai', text: 'Earlier', offer: { choices: [{ label: 'Old' }] }, offerActive: false },
+      { role: 'ai', text: 'Latest', offer: {
+        choices: [{ label: 'Select', reply: 'Sent reply' }],
+        cards: [{ title: '<b>markup</b>', action: { label: 'Details', url: 'https://example.test/details' } }],
+      }, offerActive: true },
+    ]);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as unknown as {
+      getMessages(): { html?: string; text?: string }[];
+      htmlClassUtilities: Record<string, { events?: { click?: (event: { target: EventTarget | null }) => void } }>;
+    };
+    const messages = chat.getMessages();
+    expect(messages.map(message => message.text ?? 'offer')).toEqual(['Earlier', 'offer', 'Latest', 'offer']);
+    expect(messages[1]!.html).toContain('disabled');
+    expect(messages[3]!.html).toContain('&lt;b&gt;markup&lt;/b&gt;');
+    expect(messages[3]!.html).not.toContain('<b>markup</b>');
+    expect(messages[3]!.html).toContain('data-cb-text="Sent reply"');
+    const button = document.createElement('button');
+    button.setAttribute('data-cb-text', 'Sent reply');
+    chat.htmlClassUtilities['cb-quick-item']!.events!.click!({ target: button });
+    expect(sent).toEqual(['Sent reply']);
+    button.disabled = true;
+    chat.htmlClassUtilities['cb-quick-item']!.events!.click!({ target: button });
+    expect(sent).toEqual(['Sent reply']);
+    panel.destroy();
+  });
+
+  it('keeps only the second live offer frame and renders it after the answer', async () => {
+    const view = makeView();
+    const first = { choices: [{ label: 'First' }] };
+    const last = { choices: [{ label: 'Last', reply: 'Last reply' }] };
+    const harness = makeSession({ view, page: makePage(), responses: ({ method, url }) => {
+      if (url.endsWith('/bootstrap')) return jsonResponse(200, {
+        name: 'Bot', appearance: DEFAULT_APPEARANCE, allowedOrigins: ['https://example.test'],
+      });
+      if (method === 'POST' && url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (method === 'POST' && url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T' });
+      return new Response(streamOf([frame('offer', first, 1), frame('offer', last, 2),
+        frame('done', { text: 'Pick one.' }, 3)]), { status: 200 });
+    } });
+    await harness.session.loadAppearance();
+    await harness.session.send('Choose');
+    expect(view.offered).toEqual([{ offer: last, active: true }]);
+    expect(view.answers.at(-1)).toBe('Pick one.');
   });
 });

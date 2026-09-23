@@ -2,7 +2,7 @@ import { relayEventFields, visitorSource } from './adapter.js';
 import { readBotLimits } from './limits.js';
 /** The public event log a website reads. Only these names ever reach a browser, and every one of them is
  *  built from the fields this plugin chose to keep — never from a raw host event. */
-const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error'];
+const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error', 'offer'];
 /** Stable public error codes. A visitor learns one of these and nothing about the daemon's internals. */
 const PUBLIC_ERROR_CODES = ['turn_failed', 'relay_no_reply', 'server_restarted', 'queue_timeout'];
 /** How many turns one pump pass will close when a chatbot cannot run any at all. A bound, not a policy: the

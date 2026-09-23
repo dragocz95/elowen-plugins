@@ -30,6 +30,8 @@ import {
 import { effectsCss, buttonStyles, chatEffectsCss, gradient, gradientInk } from './effects.js';
 import { playTone, unlockSound } from './sound.js';
 import type { ChatView } from './session.js';
+import { allowedOfferUrl, type Offer } from '../src/offerContract.js';
+import { escapeHtml, offerHtml, offerStyles, disableOffers } from './offer.js';
 import type { WidgetStrings } from './strings.js';
 
 /** How much vertical room the panel leaves for the launcher and for a browser's own chrome. The visitor's
@@ -71,19 +73,6 @@ export interface ChatPanelOptions {
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
 }
 
-/** Text that cannot become markup. The greeting and every quick button come from a configuration, and they
- *  are drawn as the intro message's HTML so the buttons can live inside it; escaping is what keeps that
- *  from being an injection into the customer's own page. */
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[character] ?? character));
-}
-
 /** The greeting, and the quick buttons under it.
  *
  *  The buttons are part of the INTRO message rather than a row of this panel's own, because "under the
@@ -107,18 +96,34 @@ function introHtml(input: { greeting: string; appearance: ChatbotAppearance; str
 function introUtilities(
   appearance: ChatbotAppearance,
   onQuickButton: (text: string) => void,
+  onOfferLink: (url: string) => void,
 ): Record<string, { events?: Record<string, (event: { target: EventTarget | null }) => void>; styles?: Record<string, Record<string, string>> }> {
   const ramp = appearanceRamp(appearance);
   return {
     'cb-quick': {
       styles: { default: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', justifyContent: 'center' } },
     },
+    'cb-offer-link': {
+      events: {
+        click: (event) => {
+          const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-cb-url]') : null;
+          if (button && !button.disabled) onOfferLink(button.getAttribute('data-cb-url') ?? '');
+        },
+      },
+      styles: { default: { textDecoration: 'underline' }, hover: { textDecoration: 'none' }, click: { opacity: '.75' } },
+    },
+    'cb-offer-button': {
+      styles: { default: { maxWidth: '100%' }, hover: { opacity: '.9' }, click: { opacity: '.75' } },
+    },
     'cb-quick-item': {
       events: {
         click: (event) => {
           const target = event.target instanceof Element ? event.target.closest('[data-cb-text]') : null;
           const text = target?.getAttribute('data-cb-text') ?? '';
-          if (text !== '') onQuickButton(text);
+          if (text !== '' && target instanceof HTMLButtonElement && !target.disabled) {
+            disableOffers(target.getRootNode() as ShadowRoot);
+            onQuickButton(text);
+          }
         },
       },
       styles: {
@@ -158,6 +163,7 @@ function chatConfig(input: {
    *  shows, or `null` when the look names no avatar or the panel has nothing to show. */
   avatar: string | null;
   onQuickButton: (text: string) => void;
+  onOfferLink: (url: string) => void;
   onStop: () => void;
 }): Record<string, unknown> {
   const { look, strings } = input;
@@ -279,7 +285,7 @@ function chatConfig(input: {
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
 ${chatEffectsCss(appearance)}
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()}`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
       html: introHtml({
@@ -288,7 +294,7 @@ ${chatEffectsCss(appearance)}
         strings,
       }),
     },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink),
     avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
   };
@@ -466,7 +472,9 @@ export class ChatPanel implements ChatView {
   private scrollPending = false;
   private drawScrollFrame: number | null = null;
   private readonly layoutObserver = new ResizeObserver(() => this.flushScroll());
-  private readonly queued: { role: string; text: string }[] = [];
+  private readonly queued: ({ role: string; text: string } | { role: string; html: string })[] = [];
+  private offerOrigins: string[] = [];
+  private offerActive = false;
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
    *  answer with it, so the redraw waits for the stream to end. */
   private redrawPending = false;
@@ -685,6 +693,8 @@ export class ChatPanel implements ChatView {
   }
 
   beginAnswer(): void {
+    this.offerActive = false;
+    disableOffers(this.chat.shadowRoot);
     this.answer = '';
     this.answerIndex = null;
     this.clearStatus();
@@ -701,7 +711,7 @@ export class ChatPanel implements ChatView {
     this.writeAnswer(this.answer);
   }
 
-  finishAnswer(text: string): void {
+  finishAnswer(text: string): Promise<void> | void {
     // The terminal frame carries the WHOLE answer, and it is rendered as an overwrite: a delta lost on the
     // way, or replayed by a reconnect, cannot leave the visitor reading a message that never existed.
     this.answerActive = false;
@@ -710,17 +720,21 @@ export class ChatPanel implements ChatView {
     const signals = this.signals;
     this.signals = null;
     this.clearStatus();
+    if (!this.isOpen() || document.hidden) this.markUnread();
     if (signals === null) {
       this.writeAnswer(this.answer);
-    } else {
-      // The overwrite is what the visitor ends up reading, so the response is only closed once it has been
-      // taken: a response closed first keeps whatever the last delta left behind.
-      const written = signals.onResponse({ text: this.answer, overwrite: true });
-      void Promise.resolve(written).then(() => signals.onClose(), () => signals.onClose());
+      this.answerIndex = null;
+      this.flushRedraw();
+      return;
     }
-    this.answerIndex = null;
-    if (!this.isOpen() || document.hidden) this.markUnread();
-    this.flushRedraw();
+    // The overwrite is what the visitor ends up reading, so the response is only closed once it has been
+    // taken. An offer can only follow after the library has finished this message.
+    const written = signals.onResponse({ text: this.answer, overwrite: true });
+    return Promise.resolve(written).finally(() => {
+      signals.onClose();
+      this.answerIndex = null;
+      this.flushRedraw();
+    });
   }
 
   /** What the panel has to say about the CONVERSATION rather than in it: a reconnection, a declined
@@ -740,10 +754,24 @@ export class ChatPanel implements ChatView {
     this.flushRedraw();
   }
 
+  setAllowedOrigins(origins: string[]): void {
+    this.offerOrigins = origins;
+  }
+
+  /** Deep-chat owns the markup message and its quick-button event utilities. */
+  showOffer(offer: Offer, active: boolean): void {
+    if (active) disableOffers(this.chat.shadowRoot);
+    this.offerActive = active;
+    this.draw({ role: 'ai', html: offerHtml(offer, this.offerOrigins, this.strings, active) });
+  }
+
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
-  restore(messages: { role: 'user' | 'ai'; text: string }[]): void {
-    for (const message of messages) this.draw(message);
+  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[]): void {
+    for (const message of messages) {
+      this.draw(message);
+      if (message.offer) this.showOffer(message.offer, message.offerActive === true);
+    }
     // A restored transcript opens where the visitor left off, which is its END: a reload that lands on the
     // first message hides the answer the visitor came back for. `addMessage` only follows a LIVE message.
     this.cancelDrawScroll();
@@ -801,6 +829,7 @@ export class ChatPanel implements ChatView {
       strings: this.strings,
       avatar: this.avatarSource(),
       onQuickButton: (text) => this.sendQuick(text),
+      onOfferLink: (url) => { if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url); },
       onStop: () => this.stopAnswer(),
     });
   }
@@ -819,7 +848,11 @@ export class ChatPanel implements ChatView {
     chat.onComponentRender = () => {
       this.ready = true;
       this.syncAnswerControl();
-      for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage({ role: message.role, text: message.text });
+      for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage(message);
+      const groups = chat.shadowRoot?.querySelectorAll('.cb-offer') ?? [];
+      groups.forEach((group, index) => {
+        if (index < groups.length - 1 || !this.offerActive) group.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+      });
       this.scrollToLatest();
     };
     return chat;
@@ -864,8 +897,10 @@ export class ChatPanel implements ChatView {
     const carryingAnswer = this.answerIndex !== null;
     const carried = this.ready
       ? this.chat.getMessages()
-        .map((message) => ({ role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' }))
-        .filter((message) => message.text !== '')
+        .map((message) => typeof message.html === 'string'
+          ? { role: typeof message.role === 'string' ? message.role : 'ai', html: message.html }
+          : { role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' })
+        .filter((message) => 'html' in message || message.text !== '')
       : [];
     this.layoutObserver.disconnect();
     this.cancelDrawScroll();
@@ -887,7 +922,7 @@ export class ChatPanel implements ChatView {
   /** Draw one message, or hold it until the element can take it: `addMessage` on an element that has not
    *  rendered yet is dropped by the library with a warning, which would silently lose a restored
    *  conversation. */
-  private draw(message: { role: string; text: string }): void {
+  private draw(message: { role: string; text: string } | { role: string; html: string }): void {
     if (!this.ready) {
       this.queued.push(message);
       return;
@@ -925,6 +960,7 @@ export class ChatPanel implements ChatView {
    *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
    *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   private sendQuick(text: string): void {
+    this.offerActive = false;
     this.appendVisitor(text);
     this.onVisitorMessage(text);
   }

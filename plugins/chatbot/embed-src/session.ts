@@ -24,6 +24,7 @@ import {
   type ActionOutcome,
   type PageFailureDetail,
 } from '../src/publicContract.js';
+import { readOffer, type Offer } from '../src/offerContract.js';
 import { parseAppearance, type ChatbotLook } from '../src/appearanceContract.js';
 import { decideAction, type ActionRefusal, type ActionTarget, type ApprovedAction } from '../src/actions.js';
 import {
@@ -51,12 +52,14 @@ export interface ChatView {
   /** One delta of an answer still arriving. */
   streamAnswer(text: string): void;
   /** The answer as it finally stands. Used for the terminal frame and for a restored transcript. */
-  finishAnswer(text: string): void;
+  finishAnswer(text: string): Promise<void> | void;
   /** Something the visitor should know that is not an answer: a decline, a reconnection. */
   notice(text: string): void;
   error(text: string): void;
   /** A transcript rebuilt from the server's projection. */
-  restore(messages: { role: 'user' | 'ai'; text: string }[]): void;
+  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[]): void;
+  setAllowedOrigins(origins: string[]): void;
+  showOffer(offer: Offer, active: boolean): void;
   /** Ask the visitor to confirm an irreversible action. Resolves true ONLY for a click the visitor
    *  themselves made; anything the page can call on its own resolves false. */
   confirm(request: { title: string }): Promise<boolean>;
@@ -121,6 +124,8 @@ export class ChatSession {
   private handoff: string | null;
   private handoffFailed = false;
   private acquiringToken: Promise<string> | null = null;
+  private allowedOrigins: string[] = [];
+  private readonly offers = new Map<string, Offer>();
 
   constructor(private readonly deps: SessionDeps) {
     this.strings = deps.strings;
@@ -148,15 +153,18 @@ export class ChatSession {
     if (this.token === null) return;
     const conversation = await this.getConversation();
     if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
-    const messages: { role: 'user' | 'ai'; text: string }[] = [];
-    for (const turn of conversation.turns) {
+    const messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean }[] = [];
+    for (const [index, turn] of conversation.turns.entries()) {
       if (typeof turn.message !== 'string') continue;
       messages.push({ role: 'user', text: turn.message });
       if (turn.turnId === conversation.activeTurnId) {
         this.cursors.set(turn.turnId, 0);
         this.restoring.set(turn.turnId, { through: turn.lastSeq, pending: new Set(turn.pendingActions) });
       } else {
-        if (typeof turn.reply === 'string' && turn.reply !== '') messages.push({ role: 'ai', text: turn.reply });
+        if (typeof turn.reply === 'string' && turn.reply !== '') {
+          const offer = readOffer(turn.offer, this.allowedOrigins);
+          messages.push({ role: 'ai', text: turn.reply, ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
+        }
         this.cursors.set(turn.turnId, turn.lastSeq);
       }
     }
@@ -183,6 +191,10 @@ export class ChatSession {
       console.warn(`[elowen-chatbot] the appearance this deployment served is not one this widget reads: ${parsed.error}`);
       return null;
     }
+    this.allowedOrigins = Array.isArray(body.allowedOrigins)
+      ? body.allowedOrigins.filter((value): value is string => typeof value === 'string' && value.length <= 4096)
+      : [];
+    this.deps.view.setAllowedOrigins(this.allowedOrigins);
     return { name: typeof body.name === 'string' ? body.name : '', appearance: parsed.value };
   }
 
@@ -359,10 +371,19 @@ export class ChatSession {
       }
       case 'done': {
         const text = frame.data.text;
-        this.deps.view.finishAnswer(typeof text === 'string' ? text : '');
+        await this.deps.view.finishAnswer(typeof text === 'string' ? text : '');
+        const offer = this.offers.get(turnId);
+        this.offers.delete(turnId);
+        if (offer) this.deps.view.showOffer(offer, true);
         return 'ended';
       }
+      case 'offer': {
+        const offer = readOffer(frame.data, this.allowedOrigins);
+        if (offer) this.offers.set(turnId, offer);
+        return 'continue';
+      }
       case 'error': {
+        this.offers.delete(turnId);
         // Every public error code means the same thing to a visitor: this answer is not coming. The code is
         // kept for the log the server keeps, not for a sentence a customer's visitor has to interpret.
         this.deps.view.error(this.strings.errorTurn);
@@ -601,6 +622,7 @@ export class ChatSession {
         turnId: record.turnId,
         message: record.message,
         reply: record.reply,
+        offer: record.offer,
         lastSeq: typeof record.lastSeq === 'number' && record.lastSeq >= 0 ? record.lastSeq : 0,
         pendingActions: Array.isArray(record.pendingActions) ? record.pendingActions.filter((id): id is string => typeof id === 'string') : [],
       });
@@ -714,6 +736,7 @@ interface ConversationTurn {
   turnId: string;
   message: unknown;
   reply: unknown;
+  offer: unknown;
   lastSeq: number;
   pendingActions: string[];
 }

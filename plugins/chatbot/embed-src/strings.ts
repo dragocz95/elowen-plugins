@@ -24,6 +24,7 @@ export interface WidgetStrings {
   intro: string;
   /** Accessible label of the group of quick buttons under the greeting. Their own text is the chatbot's. */
   quickButtons: string;
+  offerOptions: string;
   /** Shown while the answer keeps failing to arrive. */
   reconnecting: string;
   /** A turn that failed on the server after the visitor submitted it. */
@@ -61,6 +62,7 @@ const CS: WidgetStrings = {
   placeholder: 'Napište zprávu',
   intro: 'Dobrý den. Pomohu vám s vyplněním formuláře na této stránce.',
   quickButtons: 'Rychlé dotazy',
+  offerOptions: 'Nabídnuté možnosti',
   reconnecting: 'Spojení se přerušilo, zkouším se znovu připojit.',
   errorTurn: 'Odpověď se nepodařilo dokončit. Zkuste to prosím znovu.',
   errorUnavailable: 'Chatbot teď není dostupný. Zkuste to prosím později.',
@@ -88,6 +90,7 @@ const SK: WidgetStrings = {
   placeholder: 'Napíšte správu',
   intro: 'Dobrý deň. Pomôžem vám s vyplnením formulára na tejto stránke.',
   quickButtons: 'Rýchle otázky',
+  offerOptions: 'Ponúkané možnosti',
   reconnecting: 'Spojenie sa prerušilo, skúšam sa znova pripojiť.',
   errorTurn: 'Odpoveď sa nepodarilo dokončiť. Skúste to prosím znova.',
   errorUnavailable: 'Chatbot teraz nie je dostupný. Skúste to prosím neskôr.',
@@ -115,6 +118,7 @@ const EN: WidgetStrings = {
   placeholder: 'Write a message',
   intro: 'Hello. I can help you fill in the form on this page.',
   quickButtons: 'Quick questions',
+  offerOptions: 'Suggested options',
   reconnecting: 'The connection dropped. Reconnecting.',
   errorTurn: 'The answer could not be finished. Please try again.',
   errorUnavailable: 'The chatbot is not available right now. Please try again later.',

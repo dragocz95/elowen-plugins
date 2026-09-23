@@ -269,6 +269,20 @@ export class ChatbotStore {
             return seq;
         });
     }
+    /** Every call emits a fresh frame so a live cursor sees a replacement; restore reads only the latest. */
+    replaceOffer(turnId, offer, now) {
+        return this.appendEvent(turnId, 'offer', { ...offer }, now);
+    }
+    offersOf(turnIds) {
+        const offers = new Map();
+        if (turnIds.length === 0)
+            return offers;
+        const rows = this.stmt(`SELECT * FROM p_chatbot_turn_events WHERE turn_id IN (${placeholders(turnIds.length)})
+                            AND type = 'offer' ORDER BY seq`).all(...turnIds);
+        for (const row of rows)
+            offers.set(row.turn_id, eventPayload(row));
+        return offers;
+    }
     events(turnId, after = 0) {
         return this.stmt('SELECT * FROM p_chatbot_turn_events WHERE turn_id = ? AND seq > ? ORDER BY seq')
             .all(turnId, after);

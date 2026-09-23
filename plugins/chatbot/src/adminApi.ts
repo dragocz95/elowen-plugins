@@ -11,6 +11,7 @@ import { utcDay } from './budget.js';
 import type { ChatbotStores } from './coreSeams.js';
 import { PUBLIC_MOUNT, WIDGET_ASSET_NAME } from './publicContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
+import { OFFER_TOOL_NAME } from './offerTool.js';
 import type {
   ChatbotBotView,
   ChatbotConversationsAnswer,
@@ -207,7 +208,7 @@ export function createAdminApi(deps: AdminApiDeps) {
           projects,
           // The core grant a chatbot account needs before a turn of its may touch a visitor's page. Read
           // from the plugin's OWN registration rather than restated in the browser bundle.
-          requiredTools: [PAGE_ACTION_TOOL_NAME],
+          requiredTools: [PAGE_ACTION_TOOL_NAME, OFFER_TOOL_NAME],
         },
       };
     },

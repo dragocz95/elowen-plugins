@@ -7,7 +7,7 @@ import type { ChatbotStore } from './store.js';
 
 /** The public event log a website reads. Only these names ever reach a browser, and every one of them is
  *  built from the fields this plugin chose to keep — never from a raw host event. */
-const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error'] as const;
+const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error', 'offer'] as const;
 export type PublicEventType = (typeof PUBLIC_EVENTS)[number];
 
 /** Stable public error codes. A visitor learns one of these and nothing about the daemon's internals. */
