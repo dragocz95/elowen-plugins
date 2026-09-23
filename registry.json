@@ -86,7 +86,7 @@
     },
     {
       "name": "github",
-      "version": "0.1.22",
+      "version": "0.1.23",
       "requiresCore": "0.28.50",
       "description": "Account-scoped GitHub CLI device authentication for repository mappings, secure Sandbox branch publishing, pull requests, reviews, checks and explicitly confirmed merges.",
       "category": "productivity",
@@ -140,7 +140,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "requiresCore": "0.28.50",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",

@@ -147,7 +147,7 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
     <div className="space-y-4 py-4">
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h3 className="text-sm font-semibold text-foreground">{s.projectRepository}</h3><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{mappingLabel}</p><p className="mt-1 truncate font-mono text-[11px] text-subtle-foreground">{s.pushRepository}: {pushLabel}</p></div>
+          <div className="min-w-0"><h3 className="text-sm font-semibold text-foreground">{s.projectRepository}</h3><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{mappingLabel}</p><p className="mt-1 truncate font-mono text-caption text-subtle-foreground">{s.pushRepository}: {pushLabel}</p></div>
           <C.Badge tone={mapped ? 'success' : row.detected.ambiguous ? 'warning' : 'default'}>{mapped ? s.mappingHealthy : s.mappingMissing}</C.Badge>
         </div>
         <div className="mt-4 flex flex-wrap gap-2"><C.Button icon={Link2} onClick={() => setMapping(mappingFrom(row))}>{s.map}</C.Button>{row.mapping ? <a href={`https://github.com/${encodeURIComponent(row.mapping.baseOwner)}/${encodeURIComponent(row.mapping.baseName)}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center text-xs font-medium text-primary hover:underline pointer-coarse:min-h-[var(--touch-target)]">{s.openGitHub}</a> : null}</div>
@@ -169,7 +169,7 @@ export function GitHubProjectPanel({ project }: { project: ProjectProp }) {
               <C.DataTableRow key={pull.number} height="tall" onOpen={() => setSelectedPr(pull.number)} openLabel={`${s.openPullRequest} #${pull.number}`}>
                 <C.DataTableCell lines="auto" title={`#${pull.number} ${pull.title}`}>
                   <div className="truncate text-sm font-medium text-foreground">#{pull.number} {pull.title}</div>
-                  <div className="truncate font-mono text-[11px] text-subtle-foreground">{pull.headRef} → {pull.baseRef}</div>
+                  <div className="truncate font-mono text-caption text-subtle-foreground">{pull.headRef} → {pull.baseRef}</div>
                 </C.DataTableCell>
                 <C.DataTableCell priority="wide" lines="auto">
                   {/* `default`, not `neutral`: the host's tone scale is
