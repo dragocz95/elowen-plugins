@@ -41,9 +41,6 @@
       max-width: 96rem;
     }
   }
-  .mt-1 {
-    margin-top: var(--spacing, 0.25rem);
-  }
   .mt-2 {
     margin-top: calc(var(--spacing, 0.25rem) * 2);
   }
@@ -271,12 +268,6 @@
   .bg-destructive {
     background-color: var(--color-destructive, #e94d42);
   }
-  .bg-muted\/40 {
-    background-color: color-mix(in srgb, #0d0d0d 40%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-muted, #0d0d0d) 40%, transparent);
-    }
-  }
   .bg-transparent {
     background-color: transparent;
   }
@@ -288,9 +279,6 @@
   }
   .p-2 {
     padding: calc(var(--spacing, 0.25rem) * 2);
-  }
-  .p-3 {
-    padding: calc(var(--spacing, 0.25rem) * 3);
   }
   .px-3 {
     padding-inline: calc(var(--spacing, 0.25rem) * 3);
@@ -315,9 +303,6 @@
   }
   .pl-3 {
     padding-left: calc(var(--spacing, 0.25rem) * 3);
-  }
-  .text-right {
-    text-align: right;
   }
   .font-mono {
     font-family: var(--font-mono, var(--font-geist-mono), ui-monospace, "SF Mono", monospace);
@@ -351,9 +336,6 @@
   .break-all {
     word-break: break-all;
   }
-  .whitespace-pre-wrap {
-    white-space: pre-wrap;
-  }
   .text-destructive {
     color: var(--color-destructive, #e94d42);
   }
@@ -369,17 +351,11 @@
   .text-primary {
     color: var(--color-primary, #ff5236);
   }
-  .text-subtle-foreground {
-    color: var(--color-subtle-foreground, #827974);
-  }
   .capitalize {
     text-transform: capitalize;
   }
   .uppercase {
     text-transform: uppercase;
-  }
-  .italic {
-    font-style: italic;
   }
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;

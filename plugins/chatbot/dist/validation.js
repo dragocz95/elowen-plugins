@@ -53,10 +53,9 @@ export function isPublicId(value) {
     return PUBLIC_ID_PATTERN.test(value);
 }
 // ── public hook payloads ─────────────────────────────────────────────────────────────────────────────
-/** `POST v2/visitors`: the chatbot is named by its public id, which is public by design. Authority comes
- *  from the allowed `Origin`, the trusted request origin and the chatbot being enabled — never from this
- *  field. */
-export function validateTokenIssuance(body) {
+/** The public bootstrap and token-issuance requests name a chatbot by its public id. Authority comes from
+ *  the allowed `Origin`, the trusted request origin and the chatbot being enabled, never from this field. */
+export function validatePublicBotRequest(body) {
     const outer = strictObject(body, ['schemaVersion', 'bot'], ['schemaVersion', 'bot']);
     if (!outer.ok)
         return outer;

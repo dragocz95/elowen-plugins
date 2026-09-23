@@ -318,6 +318,15 @@ function readAvatar(value) {
         return { ok: false, error: '"avatarUrl" must be an https address or an image' };
     }
 }
+/** The fields each group owns. Declared once because two readers need them: the parser that validates a
+ *  group's values, and the widget's filter that drops fields a newer deployment added. Two lists would let
+ *  a new field validate here and vanish there. */
+const QUICK_BUTTON_KEYS = ['text', 'icon'];
+const COLOR_KEYS = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'];
+const SEND_KEYS = ['icon', 'shape'];
+const LAUNCHER_KEYS = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'];
+const HEADER_KEYS = ['subtitle', 'showAvatar', 'showMessageName'];
+const TYPOGRAPHY_KEYS = ['fontSize', 'fontFamily', 'shadow', 'placeholder'];
 function readQuickButtons(value) {
     if (!Array.isArray(value))
         return { ok: false, error: '"quickButtons" must be an array' };
@@ -326,10 +335,10 @@ function readQuickButtons(value) {
     const result = [];
     const seen = new Set();
     for (const entry of value) {
-        const object = plainObject(entry, ['text', 'icon'], 'quick button');
+        const object = plainObject(entry, QUICK_BUTTON_KEYS, 'quick button');
         if (!object.ok)
             return object;
-        const present = requiredKeys(object.value, ['text', 'icon'], 'quick button');
+        const present = requiredKeys(object.value, QUICK_BUTTON_KEYS, 'quick button');
         if (!present.ok)
             return present;
         const text = readString(object.value.text, 'quick button text', APPEARANCE_QUICK_BUTTON_MAX_CHARS);
@@ -352,7 +361,7 @@ function readQuickButtons(value) {
     return { ok: true, value: result };
 }
 function parseColors(input, partial) {
-    const keys = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'];
+    const keys = COLOR_KEYS;
     const object = plainObject(input, keys, 'appearance.colors');
     if (!object.ok)
         return object;
@@ -377,7 +386,7 @@ function parseColors(input, partial) {
     return { ok: true, value: result };
 }
 function parseSend(input, partial) {
-    const keys = ['icon', 'shape'];
+    const keys = SEND_KEYS;
     const object = plainObject(input, keys, 'appearance.send');
     if (!object.ok)
         return object;
@@ -402,7 +411,7 @@ function parseSend(input, partial) {
     return { ok: true, value: result };
 }
 function parseLauncher(input, partial) {
-    const keys = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'];
+    const keys = LAUNCHER_KEYS;
     const object = plainObject(input, keys, 'appearance.launcher');
     if (!object.ok)
         return object;
@@ -448,7 +457,7 @@ function parseLauncher(input, partial) {
     return { ok: true, value: result };
 }
 function parseHeader(input, partial) {
-    const keys = ['subtitle', 'showAvatar', 'showMessageName'];
+    const keys = HEADER_KEYS;
     const object = plainObject(input, keys, 'appearance.header');
     if (!object.ok)
         return object;
@@ -474,7 +483,7 @@ function parseHeader(input, partial) {
     return { ok: true, value: result };
 }
 function parseTypography(input, partial) {
-    const keys = ['fontSize', 'fontFamily', 'shadow', 'placeholder'];
+    const keys = TYPOGRAPHY_KEYS;
     const object = plainObject(input, keys, 'appearance.typography');
     if (!object.ok)
         return object;
@@ -510,8 +519,37 @@ function parseTypography(input, partial) {
     return { ok: true, value: result };
 }
 const appearanceFields = ['mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons', 'send', 'launcher', 'header', 'typography'];
+function knownAppearanceFields(input, allowed) {
+    if (typeof input !== 'object' || input === null || Array.isArray(input))
+        return input;
+    const record = input;
+    return Object.fromEntries(Object.entries(record).filter(([key]) => allowed.includes(key)));
+}
+/** Keep fields this widget understands and validate their values strictly. Deployments can add optional
+ *  appearance fields before every visitor has revalidated their cached widget bundle. */
+function appearanceForThisWidget(input) {
+    const known = knownAppearanceFields(input, ['schemaVersion', ...appearanceFields]);
+    if (typeof known !== 'object' || known === null || Array.isArray(known))
+        return known;
+    const appearance = known;
+    const groups = {
+        colors: COLOR_KEYS,
+        send: SEND_KEYS,
+        launcher: LAUNCHER_KEYS,
+        header: HEADER_KEYS,
+        typography: TYPOGRAPHY_KEYS,
+    };
+    for (const [group, fields] of Object.entries(groups)) {
+        if (group in appearance)
+            appearance[group] = knownAppearanceFields(appearance[group], fields);
+    }
+    if (Array.isArray(appearance.quickButtons)) {
+        appearance.quickButtons = appearance.quickButtons.map((button) => knownAppearanceFields(button, ['text', 'icon']));
+    }
+    return appearance;
+}
 export function parseAppearance(input) {
-    const object = plainObject(input, ['schemaVersion', ...appearanceFields], 'appearance');
+    const object = plainObject(appearanceForThisWidget(input), ['schemaVersion', ...appearanceFields], 'appearance');
     if (!object.ok)
         return object;
     const { schemaVersion, ...fields } = object.value;
