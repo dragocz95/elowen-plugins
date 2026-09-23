@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  BadgeCheck, Bot, ChevronRight, ClipboardCopy, Code2, Gauge, Palette, Power, ShieldCheck,
+  BadgeCheck, Bot, ChevronRight, ClipboardCopy, Gauge, Palette, Power, ShieldCheck,
 } from 'lucide-react';
 import { LIMIT_FIELDS } from '../src/limits';
 import { apiJson, chatbotApi, jsonRequest, runtime } from './runtime';
@@ -195,15 +195,14 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
               <C.SettingsRow
                 label={s.embedTitle}
                 description={s.embedHint}
-                icon={Code2}
-                status={<code className="block max-w-44 truncate text-[11px]">{bot.embedSnippet}</code>}
+                status={<code className="block max-w-44 truncate text-caption">{bot.embedSnippet}</code>}
                 actions={<C.IconButton icon={ClipboardCopy} label={s.embedCopy} onClick={() => void copySnippet()} />}
               />
             )}
           </C.SettingsGroup>
 
           <C.SettingsGroup title={s.budgetTitle} icon={Gauge}>
-            <div className="settings-group__panel"><BudgetUsage bot={bot} /></div>
+            <BudgetUsage bot={bot} />
           </C.SettingsGroup>
 
           <C.SettingsGroup title={s.limitsTitle} hint={s.limitsHint} icon={Gauge} density="compact">

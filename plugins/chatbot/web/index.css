@@ -152,9 +152,6 @@
   .cursor-pointer {
     cursor: pointer;
   }
-  .resize-y {
-    resize: vertical;
-  }
   .grid-cols-1 {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
@@ -245,9 +242,6 @@
   .rounded-full {
     border-radius: calc(infinity * 1px);
   }
-  .rounded-lg {
-    border-radius: var(--radius-lg, 0.75rem);
-  }
   .rounded-xl {
     border-radius: var(--radius-xl, 1rem);
   }
@@ -283,9 +277,6 @@
   .p-2 {
     padding: calc(var(--spacing, 0.25rem) * 2);
   }
-  .px-3 {
-    padding-inline: calc(var(--spacing, 0.25rem) * 3);
-  }
   .py-1 {
     padding-block: var(--spacing, 0.25rem);
   }
@@ -318,8 +309,8 @@
     font-size: var(--text-xs, 0.75rem);
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
-  .text-\[11px\] {
-    font-size: 11px;
+  .text-caption {
+    font-size: var(--text-caption, 0.6875rem);
   }
   .font-medium {
     --tw-font-weight: var(--font-weight-medium, 500);
@@ -375,11 +366,6 @@
   .filter {
     filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
   }
-  .transition {
-    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter, display, content-visibility, overlay, pointer-events;
-    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function, cubic-bezier(0.4, 0, 0.2, 1)));
-    transition-duration: var(--tw-duration, var(--default-transition-duration, 150ms));
-  }
   .ease-in-out {
     --tw-ease: var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
     transition-timing-function: var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
@@ -387,13 +373,6 @@
   .ease-out {
     --tw-ease: var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
     transition-timing-function: var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
-  }
-  .outline-none {
-    --tw-outline-style: none;
-    outline-style: none;
-  }
-  .focus\:border-primary:focus {
-    border-color: var(--color-primary, #ff5236);
   }
   @media (width >= 40rem) {
     .sm\:col-span-2 {
