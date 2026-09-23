@@ -78,7 +78,7 @@ export function TasksRail({ variant, data, sessionId, open }: PluginChatRailSect
   if (active.length === 0) return null;
   const shown = expanded ? active : active.slice(0, 4);
   const done = parsed.tasks.length - active.length;
-  if (variant === 'compact') return <div data-testid="telemetry-compact-tasks" className="flex w-10 flex-col items-center gap-1 rounded-md px-1 py-1.5" title={strings.railTitle ?? strings.title}><ListChecks size={14} aria-hidden className="text-primary" /><span className="font-mono text-[9px] leading-none text-muted-foreground">{done}/{parsed.tasks.length}</span></div>;
+  if (variant === 'compact') return <div data-testid="telemetry-compact-tasks" className="flex w-10 flex-col items-center gap-1 rounded-md px-1 py-1.5" title={strings.railTitle ?? strings.title}><ListChecks size={14} aria-hidden className="text-primary" /><span className="font-mono text-tiny leading-none text-muted-foreground">{done}/{parsed.tasks.length}</span></div>;
   const setStatus = (task: SessionTask, status: SessionTask['status']): void => {
     if (!sessionId || status === task.status) return;
     update.mutate({ sessionId, taskId: task.id, status });

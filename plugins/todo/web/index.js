@@ -444,7 +444,7 @@ function TasksRail({ variant, data, sessionId, open }) {
   const done = parsed.tasks.length - active.length;
   if (variant === "compact") return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { "data-testid": "telemetry-compact-tasks", className: "flex w-10 flex-col items-center gap-1 rounded-md px-1 py-1.5", title: strings.railTitle ?? strings.title, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ListChecks, { size: 14, "aria-hidden": true, className: "text-primary" }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "font-mono text-[9px] leading-none text-muted-foreground", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "font-mono text-tiny leading-none text-muted-foreground", children: [
       done,
       "/",
       parsed.tasks.length
