@@ -27,7 +27,7 @@ jobs:
       ELOWEN_CORE_VERSION: '0.28.52'
       # Pin the exact released source whose daemon and UI-kit packages are installed below. The parity
       # suites need source files and built helpers that the published daemon package deliberately omits.
-      ELOWEN_CORE_REF: '7d4a53807e146ffb357b55b9da7e6a7b63123a9f'
+      ELOWEN_CORE_REF: '0bafbc86102ce7b979cb327cf2cd258798c6feb9'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -59,9 +59,11 @@ jobs:
         working-directory: core
         run: npm ci
 
+      # build:assets adds what tsc does not emit (store schema, prompts); suites that open a core
+      # database read dist/store/schema.sql. The plugin browser bundles of a full build are not needed.
       - name: Build core contract helpers
         working-directory: core
-        run: npm run build:ts
+        run: npm run build:ts && npm run build:assets
 
       # Static analysis is the same mandatory gate developers run locally.
       - run: npm run check

@@ -25,7 +25,7 @@ test('CI workflow parses and runs every registry gate before drift checks', () =
   assert.match(job.steps[pinGuard].run, /\^\[0-9a-f\]\{40\}\$/);
   const build = job.steps.findIndex((step) => step.name === 'Build core contract helpers');
   assert.equal(job.steps[build]['working-directory'], 'core');
-  assert.equal(job.steps[build].run, 'npm run build:ts');
+  assert.equal(job.steps[build].run, 'npm run build:ts && npm run build:assets');
   assert.ok(build < job.steps.findIndex((step) => step.run === 'npm run check'));
   // tests/githubStaging.test.ts imports an untrusted bundle through real bubblewrap, which the runner
   // image does not ship. Without the install the suite fails on a missing binary and stops checking the
