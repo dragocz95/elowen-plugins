@@ -50,6 +50,7 @@ import puppeteer from 'puppeteer-core';
 import { openDb } from 'elowen/dist/store/db.js';
 import { makePluginDb } from 'elowen/dist/store/pluginDb.js';
 import { ChatbotAdapter } from '../../../plugins/chatbot/dist/adapter.js';
+import { selectAppearanceTemplate } from '../../../plugins/chatbot/dist/appearanceContract.js';
 import { PageActionService } from '../../../plugins/chatbot/dist/actionService.js';
 import { createAdminApi } from '../../../plugins/chatbot/dist/adminApi.js';
 import { registerPageActionTool } from '../../../plugins/chatbot/dist/actionsTool.js';
@@ -80,18 +81,20 @@ const CONFIGURED_NAME = 'Městský úřad Kolín';
 const QUICK_TEXT = 'Chci vyplnit formulář';
 const QUICK_ANSWER = 'Rozumím, projdeme to spolu.';
 const LOOK = {
-  schemaVersion: 1,
-  mode: 'light',
-  position: 'top-left',
-  width: 420,
-  height: 560,
-  radius: 4,
-  colors: { panel: '#101820', visitorBubble: '#ffd166', botBubble: '#ffffff', sendButton: '#0b6e4f' },
-  intro: 'Dobrý den, pomohu vám s formulářem.',
-  // An embedded image, deliberately: an avatar URL would be a request to a host the customer's page never
-  // agreed to talk to, and this scenario refuses every request that leaves the page and the hook.
-  avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="%230b6e4f"/></svg>',
-  quickButtons: [QUICK_TEXT, 'Kde je podatelna?'],
+  ...selectAppearanceTemplate('elowen'),
+  overrides: {
+    mode: 'light',
+    position: 'top-left',
+    width: 420,
+    height: 560,
+    radius: 4,
+    colors: { panel: '#101820', visitorBubble: '#ffd166', botBubble: '#ffffff', sendButton: '#0b6e4f', launcher: '#0b6e4f' },
+    intro: 'Dobrý den, pomohu vám s formulářem.',
+    // An embedded image, deliberately: an avatar URL would be a request to a host the customer's page never
+    // agreed to talk to, and this scenario refuses every request that leaves the page and the hook.
+    avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="%230b6e4f"/></svg>',
+    quickButtons: [{ text: QUICK_TEXT, icon: null }, { text: 'Kde je podatelna?', icon: null }],
+  },
 };
 
 /** The limit set this chatbot is configured with, complete because a chatbot cannot be enabled without one:
@@ -169,6 +172,7 @@ const stores = {
     isAdmin: (id) => accounts.find((account) => account.id === id)?.isAdmin === true,
     allowedExecs: () => [],
     mayUsePlugin: () => true,
+    effectiveChatExec: () => null,
   },
   projects: { get: (id) => projects.find((project) => project.id === id) ?? null, list: () => projects },
   userProjects: { canAccess: () => true, canManage: () => true },
@@ -184,14 +188,11 @@ const bot = store.createBot({
   chatbotUserId: CHATBOT_ACCOUNT,
   publicId: PUBLIC_ID,
   displayName: 'Městský úřad',
-  prompt: 'Pomáhej návštěvníkům s formulářem.',
   origins: [],
   // A chatbot serves under numbers its owner decided; the plugin has none of its own, and it refuses to serve
   // without them. The scenario writes a complete set, exactly as an administrator would have.
   limits: SCENARIO_LIMITS,
-  // No action rules: what this scenario drives is the plugin's own per-turn ceiling, and a chatbot with no
-  // rule is governed by exactly that ceiling.
-  actionRules: [],
+  maySubmitForms: true,
   now: now().toISOString(),
 });
 adapter.listen(async () => undefined);
@@ -518,12 +519,12 @@ store.updateBot({
   chatbotUserId: CHATBOT_ACCOUNT,
   expectedUpdatedAt: bot.updated_at,
   displayName: 'Městský úřad',
-  prompt: 'Pomáhej návštěvníkům s formulářem.',
   origins: [siteOrigin],
   limits: SCENARIO_LIMITS,
-  actionRules: [],
+  maySubmitForms: true,
   now: now().toISOString(),
 });
+assert(store.botByUserId(CHATBOT_ACCOUNT)?.may_submit_forms === 1, 'the scenario chatbot cannot submit forms');
 store.setBotStatus({ chatbotUserId: CHATBOT_ACCOUNT, status: 'enabled', now: now().toISOString() });
 await adapter.connect();
 
@@ -794,7 +795,7 @@ try {
   // real contract, so this is the customer-facing half of a real save rather than a row poked into the
   // database. The panel is then looked at in a real browser, because what it PAINTS is the only thing that
   // proves the look arrived — and because a panel that paints is what an administrator's preview promises.
-  const admin = createAdminApi({ store, stores, publicBaseUrl: () => hookOrigin, now });
+  const admin = createAdminApi({ store, stores, publicBaseUrl: () => hookOrigin, now, warn });
   const saved = await admin.updateAppearance(
     { userId: 1, admin: true, tokenScope: 'user', accessibleProjects: null },
     {
@@ -870,7 +871,7 @@ try {
   await freshVisit(320, 844, true);
   const untouched = hook.requests.filter((entry) => entry.path !== WIDGET_PATH);
   assert(untouched.length === 0, `an untouched panel already asked the hook for something: ${JSON.stringify(untouched)}`);
-  assert(await launcherColour() === 'rgb(255, 82, 54)', `a launcher nobody has configured yet was painted ${await launcherColour()}`);
+  assert(await launcherColour() === 'rgb(255, 106, 77)', `a launcher nobody has configured yet was painted ${await launcherColour()}`);
   await openPanel();
   await poll('the widget to read the configured look', () => lookReads().length === 1);
   assert(lookReads().length === 1, `the look was read more than once for one open: ${JSON.stringify(hook.requests)}`);
@@ -881,9 +882,10 @@ try {
   assert(mobile.radius === '4px', `the panel corners were not the configured radius: ${mobile.radius}`);
   // The configured size, clamped to the room a 320px viewport leaves: 320 - 40 across, 844 - 140 down.
   assert(mobile.box.width === 280 && mobile.box.height === 560, `the panel is not the configured size clamped to this viewport: ${JSON.stringify(mobile.box)}`);
-  assert(mobile.box.left === 20 && mobile.box.top === 20, `the panel is not in the configured top-left corner: ${JSON.stringify(mobile.box)}`);
-  assert(mobile.intro.includes(LOOK.intro), `the greeting was not the configured one: ${JSON.stringify(mobile.intro.slice(0, 120))}`);
-  assert(mobile.quick.join('|') === LOOK.quickButtons.join('|'), `the quick buttons were not the configured ones: ${JSON.stringify(mobile.quick)}`);
+  // In a top corner, the launcher sits above the panel with a 12 px gap.
+  assert(mobile.box.left === 20 && mobile.box.top === 88, `the panel is not in the configured top-left corner: ${JSON.stringify(mobile.box)}`);
+  assert(mobile.intro.includes(LOOK.overrides.intro), `the greeting was not the configured one: ${JSON.stringify(mobile.intro.slice(0, 120))}`);
+  assert(mobile.quick.join('|') === LOOK.overrides.quickButtons.map((button) => button.text).join('|'), `the quick buttons were not the configured ones: ${JSON.stringify(mobile.quick)}`);
   pass('a 320x844 visit paints the saved look: colour, corners, clamped size, top-left corner, greeting and quick buttons');
 
   // A quick button is the visitor's own message: a real click on it, and the plugin records the turn with
@@ -935,7 +937,7 @@ try {
     return state.messages.length >= 2 ? state : null;
   });
   assert(desktop.box.width === 420 && desktop.box.height === 560, `the panel is not its configured size on a desktop viewport: ${JSON.stringify(desktop.box)}`);
-  assert(desktop.box.left === 20 && desktop.box.top === 20, `the panel is not anchored in the configured corner: ${JSON.stringify(desktop.box)}`);
+  assert(desktop.box.left === 20 && desktop.box.top === 88, `the panel is not anchored in the configured corner: ${JSON.stringify(desktop.box)}`);
   assert(desktop.background === 'rgb(16, 24, 32)', `the restored panel was not painted the configured colour: ${desktop.background}`);
   assert(desktop.messages.some((message) => message.text === QUICK_TEXT), `the returning visit lost the visitor's own message: ${JSON.stringify(desktop.messages)}`);
   pass('a returning visitor at 1440x900 gets the look before the panel is opened, at its configured 420x560, with the transcript restored into it');
@@ -946,7 +948,8 @@ try {
   // This chapter states exactly that — the one error it adds is the refusal itself — and hands the error
   // list back the way it found it, so the gate below still means "nothing else went wrong".
   const errorsBefore = consoleErrors.length;
-  db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?').run('{"schemaVersion":9}', CHATBOT_ACCOUNT);
+  db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?')
+    .run(JSON.stringify({ ...selectAppearanceTemplate('elowen'), schemaVersion: 9 }), CHATBOT_ACCOUNT);
   await freshVisit(1440, 900, false);
   await openPanel();
   await poll('the refusal of a look its own row could not produce', () => hook.warnings.some((warning) => warning.includes('unreadable appearance')));
