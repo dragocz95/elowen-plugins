@@ -13,7 +13,7 @@ import { parseStoredAppearance, resolveAppearance, type ChatbotAppearance } from
 import { AVATAR_CACHE_CONTROL, type AvatarFetch } from './avatarProxy.js';
 import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
-import { isCanonicalUuid, validateActionDecision, validateActionResult, validateTokenIssuance, validateTurnSubmission, type Validated } from './validation.js';
+import { isCanonicalUuid, validateActionDecision, validateActionResult, validatePublicBotRequest, validateTurnSubmission, type Validated } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
 
 /** How much of the visitor's OWN conversation a reconnect may read back. Bounded because a reconnect is a
@@ -90,9 +90,8 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return reply(503, { error: 'bot_unavailable' });
   };
 
-  /** The bot's own look, or the reason its row cannot be read. Both public readers of it — the document the
-   *  widget draws and the avatar it shows — read it through here, so neither can grow its own idea of what a
-   *  stored row means. */
+  /** The bot's own look, or the reason its row cannot be read. The public bootstrap, the document the widget
+   *  draws and the avatar it shows all read it through here, so none can grow its own idea of a stored row. */
   const readAppearance = (bot: BotRow): { ok: true; appearance: ChatbotAppearance } | { ok: false; error: unknown } => {
     try {
       return { ok: true, appearance: resolveAppearance(parseStoredAppearance(bot.appearance)) };
@@ -155,31 +154,55 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return { bot: bot!, visitorId: visitor.visitor_id };
   };
 
-  /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
-  const handleTokenIssuance = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
+  /** Public requests naming a chatbot share the exact admission gate used by token issuance. */
+  const publicBotRequest = async (req: ChatbotHookRequest, origin: string): Promise<{ bot: BotRow } | { reply: Reply }> => {
     const notJson = requireJsonBody(req, origin);
-    if (notJson) return notJson;
+    if (notJson) return { reply: notJson };
     const body = await readJson(req);
-    if (!body.ok) return reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin));
-    const parsed = validateTokenIssuance(body.value);
-    if (!parsed.ok) return reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin));
+    if (!body.ok) return { reply: reply(400, { error: 'invalid_request', detail: body.error }, corsHeaders(origin)) };
+    const parsed = validatePublicBotRequest(body.value);
+    if (!parsed.ok) return { reply: reply(400, { error: 'invalid_request', detail: parsed.error }, corsHeaders(origin)) };
 
     const bot = store.botByPublicId(parsed.value.bot);
     const refusal = admitBot(bot);
-    if (refusal) return refusal;
+    if (refusal) return { reply: refusal };
     const allowed = checkAllowedOrigin(origin, store.originsOf(bot!.chatbot_user_id));
-    if (!allowed.ok) return reply(403, { error: 'origin_not_allowed' });
+    if (!allowed.ok) return { reply: reply(403, { error: 'origin_not_allowed' }) };
     const blocked = blockedReply(bot!);
-    if (blocked) return blocked;
+    if (blocked) return { reply: blocked };
+    return { bot: bot! };
+  };
 
-    const issued = issueVisitorToken(bot!, null);
+  /** `POST v2/bootstrap`: read this chatbot's name and appearance without creating visitor state. */
+  const handleBootstrap = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
+    const admitted = await publicBotRequest(req, origin);
+    if ('reply' in admitted) return admitted.reply;
+
+    const stored = readAppearance(admitted.bot);
+    if (!stored.ok) {
+      warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${stored.error instanceof Error ? stored.error.message : String(stored.error)}`);
+      return reply(503, { error: 'appearance_invalid' }, corsHeaders(origin));
+    }
+    return reply(200, {
+      schemaVersion: PUBLIC_SCHEMA_VERSION,
+      name: admitted.bot.display_name,
+      appearance: stored.appearance,
+    }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
+  };
+
+  /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
+  const handleTokenIssuance = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
+    const admitted = await publicBotRequest(req, origin);
+    if ('reply' in admitted) return admitted.reply;
+
+    const issued = issueVisitorToken(admitted.bot, null);
     return reply(200, {
       schemaVersion: PUBLIC_SCHEMA_VERSION,
       token: issued.token,
       visitorId: issued.visitorId,
       expiresAt: issued.expiresAt,
-      bot: { publicId: bot!.public_id, displayName: bot!.display_name },
-    }, corsHeaders(origin));
+      bot: { publicId: admitted.bot.public_id, displayName: admitted.bot.display_name },
+    }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
   };
 
   /** `POST v1/visitors/refresh`: rotate a live token for the SAME visitor, so a widget can keep one
@@ -259,13 +282,11 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     return turnReceipt(outcome.turn, origin);
   };
 
-  /** `GET v1/appearance`: how this chatbot's panel looks, for the widget that is about to draw it.
+  /** Legacy `GET v2/appearance`: retain the token-gated look read for cached widgets and external consumers.
    *
-   *  It is NOT a secret and it is not state: it is the same document for every visitor of one chatbot. It
-   *  still passes the visitor's own gates, because the alternative — answering it from a bare public id —
-   *  would map which chatbots exist and are enabled for anyone who guessed an id, and the token already
-   *  identifies exactly this chatbot and visitor. A chatbot that does not exist, is disabled, has lost its
-   *  Project or is not the one this token was issued for is refused here exactly as everywhere else. */
+   *  The current widget uses the read-only `POST v2/bootstrap` instead. This route is NOT a secret and is not
+   *  state, but it stays behind the visitor's token because answering a bare public id would map enabled
+   *  chatbots to anyone who guessed one. A missing, disabled or blocked chatbot is refused exactly as before. */
   const handleAppearance = (req: ChatbotHookRequest, origin: string): Reply => {
     const admitted = presentedToken(req);
     if ('status' in admitted) return admitted;
@@ -275,10 +296,9 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (blocked) return blocked;
 
     // A row this plugin wrote and can no longer read is a fact about the deployment, not something to paper
-    // over with a look the customer never chose. The visitor keeps the widget's own built-in panel, and the
-    // refusal is logged. The grant travels with the refusal like every other answer a widget can trigger: a
-    // cross-origin reply without it is unreadable in a browser, so this one would surface as a CORS error on
-    // the customer's own page instead of as the refusal it is.
+    // over with a look the customer never chose. The refusal is logged and the widget stays unattached. The
+    // grant travels with the refusal like every other answer a widget can trigger: a cross-origin reply without
+    // it is unreadable in a browser, so this one would surface as a CORS error on the customer's page.
     const stored = readAppearance(admitted.bot);
     if (!stored.ok) {
       warn(`chatbot ${admitted.bot.public_id} has an unreadable appearance: ${stored.error instanceof Error ? stored.error.message : String(stored.error)}`);
@@ -570,6 +590,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (req.method === 'OPTIONS') return handlePreflight(req, origin);
 
     if (req.method === 'POST' && path === PUBLIC_PATHS.handoff) return handleHandoff(req, origin);
+    if (req.method === 'POST' && path === PUBLIC_PATHS.bootstrap) return handleBootstrap(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.visitors) return handleTokenIssuance(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.refresh) return handleRefresh(req, origin);
     if (req.method === 'POST' && path === PUBLIC_PATHS.turns) return handleTurn(req, origin, requestOrigin);

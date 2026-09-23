@@ -114,7 +114,9 @@ describe('linked appearance templates', () => {
     }
     expect(parseAppearance({ ...DEFAULT_APPEARANCE, schemaVersion: APPEARANCE_SCHEMA_VERSION + 1 }).ok).toBe(false);
     expect(parseAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, panel: 'black' } }).ok).toBe(false);
-    expect(parseAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, unknown: '#ffffff' } }).ok).toBe(false);
+    const futureFields = parseAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, futureColor: '#ffffff' } });
+    expect(futureFields.ok).toBe(true);
+    if (futureFields.ok) expect(futureFields.value.colors).toEqual(DEFAULT_APPEARANCE.colors);
   });
 
   it('stores quick buttons as text and nullable curated icons, without silently dropping entries', () => {
@@ -353,7 +355,18 @@ describe('the appearance a visitor\'s widget reads', () => {
       now: '2026-09-21T12:00:00.000Z',
     });
 
-    const answer = await host.handler(withToken((await liveVisitor()).token));
+    await host.adapter.connect();
+    const bootstrap = await host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: CHATBOT_SITE },
+      body: { schemaVersion: 2, bot: bot.public_id },
+    }));
+    expect(bootstrap).toMatchObject({ status: 200, body: {
+      name: 'Městský úřad',
+      appearance: resolveAppearance(storedOf({ mode: 'light', quickButtons: [{ text: 'Kde je podatelna?', icon: 'question' }] })),
+    } });
+    const issued = await liveVisitor();
+    const answer = await host.handler(withToken(issued.token));
     expect(answer.status).toBe(200);
     const body = answer.body as { schemaVersion: number; name: string; appearance: ChatbotAppearance };
     expect(body.schemaVersion).toBe(2);
@@ -365,6 +378,39 @@ describe('the appearance a visitor\'s widget reads', () => {
     // It is a read of state on a visitor's behalf, so nothing between the two ends may keep a copy.
     expect(answer.headers?.['cache-control']).toBe('no-store');
     expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
+  });
+
+  it('reads the look with token issuance gates and creates no visitor or token rows', async () => {
+    registerBot(host);
+    await host.adapter.connect();
+    const bot = host.store.listBots()[0]!;
+    const counts = () => ({
+      visitors: (host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_visitors').get() as { count: number }).count,
+      tokens: (host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_tokens').get() as { count: number }).count,
+    });
+    expect(counts()).toEqual({ visitors: 0, tokens: 0 });
+
+    const answer = await host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: CHATBOT_SITE },
+      body: { schemaVersion: 2, bot: bot.public_id },
+    }));
+    expect(answer.status).toBe(200);
+    expect((answer.body as { appearance: ChatbotAppearance }).appearance).toEqual(DEFAULT_APPEARANCE);
+    expect(counts()).toEqual({ visitors: 0, tokens: 0 });
+
+    const wrongOrigin = await host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: 'https://evil.example' },
+      body: { schemaVersion: 2, bot: bot.public_id },
+    }));
+    expect(wrongOrigin.status).toBe(403);
+    expect((await host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: CHATBOT_SITE },
+      body: { schemaVersion: 2, bot: `cbt_${'b'.repeat(24)}` },
+    }))).status).toBe(404);
+    expect(counts()).toEqual({ visitors: 0, tokens: 0 });
   });
 
   it('serves the presence dot an owner turned on, and nothing where nobody turned one on', async () => {
@@ -447,12 +493,18 @@ describe('the appearance a visitor\'s widget reads', () => {
     registerBot(host);
     const bot = host.store.listBots()[0]!;
     const { token } = await liveVisitor();
-    // A row only this plugin writes, corrupted. The visitor keeps the widget's built-in panel and the
-    // refusal is logged; nothing draws a look the customer never chose.
+    // A row only this plugin writes, corrupted. The bootstrap refuses it; nothing draws a look the customer never chose.
     host.db.prepare('UPDATE p_chatbot_bots SET appearance = ? WHERE chatbot_user_id = ?').run('{"schemaVersion":9}', bot.chatbot_user_id);
     const answer = await host.handler(withToken(token));
     expect(answer.status).toBe(503);
     expect((answer.body as { error: string }).error).toBe('appearance_invalid');
+    const bootstrap = await host.handler(postRequest({
+      path: 'bootstrap',
+      headers: { origin: CHATBOT_SITE },
+      body: { schemaVersion: 2, bot: bot.public_id },
+    }));
+    expect(bootstrap).toMatchObject({ status: 503, body: { error: 'appearance_invalid' } });
+    expect(bootstrap.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);
     // The grant travels with the refusal: without it a browser reports a CORS failure on the customer's own
     // page instead of the refusal, which is a console error nobody can act on.
     expect(answer.headers?.['access-control-allow-origin']).toBe(CHATBOT_SITE);

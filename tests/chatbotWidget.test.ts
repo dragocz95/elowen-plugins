@@ -15,13 +15,14 @@ import {
   readLines,
   readVisitorText,
   turnRequestBody,
-  visitorRequestBody,
+  publicBotRequestBody,
 } from '../plugins/chatbot/embed-src/protocol.js';
 import { capturePageSnapshot, isSensitiveField, wouldSubmit } from '../plugins/chatbot/embed-src/pageSnapshot.js';
 import { ChatSession, type ChatView, type PageBridge } from '../plugins/chatbot/embed-src/session.js';
 import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel.js';
 import { APPEARANCE_BOUNDS, APPEARANCE_TEMPLATES, DEFAULT_APPEARANCE, type ChatbotLook } from '../plugins/chatbot/src/appearanceContract.js';
 import { widgetStrings } from '../plugins/chatbot/embed-src/strings.js';
+import { CHATBOT_SITE, createChatbotHost, postRequest, registerBot } from './helpers/chatbotHost.js';
 
 /** The widget's own half of the protocol, and the two things it promises a customer's page: that a
  *  description of that page is bounded and free of what must not leave it, and that nothing irreversible
@@ -255,7 +256,7 @@ describe('the wire protocol', () => {
   });
 
   it('builds request bodies with exactly the fields the hook validates', () => {
-    expect(visitorRequestBody('cbt_1')).toEqual({ schemaVersion: 2, bot: 'cbt_1' });
+    expect(publicBotRequestBody('cbt_1')).toEqual({ schemaVersion: 2, bot: 'cbt_1' });
     expect(turnRequestBody('2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34', 'ahoj')).toEqual({
       schemaVersion: 2,
       clientTurnId: '2f1a4c3e-9b7d-4f6a-8c2e-1d5b7a9f0c34',
@@ -926,6 +927,59 @@ describe('navigation and active-turn restoration', () => {
     await harness.session.send('Continue');
     expect(harness.requests).toHaveLength(1);
     expect(view.errors).toContain(strings.navigationFailed);
+  });
+});
+
+describe('read-only appearance bootstrap on widget mount', () => {
+  it('mounts the configured launcher without creating a visitor or token, even when an avatar is configured', async () => {
+    const host = createChatbotHost();
+    registerBot(host);
+    await host.adapter.connect();
+    const bot = host.store.listBots()[0]!;
+    host.store.updateAppearance({
+      chatbotUserId: bot.chatbot_user_id,
+      expectedUpdatedAt: bot.updated_at,
+      displayName: bot.display_name,
+      appearance: JSON.stringify({ schemaVersion: 2, template: 'elowen', overrides: { avatarUrl: 'https://images.example.test/logo.png' } }),
+      now: new Date().toISOString(),
+    });
+    const counts = () => ({
+      visitors: (host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_visitors').get() as { count: number }).count,
+      tokens: (host.db.prepare('SELECT COUNT(*) AS count FROM p_chatbot_tokens').get() as { count: number }).count,
+    });
+    expect(counts()).toEqual({ visitors: 0, tokens: 0 });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = new URL(String(input));
+      const path = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+      requests.push(path);
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {};
+      const answer = await host.handler(postRequest({
+        path,
+        headers: { origin: CHATBOT_SITE },
+        body,
+      }));
+      return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status, headers: answer.headers });
+    });
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { mount } = await import('../plugins/chatbot/embed-src/index.js');
+    const script = document.createElement('script');
+    script.src = 'https://elowen.example/hooks/chatbot/v2/widget.js';
+    script.dataset.chatbot = bot.public_id;
+    document.body.append(script);
+    const api = mount();
+    try {
+      await flush();
+      expect(counts()).toEqual({ visitors: 0, tokens: 0 });
+      expect(requests).toEqual(['bootstrap']);
+      expect(document.querySelector('[data-elowen-chatbot="root"]')).not.toBeNull();
+    } finally {
+      api?.destroy();
+      script.remove();
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

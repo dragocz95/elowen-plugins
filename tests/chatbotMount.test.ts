@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const observed = vi.hoisted(() => ({ code: null as string | null }));
+const observed = vi.hoisted(() => ({
+  code: null as string | null,
+  lookPromise: null as Promise<{ name: string; appearance: { colors: { launcher: string } } } | null> | null,
+  panels: [] as { host: HTMLDivElement; applyAppearance(look: { appearance: { colors: { launcher: string } } }): void }[],
+}));
 vi.mock('../plugins/chatbot/embed-src/chatPanel.js', () => ({
   ChatPanel: class {
     host = document.createElement('div');
+    constructor(options: { look: { appearance: { colors: { launcher: string } } } }) {
+      this.host.style.backgroundColor = options.look.appearance.colors.launcher;
+      observed.panels.push(this);
+    }
+    applyAppearance(look: { appearance: { colors: { launcher: string } } }): void {
+      this.host.style.backgroundColor = look.appearance.colors.launcher;
+    }
     open(): void {}
     destroy(): void { this.host.remove(); }
   },
@@ -12,6 +23,9 @@ vi.mock('../plugins/chatbot/embed-src/session.js', () => ({
   ChatSession: class {
     constructor(deps: { page: { takeHandoff(): string | null } }) { observed.code = deps.page.takeHandoff(); }
     hasStoredToken(): boolean { return false; }
+    loadAppearance(): Promise<{ name: string; appearance: { colors: { launcher: string } } } | null> {
+      return observed.lookPromise ?? Promise.resolve(null);
+    }
     destroy(): void {}
   },
 }));
@@ -21,6 +35,8 @@ afterEach(() => {
   document.body.replaceChildren();
   delete window.ElowenChatbot;
   history.replaceState(null, '', '/');
+  observed.lookPromise = null;
+  observed.panels.length = 0;
 });
 
 describe('the handoff fragment at mount', () => {
@@ -46,5 +62,39 @@ describe('the handoff fragment at mount', () => {
     expect(observed.code).toBe(code);
     expect(location.hash).toBe('#section');
     expect(canonicalUrl).toBe(location.href);
+  });
+
+  it('keeps the built-in launcher out of the document until the configured look is applied', async () => {
+    const script = document.createElement('script');
+    script.src = 'https://elowen.example/hooks/chatbot/v2/widget.js';
+    script.dataset.chatbot = 'cbt_0123456789abcdef01234567';
+    document.body.append(script);
+    const { mount } = await import('../plugins/chatbot/embed-src/index.js');
+    let resolveLook!: (value: { name: string; appearance: { colors: { launcher: string } } }) => void;
+    observed.lookPromise = new Promise((resolve) => { resolveLook = resolve; });
+    mount();
+    const panel = observed.panels.at(-1)!;
+    const builtInColor = panel.host.style.backgroundColor;
+    expect(builtInColor).not.toBe('rgb(18, 52, 86)');
+    expect(panel.host.isConnected).toBe(false);
+
+    resolveLook({ name: 'Customer', appearance: { colors: { launcher: '#123456' } } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel.host.isConnected).toBe(true);
+    expect(panel.host.style.backgroundColor).toBe('rgb(18, 52, 86)');
+    expect(panel.host.style.backgroundColor).not.toBe(builtInColor);
+  });
+
+  it('leaves the default panel unattached when the look is refused or unreadable', async () => {
+    const script = document.createElement('script');
+    script.src = 'https://elowen.example/hooks/chatbot/v2/widget.js';
+    script.dataset.chatbot = 'cbt_0123456789abcdef01234567';
+    document.body.append(script);
+    observed.lookPromise = Promise.resolve(null);
+    const { mount } = await import('../plugins/chatbot/embed-src/index.js');
+    mount();
+    const panel = observed.panels.at(-1)!;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel.host.isConnected).toBe(false);
   });
 });
