@@ -111,6 +111,26 @@ describe('GitHub plugin UI', () => {
     expect(screen.getByText('KEEP-ME12')).toBeInTheDocument();
   });
 
+  it('uses the caption token for long repository and pull-request metadata', async () => {
+    const baseOwner = 'an-organization-with-a-very-long-identifier';
+    const baseName = 'a-repository-name-that-will-not-fit-on-a-phone';
+    const headRef = 'feature/a-very-long-branch-name-with-a-ticket-reference';
+    const baseRef = 'release/a-very-long-base-branch-name';
+    use(
+      http.get('/api/plugins/github/api/status', () => HttpResponse.json(connected)),
+      http.get('/api/plugins/github/api/repositories', () => HttpResponse.json({ repositories: [{ ...mappedRepository, mapping: { ...mappedRepository.mapping, baseOwner, baseName, pushOwner: baseOwner, pushName: baseName } }] })),
+      http.get('/api/brain/sessions', () => HttpResponse.json([])),
+      http.get('/api/plugins/github/api/pull-requests', () => HttpResponse.json({ pullRequests: [{ number: 12, title: 'Long metadata', state: 'open', draft: false, headRef, baseRef, mergeableState: 'clean' }] })),
+    );
+    mountProject();
+    const repository = await screen.findByText(`${baseOwner}/${baseName}`);
+    expect(repository).toHaveClass('truncate');
+    const push = screen.getByText(`${strings.pushRepository}: ${baseOwner}/${baseName}`);
+    expect(push).toHaveClass('truncate', 'text-caption');
+    const refs = await screen.findByText(`${headRef} → ${baseRef}`);
+    expect(refs).toHaveClass('truncate', 'text-caption');
+  });
+
   it('keeps repository and session requests off while disconnected', async () => {
     let forbiddenFetches = 0;
     use(
