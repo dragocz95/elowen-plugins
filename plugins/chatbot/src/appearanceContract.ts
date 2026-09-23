@@ -54,6 +54,9 @@ interface AppearanceColors {
   /** Null derives the header ground from the panel. */
   header: string | null;
   visitorBubble: string;
+  visitorBubbleEnd: string | null;
+  headerEnd: string | null;
+  launcherEnd: string | null;
   botBubble: string;
   sendButton: string;
   sendIcon: string;
@@ -75,6 +78,26 @@ interface LauncherAppearance {
    *  as one. */
   presenceDot: boolean;
   presenceDotColor: string;
+  teaser: string;
+  teaserDelay: number;
+  nudge: 'none' | 'bounce' | 'wiggle';
+  nudgeDelay: number;
+  ring: boolean;
+  unreadBadge: boolean;
+}
+
+interface EffectsAppearance {
+  glass: boolean;
+  glassBlur: number;
+  glassOpacity: number;
+  buttonHover: 'lift' | 'fill' | 'shine' | 'glow';
+  buttonIntensity: number;
+  messageEntrance: 'none' | 'fade' | 'slide';
+}
+
+interface SoundAppearance {
+  tone: 'none' | 'drop' | 'chime' | 'pop' | 'bell';
+  volume: number;
 }
 
 interface HeaderAppearance {
@@ -105,6 +128,8 @@ export interface ChatbotAppearance {
   quickButtons: QuickButton[];
   send: SendAppearance;
   launcher: LauncherAppearance;
+  effects: EffectsAppearance;
+  sound: SoundAppearance;
   header: HeaderAppearance;
   typography: TypographyAppearance;
 }
@@ -121,6 +146,8 @@ export interface AppearanceOverrides {
   quickButtons?: QuickButton[];
   send?: Partial<SendAppearance>;
   launcher?: Partial<LauncherAppearance>;
+  effects?: Partial<EffectsAppearance>;
+  sound?: Partial<SoundAppearance>;
   header?: Partial<HeaderAppearance>;
   typography?: Partial<TypographyAppearance>;
 }
@@ -139,6 +166,12 @@ export const APPEARANCE_BOUNDS = {
   launcherSize: { min: 44, max: 72 },
   launcherOffset: { min: 8, max: 40 },
   fontSize: { min: 12, max: 18 },
+  glassBlur: { min: 0, max: 32 },
+  glassOpacity: { min: 60, max: 95 },
+  buttonIntensity: { min: 0, max: 100 },
+  teaserDelay: { min: 2, max: 60 },
+  nudgeDelay: { min: 3, max: 120 },
+  soundVolume: { min: 0, max: 100 },
 } as const;
 
 export const APPEARANCE_INTRO_MAX_CHARS = 400;
@@ -146,6 +179,7 @@ export const APPEARANCE_AVATAR_URL_MAX_CHARS = 2048;
 export const APPEARANCE_SUBTITLE_MAX_CHARS = 80;
 export const APPEARANCE_PLACEHOLDER_MAX_CHARS = 80;
 export const APPEARANCE_LAUNCHER_LABEL_MAX_CHARS = 24;
+export const APPEARANCE_TEASER_MAX_CHARS = 80;
 export const APPEARANCE_QUICK_BUTTONS_MAX = 6;
 export const APPEARANCE_QUICK_BUTTON_MAX_CHARS = 40;
 
@@ -177,48 +211,58 @@ const template = (appearance: Omit<ChatbotAppearance, 'schemaVersion'>): Chatbot
 export const APPEARANCE_TEMPLATES: Readonly<Record<AppearanceTemplateId, ChatbotAppearance>> = {
   elowen: template({
     mode: 'dark', position: 'bottom-right', width: 380, height: 560, radius: 16,
-    colors: { header: null, panel: '#0f1012', visitorBubble: '#ff6a4d', botBubble: '#24262b', sendButton: '#ff6a4d', sendIcon: '#171311', launcher: '#ff6a4d' },
+    colors: { header: null, panel: '#0f1012', visitorBubble: '#ff6a4d', visitorBubbleEnd: null, headerEnd: null, launcherEnd: "#ff9879", botBubble: '#24262b', sendButton: '#ff6a4d', sendIcon: '#171311', launcher: '#ff6a4d' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'arrow', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: '', teaserDelay: 5, nudge: 'none', nudgeDelay: 20, ring: true, unreadBadge: true },
+    effects: { glass: true, glassBlur: 16, glassOpacity: 80, buttonHover: 'glow', buttonIntensity: 40, messageEntrance: 'slide' },
+    sound: { tone: 'drop', volume: 40 },
     header: { subtitle: '', showAvatar: true, showMessageName: true },
     typography: { fontSize: 14, fontFamily: 'system', shadow: 'medium', placeholder: '' },
   }),
   clean: template({
     mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 20,
-    colors: { header: null, panel: '#ffffff', visitorBubble: '#1d4ed8', botBubble: '#e2e8f0', sendButton: '#1d4ed8', sendIcon: '#ffffff', launcher: '#1d4ed8' },
+    colors: { header: null, panel: '#ffffff', visitorBubble: '#1d4ed8', visitorBubbleEnd: null, headerEnd: null, launcherEnd: null, botBubble: '#e2e8f0', sendButton: '#1d4ed8', sendIcon: '#ffffff', launcher: '#1d4ed8' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: '', teaserDelay: 5, nudge: 'bounce', nudgeDelay: 20, ring: false, unreadBadge: true },
+    effects: { glass: true, glassBlur: 12, glassOpacity: 88, buttonHover: 'lift', buttonIntensity: 50, messageEntrance: 'fade' },
+    sound: { tone: 'pop', volume: 40 },
     header: { subtitle: '', showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: 'system', shadow: 'soft', placeholder: '' },
   }),
   mono: template({
     mode: 'dark', position: 'bottom-right', width: 320, height: 520, radius: 4,
     // A light launcher stays visible on dark host pages even with the monochrome template's shadow disabled.
-    colors: { header: null, panel: '#101010', visitorBubble: '#f5f5f5', botBubble: '#2b2b2b', sendButton: '#f5f5f5', sendIcon: '#111111', launcher: '#d4d4d4' },
+    colors: { header: null, panel: '#101010', visitorBubble: '#f5f5f5', visitorBubbleEnd: null, headerEnd: null, launcherEnd: null, botBubble: '#2b2b2b', sendButton: '#f5f5f5', sendIcon: '#111111', launcher: '#d4d4d4' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'arrow', shape: 'rounded-square' },
-    launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: 'speech-bubble', size: 52, offset: 16, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: '', teaserDelay: 5, nudge: 'none', nudgeDelay: 20, ring: false, unreadBadge: true },
+    effects: { glass: false, glassBlur: 0, glassOpacity: 95, buttonHover: 'fill', buttonIntensity: 50, messageEntrance: 'fade' },
+    sound: { tone: 'none', volume: 0 },
     header: { subtitle: '', showAvatar: false, showMessageName: true },
     typography: { fontSize: 14, fontFamily: 'mono', shadow: 'none', placeholder: '' },
   }),
   warm: template({
     mode: 'light', position: 'bottom-right', width: 400, height: 600, radius: 28,
-    colors: { header: null, panel: '#fff7ed', visitorBubble: '#b4532d', botBubble: '#f0dac2', sendButton: '#b4532d', sendIcon: '#ffffff', launcher: '#b4532d' },
+    colors: { header: null, panel: '#fff7ed', visitorBubble: '#b4532d', visitorBubbleEnd: "#d97750", headerEnd: null, launcherEnd: null, botBubble: '#f0dac2', sendButton: '#b4532d', sendIcon: '#ffffff', launcher: '#b4532d' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
-    launcher: { icon: 'speech-bubble', size: 60, offset: 24, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: 'speech-bubble', size: 60, offset: 24, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: '', teaserDelay: 5, nudge: 'wiggle', nudgeDelay: 25, ring: false, unreadBadge: true },
+    effects: { glass: false, glassBlur: 0, glassOpacity: 95, buttonHover: 'lift', buttonIntensity: 40, messageEntrance: 'slide' },
+    sound: { tone: 'chime', volume: 40 },
     header: { subtitle: '', showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: 'humanist', shadow: 'soft', placeholder: '' },
   }),
   indigo: template({
     mode: 'light', position: 'bottom-right', width: 477, height: 711, radius: 22,
-    colors: { panel: '#ffffff', header: '#211741', visitorBubble: '#120832', botBubble: '#eceaf1', sendButton: '#211741', sendIcon: '#ffffff', launcher: '#211741' },
+    colors: { panel: '#ffffff', header: '#211741', visitorBubble: '#120832', visitorBubbleEnd: null, headerEnd: "#47366e", launcherEnd: null, botBubble: '#eceaf1', sendButton: '#211741', sendIcon: '#ffffff', launcher: '#211741' },
     intro: null, avatarUrl: '', quickButtons: [],
     send: { icon: 'paper-plane', shape: 'circle' },
     // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
-    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: 'speech-bubble', size: 56, offset: 20, label: '', presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: '', teaserDelay: 5, nudge: 'none', nudgeDelay: 20, ring: true, unreadBadge: true },
+    effects: { glass: true, glassBlur: 16, glassOpacity: 85, buttonHover: 'shine', buttonIntensity: 50, messageEntrance: 'slide' },
+    sound: { tone: 'drop', volume: 40 },
     header: { subtitle: '', showAvatar: false, showMessageName: false },
     // Use the local sans stack, never download the reference design's Manrope webfont.
     typography: { fontSize: 15, fontFamily: 'system', shadow: 'floating', placeholder: '' },
@@ -346,6 +390,8 @@ function cloneAppearance(value: ChatbotAppearance): ChatbotAppearance {
     quickButtons: value.quickButtons.map((button) => ({ ...button })),
     send: { ...value.send },
     launcher: { ...value.launcher },
+    effects: { ...value.effects },
+    sound: { ...value.sound },
     header: { ...value.header },
     typography: { ...value.typography },
   };
@@ -362,6 +408,8 @@ export function resolveAppearance(stored: StoredAppearance): ChatbotAppearance {
     quickButtons: overrides.quickButtons?.map((button) => ({ ...button })) ?? base.quickButtons,
     send: { ...base.send, ...overrides.send },
     launcher: { ...base.launcher, ...overrides.launcher },
+    effects: { ...base.effects, ...overrides.effects },
+    sound: { ...base.sound, ...overrides.sound },
     header: { ...base.header, ...overrides.header },
     typography: { ...base.typography, ...overrides.typography },
   };
@@ -372,6 +420,8 @@ export type AppearanceOverridePath =
   | `colors.${keyof AppearanceColors}`
   | `send.${keyof SendAppearance}`
   | `launcher.${keyof LauncherAppearance}`
+  | `effects.${keyof EffectsAppearance}`
+  | `sound.${keyof SoundAppearance}`
   | `header.${keyof HeaderAppearance}`
   | `typography.${keyof TypographyAppearance}`;
 
@@ -479,9 +529,11 @@ function readAvatar(value: unknown): Parse<string> {
  *  group's values, and the widget's filter that drops fields a newer deployment added. Two lists would let
  *  a new field validate here and vanish there. */
 const QUICK_BUTTON_KEYS = ['text', 'icon'] as const;
-const COLOR_KEYS = ['panel', 'header', 'visitorBubble', 'botBubble', 'sendButton', 'sendIcon', 'launcher'] as const;
+const COLOR_KEYS = ['panel', 'header', 'visitorBubble', 'visitorBubbleEnd', 'headerEnd', 'launcherEnd', 'botBubble', 'sendButton', 'sendIcon', 'launcher'] as const;
 const SEND_KEYS = ['icon', 'shape'] as const;
-const LAUNCHER_KEYS = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor'] as const;
+const LAUNCHER_KEYS = ['icon', 'size', 'offset', 'label', 'presenceDot', 'presenceDotColor', 'teaser', 'teaserDelay', 'nudge', 'nudgeDelay', 'ring', 'unreadBadge'] as const;
+const EFFECT_KEYS = ['glass', 'glassBlur', 'glassOpacity', 'buttonHover', 'buttonIntensity', 'messageEntrance'] as const;
+const SOUND_KEYS = ['tone', 'volume'] as const;
 const HEADER_KEYS = ['subtitle', 'showAvatar', 'showMessageName'] as const;
 const TYPOGRAPHY_KEYS = ['fontSize', 'fontFamily', 'shadow', 'placeholder'] as const;
 
@@ -524,6 +576,10 @@ function parseColors(input: unknown, partial: boolean): Parse<Partial<Appearance
     if (!(key in object.value)) continue;
     if (key === 'header' && object.value[key] === null) {
       result.header = null;
+      continue;
+    }
+    if (['visitorBubbleEnd', 'headerEnd', 'launcherEnd'].includes(key) && object.value[key] === null) {
+      result[key as 'visitorBubbleEnd' | 'headerEnd' | 'launcherEnd'] = null;
       continue;
     }
     const value = readColor(object.value[key], key);
@@ -591,6 +647,71 @@ function parseLauncher(input: unknown, partial: boolean): Parse<Partial<Launcher
     if (!colour.ok) return colour as Parse<Partial<LauncherAppearance>>;
     result.presenceDotColor = colour.value;
   }
+  for (const key of ['ring', 'unreadBadge'] as const) {
+    if (!(key in object.value)) continue;
+    if (typeof object.value[key] !== 'boolean') return { ok: false, error: `"launcher.${key}" must be a boolean` };
+    result[key] = object.value[key];
+  }
+  if ('teaser' in object.value) {
+    const teaser = readString(object.value.teaser, 'launcher.teaser', APPEARANCE_TEASER_MAX_CHARS);
+    if (!teaser.ok) return teaser as Parse<Partial<LauncherAppearance>>;
+    result.teaser = teaser.value as string;
+  }
+  for (const [key, bounds] of [['teaserDelay', APPEARANCE_BOUNDS.teaserDelay], ['nudgeDelay', APPEARANCE_BOUNDS.nudgeDelay]] as const) {
+    if (!(key in object.value)) continue;
+    if (!integerWithin(object.value[key], bounds.min, bounds.max)) return { ok: false, error: `"launcher.${key}" is outside its bounds` };
+    result[key] = object.value[key] as number;
+  }
+  if ('nudge' in object.value) {
+    const nudge = readEnum(object.value.nudge, ['none', 'bounce', 'wiggle'] as const, 'launcher.nudge');
+    if (!nudge.ok) return nudge;
+    result.nudge = nudge.value;
+  }
+  return { ok: true, value: result };
+}
+
+function parseEffects(input: unknown, partial: boolean): Parse<Partial<EffectsAppearance>> {
+  const object = plainObject(input, EFFECT_KEYS, 'appearance.effects');
+  if (!object.ok) return object;
+  if (!partial) { const present = requiredKeys(object.value, EFFECT_KEYS, 'appearance.effects'); if (!present.ok) return present; }
+  const result: Partial<EffectsAppearance> = {};
+  if ('glass' in object.value) {
+    if (typeof object.value.glass !== 'boolean') return { ok: false, error: '"effects.glass" must be a boolean' };
+    result.glass = object.value.glass;
+  }
+  for (const key of ['glassBlur', 'glassOpacity', 'buttonIntensity'] as const) {
+    if (!(key in object.value)) continue;
+    const bounds = APPEARANCE_BOUNDS[key];
+    if (!integerWithin(object.value[key], bounds.min, bounds.max)) return { ok: false, error: `"effects.${key}" is outside its bounds` };
+    result[key] = object.value[key] as number;
+  }
+  if ('buttonHover' in object.value) {
+    const value = readEnum(object.value.buttonHover, ['lift', 'fill', 'shine', 'glow'] as const, 'effects.buttonHover');
+    if (!value.ok) return value;
+    result.buttonHover = value.value;
+  }
+  if ('messageEntrance' in object.value) {
+    const value = readEnum(object.value.messageEntrance, ['none', 'fade', 'slide'] as const, 'effects.messageEntrance');
+    if (!value.ok) return value;
+    result.messageEntrance = value.value;
+  }
+  return { ok: true, value: result };
+}
+
+function parseSound(input: unknown, partial: boolean): Parse<Partial<SoundAppearance>> {
+  const object = plainObject(input, SOUND_KEYS, 'appearance.sound');
+  if (!object.ok) return object;
+  if (!partial) { const present = requiredKeys(object.value, SOUND_KEYS, 'appearance.sound'); if (!present.ok) return present; }
+  const result: Partial<SoundAppearance> = {};
+  if ('tone' in object.value) {
+    const value = readEnum(object.value.tone, ['none', 'drop', 'chime', 'pop', 'bell'] as const, 'sound.tone');
+    if (!value.ok) return value;
+    result.tone = value.value;
+  }
+  if ('volume' in object.value) {
+    if (!integerWithin(object.value.volume, APPEARANCE_BOUNDS.soundVolume.min, APPEARANCE_BOUNDS.soundVolume.max)) return { ok: false, error: '"sound.volume" is outside its bounds' };
+    result.volume = object.value.volume as number;
+  }
   return { ok: true, value: result };
 }
 
@@ -647,7 +768,7 @@ function parseTypography(input: unknown, partial: boolean): Parse<Partial<Typogr
   return { ok: true, value: result };
 }
 
-const appearanceFields = ['mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons', 'send', 'launcher', 'header', 'typography'] as const;
+const appearanceFields = ['mode', 'position', 'width', 'height', 'radius', 'colors', 'intro', 'avatarUrl', 'quickButtons', 'send', 'launcher', 'header', 'typography', 'effects', 'sound'] as const;
 
 function knownAppearanceFields(input: unknown, allowed: readonly string[]): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
@@ -665,6 +786,8 @@ function appearanceForThisWidget(input: unknown): unknown {
     colors: COLOR_KEYS,
     send: SEND_KEYS,
     launcher: LAUNCHER_KEYS,
+    effects: EFFECT_KEYS,
+    sound: SOUND_KEYS,
     header: HEADER_KEYS,
     typography: TYPOGRAPHY_KEYS,
   };
@@ -709,6 +832,8 @@ function parseOverrides(input: unknown, partial = true): Parse<AppearanceOverrid
   if ('quickButtons' in object.value) { const value = readQuickButtons(object.value.quickButtons); if (!value.ok) return value; result.quickButtons = value.value; }
   if ('send' in object.value) { const value = parseSend(object.value.send, partial); if (!value.ok) return value; result.send = value.value; }
   if ('launcher' in object.value) { const value = parseLauncher(object.value.launcher, partial); if (!value.ok) return value; result.launcher = value.value; }
+  if ('effects' in object.value) { const value = parseEffects(object.value.effects, partial); if (!value.ok) return value; result.effects = value.value; }
+  if ('sound' in object.value) { const value = parseSound(object.value.sound, partial); if (!value.ok) return value; result.sound = value.value; }
   if ('header' in object.value) { const value = parseHeader(object.value.header, partial); if (!value.ok) return value; result.header = value.value; }
   if ('typography' in object.value) { const value = parseTypography(object.value.typography, partial); if (!value.ok) return value; result.typography = value.value; }
   return { ok: true, value: result };

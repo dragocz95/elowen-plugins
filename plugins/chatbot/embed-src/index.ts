@@ -177,6 +177,8 @@ export function mount(): ElowenChatbotApi | null {
 
   panel = new ChatPanel({
     strings,
+    publicId: options.publicId,
+    storage: safeStorage(),
     look: { name: '', appearance: DEFAULT_APPEARANCE },
     // The panel already showed the visitor's message; the conversation is told that it did.
     onVisitorMessage: (text) => void session?.send(text, { shown: true }),

@@ -51,6 +51,7 @@ export function AppearancePreview({ look, label }: {
   // buttons can be tried out and then restyled without the message they sent disappearing.
   useEffect(() => {
     panel.current?.applyAppearance(look);
+    panel.current?.previewEffects();
   }, [look]);
 
   // The room the panel may take. Its own stylesheet clamps to `--cb-avail-w`/`--cb-avail-h`, whose default is

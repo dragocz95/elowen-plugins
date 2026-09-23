@@ -27,6 +27,8 @@ import {
   type ChatbotAppearance,
   type ChatbotLook,
 } from '../src/appearanceContract.js';
+import { effectsCss, buttonStyles, chatEffectsCss, gradient, gradientInk } from './effects.js';
+import { playTone, unlockSound } from './sound.js';
 import type { ChatView } from './session.js';
 import type { WidgetStrings } from './strings.js';
 
@@ -65,6 +67,8 @@ export interface ChatPanelOptions {
    *  credential — the administrator's preview — which has no route to ask and therefore shows the configured
    *  address directly. */
   loadAvatar?: () => Promise<Blob | null>;
+  publicId?: string;
+  storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
 }
 
 /** Text that cannot become markup. The greeting and every quick button come from a configuration, and they
@@ -131,8 +135,9 @@ function introUtilities(
           fontSize: '13px',
           cursor: 'pointer',
           textAlign: 'center',
+          transition: 'transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease',
         },
-        hover: { background: ramp.field },
+        ...buttonStyles(appearance),
       },
     },
   };
@@ -184,7 +189,9 @@ function chatConfig(input: {
       // page that already has Inter keeps it, while every other page falls back to the system stack.
       fontFamily: appearanceFontStack(appearance.typography.fontFamily),
     },
-    inputAreaStyle: { backgroundColor: appearance.colors.panel },
+    inputAreaStyle: { backgroundColor: appearance.effects.glass ? 'transparent' : appearance.colors.panel },
+    scrollButton: { smoothScroll: true, styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
+    hiddenMessages: { smoothScroll: true, clickScroll: 'last', styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
@@ -240,11 +247,13 @@ function chatConfig(input: {
         user: {
           bubble: {
             backgroundColor: appearance.colors.visitorBubble,
-            color: appearanceInk(appearance.colors.visitorBubble),
+            background: gradient(appearance.colors.visitorBubble, appearance.colors.visitorBubbleEnd),
+            color: gradientInk(appearance.colors.visitorBubble, appearance.colors.visitorBubbleEnd),
             borderRadius: `${appearance.radius}px`,
           },
         },
       },
+      loading: { message: { styles: { bubble: { backgroundColor: appearance.colors.botBubble, color: appearanceInk(appearance.colors.botBubble) } } } },
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
@@ -269,6 +278,7 @@ function chatConfig(input: {
   :host([data-answer-active]) .input-button:has([data-cb-stop-icon]),
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
+${chatEffectsCss(appearance)}
 .input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
@@ -296,6 +306,7 @@ function styleText(appearance: ChatbotAppearance): string {
   const inset = appearanceViewportInset(appearance);
   const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === 'dark' ? 'lighter' : 'darker');
   const ramp = appearanceRamp(appearance);
+  const headerInk = gradientInk(ramp.header, appearance.colors.headerEnd);
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
   const corner: Record<typeof appearance.position, string> = {
@@ -344,7 +355,7 @@ function styleText(appearance: ChatbotAppearance): string {
 .launcher {
   position: relative;
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
-  border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  border: 1px solid ${ramp.launcherBorder}; background: ${gradient(appearance.colors.launcher, appearance.colors.launcherEnd)}; color: ${gradientInk(appearance.colors.launcher, appearance.colors.launcherEnd)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
   min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
   box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
@@ -362,18 +373,18 @@ function styleText(appearance: ChatbotAppearance): string {
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.header}; color: ${ramp.headerInk};
+  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${gradient(ramp.header, appearance.colors.headerEnd)}; color: ${headerInk};
 }
 .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
 .header-avatar[hidden], .subtitle[hidden] { display: none; }
-.subtitle { margin: 3px 0 0; color: ${ramp.headerInk}; font-size: .85em; overflow-wrap: anywhere; }
-.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.headerInk}; }
+.subtitle { margin: 3px 0 0; color: ${headerInk}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${headerInk}; }
 .close {
-  border: 1px solid transparent; background: transparent; color: ${ramp.headerInk};
+  border: 1px solid transparent; background: transparent; color: ${headerInk};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
 }
-.close:hover { border-color: ${ramp.headerInk}; }
+.close:hover { border-color: ${headerInk}; }
 .close:focus-visible { outline: 2px solid ${ramp.headerInk}; outline-offset: 1px; }
 .status { margin: 0; padding: 10px 16px; border-bottom: 1px solid ${ramp.border}; background: ${appearance.colors.panel}; color: ${ramp.muted}; font-size: 13px; line-height: 1.45; }
 .status[hidden] { display: none; }
@@ -394,7 +405,17 @@ function styleText(appearance: ChatbotAppearance): string {
 .confirm-no { border: 1px solid ${ramp.border}; background: transparent; color: ${ramp.foreground}; }
 .confirm-no:hover { border-color: ${ramp.muted}; }
 .confirm-actions button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-${presenceDot}`;
+${presenceDot}
+${effectsCss(appearance)}
+.launcher-badge { position: absolute; top: -8px; left: -8px; min-width: 22px; padding: 2px 5px; border-radius: 999px; background: ${ramp.ember}; color: ${appearanceInk(ramp.ember)}; font-size: 12px; line-height: 18px; text-align: center; font-weight: 700; }
+.launcher-teaser { display: flex; align-items: center; gap: 8px; max-width: min(280px, var(--cb-avail-w)); padding: 10px 12px; overflow-wrap: anywhere; border: 1px solid ${ramp.border}; border-radius: 12px; background: ${ramp.raised}; color: ${ramp.foreground}; box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; }
+.launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
+.launcher-teaser button { cursor: pointer; border: 0; background: transparent; color: inherit; font: inherit; font-size: 20px; line-height: 1; }
+.header-actions { display: flex; align-items: center; gap: 4px; }
+.mute { border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 6px; border-radius: 8px; cursor: pointer; font: inherit; }
+.mute:hover, .mute:focus-visible { border-color: ${headerInk}; }
+.mute[hidden] { display: none; }
+`;
 }
 
 export class ChatPanel implements ChatView {
@@ -412,6 +433,20 @@ export class ChatPanel implements ChatView {
   private readonly subtitle: HTMLElement;
   private readonly avatar: HTMLImageElement;
   private readonly launcher: HTMLButtonElement;
+  private readonly teaser: HTMLElement;
+  private readonly badge: HTMLElement;
+  private readonly mute: HTMLButtonElement;
+  private readonly storage: ChatPanelOptions['storage'];
+  private readonly key: string | null;
+  private muted = false;
+  private teaserDismissed = false;
+  private openedEver = false;
+  private unread = 0;
+  private titleBase: string | null = null;
+  private titleWritten: string | null = null;
+  private teaserTimer: ReturnType<typeof setTimeout> | null = null;
+  private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+  private nudgeCount = 0;
   private readonly messages: HTMLElement;
   private readonly confirmBox: HTMLElement;
   private readonly confirmTitle: HTMLElement;
@@ -450,6 +485,11 @@ export class ChatPanel implements ChatView {
     this.onStop = options.onStop;
     this.onOpen = options.onOpen;
     this.loadAvatar = options.loadAvatar;
+    this.storage = options.storage;
+    this.key = options.publicId === undefined ? null : `elowen-chatbot:${options.publicId}`;
+    this.muted = this.readPreference('muted');
+    this.teaserDismissed = this.readPreference('teaser');
+    document.addEventListener('visibilitychange', this.visibilityChanged);
 
     this.host = document.createElement('div');
     this.host.setAttribute('data-elowen-chatbot', 'root');
@@ -491,7 +531,18 @@ export class ChatPanel implements ChatView {
     const headings = document.createElement('div');
     headings.append(this.title, this.subtitle);
     identity.append(this.avatar, headings);
-    header.append(identity, close);
+    const headerActions = document.createElement('div');
+    headerActions.className = 'header-actions';
+    this.mute = document.createElement('button');
+    this.mute.type = 'button';
+    this.mute.className = 'mute';
+    this.mute.addEventListener('click', () => {
+      this.muted = !this.muted;
+      this.writePreference('muted', this.muted);
+      this.syncMute();
+    });
+    headerActions.append(this.mute, close);
+    header.append(identity, headerActions);
 
     this.status = document.createElement('p');
     this.status.className = 'status';
@@ -525,14 +576,27 @@ export class ChatPanel implements ChatView {
     this.confirmBox.append(this.confirmTitle, confirmBody, actions);
 
     this.panel.append(header, this.status, this.messages, this.confirmBox);
-    root.append(this.panel, this.launcher);
+    this.badge = document.createElement('span');
+    this.badge.className = 'launcher-badge';
+    this.badge.hidden = true;
+    this.teaser = document.createElement('div');
+    this.teaser.className = 'launcher-teaser';
+    this.teaser.hidden = true;
+    const teaserText = document.createElement('span');
+    const dismissTeaser = document.createElement('button');
+    dismissTeaser.type = 'button';
+    dismissTeaser.textContent = '×';
+    dismissTeaser.setAttribute('aria-label', this.strings.teaserClose);
+    dismissTeaser.addEventListener('click', () => this.dismissTeaser());
+    this.teaser.append(teaserText, dismissTeaser);
+    root.append(this.panel, this.teaser, this.launcher);
     shadow.append(this.style, root);
 
     this.applyChrome();
     this.messages.append(this.chat);
     this.layoutObserver.observe(this.chat);
 
-    this.launcher.addEventListener('click', () => this.toggle(!this.isOpen()));
+    this.launcher.addEventListener('click', () => { unlockSound(); this.toggle(!this.isOpen()); });
     close.addEventListener('click', () => this.toggle(false));
     // The two answers are wired to REAL clicks. A page can dispatch a click on this button as often as it
     // likes and `isTrusted` is false for every one of them: a submit that could be triggered that way would
@@ -575,6 +639,7 @@ export class ChatPanel implements ChatView {
     }
     this.look = look;
     this.applyChrome();
+    this.scheduleAttention();
     // Asked for here and NOT waited for: the panel is drawn from the look alone, so a slow or dead image host
     // cannot hold up a panel a visitor is trying to use. Until the bytes arrive the avatar stays hidden,
     // which is exactly what it did before this route existed.
@@ -588,6 +653,17 @@ export class ChatPanel implements ChatView {
     }
     if (this.pristineChat()) this.reconfigureChat();
     else this.redrawChat();
+  }
+
+  /** Show delayed launcher effects immediately only in the administrator's sandboxed preview. */
+  previewEffects(): void {
+    if (this.key !== null) return;
+    this.teaser.hidden = this.look.appearance.launcher.teaser === '';
+    this.launcher.classList.remove('launcher-nudge-bounce', 'launcher-nudge-wiggle');
+    if (this.look.appearance.launcher.nudge !== 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      void this.launcher.offsetWidth;
+      this.launcher.classList.add(`launcher-nudge-${this.look.appearance.launcher.nudge}`);
+    }
   }
 
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
@@ -638,6 +714,7 @@ export class ChatPanel implements ChatView {
       void Promise.resolve(written).then(() => signals.onClose(), () => signals.onClose());
     }
     this.answerIndex = null;
+    if (!this.isOpen() || document.hidden) this.markUnread();
     this.flushRedraw();
   }
 
@@ -697,6 +774,9 @@ export class ChatPanel implements ChatView {
 
   destroy(): void {
     this.destroyed = true;
+    this.clearAttentionTimers();
+    document.removeEventListener('visibilitychange', this.visibilityChanged);
+    this.resetUnread();
     this.releaseAvatarObjectUrl();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
@@ -855,6 +935,17 @@ export class ChatPanel implements ChatView {
     this.subtitle.hidden = appearance.header.subtitle === '';
     this.showAvatar(this.avatarSource());
     this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.ring) {
+      const ring = document.createElement('span');
+      ring.className = 'launcher-ring';
+      ring.setAttribute('aria-hidden', 'true');
+      this.launcher.append(ring);
+    }
+    this.launcher.append(this.badge);
+    this.teaser.firstElementChild!.textContent = appearance.launcher.teaser;
+    this.teaser.hidden = this.teaserDismissed || this.isOpen() || appearance.launcher.teaser === '';
+    this.syncBadge();
+    this.syncMute();
     if (appearance.launcher.presenceDot) {
       const dot = document.createElement('span');
       dot.className = 'launcher-dot';
@@ -970,10 +1061,94 @@ export class ChatPanel implements ChatView {
     this.status.classList.remove('status-error');
   }
 
+  private readPreference(suffix: string): boolean {
+    if (this.key === null || !this.storage) return false;
+    try { return this.storage.getItem(`${this.key}:${suffix}`) === '1'; }
+    catch { return false; }
+  }
+
+  private writePreference(suffix: string, value: boolean): void {
+    if (this.key === null || !this.storage) return;
+    try { this.storage.setItem(`${this.key}:${suffix}`, value ? '1' : '0'); }
+    catch { /* Storage is optional; the current page still works. */ }
+  }
+
+  private syncMute(): void {
+    this.mute.hidden = this.look.appearance.sound.tone === 'none';
+    this.mute.textContent = this.muted ? '♪̸' : '♪';
+    this.mute.setAttribute('aria-label', this.muted ? this.strings.unmute : this.strings.mute);
+    this.mute.setAttribute('aria-pressed', this.muted ? 'true' : 'false');
+  }
+
+  private dismissTeaser(): void {
+    this.teaser.hidden = true;
+    this.teaserDismissed = true;
+    this.writePreference('teaser', true);
+  }
+
+  private clearAttentionTimers(): void {
+    if (this.teaserTimer !== null) clearTimeout(this.teaserTimer);
+    if (this.nudgeTimer !== null) clearTimeout(this.nudgeTimer);
+    this.teaserTimer = null;
+    this.nudgeTimer = null;
+  }
+
+  private scheduleAttention(): void {
+    this.clearAttentionTimers();
+    const { launcher } = this.look.appearance;
+    this.teaser.hidden = true;
+    if (this.isOpen() || this.openedEver) return;
+    if (launcher.teaser !== '' && !this.teaserDismissed) {
+      this.teaserTimer = setTimeout(() => { if (!this.isOpen() && !this.destroyed) this.teaser.hidden = false; }, this.key === null ? 0 : launcher.teaserDelay * 1000);
+    }
+    if (launcher.nudge === 'none' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const nudge = () => {
+      if (this.isOpen() || this.openedEver || this.destroyed) return;
+      this.launcher.classList.remove('launcher-nudge-bounce', 'launcher-nudge-wiggle');
+      void this.launcher.offsetWidth;
+      this.launcher.classList.add(`launcher-nudge-${launcher.nudge}`);
+      this.nudgeCount++;
+      if (this.nudgeCount < 2) this.nudgeTimer = setTimeout(nudge, launcher.nudgeDelay * 1000);
+    };
+    this.nudgeTimer = setTimeout(nudge, this.key === null ? 0 : launcher.nudgeDelay * 1000);
+  }
+
+  private readonly visibilityChanged = (): void => {
+    if (!document.hidden) this.resetUnread();
+  };
+
+  private markUnread(): void {
+    const { launcher, sound } = this.look.appearance;
+    if (sound.tone !== 'none' && !this.muted) playTone(sound.tone, sound.volume);
+    if (!launcher.unreadBadge || this.key === null) return;
+    if (this.unread === 0 || document.title !== this.titleWritten) this.titleBase = document.title;
+    this.unread++;
+    this.syncBadge();
+    this.titleWritten = this.titleBase === '' ? `(${this.unread})` : `(${this.unread}) ${this.titleBase}`;
+    document.title = this.titleWritten;
+  }
+
+  private syncBadge(): void {
+    this.badge.hidden = !this.look.appearance.launcher.unreadBadge || this.unread === 0;
+    this.badge.textContent = this.unread === 0 ? '' : this.unread > 99 ? '99+' : String(this.unread);
+  }
+
+  private resetUnread(): void {
+    if (this.titleWritten !== null && document.title === this.titleWritten && this.titleBase !== null) document.title = this.titleBase;
+    this.titleWritten = null;
+    this.titleBase = null;
+    this.unread = 0;
+    this.syncBadge();
+  }
+
   private toggle(open: boolean): void {
     this.panel.hidden = !open;
     this.launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!open) return;
+    this.openedEver = true;
+    this.dismissTeaser();
+    this.clearAttentionTimers();
+    this.resetUnread();
     this.chat.focusInput();
     this.flushScroll();
     // Opening is the visitor's own act, and the first moment the widget may ask the server for anything: a
@@ -996,6 +1171,7 @@ export class ChatPanel implements ChatView {
       signals.onClose();
       return;
     }
+    unlockSound();
     this.signals = signals;
     this.answerIndex = null;
     signals.stopClicked.listener = () => this.stopAnswer();

@@ -14,6 +14,9 @@ export interface WidgetStrings {
   /** The panel's heading when the chatbot has no display name. */
   title: string;
   close: string;
+  teaserClose: string;
+  mute: string;
+  unmute: string;
   stop: string;
   /** The empty input's hint. */
   placeholder: string;
@@ -51,6 +54,9 @@ const CS: WidgetStrings = {
   launcher: 'Otevřít chat',
   title: 'Chat',
   close: 'Zavřít',
+  teaserClose: 'Zavřít nabídku',
+  mute: 'Vypnout zvuk',
+  unmute: 'Zapnout zvuk',
   stop: 'Zastavit příjem odpovědi',
   placeholder: 'Napište zprávu',
   intro: 'Dobrý den. Pomohu vám s vyplněním formuláře na této stránce.',
@@ -75,6 +81,9 @@ const SK: WidgetStrings = {
   launcher: 'Otvoriť chat',
   title: 'Chat',
   close: 'Zavrieť',
+  teaserClose: 'Zavrieť ponuku',
+  mute: 'Vypnúť zvuk',
+  unmute: 'Zapnúť zvuk',
   stop: 'Zastaviť príjem odpovede',
   placeholder: 'Napíšte správu',
   intro: 'Dobrý deň. Pomôžem vám s vyplnením formulára na tejto stránke.',
@@ -99,6 +108,9 @@ const EN: WidgetStrings = {
   launcher: 'Open chat',
   title: 'Chat',
   close: 'Close',
+  teaserClose: 'Close invitation',
+  mute: 'Mute sound',
+  unmute: 'Unmute sound',
   stop: 'Stop receiving the answer',
   placeholder: 'Write a message',
   intro: 'Hello. I can help you fill in the form on this page.',

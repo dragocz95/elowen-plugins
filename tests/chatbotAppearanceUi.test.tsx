@@ -6,6 +6,7 @@ import type { LimitValues } from '../plugins/chatbot/src/limits';
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/types';
 import { detectLocale, widgetStrings } from '../plugins/chatbot/embed-src/strings';
+import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
@@ -130,7 +131,9 @@ async function openEditor(): Promise<HTMLElement> {
   fireEvent.click(within(drawer).getByRole('button', { name: strings.appearanceAction! }));
   await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(2));
   const dialogs = screen.getAllByRole('dialog');
-  return dialogs[dialogs.length - 1]!;
+  const dialog = dialogs[dialogs.length - 1]!;
+  await waitFor(() => expect(dialog.querySelector('[data-elowen-chatbot]')).not.toBeNull());
+  return dialog;
 }
 
 /** The live preview's panel, re-read every time: the widget client mounted in its own shadow root inside the
@@ -156,7 +159,90 @@ const nameField = (dialog: HTMLElement, value: string): HTMLInputElement => with
 const slider = (dialog: HTMLElement, name: string): HTMLInputElement =>
   within(dialog).getByRole('slider', { name }) as HTMLInputElement;
 
+describe('visitor attention', () => {
+  it('uses native deep-chat scrolling and keeps sound gated to an unseen live answer', async () => {
+    const previousAudio = window.AudioContext;
+    const start = vi.fn();
+    const resume = vi.fn().mockResolvedValue(undefined);
+    const oscillator = { type: 'sine', frequency: { setValueAtTime: vi.fn() }, connect: vi.fn(), start, stop: vi.fn() };
+    class AudioContextStub {
+      state = 'running';
+      currentTime = 0;
+      destination = {};
+      resume = resume;
+      createOscillator = () => oscillator;
+      createGain = () => ({ gain: { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() }, connect: vi.fn() });
+    }
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: AudioContextStub });
+    const storage = new Map<string, string>();
+    const panel = new ChatPanel({ look: { name: 'Help', appearance: DEFAULT_APPEARANCE }, strings: widget, publicId: 'attention-test', storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, value); } }, onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & Record<string, any>;
+    expect(chat.scrollButton.smoothScroll).toBe(true);
+    expect(chat.hiddenMessages.clickScroll).toBe('last');
+    const initialTitle = document.title;
+    document.title = 'Host page';
+    try {
+      panel.restore([{ role: 'ai', text: 'Old answer' }]);
+      expect(start).not.toHaveBeenCalled();
+      panel.host.shadowRoot!.querySelector<HTMLButtonElement>('.launcher')!.click();
+      panel.beginAnswer();
+      panel.finishAnswer('Visible answer');
+      expect(start).not.toHaveBeenCalled();
+      panel.close();
+      panel.beginAnswer();
+      panel.finishAnswer('First answer');
+      expect(start).toHaveBeenCalledTimes(2);
+      expect(panel.host.shadowRoot!.querySelector('.launcher-badge')?.textContent).toBe('1');
+      expect(document.title).toBe('(1) Host page');
+      panel.beginAnswer();
+      panel.finishAnswer('Second answer');
+      expect(document.title).toBe('(2) Host page');
+      panel.open();
+      expect(document.title).toBe('Host page');
+      panel.close();
+      panel.beginAnswer();
+      panel.finishAnswer('Third answer');
+      document.title = 'Changed by page';
+      panel.open();
+      expect(document.title).toBe('Changed by page');
+      panel.host.shadowRoot!.querySelector<HTMLButtonElement>('.mute')!.click();
+      panel.close();
+      start.mockClear();
+      panel.beginAnswer();
+      panel.finishAnswer('Muted answer');
+      expect(start).not.toHaveBeenCalled();
+      expect(storage.get('elowen-chatbot:attention-test:muted')).toBe('1');
+    } finally {
+      panel.destroy();
+      document.title = initialTitle;
+      Object.defineProperty(window, 'AudioContext', { configurable: true, value: previousAudio });
+    }
+  });
+});
+
 describe('the appearance editor', () => {
+  it('writes effects, teaser and sound overrides and resets a gradient end to solid', async () => {
+    const dialog = await openEditor();
+    fireEvent.change(slider(dialog, strings.appearanceGlassBlur!), { target: { value: '22' } });
+    fireEvent.click(within(dialog).getByRole('switch', { name: strings.appearanceGlass! }));
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceHover! }), { target: { value: 'shine' } });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceEntrance! }), { target: { value: 'fade' } });
+    fireEvent.change(within(dialog).getByLabelText(strings.appearanceGradientVisitor!), { target: { value: '#345678' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: strings.appearanceTeaser! }), { target: { value: 'Need a hand?' } });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceTone! }), { target: { value: 'bell' } });
+    const preview = previewPanel(dialog);
+    expect(preview.chat.messageStyles.default.user.bubble.background).toContain('linear-gradient');
+    expect(preview.chat.auxiliaryStyle).toContain('cb-shine');
+    await waitFor(() => expect(saved.body?.appearance).toMatchObject({ overrides: {
+      colors: { visitorBubbleEnd: '#345678' }, effects: { glass: false, glassBlur: 22, buttonHover: 'shine', messageEntrance: 'fade' },
+      launcher: { teaser: 'Need a hand?' }, sound: { tone: 'bell' },
+    } }), { timeout: 3000 });
+    fireEvent.click(within(dialog).getByRole('button', { name: `${strings.appearanceGradientVisitor}: ${strings.appearanceSolid}` }));
+    expect(previewPanel(dialog).chat.messageStyles.default.user.bubble.background).toBe(DEFAULT_APPEARANCE.colors.visitorBubble);
+    await waitFor(() => expect(saved.body?.appearance).toMatchObject({ overrides: { colors: { visitorBubbleEnd: null } } }));
+  });
+
   it('opens on the stored look, with the widget\'s own panel already drawn beside the controls', async () => {
     const dialog = await openEditor();
     // Every control the agreed set asks for is here, and none of them is a box of CSS.
@@ -256,15 +342,15 @@ describe('the appearance editor', () => {
     const templateRamp = appearanceRamp(APPEARANCE_TEMPLATES.indigo);
     expect(header).toHaveValue(templateRamp.header);
     const preview = previewPanel(dialog);
-    expect(preview.style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
+    expect(preview.style.textContent).toContain(`background: linear-gradient(135deg, ${templateRamp.header}, ${APPEARANCE_TEMPLATES.indigo.colors.headerEnd}); color: ${templateRamp.headerInk}`);
     expect(preview.host.shadowRoot!.querySelector('.header-avatar')).toHaveAttribute('hidden');
     expect(preview.host.shadowRoot!.querySelector('.subtitle')).toHaveAttribute('hidden');
     fireEvent.change(header, { target: { value: '#442255' } });
-    expect(previewPanel(dialog).style.textContent).toContain('background: #442255');
+    expect(previewPanel(dialog).style.textContent).toContain(`background: linear-gradient(135deg, #442255, ${APPEARANCE_TEMPLATES.indigo.colors.headerEnd})`);
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: { colors: { header: '#442255' } } }));
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorHeader!) }));
     expect(header).toHaveValue(templateRamp.header);
-    expect(previewPanel(dialog).style.textContent).toContain(`background: ${templateRamp.header}; color: ${templateRamp.headerInk}`);
+    expect(previewPanel(dialog).style.textContent).toContain(`background: linear-gradient(135deg, ${templateRamp.header}, ${APPEARANCE_TEMPLATES.indigo.colors.headerEnd}); color: ${templateRamp.headerInk}`);
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: {} }));
   });
 
@@ -294,7 +380,7 @@ describe('the appearance editor', () => {
     expect(preview.chat.submitButtonStyles.submit.svg.content).toBe(appearanceIconSvg('calendar'));
     expect(preview.chat.submitButtonStyles.disabled.svg.content).toBe(appearanceIconSvg('calendar'));
     expect(preview.chat.submitButtonStyles.submit.svg.styles.default.color).toBe('#abcdef');
-    expect(preview.style.textContent).toContain('background: #123456');
+    expect(preview.style.textContent).toContain(`background: linear-gradient(135deg, #123456, ${DEFAULT_APPEARANCE.colors.launcherEnd})`);
     expect(preview.chat.submitButtonStyles.submit.container.default.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.sendButton);
     await waitFor(() => expect(saved.body).not.toBeNull());
   });

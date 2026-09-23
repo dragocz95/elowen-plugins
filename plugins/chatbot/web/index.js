@@ -394,6 +394,21 @@ var SlidersHorizontal = createLucideIcon("SlidersHorizontal", [
   ["line", { x1: "16", x2: "16", y1: "18", y2: "22", key: "1lctlv" }]
 ]);
 
+// node_modules/lucide-react/dist/esm/icons/sparkles.js
+var Sparkles = createLucideIcon("Sparkles", [
+  [
+    "path",
+    {
+      d: "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z",
+      key: "4pj2yx"
+    }
+  ],
+  ["path", { d: "M20 3v4", key: "1olli1" }],
+  ["path", { d: "M22 5h-4", key: "1gvqau" }],
+  ["path", { d: "M4 17v2", key: "vumght" }],
+  ["path", { d: "M5 18H3", key: "zchphs" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/timer.js
 var Timer = createLucideIcon("Timer", [
   ["line", { x1: "10", x2: "14", y1: "2", y2: "2", key: "14vaq8" }],
@@ -429,6 +444,19 @@ var Users = createLucideIcon("Users", [
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
   ["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87", key: "kshegd" }],
   ["path", { d: "M16 3.13a4 4 0 0 1 0 7.75", key: "1da9ce" }]
+]);
+
+// node_modules/lucide-react/dist/esm/icons/volume-2.js
+var Volume2 = createLucideIcon("Volume2", [
+  [
+    "path",
+    {
+      d: "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z",
+      key: "uqj9uw"
+    }
+  ],
+  ["path", { d: "M16 9a5 5 0 0 1 0 6", key: "1q6k2b" }],
+  ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728", key: "ijwkga" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/wrench.js
@@ -884,13 +912,20 @@ var APPEARANCE_BOUNDS = {
   radius: { min: 0, max: 32 },
   launcherSize: { min: 44, max: 72 },
   launcherOffset: { min: 8, max: 40 },
-  fontSize: { min: 12, max: 18 }
+  fontSize: { min: 12, max: 18 },
+  glassBlur: { min: 0, max: 32 },
+  glassOpacity: { min: 60, max: 95 },
+  buttonIntensity: { min: 0, max: 100 },
+  teaserDelay: { min: 2, max: 60 },
+  nudgeDelay: { min: 3, max: 120 },
+  soundVolume: { min: 0, max: 100 }
 };
 var APPEARANCE_INTRO_MAX_CHARS = 400;
 var APPEARANCE_AVATAR_URL_MAX_CHARS = 2048;
 var APPEARANCE_SUBTITLE_MAX_CHARS = 80;
 var APPEARANCE_PLACEHOLDER_MAX_CHARS = 80;
 var APPEARANCE_LAUNCHER_LABEL_MAX_CHARS = 24;
+var APPEARANCE_TEASER_MAX_CHARS = 80;
 var APPEARANCE_QUICK_BUTTONS_MAX = 6;
 var APPEARANCE_QUICK_BUTTON_MAX_CHARS = 40;
 var APPEARANCE_FONT_STACKS = {
@@ -918,12 +953,14 @@ var APPEARANCE_TEMPLATES = {
     width: 380,
     height: 560,
     radius: 16,
-    colors: { header: null, panel: "#0f1012", visitorBubble: "#ff6a4d", botBubble: "#24262b", sendButton: "#ff6a4d", sendIcon: "#171311", launcher: "#ff6a4d" },
+    colors: { header: null, panel: "#0f1012", visitorBubble: "#ff6a4d", visitorBubbleEnd: null, headerEnd: null, launcherEnd: "#ff9879", botBubble: "#24262b", sendButton: "#ff6a4d", sendIcon: "#171311", launcher: "#ff6a4d" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "arrow", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: "", teaserDelay: 5, nudge: "none", nudgeDelay: 20, ring: true, unreadBadge: true },
+    effects: { glass: true, glassBlur: 16, glassOpacity: 80, buttonHover: "glow", buttonIntensity: 40, messageEntrance: "slide" },
+    sound: { tone: "drop", volume: 40 },
     header: { subtitle: "", showAvatar: true, showMessageName: true },
     typography: { fontSize: 14, fontFamily: "system", shadow: "medium", placeholder: "" }
   }),
@@ -933,12 +970,14 @@ var APPEARANCE_TEMPLATES = {
     width: 400,
     height: 600,
     radius: 20,
-    colors: { header: null, panel: "#ffffff", visitorBubble: "#1d4ed8", botBubble: "#e2e8f0", sendButton: "#1d4ed8", sendIcon: "#ffffff", launcher: "#1d4ed8" },
+    colors: { header: null, panel: "#ffffff", visitorBubble: "#1d4ed8", visitorBubbleEnd: null, headerEnd: null, launcherEnd: null, botBubble: "#e2e8f0", sendButton: "#1d4ed8", sendIcon: "#ffffff", launcher: "#1d4ed8" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: "", teaserDelay: 5, nudge: "bounce", nudgeDelay: 20, ring: false, unreadBadge: true },
+    effects: { glass: true, glassBlur: 12, glassOpacity: 88, buttonHover: "lift", buttonIntensity: 50, messageEntrance: "fade" },
+    sound: { tone: "pop", volume: 40 },
     header: { subtitle: "", showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: "system", shadow: "soft", placeholder: "" }
   }),
@@ -949,12 +988,14 @@ var APPEARANCE_TEMPLATES = {
     height: 520,
     radius: 4,
     // A light launcher stays visible on dark host pages even with the monochrome template's shadow disabled.
-    colors: { header: null, panel: "#101010", visitorBubble: "#f5f5f5", botBubble: "#2b2b2b", sendButton: "#f5f5f5", sendIcon: "#111111", launcher: "#d4d4d4" },
+    colors: { header: null, panel: "#101010", visitorBubble: "#f5f5f5", visitorBubbleEnd: null, headerEnd: null, launcherEnd: null, botBubble: "#2b2b2b", sendButton: "#f5f5f5", sendIcon: "#111111", launcher: "#d4d4d4" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "arrow", shape: "rounded-square" },
-    launcher: { icon: "speech-bubble", size: 52, offset: 16, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: "speech-bubble", size: 52, offset: 16, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: "", teaserDelay: 5, nudge: "none", nudgeDelay: 20, ring: false, unreadBadge: true },
+    effects: { glass: false, glassBlur: 0, glassOpacity: 95, buttonHover: "fill", buttonIntensity: 50, messageEntrance: "fade" },
+    sound: { tone: "none", volume: 0 },
     header: { subtitle: "", showAvatar: false, showMessageName: true },
     typography: { fontSize: 14, fontFamily: "mono", shadow: "none", placeholder: "" }
   }),
@@ -964,12 +1005,14 @@ var APPEARANCE_TEMPLATES = {
     width: 400,
     height: 600,
     radius: 28,
-    colors: { header: null, panel: "#fff7ed", visitorBubble: "#b4532d", botBubble: "#f0dac2", sendButton: "#b4532d", sendIcon: "#ffffff", launcher: "#b4532d" },
+    colors: { header: null, panel: "#fff7ed", visitorBubble: "#b4532d", visitorBubbleEnd: "#d97750", headerEnd: null, launcherEnd: null, botBubble: "#f0dac2", sendButton: "#b4532d", sendIcon: "#ffffff", launcher: "#b4532d" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
-    launcher: { icon: "speech-bubble", size: 60, offset: 24, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: "speech-bubble", size: 60, offset: 24, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: "", teaserDelay: 5, nudge: "wiggle", nudgeDelay: 25, ring: false, unreadBadge: true },
+    effects: { glass: false, glassBlur: 0, glassOpacity: 95, buttonHover: "lift", buttonIntensity: 40, messageEntrance: "slide" },
+    sound: { tone: "chime", volume: 40 },
     header: { subtitle: "", showAvatar: true, showMessageName: false },
     typography: { fontSize: 15, fontFamily: "humanist", shadow: "soft", placeholder: "" }
   }),
@@ -979,13 +1022,15 @@ var APPEARANCE_TEMPLATES = {
     width: 477,
     height: 711,
     radius: 22,
-    colors: { panel: "#ffffff", header: "#211741", visitorBubble: "#120832", botBubble: "#eceaf1", sendButton: "#211741", sendIcon: "#ffffff", launcher: "#211741" },
+    colors: { panel: "#ffffff", header: "#211741", visitorBubble: "#120832", visitorBubbleEnd: null, headerEnd: "#47366e", launcherEnd: null, botBubble: "#eceaf1", sendButton: "#211741", sendIcon: "#ffffff", launcher: "#211741" },
     intro: null,
     avatarUrl: "",
     quickButtons: [],
     send: { icon: "paper-plane", shape: "circle" },
     // The current geometry contract uses one shared edge offset, including the 20 px bottom gap.
-    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR },
+    launcher: { icon: "speech-bubble", size: 56, offset: 20, label: "", presenceDot: false, presenceDotColor: PRESENCE_DOT_COLOR, teaser: "", teaserDelay: 5, nudge: "none", nudgeDelay: 20, ring: true, unreadBadge: true },
+    effects: { glass: true, glassBlur: 16, glassOpacity: 85, buttonHover: "shine", buttonIntensity: 50, messageEntrance: "slide" },
+    sound: { tone: "drop", volume: 40 },
     header: { subtitle: "", showAvatar: false, showMessageName: false },
     // Use the local sans stack, never download the reference design's Manrope webfont.
     typography: { fontSize: 15, fontFamily: "system", shadow: "floating", placeholder: "" }
@@ -1072,6 +1117,8 @@ function cloneAppearance(value) {
     quickButtons: value.quickButtons.map((button) => ({ ...button })),
     send: { ...value.send },
     launcher: { ...value.launcher },
+    effects: { ...value.effects },
+    sound: { ...value.sound },
     header: { ...value.header },
     typography: { ...value.typography }
   };
@@ -1087,6 +1134,8 @@ function resolveAppearance(stored) {
     quickButtons: overrides.quickButtons?.map((button) => ({ ...button })) ?? base.quickButtons,
     send: { ...base.send, ...overrides.send },
     launcher: { ...base.launcher, ...overrides.launcher },
+    effects: { ...base.effects, ...overrides.effects },
+    sound: { ...base.sound, ...overrides.sound },
     header: { ...base.header, ...overrides.header },
     typography: { ...base.typography, ...overrides.typography }
   };
@@ -1168,9 +1217,11 @@ function readAvatar(value) {
   }
 }
 var QUICK_BUTTON_KEYS = ["text", "icon"];
-var COLOR_KEYS = ["panel", "header", "visitorBubble", "botBubble", "sendButton", "sendIcon", "launcher"];
+var COLOR_KEYS = ["panel", "header", "visitorBubble", "visitorBubbleEnd", "headerEnd", "launcherEnd", "botBubble", "sendButton", "sendIcon", "launcher"];
 var SEND_KEYS = ["icon", "shape"];
-var LAUNCHER_KEYS = ["icon", "size", "offset", "label", "presenceDot", "presenceDotColor"];
+var LAUNCHER_KEYS = ["icon", "size", "offset", "label", "presenceDot", "presenceDotColor", "teaser", "teaserDelay", "nudge", "nudgeDelay", "ring", "unreadBadge"];
+var EFFECT_KEYS = ["glass", "glassBlur", "glassOpacity", "buttonHover", "buttonIntensity", "messageEntrance"];
+var SOUND_KEYS = ["tone", "volume"];
 var HEADER_KEYS = ["subtitle", "showAvatar", "showMessageName"];
 var TYPOGRAPHY_KEYS = ["fontSize", "fontFamily", "shadow", "placeholder"];
 function readQuickButtons(value) {
@@ -1211,6 +1262,10 @@ function parseColors(input, partial) {
     if (!(key in object2.value)) continue;
     if (key === "header" && object2.value[key] === null) {
       result.header = null;
+      continue;
+    }
+    if (["visitorBubbleEnd", "headerEnd", "launcherEnd"].includes(key) && object2.value[key] === null) {
+      result[key] = null;
       continue;
     }
     const value = readColor(object2.value[key], key);
@@ -1276,6 +1331,75 @@ function parseLauncher(input, partial) {
     if (!colour.ok) return colour;
     result.presenceDotColor = colour.value;
   }
+  for (const key of ["ring", "unreadBadge"]) {
+    if (!(key in object2.value)) continue;
+    if (typeof object2.value[key] !== "boolean") return { ok: false, error: `"launcher.${key}" must be a boolean` };
+    result[key] = object2.value[key];
+  }
+  if ("teaser" in object2.value) {
+    const teaser = readString(object2.value.teaser, "launcher.teaser", APPEARANCE_TEASER_MAX_CHARS);
+    if (!teaser.ok) return teaser;
+    result.teaser = teaser.value;
+  }
+  for (const [key, bounds] of [["teaserDelay", APPEARANCE_BOUNDS.teaserDelay], ["nudgeDelay", APPEARANCE_BOUNDS.nudgeDelay]]) {
+    if (!(key in object2.value)) continue;
+    if (!integerWithin(object2.value[key], bounds.min, bounds.max)) return { ok: false, error: `"launcher.${key}" is outside its bounds` };
+    result[key] = object2.value[key];
+  }
+  if ("nudge" in object2.value) {
+    const nudge = readEnum(object2.value.nudge, ["none", "bounce", "wiggle"], "launcher.nudge");
+    if (!nudge.ok) return nudge;
+    result.nudge = nudge.value;
+  }
+  return { ok: true, value: result };
+}
+function parseEffects(input, partial) {
+  const object2 = plainObject(input, EFFECT_KEYS, "appearance.effects");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, EFFECT_KEYS, "appearance.effects");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("glass" in object2.value) {
+    if (typeof object2.value.glass !== "boolean") return { ok: false, error: '"effects.glass" must be a boolean' };
+    result.glass = object2.value.glass;
+  }
+  for (const key of ["glassBlur", "glassOpacity", "buttonIntensity"]) {
+    if (!(key in object2.value)) continue;
+    const bounds = APPEARANCE_BOUNDS[key];
+    if (!integerWithin(object2.value[key], bounds.min, bounds.max)) return { ok: false, error: `"effects.${key}" is outside its bounds` };
+    result[key] = object2.value[key];
+  }
+  if ("buttonHover" in object2.value) {
+    const value = readEnum(object2.value.buttonHover, ["lift", "fill", "shine", "glow"], "effects.buttonHover");
+    if (!value.ok) return value;
+    result.buttonHover = value.value;
+  }
+  if ("messageEntrance" in object2.value) {
+    const value = readEnum(object2.value.messageEntrance, ["none", "fade", "slide"], "effects.messageEntrance");
+    if (!value.ok) return value;
+    result.messageEntrance = value.value;
+  }
+  return { ok: true, value: result };
+}
+function parseSound(input, partial) {
+  const object2 = plainObject(input, SOUND_KEYS, "appearance.sound");
+  if (!object2.ok) return object2;
+  if (!partial) {
+    const present = requiredKeys(object2.value, SOUND_KEYS, "appearance.sound");
+    if (!present.ok) return present;
+  }
+  const result = {};
+  if ("tone" in object2.value) {
+    const value = readEnum(object2.value.tone, ["none", "drop", "chime", "pop", "bell"], "sound.tone");
+    if (!value.ok) return value;
+    result.tone = value.value;
+  }
+  if ("volume" in object2.value) {
+    if (!integerWithin(object2.value.volume, APPEARANCE_BOUNDS.soundVolume.min, APPEARANCE_BOUNDS.soundVolume.max)) return { ok: false, error: '"sound.volume" is outside its bounds' };
+    result.volume = object2.value.volume;
+  }
   return { ok: true, value: result };
 }
 function parseHeader(input, partial) {
@@ -1329,7 +1453,7 @@ function parseTypography(input, partial) {
   }
   return { ok: true, value: result };
 }
-var appearanceFields = ["mode", "position", "width", "height", "radius", "colors", "intro", "avatarUrl", "quickButtons", "send", "launcher", "header", "typography"];
+var appearanceFields = ["mode", "position", "width", "height", "radius", "colors", "intro", "avatarUrl", "quickButtons", "send", "launcher", "header", "typography", "effects", "sound"];
 function parseOverrides(input, partial = true) {
   const object2 = plainObject(input, appearanceFields, "appearance.overrides");
   if (!object2.ok) return object2;
@@ -1383,6 +1507,16 @@ function parseOverrides(input, partial = true) {
     if (!value.ok) return value;
     result.launcher = value.value;
   }
+  if ("effects" in object2.value) {
+    const value = parseEffects(object2.value.effects, partial);
+    if (!value.ok) return value;
+    result.effects = value.value;
+  }
+  if ("sound" in object2.value) {
+    const value = parseSound(object2.value.sound, partial);
+    if (!value.ok) return value;
+    result.sound = value.value;
+  }
   if ("header" in object2.value) {
     const value = parseHeader(object2.value.header, partial);
     if (!value.ok) return value;
@@ -1424,6 +1558,9 @@ var CS = {
   launcher: "Otev\u0159\xEDt chat",
   title: "Chat",
   close: "Zav\u0159\xEDt",
+  teaserClose: "Zav\u0159\xEDt nab\xEDdku",
+  mute: "Vypnout zvuk",
+  unmute: "Zapnout zvuk",
   stop: "Zastavit p\u0159\xEDjem odpov\u011Bdi",
   placeholder: "Napi\u0161te zpr\xE1vu",
   intro: "Dobr\xFD den. Pomohu v\xE1m s vypln\u011Bn\xEDm formul\xE1\u0159e na t\xE9to str\xE1nce.",
@@ -1447,6 +1584,9 @@ var SK = {
   launcher: "Otvori\u0165 chat",
   title: "Chat",
   close: "Zavrie\u0165",
+  teaserClose: "Zavrie\u0165 ponuku",
+  mute: "Vypn\xFA\u0165 zvuk",
+  unmute: "Zapn\xFA\u0165 zvuk",
   stop: "Zastavi\u0165 pr\xEDjem odpovede",
   placeholder: "Nap\xED\u0161te spr\xE1vu",
   intro: "Dobr\xFD de\u0148. Pom\xF4\u017Eem v\xE1m s vyplnen\xEDm formul\xE1ra na tejto str\xE1nke.",
@@ -1470,6 +1610,9 @@ var EN = {
   launcher: "Open chat",
   title: "Chat",
   close: "Close",
+  teaserClose: "Close invitation",
+  mute: "Mute sound",
+  unmute: "Unmute sound",
   stop: "Stop receiving the answer",
   placeholder: "Write a message",
   intro: "Hello. I can help you fill in the form on this page.",
@@ -19639,6 +19782,95 @@ O([P("object")], k.prototype, "demo");
 O([P("object")], k.prototype, "_insertKeyViewStyles");
 customElements.define("deep-chat", k);
 
+// plugins/chatbot/embed-src/effects.ts
+function gradient(start, end) {
+  return end === null ? start : `linear-gradient(135deg, ${start}, ${end})`;
+}
+function gradientInk(start, end) {
+  if (end === null) return appearanceInk(start);
+  const mix = (a, b) => Math.round((a + b) / 2).toString(16).padStart(2, "0");
+  return appearanceInk(`#${[1, 3, 5].map((i) => mix(Number.parseInt(start.slice(i, i + 2), 16), Number.parseInt(end.slice(i, i + 2), 16))).join("")}`);
+}
+function rgba(hex, opacity) {
+  const channels2 = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  return `rgba(${channels2.join(",")},${opacity / 100})`;
+}
+function effectsCss(appearance) {
+  const ramp = appearanceRamp(appearance);
+  const { effects, colors } = appearance;
+  return `
+@supports (backdrop-filter: blur(1px)) {
+  ${effects.glass ? `.panel { background: ${rgba(colors.panel, effects.glassOpacity)}; backdrop-filter: blur(${effects.glassBlur}px); }
+  .header { background: ${appearance.colors.headerEnd === null ? rgba(ramp.header, effects.glassOpacity) : `linear-gradient(135deg, ${rgba(ramp.header, effects.glassOpacity)}, ${rgba(appearance.colors.headerEnd, effects.glassOpacity)})`}; backdrop-filter: blur(${effects.glassBlur}px); }
+  .messages { background: transparent; }` : ""}
+}
+.launcher-ring { position: absolute; inset: -5px; pointer-events: none; border: 2px solid ${colors.launcher}; border-radius: 999px; animation: cb-ring 2.6s ease-out infinite; }
+@keyframes cb-ring { 0% { transform: scale(.92); opacity: .8; } 85%, 100% { transform: scale(1.35); opacity: 0; } }
+.launcher-nudge-bounce { animation: cb-bounce .7s ease-in-out; }
+.launcher-nudge-wiggle { animation: cb-wiggle .65s ease-in-out; }
+@keyframes cb-bounce { 50% { transform: translateY(-11px); } }
+@keyframes cb-wiggle { 25%, 75% { transform: rotate(-9deg); } 50% { transform: rotate(9deg); } }
+@media (prefers-reduced-motion: reduce) { .launcher-ring, .launcher-nudge-bounce, .launcher-nudge-wiggle { animation: none !important; } }
+`;
+}
+function buttonStyles(appearance) {
+  const ramp = appearanceRamp(appearance);
+  const intensity = appearance.effects.buttonIntensity / 100;
+  const options = {
+    lift: { transform: `translateY(-${(3 * intensity).toFixed(2)}px)`, boxShadow: `0 ${Math.round(7 * intensity)}px ${Math.round(18 * intensity)}px rgb(0 0 0 / .22)` },
+    fill: { background: appearanceShade(ramp.raised, ramp.foreground === "#ffffff" ? "lighter" : "darker", 0.08 + 0.18 * intensity) },
+    shine: { filter: `brightness(${(1 + 0.35 * intensity).toFixed(2)})` },
+    glow: { boxShadow: `0 0 ${Math.round(18 * intensity)}px ${Math.round(5 * intensity)}px ${appearance.colors.sendButton}` }
+  };
+  return { hover: options[appearance.effects.buttonHover], click: { transform: "translateY(1px) scale(.98)" } };
+}
+function chatEffectsCss(appearance) {
+  const { effects, colors } = appearance;
+  return `
+${effects.buttonHover === "shine" ? `.cb-quick-item:hover, .cb-quick-item:focus-visible { animation: cb-shine .5s ease-out; }
+@keyframes cb-shine { from { filter: brightness(1); } 50% { filter: brightness(${1 + 0.45 * effects.buttonIntensity / 100}); } to { filter: brightness(1); } }` : ""}
+.cb-quick-item:focus-visible { outline: 2px solid ${colors.sendButton}; outline-offset: 2px; }
+${effects.messageEntrance === "none" ? "" : `@keyframes cb-message-in { from { opacity: 0; transform: translateY(${effects.messageEntrance === "slide" ? "10px" : "0"}); } to { opacity: 1; transform: translateY(0); } }
+.message-bubble { animation: cb-message-in .26s ease-out both; }`}
+@media (max-width: 360px) { .name.start-item-position { display: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  .cb-quick-item:hover, .cb-quick-item:focus-visible, .message-bubble { animation: none !important; transform: none !important; filter: none !important; }
+}
+`;
+}
+
+// plugins/chatbot/embed-src/sound.ts
+var context = null;
+async function unlockSound() {
+  if (typeof window.AudioContext !== "function") return;
+  context ??= new AudioContext();
+  if (context.state === "suspended") await context.resume();
+}
+function playTone(tone, volume) {
+  if (tone === "none" || volume === 0 || context === null || context.state !== "running") return;
+  const notes = {
+    drop: [660, 440],
+    chime: [523, 784],
+    pop: [560],
+    bell: [784, 1046, 784]
+  };
+  const now = context.currentTime;
+  notes[tone].forEach((frequency, index) => {
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    const start = now + index * 0.095;
+    oscillator.type = tone === "pop" ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    envelope.gain.setValueAtTime(0, start);
+    envelope.gain.linearRampToValueAtTime(volume / 100 * 0.13, start + 0.015);
+    envelope.gain.exponentialRampToValueAtTime(1e-3, start + 0.22);
+    oscillator.connect(envelope);
+    envelope.connect(context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + 0.23);
+  });
+}
+
 // plugins/chatbot/embed-src/chatPanel.ts
 var LAUNCHER_GAP_PX = 12;
 function appearanceViewportInset(appearance) {
@@ -19687,9 +19919,10 @@ function introUtilities(appearance, onQuickButton) {
           font: "inherit",
           fontSize: "13px",
           cursor: "pointer",
-          textAlign: "center"
+          textAlign: "center",
+          transition: "transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease"
         },
-        hover: { background: ramp.field }
+        ...buttonStyles(appearance)
       }
     }
   };
@@ -19724,7 +19957,9 @@ function chatConfig(input) {
       // page that already has Inter keeps it, while every other page falls back to the system stack.
       fontFamily: appearanceFontStack(appearance.typography.fontFamily)
     },
-    inputAreaStyle: { backgroundColor: appearance.colors.panel },
+    inputAreaStyle: { backgroundColor: appearance.effects.glass ? "transparent" : appearance.colors.panel },
+    scrollButton: { smoothScroll: true, styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
+    hiddenMessages: { smoothScroll: true, clickScroll: "last", styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
@@ -19780,11 +20015,13 @@ function chatConfig(input) {
         user: {
           bubble: {
             backgroundColor: appearance.colors.visitorBubble,
-            color: appearanceInk(appearance.colors.visitorBubble),
+            background: gradient(appearance.colors.visitorBubble, appearance.colors.visitorBubbleEnd),
+            color: gradientInk(appearance.colors.visitorBubble, appearance.colors.visitorBubbleEnd),
             borderRadius: `${appearance.radius}px`
           }
         }
-      }
+      },
+      loading: { message: { styles: { bubble: { backgroundColor: appearance.colors.botBubble, color: appearanceInk(appearance.colors.botBubble) } } } }
     },
     // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
     // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
@@ -19809,6 +20046,7 @@ function chatConfig(input) {
   :host([data-answer-active]) .input-button:has([data-cb-stop-icon]),
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
+${chatEffectsCss(appearance)}
 .input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; }`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
@@ -19828,6 +20066,7 @@ function styleText(appearance) {
   const inset = appearanceViewportInset(appearance);
   const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === "dark" ? "lighter" : "darker");
   const ramp = appearanceRamp(appearance);
+  const headerInk = gradientInk(ramp.header, appearance.colors.headerEnd);
   const sendInk = appearanceInk(appearance.colors.sendButton);
   const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
   const corner = {
@@ -19871,7 +20110,7 @@ function styleText(appearance) {
 .launcher {
   position: relative;
   display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
-  border: 1px solid ${ramp.launcherBorder}; background: ${appearance.colors.launcher}; color: ${appearanceInk(appearance.colors.launcher)};
+  border: 1px solid ${ramp.launcherBorder}; background: ${gradient(appearance.colors.launcher, appearance.colors.launcherEnd)}; color: ${gradientInk(appearance.colors.launcher, appearance.colors.launcherEnd)};
   font: inherit; font-weight: 600; padding: 0; border-radius: 999px; cursor: pointer;
   min-height: ${appearance.launcher.size}px; flex: 0 0 auto;
   box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
@@ -19889,18 +20128,18 @@ function styleText(appearance) {
 .panel[hidden] { display: none; }
 .header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${ramp.header}; color: ${ramp.headerInk};
+  padding: 14px 16px; border-bottom: 1px solid ${ramp.border}; background: ${gradient(ramp.header, appearance.colors.headerEnd)}; color: ${headerInk};
 }
 .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .header-avatar { width: 32px; height: 32px; object-fit: cover; border-radius: 50%; flex: 0 0 auto; }
 .header-avatar[hidden], .subtitle[hidden] { display: none; }
-.subtitle { margin: 3px 0 0; color: ${ramp.headerInk}; font-size: .85em; overflow-wrap: anywhere; }
-.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${ramp.headerInk}; }
+.subtitle { margin: 3px 0 0; color: ${headerInk}; font-size: .85em; overflow-wrap: anywhere; }
+.title { margin: 0; overflow-wrap: anywhere; font-size: 1.07em; font-weight: 600; color: ${headerInk}; }
 .close {
-  border: 1px solid transparent; background: transparent; color: ${ramp.headerInk};
+  border: 1px solid transparent; background: transparent; color: ${headerInk};
   font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
 }
-.close:hover { border-color: ${ramp.headerInk}; }
+.close:hover { border-color: ${headerInk}; }
 .close:focus-visible { outline: 2px solid ${ramp.headerInk}; outline-offset: 1px; }
 .status { margin: 0; padding: 10px 16px; border-bottom: 1px solid ${ramp.border}; background: ${appearance.colors.panel}; color: ${ramp.muted}; font-size: 13px; line-height: 1.45; }
 .status[hidden] { display: none; }
@@ -19921,7 +20160,17 @@ function styleText(appearance) {
 .confirm-no { border: 1px solid ${ramp.border}; background: transparent; color: ${ramp.foreground}; }
 .confirm-no:hover { border-color: ${ramp.muted}; }
 .confirm-actions button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
-${presenceDot}`;
+${presenceDot}
+${effectsCss(appearance)}
+.launcher-badge { position: absolute; top: -8px; left: -8px; min-width: 22px; padding: 2px 5px; border-radius: 999px; background: ${ramp.ember}; color: ${appearanceInk(ramp.ember)}; font-size: 12px; line-height: 18px; text-align: center; font-weight: 700; }
+.launcher-teaser { display: flex; align-items: center; gap: 8px; max-width: min(280px, var(--cb-avail-w)); padding: 10px 12px; overflow-wrap: anywhere; border: 1px solid ${ramp.border}; border-radius: 12px; background: ${ramp.raised}; color: ${ramp.foreground}; box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; }
+.launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
+.launcher-teaser button { cursor: pointer; border: 0; background: transparent; color: inherit; font: inherit; font-size: 20px; line-height: 1; }
+.header-actions { display: flex; align-items: center; gap: 4px; }
+.mute { border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 6px; border-radius: 8px; cursor: pointer; font: inherit; }
+.mute:hover, .mute:focus-visible { border-color: ${headerInk}; }
+.mute[hidden] { display: none; }
+`;
 }
 var ChatPanel = class {
   /** The element the widget appended. It carries the attribute the page snapshot excludes, so the panel is
@@ -19938,6 +20187,20 @@ var ChatPanel = class {
   subtitle;
   avatar;
   launcher;
+  teaser;
+  badge;
+  mute;
+  storage;
+  key;
+  muted = false;
+  teaserDismissed = false;
+  openedEver = false;
+  unread = 0;
+  titleBase = null;
+  titleWritten = null;
+  teaserTimer = null;
+  nudgeTimer = null;
+  nudgeCount = 0;
   messages;
   confirmBox;
   confirmTitle;
@@ -19975,6 +20238,11 @@ var ChatPanel = class {
     this.onStop = options.onStop;
     this.onOpen = options.onOpen;
     this.loadAvatar = options.loadAvatar;
+    this.storage = options.storage;
+    this.key = options.publicId === void 0 ? null : `elowen-chatbot:${options.publicId}`;
+    this.muted = this.readPreference("muted");
+    this.teaserDismissed = this.readPreference("teaser");
+    document.addEventListener("visibilitychange", this.visibilityChanged);
     this.host = document.createElement("div");
     this.host.setAttribute("data-elowen-chatbot", "root");
     this.host.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;z-index:2147483000;";
@@ -20009,7 +20277,18 @@ var ChatPanel = class {
     const headings = document.createElement("div");
     headings.append(this.title, this.subtitle);
     identity.append(this.avatar, headings);
-    header.append(identity, close);
+    const headerActions = document.createElement("div");
+    headerActions.className = "header-actions";
+    this.mute = document.createElement("button");
+    this.mute.type = "button";
+    this.mute.className = "mute";
+    this.mute.addEventListener("click", () => {
+      this.muted = !this.muted;
+      this.writePreference("muted", this.muted);
+      this.syncMute();
+    });
+    headerActions.append(this.mute, close);
+    header.append(identity, headerActions);
     this.status = document.createElement("p");
     this.status.className = "status";
     this.status.setAttribute("role", "status");
@@ -20039,12 +20318,28 @@ var ChatPanel = class {
     actions.append(this.confirmYes, confirmNo);
     this.confirmBox.append(this.confirmTitle, confirmBody, actions);
     this.panel.append(header, this.status, this.messages, this.confirmBox);
-    root.append(this.panel, this.launcher);
+    this.badge = document.createElement("span");
+    this.badge.className = "launcher-badge";
+    this.badge.hidden = true;
+    this.teaser = document.createElement("div");
+    this.teaser.className = "launcher-teaser";
+    this.teaser.hidden = true;
+    const teaserText = document.createElement("span");
+    const dismissTeaser = document.createElement("button");
+    dismissTeaser.type = "button";
+    dismissTeaser.textContent = "\xD7";
+    dismissTeaser.setAttribute("aria-label", this.strings.teaserClose);
+    dismissTeaser.addEventListener("click", () => this.dismissTeaser());
+    this.teaser.append(teaserText, dismissTeaser);
+    root.append(this.panel, this.teaser, this.launcher);
     shadow.append(this.style, root);
     this.applyChrome();
     this.messages.append(this.chat);
     this.layoutObserver.observe(this.chat);
-    this.launcher.addEventListener("click", () => this.toggle(!this.isOpen()));
+    this.launcher.addEventListener("click", () => {
+      unlockSound();
+      this.toggle(!this.isOpen());
+    });
     close.addEventListener("click", () => this.toggle(false));
     this.confirmYes.addEventListener("click", (event) => {
       if (event.isTrusted) this.answerConfirmation(true);
@@ -20076,6 +20371,7 @@ var ChatPanel = class {
     }
     this.look = look;
     this.applyChrome();
+    this.scheduleAttention();
     this.requestAvatar();
     if (this.signals !== null) {
       this.redrawPending = true;
@@ -20083,6 +20379,16 @@ var ChatPanel = class {
     }
     if (this.pristineChat()) this.reconfigureChat();
     else this.redrawChat();
+  }
+  /** Show delayed launcher effects immediately only in the administrator's sandboxed preview. */
+  previewEffects() {
+    if (this.key !== null) return;
+    this.teaser.hidden = this.look.appearance.launcher.teaser === "";
+    this.launcher.classList.remove("launcher-nudge-bounce", "launcher-nudge-wiggle");
+    if (this.look.appearance.launcher.nudge !== "none" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      void this.launcher.offsetWidth;
+      this.launcher.classList.add(`launcher-nudge-${this.look.appearance.launcher.nudge}`);
+    }
   }
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
   /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
@@ -20122,6 +20428,7 @@ var ChatPanel = class {
       void Promise.resolve(written).then(() => signals.onClose(), () => signals.onClose());
     }
     this.answerIndex = null;
+    if (!this.isOpen() || document.hidden) this.markUnread();
     this.flushRedraw();
   }
   /** What the panel has to say about the CONVERSATION rather than in it: a reconnection, a declined
@@ -20170,6 +20477,9 @@ var ChatPanel = class {
   }
   destroy() {
     this.destroyed = true;
+    this.clearAttentionTimers();
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
+    this.resetUnread();
     this.releaseAvatarObjectUrl();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
@@ -20308,6 +20618,17 @@ var ChatPanel = class {
     this.subtitle.hidden = appearance.header.subtitle === "";
     this.showAvatar(this.avatarSource());
     this.launcher.innerHTML = appearanceIconSvg(appearance.launcher.icon);
+    if (appearance.launcher.ring) {
+      const ring = document.createElement("span");
+      ring.className = "launcher-ring";
+      ring.setAttribute("aria-hidden", "true");
+      this.launcher.append(ring);
+    }
+    this.launcher.append(this.badge);
+    this.teaser.firstElementChild.textContent = appearance.launcher.teaser;
+    this.teaser.hidden = this.teaserDismissed || this.isOpen() || appearance.launcher.teaser === "";
+    this.syncBadge();
+    this.syncMute();
     if (appearance.launcher.presenceDot) {
       const dot = document.createElement("span");
       dot.className = "launcher-dot";
@@ -20403,10 +20724,91 @@ var ChatPanel = class {
     this.status.textContent = "";
     this.status.classList.remove("status-error");
   }
+  readPreference(suffix) {
+    if (this.key === null || !this.storage) return false;
+    try {
+      return this.storage.getItem(`${this.key}:${suffix}`) === "1";
+    } catch {
+      return false;
+    }
+  }
+  writePreference(suffix, value) {
+    if (this.key === null || !this.storage) return;
+    try {
+      this.storage.setItem(`${this.key}:${suffix}`, value ? "1" : "0");
+    } catch {
+    }
+  }
+  syncMute() {
+    this.mute.hidden = this.look.appearance.sound.tone === "none";
+    this.mute.textContent = this.muted ? "\u266A\u0338" : "\u266A";
+    this.mute.setAttribute("aria-label", this.muted ? this.strings.unmute : this.strings.mute);
+    this.mute.setAttribute("aria-pressed", this.muted ? "true" : "false");
+  }
+  dismissTeaser() {
+    this.teaser.hidden = true;
+    this.teaserDismissed = true;
+    this.writePreference("teaser", true);
+  }
+  clearAttentionTimers() {
+    if (this.teaserTimer !== null) clearTimeout(this.teaserTimer);
+    if (this.nudgeTimer !== null) clearTimeout(this.nudgeTimer);
+    this.teaserTimer = null;
+    this.nudgeTimer = null;
+  }
+  scheduleAttention() {
+    this.clearAttentionTimers();
+    const { launcher } = this.look.appearance;
+    this.teaser.hidden = true;
+    if (this.isOpen() || this.openedEver) return;
+    if (launcher.teaser !== "" && !this.teaserDismissed) {
+      this.teaserTimer = setTimeout(() => {
+        if (!this.isOpen() && !this.destroyed) this.teaser.hidden = false;
+      }, this.key === null ? 0 : launcher.teaserDelay * 1e3);
+    }
+    if (launcher.nudge === "none" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const nudge = () => {
+      if (this.isOpen() || this.openedEver || this.destroyed) return;
+      this.launcher.classList.remove("launcher-nudge-bounce", "launcher-nudge-wiggle");
+      void this.launcher.offsetWidth;
+      this.launcher.classList.add(`launcher-nudge-${launcher.nudge}`);
+      this.nudgeCount++;
+      if (this.nudgeCount < 2) this.nudgeTimer = setTimeout(nudge, launcher.nudgeDelay * 1e3);
+    };
+    this.nudgeTimer = setTimeout(nudge, this.key === null ? 0 : launcher.nudgeDelay * 1e3);
+  }
+  visibilityChanged = () => {
+    if (!document.hidden) this.resetUnread();
+  };
+  markUnread() {
+    const { launcher, sound } = this.look.appearance;
+    if (sound.tone !== "none" && !this.muted) playTone(sound.tone, sound.volume);
+    if (!launcher.unreadBadge || this.key === null) return;
+    if (this.unread === 0 || document.title !== this.titleWritten) this.titleBase = document.title;
+    this.unread++;
+    this.syncBadge();
+    this.titleWritten = this.titleBase === "" ? `(${this.unread})` : `(${this.unread}) ${this.titleBase}`;
+    document.title = this.titleWritten;
+  }
+  syncBadge() {
+    this.badge.hidden = !this.look.appearance.launcher.unreadBadge || this.unread === 0;
+    this.badge.textContent = this.unread === 0 ? "" : this.unread > 99 ? "99+" : String(this.unread);
+  }
+  resetUnread() {
+    if (this.titleWritten !== null && document.title === this.titleWritten && this.titleBase !== null) document.title = this.titleBase;
+    this.titleWritten = null;
+    this.titleBase = null;
+    this.unread = 0;
+    this.syncBadge();
+  }
   toggle(open) {
     this.panel.hidden = !open;
     this.launcher.setAttribute("aria-expanded", open ? "true" : "false");
     if (!open) return;
+    this.openedEver = true;
+    this.dismissTeaser();
+    this.clearAttentionTimers();
+    this.resetUnread();
     this.chat.focusInput();
     this.flushScroll();
     this.onOpen?.();
@@ -20425,6 +20827,7 @@ var ChatPanel = class {
       signals.onClose();
       return;
     }
+    unlockSound();
     this.signals = signals;
     this.answerIndex = null;
     signals.stopClicked.listener = () => this.stopAnswer();
@@ -20488,6 +20891,7 @@ function AppearancePreview({ look, label }) {
   }, []);
   (0, import_react5.useEffect)(() => {
     panel.current?.applyAppearance(look);
+    panel.current?.previewEffects();
   }, [look]);
   (0, import_react5.useEffect)(() => {
     const stageElement = stage.current;
@@ -20579,6 +20983,13 @@ function AppearanceModal({ bot, onClose, onChanged }) {
     help
   );
   const color = (key, label) => colorControl(`colors.${key}`, label, appearance.colors[key] ?? appearanceRamp(appearance).header);
+  const gradientEnd = (key, label, start) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", children: [
+    heading(`colors.${key}`, label),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center gap-2 text-sm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("input", { type: "color", "aria-label": label, value: appearance.colors[key] ?? start, disabled: pending, onChange: (event) => patch(`colors.${key}`, event.target.value), className: "h-9 min-w-0 flex-1 cursor-pointer rounded border border-border bg-transparent p-1" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", size: "sm", "aria-label": `${label}: ${s.appearanceSolid}`, disabled: pending || appearance.colors[key] === null, onClick: () => patch(`colors.${key}`, null), children: s.appearanceSolid })
+    ] })
+  ] });
   const scalar = (path, key, label, value) => {
     const text = s.appearancePixels.replace("{value}", String(value));
     return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "py-2", children: [
@@ -20594,6 +21005,18 @@ function AppearanceModal({ bot, onClose, onChanged }) {
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Slider, { className: "mt-3", value, ...APPEARANCE_BOUNDS[key], step: 1, disabled: pending, "aria-label": label, "aria-valuetext": text, onChange: (value2) => patch(path, value2) })
     ] });
   };
+  const metric = (path, key, label, value, suffix) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "py-2", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex items-center gap-2 text-sm font-medium text-foreground", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "min-w-0 flex-1", children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "font-mono tabular-nums text-primary", children: [
+        value,
+        " ",
+        suffix
+      ] }),
+      reset(path, label, true)
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Slider, { className: "mt-3", value, ...APPEARANCE_BOUNDS[key], step: 1, disabled: pending, "aria-label": label, onChange: (value2) => patch(path, value2) })
+  ] });
   const toggle = (path, label, checked, help) => field(path, label, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Toggle, { label, checked, disabled: pending, onChange: (value) => patch(path, value) }), help);
   const section = (label, icon, children, help, action) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "flex min-w-0 flex-col gap-4 border-t border-border pt-4", children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
@@ -20656,9 +21079,22 @@ function AppearanceModal({ bot, onClose, onChanged }) {
                 color("visitorBubble", s.appearanceColorVisitor),
                 color("botBubble", s.appearanceColorBot)
               ] }),
+              gradientEnd("visitorBubbleEnd", s.appearanceGradientVisitor, appearance.colors.visitorBubble),
+              gradientEnd("headerEnd", s.appearanceGradientHeader, appearance.colors.header ?? appearanceRamp(appearance).header),
+              gradientEnd("launcherEnd", s.appearanceGradientLauncher, appearance.colors.launcher),
               scalar("width", "width", s.appearanceWidthLabel, appearance.width),
               scalar("height", "height", s.appearanceHeightLabel, appearance.height),
               scalar("radius", "radius", s.appearanceRadiusLabel, appearance.radius)
+            ] })),
+            section(s.appearanceEffectsGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Sparkles, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              toggle("effects.glass", s.appearanceGlass, appearance.effects.glass),
+              appearance.effects.glass ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+                metric("effects.glassBlur", "glassBlur", s.appearanceGlassBlur, appearance.effects.glassBlur, "px"),
+                metric("effects.glassOpacity", "glassOpacity", s.appearanceGlassOpacity, appearance.effects.glassOpacity, "%")
+              ] }) : null,
+              select("effects.buttonHover", s.appearanceHover, appearance.effects.buttonHover, ["lift", "fill", "shine", "glow"].map((value) => ({ value, label: s[`appearanceHover_${value}`] }))),
+              metric("effects.buttonIntensity", "buttonIntensity", s.appearanceIntensity, appearance.effects.buttonIntensity, "%"),
+              select("effects.messageEntrance", s.appearanceEntrance, appearance.effects.messageEntrance, ["none", "fade", "slide"].map((value) => ({ value, label: s[`appearanceEntrance_${value}`] })))
             ] })),
             section(s.appearanceSendGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Send, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid grid-cols-2 gap-4", children: [
@@ -20674,6 +21110,12 @@ function AppearanceModal({ bot, onClose, onChanged }) {
               toggle("launcher.presenceDot", s.appearancePresenceLabel, appearance.launcher.presenceDot, s.appearancePresenceHint),
               colorControl("launcher.presenceDotColor", s.appearanceColorPresence, appearance.launcher.presenceDotColor),
               textField("launcher.label", s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS),
+              textField("launcher.teaser", s.appearanceTeaser, appearance.launcher.teaser, APPEARANCE_TEASER_MAX_CHARS),
+              appearance.launcher.teaser !== "" ? metric("launcher.teaserDelay", "teaserDelay", s.appearanceTeaserDelay, appearance.launcher.teaserDelay, "s") : null,
+              select("launcher.nudge", s.appearanceNudge, appearance.launcher.nudge, ["none", "bounce", "wiggle"].map((value) => ({ value, label: s[`appearanceNudge_${value}`] }))),
+              appearance.launcher.nudge !== "none" ? metric("launcher.nudgeDelay", "nudgeDelay", s.appearanceNudgeDelay, appearance.launcher.nudgeDelay, "s") : null,
+              toggle("launcher.ring", s.appearanceRing, appearance.launcher.ring),
+              toggle("launcher.unreadBadge", s.appearanceUnreadBadge, appearance.launcher.unreadBadge),
               select("position", s.appearancePositionLabel, appearance.position, [
                 { value: "bottom-right", label: s.appearancePositionBottomRight },
                 { value: "bottom-left", label: s.appearancePositionBottomLeft },
@@ -20682,6 +21124,13 @@ function AppearanceModal({ bot, onClose, onChanged }) {
               ]),
               scalar("launcher.size", "launcherSize", s.appearanceLauncherSize, appearance.launcher.size),
               scalar("launcher.offset", "launcherOffset", s.appearanceLauncherOffset, appearance.launcher.offset)
+            ] })),
+            section(s.appearanceSoundGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Volume2, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              select("sound.tone", s.appearanceTone, appearance.sound.tone, ["none", "drop", "chime", "pop", "bell"].map((value) => ({ value, label: s[`appearanceTone_${value}`] }))),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "text-sm", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", size: "sm", disabled: pending || appearance.sound.tone === "none", onClick: () => {
+                void unlockSound().then(() => playTone(appearance.sound.tone, appearance.sound.volume));
+              }, children: s.appearancePlay }) }),
+              metric("sound.volume", "soundVolume", s.appearanceVolume, appearance.sound.volume, "%")
             ] })),
             section(s.appearanceHeaderGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UserRound, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               color("header", s.appearanceColorHeader),

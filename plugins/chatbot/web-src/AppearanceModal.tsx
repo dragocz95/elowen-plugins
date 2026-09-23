@@ -1,11 +1,11 @@
 /** Edits a linked template and explicit overrides. The chatbot's name stays in its own column. */
 import { useId, useMemo, useState, type ReactNode } from 'react';
-import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Trash2, Type, UserRound, Send } from 'lucide-react';
+import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Trash2, Type, UserRound, Send, Volume2, Sparkles } from 'lucide-react';
 import {
   APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_TEMPLATES,
   APPEARANCE_INTRO_MAX_CHARS, APPEARANCE_AVATAR_URL_MAX_CHARS, APPEARANCE_SUBTITLE_MAX_CHARS,
   APPEARANCE_PLACEHOLDER_MAX_CHARS, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS,
-  APPEARANCE_QUICK_BUTTONS_MAX, APPEARANCE_QUICK_BUTTON_MAX_CHARS,
+  APPEARANCE_QUICK_BUTTONS_MAX, APPEARANCE_QUICK_BUTTON_MAX_CHARS, APPEARANCE_TEASER_MAX_CHARS,
   APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, appearanceRamp,
   appearanceIcon, appearanceInk, isAppearanceOverridden, parseAppearanceSelection,
   resetAppearanceOverride, resolveAppearance, selectAppearanceTemplate, setAppearanceOverride,
@@ -15,6 +15,7 @@ import { DISPLAY_NAME_MAX_CHARS } from '../src/adminContract';
 import { apiJson, jsonRequest, runtime } from './runtime';
 import type { ChatbotBotView } from './types';
 import { AppearancePreview } from './AppearancePreview';
+import { playTone, unlockSound } from '../embed-src/sound';
 
 function Icon({ id }: { id: AppearanceIconId }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={appearanceIcon(id).path} /></svg>;
@@ -84,7 +85,12 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
   const iconPicker = (path: 'send.icon' | 'launcher.icon', label: string, value: AppearanceIconId) => select(path, label, value, icons);
   const colorControl = (path: AppearanceOverridePath, label: string, value: string, help?: string) => field(path, label,
     <input id={`${id}-${path}`} type="color" aria-label={label} value={value} disabled={pending} onChange={event => patch(path, event.target.value)} className="h-9 w-full cursor-pointer rounded border border-border bg-transparent p-1" />, help);
-  const color = (key: keyof typeof appearance.colors, label: string) => colorControl(`colors.${key}`, label, appearance.colors[key] ?? appearanceRamp(appearance).header);
+  const color = (key: 'panel' | 'header' | 'visitorBubble' | 'botBubble' | 'sendButton' | 'sendIcon' | 'launcher', label: string) => colorControl(`colors.${key}`, label, appearance.colors[key] ?? appearanceRamp(appearance).header);
+  const gradientEnd = (key: 'visitorBubbleEnd' | 'headerEnd' | 'launcherEnd', label: string, start: string) => <div className="flex min-w-0 flex-col gap-2">
+    {heading(`colors.${key}`, label)}
+    <div className="flex items-center gap-2 text-sm"><input type="color" aria-label={label} value={appearance.colors[key] ?? start} disabled={pending} onChange={event => patch(`colors.${key}`, event.target.value)} className="h-9 min-w-0 flex-1 cursor-pointer rounded border border-border bg-transparent p-1" />
+      <C.Button variant="outline" size="sm" aria-label={`${label}: ${s.appearanceSolid}`} disabled={pending || appearance.colors[key] === null} onClick={() => patch(`colors.${key}`, null)}>{s.appearanceSolid}</C.Button></div>
+  </div>;
   const scalar = (path: AppearanceOverridePath, key: keyof typeof APPEARANCE_BOUNDS, label: string, value: number) => {
     const text = s.appearancePixels.replace('{value}', String(value));
     return <div className="py-2">
@@ -97,7 +103,11 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
       <C.Slider className="mt-3" value={value} {...APPEARANCE_BOUNDS[key]} step={1} disabled={pending} aria-label={label} aria-valuetext={text} onChange={value => patch(path, value)} />
     </div>;
   };
-  const toggle = (path: 'header.showAvatar' | 'header.showMessageName' | 'launcher.presenceDot', label: string, checked: boolean, help?: string) =>
+  const metric = (path: AppearanceOverridePath, key: keyof typeof APPEARANCE_BOUNDS, label: string, value: number, suffix: string) => <div className="py-2">
+    <div className="flex items-center gap-2 text-sm font-medium text-foreground"><span className="min-w-0 flex-1">{label}</span><span className="font-mono tabular-nums text-primary">{value} {suffix}</span>{reset(path, label, true)}</div>
+    <C.Slider className="mt-3" value={value} {...APPEARANCE_BOUNDS[key]} step={1} disabled={pending} aria-label={label} onChange={value => patch(path, value)} />
+  </div>;
+  const toggle = (path: 'header.showAvatar' | 'header.showMessageName' | 'launcher.presenceDot' | 'launcher.ring' | 'launcher.unreadBadge' | 'effects.glass', label: string, checked: boolean, help?: string) =>
     field(path, label, <C.Toggle label={label} checked={checked} disabled={pending} onChange={value => patch(path, value)} />, help);
   const section = (label: string, icon: ReactNode, children: ReactNode, help?: string, action?: ReactNode) => <section className="flex min-w-0 flex-col gap-4 border-t border-border pt-4">
     <div className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">{icon}</span><h3 className="text-sm font-semibold text-foreground">{label}</h3>{help ? <C.HelpTip>{help}</C.HelpTip> : null}{action}</div>{children}
@@ -147,9 +157,19 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
               {section(s.appearanceColorsLabel, <Palette size={18} />, <>
                 {select('mode', s.appearanceModeLabel, appearance.mode, [{ value: 'light', label: s.appearanceModeLight }, { value: 'dark', label: s.appearanceModeDark }])}
                 <div className="grid grid-cols-2 gap-4">{color('panel', s.appearanceColorPanel)}{color('visitorBubble', s.appearanceColorVisitor)}{color('botBubble', s.appearanceColorBot)}</div>
+                {gradientEnd('visitorBubbleEnd', s.appearanceGradientVisitor, appearance.colors.visitorBubble)}
+                {gradientEnd('headerEnd', s.appearanceGradientHeader, appearance.colors.header ?? appearanceRamp(appearance).header)}
+                {gradientEnd('launcherEnd', s.appearanceGradientLauncher, appearance.colors.launcher)}
                 {scalar('width', 'width', s.appearanceWidthLabel, appearance.width)}
                 {scalar('height', 'height', s.appearanceHeightLabel, appearance.height)}
                 {scalar('radius', 'radius', s.appearanceRadiusLabel, appearance.radius)}
+              </>)}
+              {section(s.appearanceEffectsGroup, <Sparkles size={18} />, <>
+                {toggle('effects.glass', s.appearanceGlass, appearance.effects.glass)}
+                {appearance.effects.glass ? <>{metric('effects.glassBlur', 'glassBlur', s.appearanceGlassBlur, appearance.effects.glassBlur, 'px')}{metric('effects.glassOpacity', 'glassOpacity', s.appearanceGlassOpacity, appearance.effects.glassOpacity, '%')}</> : null}
+                {select('effects.buttonHover', s.appearanceHover, appearance.effects.buttonHover, ['lift', 'fill', 'shine', 'glow'].map(value => ({ value, label: s[`appearanceHover_${value}`] })))}
+                {metric('effects.buttonIntensity', 'buttonIntensity', s.appearanceIntensity, appearance.effects.buttonIntensity, '%')}
+                {select('effects.messageEntrance', s.appearanceEntrance, appearance.effects.messageEntrance, ['none', 'fade', 'slide'].map(value => ({ value, label: s[`appearanceEntrance_${value}`] })))}
               </>)}
               {section(s.appearanceSendGroup, <Send size={18} />, <>
                 <div className="grid grid-cols-2 gap-4">{color('sendButton', s.appearanceColorSend)}{color('sendIcon', s.appearanceColorSendIcon)}</div>
@@ -162,12 +182,23 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                 {toggle('launcher.presenceDot', s.appearancePresenceLabel, appearance.launcher.presenceDot, s.appearancePresenceHint)}
                 {colorControl('launcher.presenceDotColor', s.appearanceColorPresence, appearance.launcher.presenceDotColor)}
                 {textField('launcher.label', s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS)}
+                {textField('launcher.teaser', s.appearanceTeaser, appearance.launcher.teaser, APPEARANCE_TEASER_MAX_CHARS)}
+                {appearance.launcher.teaser !== '' ? metric('launcher.teaserDelay', 'teaserDelay', s.appearanceTeaserDelay, appearance.launcher.teaserDelay, 's') : null}
+                {select('launcher.nudge', s.appearanceNudge, appearance.launcher.nudge, ['none', 'bounce', 'wiggle'].map(value => ({ value, label: s[`appearanceNudge_${value}`] })))}
+                {appearance.launcher.nudge !== 'none' ? metric('launcher.nudgeDelay', 'nudgeDelay', s.appearanceNudgeDelay, appearance.launcher.nudgeDelay, 's') : null}
+                {toggle('launcher.ring', s.appearanceRing, appearance.launcher.ring)}
+                {toggle('launcher.unreadBadge', s.appearanceUnreadBadge, appearance.launcher.unreadBadge)}
                 {select('position', s.appearancePositionLabel, appearance.position, [
                   { value: 'bottom-right', label: s.appearancePositionBottomRight }, { value: 'bottom-left', label: s.appearancePositionBottomLeft },
                   { value: 'top-right', label: s.appearancePositionTopRight }, { value: 'top-left', label: s.appearancePositionTopLeft },
                 ])}
                 {scalar('launcher.size', 'launcherSize', s.appearanceLauncherSize, appearance.launcher.size)}
                 {scalar('launcher.offset', 'launcherOffset', s.appearanceLauncherOffset, appearance.launcher.offset)}
+              </>)}
+              {section(s.appearanceSoundGroup, <Volume2 size={18} />, <>
+                {select('sound.tone', s.appearanceTone, appearance.sound.tone, ['none', 'drop', 'chime', 'pop', 'bell'].map(value => ({ value, label: s[`appearanceTone_${value}`] })))}
+                <div className="text-sm"><C.Button variant="outline" size="sm" disabled={pending || appearance.sound.tone === 'none'} onClick={() => { void unlockSound().then(() => playTone(appearance.sound.tone, appearance.sound.volume)); }}>{s.appearancePlay}</C.Button></div>
+                {metric('sound.volume', 'soundVolume', s.appearanceVolume, appearance.sound.volume, '%')}
               </>)}
               {section(s.appearanceHeaderGroup, <UserRound size={18} />, <>
                 {color('header', s.appearanceColorHeader)}
