@@ -477,11 +477,11 @@
     font-size: var(--text-xs, 0.75rem);
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
-  .text-\[10px\] {
-    font-size: 10px;
+  .text-caption {
+    font-size: var(--text-caption, 0.6875rem);
   }
-  .text-\[11px\] {
-    font-size: 11px;
+  .text-tiny {
+    font-size: var(--text-tiny, 0.5625rem);
   }
   .leading-relaxed {
     --tw-leading: var(--leading-relaxed, 1.625);
