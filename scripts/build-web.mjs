@@ -7,14 +7,15 @@
 // is checked in, so the installed JS and CSS can never quietly stop matching their source.
 //
 // Pass a plugin name to build just that one: `node scripts/build-web.mjs whatsapp`.
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPluginUiBundle, buildPluginUiCss } from 'elowen-plugin-ui-kit/build';
 import { BROWSER_BUNDLES } from './browserBundles.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginsDir = join(root, 'plugins');
+const dependencyPath = relative(root, realpathSync(join(root, 'node_modules'))).replaceAll('\\', '/');
 const ENTRY_NAMES = ['index.tsx', 'index.ts', 'index.jsx', 'index.js'];
 const only = process.argv[2];
 
@@ -36,6 +37,13 @@ for (const name of readdirSync(pluginsDir)) {
   // CSS import cannot accidentally carry the previous build forward, then append the generated utility layer.
   rmSync(stylesheet, { force: true });
   await buildPluginUiBundle({ entry, outfile: bundle, nodePaths: [join(root, 'node_modules')] });
+  // esbuild puts the symlink's real path in dependency comments and module labels in a worktree.
+  // Canonicalize only that dependency prefix so the same sources produce the committed bytes everywhere.
+  if (dependencyPath !== 'node_modules') {
+    const generated = readFileSync(bundle, 'utf8');
+    const normalized = generated.replaceAll(`${dependencyPath}/`, 'node_modules/');
+    if (normalized !== generated) writeFileSync(bundle, normalized);
+  }
   const authoredCss = existsSync(stylesheet) ? readFileSync(stylesheet, 'utf8') : '';
   const utilityCss = await buildPluginUiCss({ bundle, outfile: stylesheet });
   if (authoredCss.trim()) writeFileSync(stylesheet, `${authoredCss.trimEnd()}\n${utilityCss}`, 'utf8');
