@@ -39,6 +39,8 @@ import { fillTemplate, type WidgetStrings } from './strings.js';
  *  viewport is the only thing that can force a panel to be smaller than the customer configured, so the
  *  clamp below is the one place that happens. */
 const LAUNCHER_GAP_PX = 12;
+const SHARED_FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h9l5 5v15H5z M14 2v5h5 M8 12h8 M8 16h8"/></svg>';
+const SHARED_DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12 m-4-4 4 4 4-4 M5 18v3h14v-3"/></svg>';
 
 export function appearanceViewportInset(appearance: ChatbotAppearance): { width: number; height: number } {
   return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
@@ -197,7 +199,10 @@ function chatConfig(input: {
       boxShadow: '0 2px 8px rgb(0 0 0 / .16)',
     } } },
     hiddenMessages: { smoothScroll: true, clickScroll: 'last', styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
-    images: { files: { maxNumberOfFiles: 1, acceptedFormats: '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp' } },
+    images: {
+      files: { maxNumberOfFiles: 1, acceptedFormats: '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp' },
+      button: { position: 'inside-start', tooltip: { text: strings.attachImage } },
+    },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
@@ -288,10 +293,17 @@ function lookStyle(appearance: ChatbotAppearance): string {
   --cb-attachment-surface: ${ramp.raised};
   --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
 }
-.cb-shared-file { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; overflow-wrap: anywhere; }
-.cb-shared-file img { display: block; max-width: min(100%, 280px); max-height: 240px; object-fit: contain; border-radius: 8px; }
-.cb-shared-file a { color: inherit; text-decoration: underline; min-height: 44px; display: inline-flex; align-items: center; }
-.cb-shared-file a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.cb-attachments:has(.cb-shared-file) { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-top:8px; padding-bottom:24px; }
+.cb-shared-file { box-sizing:border-box; min-width:0; max-width:100%; }
+.cb-shared-image a { display:block; width:max-content; max-width:100%; border-radius:8px; overflow:hidden; line-height:0; }
+.cb-shared-image img { display:block; width:auto; height:auto; max-width:min(100%,240px); max-height:180px; object-fit:contain; border-radius:8px; }
+.cb-shared-image a:hover img { filter:brightness(.92); }
+.cb-shared-file a:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+.cb-shared-file-chip { display:flex; width:min(100%,280px); min-height:44px; padding:8px 10px; text-decoration:none; }
+.cb-shared-file-chip svg { width:18px; height:18px; flex:0 0 auto; }
+.cb-shared-file-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.input-button:has(#upload-images-icon) { box-sizing:border-box; min-width:44px; min-height:44px; padding:10px; touch-action:manipulation; }
+.input-button:has(#upload-images-icon):focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-upload-name { display: block; padding-top: 6px; overflow-wrap: anywhere; font-size: .875em; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
@@ -908,20 +920,41 @@ export class ChatPanel implements ChatView {
       const key = `${state.turnId}:${file.kind}:${file.storedName}`;
       const url = this.fileUrls.get(key);
       const item = document.createElement('div');
-      item.className = 'cb-shared-file';
-      if (file.kind === 'image' && url) {
-        const img = document.createElement('img');
-        img.src = url;
-        img.alt = file.caption || this.strings.attachmentImage;
-        item.append(img);
+      item.className = `cb-shared-file cb-shared-${file.kind}`;
+      if (file.kind === 'image') {
+        if (url) {
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.setAttribute('aria-label', this.strings.attachmentImage);
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          link.append(img);
+          item.append(link);
+        } else item.textContent = this.strings.attachmentLoading;
+      } else {
+        const name = file.name || this.strings.attachmentDownload;
+        const chip = document.createElement(url ? 'a' : 'span');
+        chip.className = 'cb-shared-file-chip';
+        if (url && chip instanceof HTMLAnchorElement) {
+          chip.href = url;
+          chip.download = name;
+          chip.setAttribute('aria-label', `${this.strings.attachmentDownload}: ${name}`);
+        }
+        const icon = document.createElement('span');
+        icon.innerHTML = SHARED_FILE_ICON;
+        icon.setAttribute('aria-hidden', 'true');
+        const title = document.createElement('span');
+        title.className = 'cb-shared-file-name';
+        title.textContent = name;
+        const download = document.createElement('span');
+        download.innerHTML = SHARED_DOWNLOAD_ICON;
+        download.setAttribute('aria-hidden', 'true');
+        chip.append(icon, title, download);
+        item.append(chip);
       }
-      const label = document.createElement(url ? 'a' : 'span');
-      label.textContent = file.name || file.caption || (file.kind === 'image' ? this.strings.attachmentImage : this.strings.attachmentDownload);
-      if (url && label instanceof HTMLAnchorElement) {
-        label.href = url;
-        label.download = file.kind === 'file' ? file.name || file.storedName : file.storedName;
-      }
-      item.append(label);
       attachment.append(item);
     }
   }
