@@ -6118,10 +6118,28 @@ function useProjectRowContribution({ projects }) {
   };
 }
 
+// plugins/editor/web-src/ProjectEditIcon.tsx
+var import_react26 = __toESM(require_react(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+function ProjectEditIcon({ project }) {
+  const { hooks: hooks3, components: C4 } = runtime();
+  const s = hooks3.usePluginStrings("editor");
+  const [open, setOpen] = (0, import_react26.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(import_jsx_runtime20.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(C4.Field, { label: s.iconLabel, hint: s.iconHint, children: /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: "flex items-center gap-3", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: "flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted", children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(C4.ProjectIcon, { project, size: project.icon ? 36 : 22, className: "text-muted-foreground" }) }),
+      project.icon ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: "min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground", title: project.icon, children: project.icon }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(C4.Button, { icon: Image, variant: "default", onClick: () => setOpen(true), children: s.chooseIcon })
+    ] }) }),
+    open ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(ProjectIconPicker, { project, onClose: () => setOpen(false) }) : null
+  ] });
+}
+
 // plugins/editor/web-src/index.tsx
 registerEditorUi({
   requiresApiVersion: 16,
   pages: { "": EditorPage },
   project: { git: ProjectGitPanel },
-  projectRows: useProjectRowContribution
+  projectRows: useProjectRowContribution,
+  projectEditIcon: ProjectEditIcon
 });

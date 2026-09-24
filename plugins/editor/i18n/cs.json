@@ -88,6 +88,8 @@
       "discardChanges": "Zahodit neuložené změny?",
       "openEditor": "Otevřít editor",
       "chooseIcon": "Vybrat ikonu",
+      "iconLabel": "Ikonka",
+      "iconHint": "Obrázek z repozitáře projektu (např. logo). Zobrazí se všude u projektu.",
       "gitEnvironmentStopped": "Spravované prostředí není spuštěné.",
       "iconSearch": "Hledat obrázek…",
       "noImages": "V projektu nejsou žádné obrázky",
