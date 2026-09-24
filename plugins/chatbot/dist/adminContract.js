@@ -6,3 +6,6 @@
  *  Nothing here is a secret: the visitor token, the signing key and the turn's own internals never appear
  *  on this contract. What travels is an administrator's own configuration and aggregate counts. */
 export const DISPLAY_NAME_MAX_CHARS = 80;
+/** The columns the conversations register can be ordered by: the route validates a request against this
+ *  list and the page's sortable headers name exactly these. */
+export const CHATBOT_CONVERSATION_SORTS = ['title', 'ip', 'lastAt', 'turns', 'lastStatus'];

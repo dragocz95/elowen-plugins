@@ -2,6 +2,7 @@ import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { AssertPublished } from 'elowen-plugin-ui-kit';
 import type { AutoSaveStatusProps, UseAutoSaveStatus } from '../../autoSaveContract';
+import type { ChatbotConversationSort } from './types';
 
 /** The host runtime, narrowed to what this bundle mounts. React itself, the HTTP helper and every UI
  *  component come from `window.ElowenUiRuntime` at run time: the bundle imports no UI package and never
@@ -150,6 +151,14 @@ interface ChatbotComponents {
   DataTable: ComponentType<{ ariaLabel: string; columns: string; compactColumns?: string; mobileColumns?: string; children?: ReactNode; className?: string }>;
   DataTableCell: ComponentType<{ children?: ReactNode; header?: boolean; priority?: 'always' | 'mobile' | 'wide'; lines?: 1 | 'auto'; labelHidden?: boolean; title?: string; className?: string }>;
   DataTableChevronCell: ComponentType<{ className?: string }>;
+  DataTableSortCell: ComponentType<{
+    children?: ReactNode;
+    active: boolean;
+    direction: 'asc' | 'desc';
+    onSort(): void;
+    priority?: 'always' | 'mobile' | 'wide';
+    className?: string;
+  }>;
   DataTableRow: ComponentType<{
     children?: ReactNode;
     header?: boolean;
@@ -465,11 +474,20 @@ export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH', body: unknown): Re
 export const chatbotApi = {
   bots: (): string => '/plugins/chatbot/api/bots',
   /** One page of the register, of every visitor or of the one visitor picked. */
-  conversations: (input: { chatbotUserId: number; limit: number; offset: number; visitorId: string | null }): string => {
+  conversations: (input: {
+    chatbotUserId: number;
+    limit: number;
+    offset: number;
+    visitorId: string | null;
+    sort: ChatbotConversationSort;
+    direction: 'asc' | 'desc';
+  }): string => {
     const query = new URLSearchParams({
       chatbotUserId: String(input.chatbotUserId),
       limit: String(input.limit),
       offset: String(input.offset),
+      sort: input.sort,
+      direction: input.direction,
     });
     if (input.visitorId !== null) query.set('visitor', input.visitorId);
     return `/plugins/chatbot/api/conversations?${query}`;

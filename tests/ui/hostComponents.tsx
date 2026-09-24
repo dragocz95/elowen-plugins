@@ -294,6 +294,24 @@ export function DataTableCell({ children, header = false, priority = 'always', l
   );
 }
 
+/** A header that orders the register when clicked. Mirrors the host: the header carries `aria-sort`, and
+ *  the click is a real button inside it. */
+export function DataTableSortCell({ children, active, direction, onSort, priority = 'always', className = '', ...rest }: {
+  children: ReactNode; active: boolean; direction: 'asc' | 'desc'; onSort: () => void; priority?: 'always' | 'wide';
+} & Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onClick'>) {
+  return (
+    <DataTableCell
+      header
+      priority={priority}
+      aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={className}
+      {...rest}
+    >
+      <button type="button" onClick={onSort}>{children}</button>
+    </DataTableCell>
+  );
+}
+
 /** The trailing open affordance of an interactive register — its own `1.25rem` track in both templates. */
 export function DataTableChevronCell({ className = '' }: { className?: string }) {
   return (

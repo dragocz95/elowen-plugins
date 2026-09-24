@@ -325,15 +325,58 @@ describe('one chatbot\'s conversations', () => {
       { visitorId: 'v1', title: 'Otevírací doba podatelny' },
     ]);
     // Core decides the scope from the verified caller, and the plugin asks only for this chatbot's sessions.
-    expect(host.conversationReads).toEqual([
-      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v3' },
-      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v2' },
-      { actorUserId: 1, ownerUserId: 12, sessionId: 'core-session-v1' },
-    ]);
+    // One listing per page, however many rows it holds.
+    expect(host.conversationReads).toEqual([{ actorUserId: 1, ownerUserId: 12 }]);
 
     // Without an account there is no scope to ask core for.
     expect(await api.conversations({ admin: true, userId: null } as PluginApiAuth, { chatbotUserId: '12' }))
       .toMatchObject({ status: 403, body: { error: 'forbidden' } });
+  });
+
+  it('orders the whole register by the column asked for before cutting a page, blanks last either way', async () => {
+    const target = (id: string, title: string) =>
+      ({ id, key: `key-${id}`, title, ownerUserId: 12, platform: 'chatbot', direct: false, updatedAt: NOW_ISO });
+    const host = createChatbotHost({
+      accounts: twoChatbots().stores.usersRead.list(),
+      // v2 is not named yet, so it has no title to sort by.
+      conversations: [target('core-session-v1', 'Účty'), target('core-session-v3', 'adresa'), target('core-session-v4', 'Otevírací doba')],
+    });
+    const { api } = adminApiFor(host);
+    registerBot(host, { chatbotUserId: 12 });
+    const dayMs = Date.parse('2026-09-20T08:00:00.000Z');
+    recordTurn(host, { turnId: 'a', chatbotUserId: 12, visitorId: 'v1', at: dayMs, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'b', chatbotUserId: 12, visitorId: 'v2', at: dayMs + HOUR, status: 'error', message: 'ahoj', errorCode: 'relay_failed' });
+    recordTurn(host, { turnId: 'c', chatbotUserId: 12, visitorId: 'v3', at: dayMs + 2 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'd', chatbotUserId: 12, visitorId: 'v3', at: dayMs + 3 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    recordTurn(host, { turnId: 'e', chatbotUserId: 12, visitorId: 'v4', at: dayMs + 4 * HOUR, status: 'done', message: 'ahoj', reply: 'Ahoj' });
+    const ip = (visitorId: string, address: string) =>
+      host.db.prepare('UPDATE p_chatbot_conversations SET last_ip = ? WHERE visitor_id = ?').run(address, visitorId);
+    ip('v1', '10.0.0.2');
+    ip('v2', '9.0.0.1');
+    ip('v4', '192.168.1.5');
+
+    const order = async (query: Record<string, string>) => {
+      const answer = await api.conversations(ADMIN, { chatbotUserId: '12', ...query });
+      expect(answer.status).toBe(200);
+      return (answer.body as { conversations: { visitorId: string }[] }).conversations.map((row) => row.visitorId);
+    };
+    // Default: newest activity first.
+    expect(await order({})).toEqual(['v4', 'v3', 'v2', 'v1']);
+    // Titles read without regard to case or accents; the untitled one last in both directions.
+    expect(await order({ sort: 'title', direction: 'asc' })).toEqual(['v3', 'v4', 'v1', 'v2']);
+    expect(await order({ sort: 'title', direction: 'desc' })).toEqual(['v1', 'v4', 'v3', 'v2']);
+    // Addresses by value, not by characters; the one never kept last.
+    expect(await order({ sort: 'ip', direction: 'asc' })).toEqual(['v2', 'v1', 'v4', 'v3']);
+    // Ties fall back to newest activity.
+    expect(await order({ sort: 'turns', direction: 'desc' })).toEqual(['v3', 'v4', 'v2', 'v1']);
+    expect(await order({ sort: 'lastStatus', direction: 'asc' })).toEqual(['v4', 'v3', 'v1', 'v2']);
+    expect(await order({ sort: 'lastAt', direction: 'asc' })).toEqual(['v1', 'v2', 'v3', 'v4']);
+    // The page is cut from the ordered whole, not ordered within itself.
+    expect(await order({ sort: 'title', direction: 'asc', limit: '2', offset: '0' })).toEqual(['v3', 'v4']);
+    expect(await order({ sort: 'title', direction: 'asc', limit: '2', offset: '2' })).toEqual(['v1', 'v2']);
+
+    expect(await api.conversations(ADMIN, { chatbotUserId: '12', sort: 'visitorId' })).toMatchObject({ status: 400 });
+    expect(await api.conversations(ADMIN, { chatbotUserId: '12', direction: 'up' })).toMatchObject({ status: 400 });
   });
 
   it('narrows the register to exactly the visitor picked, and restores it when the pick is cleared', async () => {

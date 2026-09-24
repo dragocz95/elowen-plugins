@@ -12,8 +12,10 @@ import type { ChatbotStores } from './coreSeams.js';
 import { PUBLIC_MOUNT, WIDGET_ASSET_NAME } from './publicContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import { OFFER_TOOL_NAME } from './offerTool.js';
+import { CHATBOT_CONVERSATION_SORTS } from './adminContract.js';
 import type {
   ChatbotBotView,
+  ChatbotConversationSort,
   ChatbotConversationsAnswer,
   ChatbotFeedbackAnswer,
   ChatbotModelView,
@@ -51,6 +53,34 @@ interface Reply {
 /** How many conversations one page of the register holds. */
 const CONVERSATIONS_DEFAULT_LIMIT = 25;
 const CONVERSATIONS_MAX_LIMIT = 100;
+
+type ConversationView = ChatbotConversationsAnswer['conversations'][number];
+
+const isConversationSort = (value: string): value is ChatbotConversationSort =>
+  (CHATBOT_CONVERSATION_SORTS as readonly string[]).includes(value);
+
+/** Titles and addresses are read the way a person reads them: letters without regard to case or accents,
+ *  digit runs by value, so `10.0.0.2` follows `9.0.0.1` rather than preceding it. */
+const textOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** The register's order for one column. A missing value (an untitled conversation, an address never kept)
+ *  sorts last in either direction, so flipping the order never floods the first page with blanks. Ties fall
+ *  back to newest activity, then the visitor id, so a page boundary is stable between two requests. */
+function compareConversations(sort: ChatbotConversationSort, direction: 'asc' | 'desc') {
+  const sign = direction === 'asc' ? 1 : -1;
+  return (a: ConversationView, b: ConversationView): number => {
+    const x = a[sort];
+    const y = b[sort];
+    let order = 0;
+    if (x === null || y === null) order = x === y ? 0 : x === null ? 1 : -1;
+    else if (typeof x === 'number' && typeof y === 'number') order = sign * (x - y);
+    else if (sort === 'lastAt') order = sign * (x < y ? -1 : x > y ? 1 : 0);
+    else order = sign * textOrder.compare(String(x), String(y));
+    return order
+      || (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0)
+      || (a.visitorId < b.visitorId ? -1 : a.visitorId > b.visitorId ? 1 : 0);
+  };
+}
 
 /** How many visitors the register's picker offers: the most recently active ones. Bounded so one read
  *  never walks a chatbot's whole audience, and the answer says when the bound cut the list. */
@@ -312,6 +342,14 @@ export function createAdminApi(deps: AdminApiDeps) {
       if (visitorId !== null && !isVisitorId(visitorId)) {
         return { status: 400, body: { error: 'invalid_request', detail: '"visitor" must be a visitor id' } };
       }
+      const sort = query.sort ?? 'lastAt';
+      if (!isConversationSort(sort)) {
+        return { status: 400, body: { error: 'invalid_request', detail: `"sort" must be one of ${CHATBOT_CONVERSATION_SORTS.join(', ')}` } };
+      }
+      const direction = query.direction ?? 'desc';
+      if (direction !== 'asc' && direction !== 'desc') {
+        return { status: 400, body: { error: 'invalid_request', detail: '"direction" must be asc or desc' } };
+      }
       const bot = requireBot(chatbotUserId);
       if (isRefusal(bot)) return bot;
       // The core projection needs the verified caller to decide the scope; a request without an account has
@@ -321,16 +359,18 @@ export function createAdminApi(deps: AdminApiDeps) {
       const limit = clampLimit(query.limit, CONVERSATIONS_DEFAULT_LIMIT, CONVERSATIONS_MAX_LIMIT);
       const offset = Math.max(0, Math.floor(Number(query.offset)) || 0);
       // A conversation's title is core's own (the auto-titler names the session, a person may rename it), so
-      // it is read per row from the host's conversation projection, scoped to the chatbot account that owns
-      // these sessions, rather than stored here as a second copy that would go stale.
-      const conversations = store.conversations({ chatbotUserId, visitorId, limit, offset }).map((row) => {
-        const target = row.sessionId === null
-          ? null
-          : stores.conversationsRead.resolve({ actorUserId, ownerUserId: chatbotUserId, sessionId: row.sessionId });
-        return { ...row, title: target === null || target.title === '' ? null : target.title };
+      // it is read from the host's conversation projection, scoped to the chatbot account that owns these
+      // sessions, rather than stored here as a second copy that would go stale. Because a title can be sorted
+      // by, the order is decided over the whole register once titles are known, and only then cut to a page.
+      const titles = new Map(stores.conversationsRead.list({ actorUserId, ownerUserId: chatbotUserId })
+        .map((target) => [target.id, target.title]));
+      const register: ConversationView[] = store.conversations({ chatbotUserId, visitorId }).map((row) => {
+        const title = row.sessionId === null ? undefined : titles.get(row.sessionId);
+        return { ...row, title: title === undefined || title === '' ? null : title };
       });
-      const total = store.conversationCount({ chatbotUserId, visitorId });
-      return { status: 200, body: { conversations, total, limit, offset } satisfies ChatbotConversationsAnswer };
+      register.sort(compareConversations(sort, direction));
+      const conversations = register.slice(offset, offset + limit);
+      return { status: 200, body: { conversations, total: register.length, limit, offset } satisfies ChatbotConversationsAnswer };
     },
 
     async feedback(auth: PluginApiAuth, query: Record<string, string>): Promise<Reply> {

@@ -113,8 +113,6 @@ interface ChatbotConversationView {
   lastStatus: string;
 }
 
-/** `GET api/conversations?chatbotUserId=&limit=&offset=[&visitor=]`. `total` counts the conversations of
- *  THIS chatbot, or of the one visitor picked, so a pager never offers a page the server would answer empty. */
 export interface ChatbotFeedbackAnswer {
   rows: {
     turnId: string;
@@ -133,6 +131,15 @@ export interface ChatbotFeedbackAnswer {
   offset: number;
 }
 
+/** The columns the conversations register can be ordered by: the route validates a request against this
+ *  list and the page's sortable headers name exactly these. */
+export const CHATBOT_CONVERSATION_SORTS = ['title', 'ip', 'lastAt', 'turns', 'lastStatus'] as const;
+export type ChatbotConversationSort = typeof CHATBOT_CONVERSATION_SORTS[number];
+
+/** `GET api/conversations?chatbotUserId=&limit=&offset=[&visitor=][&sort=&direction=]`. `total` counts the
+ *  conversations of THIS chatbot, or of the one visitor picked, so a pager never offers a page the server
+ *  would answer empty. The order is the whole register's, not one page's: newest activity first unless
+ *  `sort` names another column. */
 export interface ChatbotConversationsAnswer {
   conversations: ChatbotConversationView[];
   total: number;

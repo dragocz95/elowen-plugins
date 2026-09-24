@@ -71,9 +71,9 @@ export interface ChatbotHost {
   /** The page-action half: the same service the tool asks and the public route reports to. */
   actions: PageActionService;
   stores: ChatbotStores;
-  /** Every conversation the plugin asked core's projection to resolve, in order, so a test can see WHICH
-   *  scope the plugin asked for rather than only which title came back. */
-  conversationReads: { actorUserId: number; ownerUserId?: number | null; sessionId: string }[];
+  /** Every listing the plugin asked core's projection for, in order, so a test can see WHICH scope the
+   *  plugin asked for rather than only which titles came back. */
+  conversationReads: { actorUserId: number; ownerUserId?: number | null }[];
   handler: ReturnType<typeof createPublicRoute>;
   calls: RelayCall[];
   warnings: string[];
@@ -136,8 +136,8 @@ export function createChatbotHost(options: {
   /** What the deployment's image host serves for the address an owner configured. The default is a small
    *  PNG, which is what the success path is about; a suite that is about a REFUSAL replaces it. */
   avatar?: (source: string) => Promise<AvatarFetch>;
-  /** Core's conversation projection, as a LIVE list: a session core has not listed resolves to nothing,
-   *  exactly as `conversationsRead.resolve` answers for a deleted or foreign one. */
+  /** Core's conversation projection, as a LIVE list: a session core has not listed is simply absent from
+   *  `conversationsRead.list`, exactly as core leaves out a deleted or foreign one. */
   conversations?: PluginConversationTarget[];
 } = {}): ChatbotHost {
   hostCount += 1;
@@ -163,10 +163,9 @@ export function createChatbotHost(options: {
     projects: { get: (id: number) => projects.find((project) => project.id === id) ?? null, list: () => projects },
     userProjects: { canAccess: () => true, canManage: () => true },
     conversationsRead: {
-      resolve: (input: ChatbotHost['conversationReads'][number]) => {
+      list: (input: ChatbotHost['conversationReads'][number]) => {
         conversationReads.push(input);
-        return conversations.find((target) => target.id === input.sessionId
-          && (input.ownerUserId == null || target.ownerUserId === input.ownerUserId)) ?? null;
+        return conversations.filter((target) => input.ownerUserId == null || target.ownerUserId === input.ownerUserId);
       },
     },
   } as unknown as ChatbotStores;

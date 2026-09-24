@@ -4,7 +4,7 @@ import { apiJson, chatbotApi, runtime } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
-import type { ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types';
+import type { ChatbotConversationSort, ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types';
 
 /** THE CONVERSATIONS SECTION: who talked to one chatbot, and what was said.
  *
@@ -15,16 +15,20 @@ import type { ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types'
  *  A row opens the visitor's canonical core session in a new host chat window; it never assembles its own URL. */
 
 const PAGE_SIZE = 25;
-/** The grid: the conversation, the address it came from, when it was last seen, how many turns, and what
- *  the last one did. The Chatbots window is narrower than the host's wide breakpoint, so the address cannot
- *  be `wide` like the last activity or it would never show: it keeps a track in the compact layout too and
- *  hides itself only in a phone-width table (`IP_CELL`), where the mobile template has no track for it. */
-const COLUMNS = 'minmax(0,1.5fr) 9rem minmax(0,1fr) 4.5rem 7rem 1.25rem';
-const COMPACT_COLUMNS = 'minmax(0,1.5fr) 9rem 4.5rem 7rem 1.25rem';
+/** The grid: the conversation, the address it came from, when it was last active, how many turns, and what
+ *  the last one did. The Chatbots window is narrower than the host's wide breakpoint, so no column may be
+ *  `wide` or it would never show there: the wide and compact layouts are one template, and only a phone-width
+ *  table drops the address and the time (`PHONE_HIDDEN`), where the mobile template has no track for them. */
+const COLUMNS = 'minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
-/** Hides the address below the host DataTable's own 40rem mobile container breakpoint, the one that
- *  switches to MOBILE_COLUMNS; the two numbers must stay equal. */
-const IP_CELL = '@max-[40rem]:hidden';
+/** Hides a cell below the host DataTable's own 40rem mobile container breakpoint, the one that switches to
+ *  MOBILE_COLUMNS; the two numbers must stay equal. */
+const PHONE_HIDDEN = '@max-[40rem]:hidden';
+/** A column clicked for the first time starts where a reader looks first: newest and busiest at the top,
+ *  words and addresses from A. */
+const FIRST_DIRECTION: Record<ChatbotConversationSort, 'asc' | 'desc'> = {
+  title: 'asc', ip: 'asc', lastAt: 'desc', turns: 'desc', lastStatus: 'asc',
+};
 
 export function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
@@ -41,6 +45,7 @@ export function ConversationsSection() {
   const [answer, setAnswer] = useState<ChatbotConversationsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [order, setOrder] = useState<{ sort: ChatbotConversationSort; direction: 'asc' | 'desc' }>({ sort: 'lastAt', direction: 'desc' });
   // The one way to narrow the register: exactly one visitor, picked from the chatbot's own visitor list.
   // Null is every visitor.
   const [visitorId, setVisitorId] = useState<string | null>(null);
@@ -72,12 +77,14 @@ export function ConversationsSection() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       visitorId,
+      sort: order.sort,
+      direction: order.direction,
     }))
       .then((result) => { if (request === requestSequence.current) setAnswer(result); })
       .catch((error) => {
         if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.conversationsLoadError);
       });
-  }, [chatbotUserId, page, s.conversationsLoadError, utils, visitorId]);
+  }, [chatbotUserId, order, page, s.conversationsLoadError, utils, visitorId]);
 
   // Who the register can be narrowed to. Read beside the register rather than before it: the picker is a
   // narrowing, so a register whose visitor list could not be read still shows every conversation.
@@ -101,6 +108,20 @@ export function ConversationsSection() {
     setPage(0);
     setVisitorId(value === '' ? null : value);
   };
+
+  // The server orders the whole register, so a new order starts again from its first page. The rows on
+  // screen stay until the new page arrives: the same conversations, only about to be rearranged.
+  const sortBy = (sort: ChatbotConversationSort) => {
+    setPage(0);
+    setOrder((current) => current.sort === sort
+      ? { sort, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      : { sort, direction: FIRST_DIRECTION[sort] });
+  };
+  const sortCell = (sort: ChatbotConversationSort, label: string, className?: string) => (
+    <C.DataTableSortCell active={order.sort === sort} direction={order.direction} onSort={() => sortBy(sort)} className={className}>
+      {label}
+    </C.DataTableSortCell>
+  );
 
   // Another chatbot is another register: its first page, and nothing of the previous one left on screen
   // while the new read is in flight. A visitor pick and the visitor list belong to the same one-bot view.
@@ -173,13 +194,13 @@ export function ConversationsSection() {
       : answer.total === 0 ? <C.EmptyState title={emptyTitle} description={emptyDescription} icon={MessagesSquare} />
         : (
           <div className="flex min-w-0 flex-col gap-3">
-            <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COMPACT_COLUMNS} mobileColumns={MOBILE_COLUMNS}>
+            <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
-                <C.DataTableCell header lines={1}>{s.columnTitle}</C.DataTableCell>
-                <C.DataTableCell header lines={1} className={IP_CELL}>{s.columnIp}</C.DataTableCell>
-                <C.DataTableCell header lines={1} priority="wide">{s.columnLastSeen}</C.DataTableCell>
-                <C.DataTableCell header lines={1}>{s.columnTurns}</C.DataTableCell>
-                <C.DataTableCell header lines={1}>{s.columnLastTurn}</C.DataTableCell>
+                {sortCell('title', s.columnTitle)}
+                {sortCell('ip', s.columnIp, PHONE_HIDDEN)}
+                {sortCell('lastAt', s.columnLastSeen, PHONE_HIDDEN)}
+                {sortCell('turns', s.columnTurns)}
+                {sortCell('lastStatus', s.columnLastTurn)}
                 <C.DataTableChevronCell />
               </C.DataTableRow>
               {answer.conversations.map((conversation) => (
@@ -194,8 +215,8 @@ export function ConversationsSection() {
                   openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
                 >
                   <C.DataTableCell lines={1}>{conversation.title ?? s.conversationUntitled}</C.DataTableCell>
-                  <C.DataTableCell lines={1} className={`font-mono text-xs ${IP_CELL}`}>{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
-                  <C.DataTableCell lines={1} priority="wide">{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className={`font-mono text-xs ${PHONE_HIDDEN}`}>{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className={PHONE_HIDDEN}>{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
                   <C.DataTableCell lines={1}>
                     {integer(conversation.turns, locale)}
                     {conversation.errors > 0 ? <span className="ml-1 text-destructive">({integer(conversation.errors, locale)})</span> : null}

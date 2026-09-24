@@ -739,9 +739,10 @@ export class ChatbotStore {
             totals: counts,
         };
     }
-    /** This chatbot's conversations, newest activity first. A conversation is the plugin's own
+    /** Every conversation of this chatbot, or of the one visitor picked. A conversation is the plugin's own
      *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show
-     *  one chatbot's visitor under another chatbot's row. */
+     *  one chatbot's visitor under another chatbot's row. Unpaged: the register is ordered by columns core
+     *  owns (the title), so the caller orders the whole of it and cuts the page itself. */
     conversations(input) {
         const rows = this.stmt(`SELECT turns.visitor_id,
                                    conversations.last_ip,
@@ -760,10 +761,8 @@ export class ChatbotStore {
                                AND conversations.visitor_id = turns.visitor_id
                              WHERE turns.chatbot_user_id = ?
                                AND (? IS NULL OR turns.visitor_id = ?)
-                          GROUP BY turns.visitor_id, conversations.session_id, conversations.last_ip
-                          ORDER BY last_at DESC, turns.visitor_id
-                             LIMIT ? OFFSET ?`)
-            .all(input.chatbotUserId, input.visitorId, input.visitorId, input.limit, input.offset);
+                          GROUP BY turns.visitor_id, conversations.session_id, conversations.last_ip`)
+            .all(input.chatbotUserId, input.visitorId, input.visitorId);
         return rows.map((row) => ({
             visitorId: row.visitor_id,
             ip: row.last_ip,

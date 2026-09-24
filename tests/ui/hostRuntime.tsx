@@ -48,7 +48,7 @@ export function ensurePluginUiRuntime(): void {
       HelpTip: C.HelpTip, Modal: C.Modal, ModalBody: C.ModalBody, ModalFooter: C.ModalFooter,
       ControlSurfaceDocument: C.ControlSurfaceDocument, ControlSurfaceToolbar: C.ControlSurfaceToolbar,
       ControlSurfaceRegister: C.ControlSurfaceRegister, ControlSurfaceState: C.ControlSurfaceState,
-      DataTable: C.DataTable, DataTableRow: C.DataTableRow, DataTableCell: C.DataTableCell,
+      DataTable: C.DataTable, DataTableRow: C.DataTableRow, DataTableCell: C.DataTableCell, DataTableSortCell: C.DataTableSortCell,
       // The register footer, the toolbar's search field and the row's trailing open affordance — the
       // three pieces every plugin register used to hand-roll (API 8).
       PageFilters: C.PageFilters, Pager: C.Pager, RegisterSearch: C.RegisterSearch, DataTableChevronCell: C.DataTableChevronCell,

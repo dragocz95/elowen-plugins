@@ -68,7 +68,9 @@ var chatbotApi = {
     const query = new URLSearchParams({
       chatbotUserId: String(input.chatbotUserId),
       limit: String(input.limit),
-      offset: String(input.offset)
+      offset: String(input.offset),
+      sort: input.sort,
+      direction: input.direction
     });
     if (input.visitorId !== null) query.set("visitor", input.visitorId);
     return `/plugins/chatbot/api/conversations?${query}`;
@@ -22123,10 +22125,16 @@ function BotPicker({ bots, value, onChange, label, disabled }) {
 // plugins/chatbot/web-src/ConversationsView.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 25;
-var COLUMNS = "minmax(0,1.5fr) 9rem minmax(0,1fr) 4.5rem 7rem 1.25rem";
-var COMPACT_COLUMNS = "minmax(0,1.5fr) 9rem 4.5rem 7rem 1.25rem";
+var COLUMNS = "minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem";
 var MOBILE_COLUMNS = "minmax(0,1fr) 2rem 5.5rem 1rem";
-var IP_CELL = "@max-[40rem]:hidden";
+var PHONE_HIDDEN = "@max-[40rem]:hidden";
+var FIRST_DIRECTION = {
+  title: "asc",
+  ip: "asc",
+  lastAt: "desc",
+  turns: "desc",
+  lastStatus: "asc"
+};
 function ConversationsSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
@@ -22139,6 +22147,7 @@ function ConversationsSection() {
   const [answer, setAnswer] = (0, import_react10.useState)(null);
   const [loadError, setLoadError] = (0, import_react10.useState)(null);
   const [page, setPage] = (0, import_react10.useState)(0);
+  const [order, setOrder] = (0, import_react10.useState)({ sort: "lastAt", direction: "desc" });
   const [visitorId, setVisitorId] = (0, import_react10.useState)(null);
   const [visitors, setVisitors] = (0, import_react10.useState)(null);
   const [visitorsError, setVisitorsError] = (0, import_react10.useState)(null);
@@ -22159,13 +22168,15 @@ function ConversationsSection() {
       chatbotUserId,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
-      visitorId
+      visitorId,
+      sort: order.sort,
+      direction: order.direction
     })).then((result) => {
       if (request === requestSequence.current) setAnswer(result);
     }).catch((error) => {
       if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.conversationsLoadError);
     });
-  }, [chatbotUserId, page, s.conversationsLoadError, utils, visitorId]);
+  }, [chatbotUserId, order, page, s.conversationsLoadError, utils, visitorId]);
   const loadVisitors = (0, import_react10.useCallback)(() => {
     const request = ++visitorsSequence.current;
     if (chatbotUserId === null) return;
@@ -22183,6 +22194,11 @@ function ConversationsSection() {
     setPage(0);
     setVisitorId(value === "" ? null : value);
   };
+  const sortBy = (sort) => {
+    setPage(0);
+    setOrder((current) => current.sort === sort ? { sort, direction: current.direction === "asc" ? "desc" : "asc" } : { sort, direction: FIRST_DIRECTION[sort] });
+  };
+  const sortCell = (sort, label, className) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableSortCell, { active: order.sort === sort, direction: order.direction, onSort: () => sortBy(sort), className, children: label });
   (0, import_react10.useEffect)(() => {
     requestSequence.current += 1;
     setAnswer(null);
@@ -22236,13 +22252,13 @@ function ConversationsSection() {
   const emptyTitle = filtering ? s.conversationsVisitorGone : s.conversationsEmptyTitle;
   const emptyDescription = filtering ? s.conversationsVisitorGoneDescription : s.conversationsEmptyDescription;
   const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: emptyTitle, description: emptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COMPACT_COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableRow, { header: true, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTitle }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, className: IP_CELL, children: s.columnIp }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, priority: "wide", children: s.columnLastSeen }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTurns }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnLastTurn }),
+        sortCell("title", s.columnTitle),
+        sortCell("ip", s.columnIp, PHONE_HIDDEN),
+        sortCell("lastAt", s.columnLastSeen, PHONE_HIDDEN),
+        sortCell("turns", s.columnTurns),
+        sortCell("lastStatus", s.columnLastTurn),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableChevronCell, {})
       ] }),
       answer.conversations.map((conversation) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
@@ -22254,8 +22270,8 @@ function ConversationsSection() {
           openLabel: conversation.sessionId === null ? void 0 : s.openConversation.replace("{visitor}", conversation.visitorId),
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, children: conversation.title ?? s.conversationUntitled }),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: `font-mono text-xs ${IP_CELL}`, children: conversation.ip ?? s.visitorIpUnknown }),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: formatDateTime(conversation.lastAt, locale) }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: `font-mono text-xs ${PHONE_HIDDEN}`, children: conversation.ip ?? s.visitorIpUnknown }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: PHONE_HIDDEN, children: formatDateTime(conversation.lastAt, locale) }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableCell, { lines: 1, children: [
               integer(conversation.turns, locale),
               conversation.errors > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "ml-1 text-destructive", children: [

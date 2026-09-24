@@ -130,6 +130,7 @@ const conversationsOf = (chatbotUserId: number) => chatbotUserId === second.chat
 const asked: {
   conversations: number[];
   visitorQueries: (string | null)[];
+  conversationOrders: { sort: string | null; direction: string | null; offset: string | null }[];
   visitors: number[];
   stats: number[];
   feedback: { chatbotUserId: string | null; rating: string }[];
@@ -138,7 +139,7 @@ const asked: {
   botPatch: Record<string, unknown>[];
   configPatch: Record<string, unknown>[];
   impersonate: number[];
-} = { conversations: [], visitorQueries: [], visitors: [], stats: [], feedback: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
+} = { conversations: [], visitorQueries: [], conversationOrders: [], visitors: [], stats: [], feedback: [], usage: [], userPatch: [], botPatch: [], configPatch: [], impersonate: [] };
 
 setDefaults(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -194,6 +195,11 @@ setDefaults(
     const visitor = url.searchParams.get('visitor');
     asked.conversations.push(chatbotUserId);
     asked.visitorQueries.push(visitor);
+    asked.conversationOrders.push({
+      sort: url.searchParams.get('sort'),
+      direction: url.searchParams.get('direction'),
+      offset: url.searchParams.get('offset'),
+    });
     const matching = conversationsOf(chatbotUserId).filter((conversation) => visitor === null || conversation.visitorId === visitor);
     const limit = Number(url.searchParams.get('limit') ?? 25);
     const offset = Number(url.searchParams.get('offset') ?? 0);
@@ -296,6 +302,7 @@ afterEach(() => {
   resetHandlers();
   asked.conversations = [];
   asked.visitorQueries = [];
+  asked.conversationOrders = [];
   asked.visitors = [];
   asked.stats = [];
   asked.feedback = [];
@@ -842,22 +849,46 @@ describe('the conversations section', () => {
     await waitFor(() => expect(asked.visitors).toEqual([bot.chatbotUserId, second.chatbotUserId]));
   });
 
-  it('gives each visitor\'s address its own column, and says so when none was kept', async () => {
+  it('gives each visitor\'s address and last activity their own columns, and says so when no address was kept', async () => {
     await openConversations();
-    const header = await screen.findByRole('columnheader', { name: strings.columnIp! });
+    const ipHeader = await screen.findByRole('columnheader', { name: strings.columnIp! });
+    const timeHeader = screen.getByRole('columnheader', { name: strings.columnLastSeen! });
     // A kept address reads as the address, monospaced like the other machine values on the page.
     const kept = (screen.getByText('Office hours')).closest('[role="row"]')!;
     const ipCell = within(kept).getByText('203.0.113.9');
     expect(ipCell).toHaveClass('font-mono');
-    // The Chatbots window is narrower than the host's wide breakpoint, so the address must not ride on the
-    // wide-only priority: it stays in the compact layout and only a phone-width table drops it.
-    for (const cell of [header, ipCell]) {
+    const timeCell = within(kept).getByText(new Intl.DateTimeFormat('en', { dateStyle: 'short', timeStyle: 'short' })
+      .format(new Date(conversationsOf(bot.chatbotUserId)[0]!.lastAt)));
+    // The Chatbots window is narrower than the host's wide breakpoint, so neither may ride on the wide-only
+    // priority: both stay in the compact layout and only a phone-width table drops them.
+    for (const cell of [ipHeader, ipCell, timeHeader, timeCell]) {
       expect(cell).not.toHaveClass('data-table-wide');
       expect(cell).toHaveClass('@max-[40rem]:hidden');
     }
     // An address that was never kept is said to be unknown in the same column, never left blank.
     const unkept = screen.getByText(strings.conversationUntitled!).closest('[role="row"]')!;
     expect(within(unkept).getByText(strings.visitorIpUnknown!)).toBeInTheDocument();
+  });
+
+  it('orders the register by the column header clicked, the server\'s whole register from its first page', async () => {
+    await openConversations();
+    await screen.findByText('Office hours');
+    // Newest activity first until a reader asks for another order.
+    expect(asked.conversationOrders.at(-1)).toEqual({ sort: 'lastAt', direction: 'desc', offset: '0' });
+    const titleHeader = screen.getByRole('columnheader', { name: strings.columnTitle! });
+    expect(titleHeader).toHaveAttribute('aria-sort', 'none');
+    fireEvent.click(within(titleHeader).getByRole('button'));
+    await waitFor(() => expect(asked.conversationOrders.at(-1)).toEqual({ sort: 'title', direction: 'asc', offset: '0' }));
+    expect(titleHeader).toHaveAttribute('aria-sort', 'ascending');
+    // The same header again flips the order; another header starts where a reader looks first.
+    fireEvent.click(within(titleHeader).getByRole('button'));
+    await waitFor(() => expect(asked.conversationOrders.at(-1)).toEqual({ sort: 'title', direction: 'desc', offset: '0' }));
+    fireEvent.click(within(screen.getByRole('columnheader', { name: strings.columnTurns! })).getByRole('button'));
+    await waitFor(() => expect(asked.conversationOrders.at(-1)).toEqual({ sort: 'turns', direction: 'desc', offset: '0' }));
+    for (const [label, sort, direction] of [[strings.columnIp!, 'ip', 'asc'], [strings.columnLastSeen!, 'lastAt', 'desc'], [strings.columnLastTurn!, 'lastStatus', 'asc']] as const) {
+      fireEvent.click(within(screen.getByRole('columnheader', { name: label })).getByRole('button'));
+      await waitFor(() => expect(asked.conversationOrders.at(-1)).toEqual({ sort, direction, offset: '0' }));
+    }
   });
 
   /** Open the visitor picker, type into its search, pick the one option whose label is given, and save. */

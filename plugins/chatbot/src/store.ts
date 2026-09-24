@@ -999,10 +999,11 @@ export class ChatbotStore {
     };
   }
 
-  /** This chatbot's conversations, newest activity first. A conversation is the plugin's own
+  /** Every conversation of this chatbot, or of the one visitor picked. A conversation is the plugin's own
    *  (chatbot, visitor) pair — the same pair a session key is built from — so this register can never show
-   *  one chatbot's visitor under another chatbot's row. */
-  conversations(input: { chatbotUserId: number; visitorId: string | null; limit: number; offset: number }): ConversationSummaryRow[] {
+   *  one chatbot's visitor under another chatbot's row. Unpaged: the register is ordered by columns core
+   *  owns (the title), so the caller orders the whole of it and cuts the page itself. */
+  conversations(input: { chatbotUserId: number; visitorId: string | null }): ConversationSummaryRow[] {
     const rows = this.stmt(`SELECT turns.visitor_id,
                                    conversations.last_ip,
                                    conversations.session_id,
@@ -1020,10 +1021,8 @@ export class ChatbotStore {
                                AND conversations.visitor_id = turns.visitor_id
                              WHERE turns.chatbot_user_id = ?
                                AND (? IS NULL OR turns.visitor_id = ?)
-                          GROUP BY turns.visitor_id, conversations.session_id, conversations.last_ip
-                          ORDER BY last_at DESC, turns.visitor_id
-                             LIMIT ? OFFSET ?`)
-      .all(input.chatbotUserId, input.visitorId, input.visitorId, input.limit, input.offset) as {
+                          GROUP BY turns.visitor_id, conversations.session_id, conversations.last_ip`)
+      .all(input.chatbotUserId, input.visitorId, input.visitorId) as {
         visitor_id: string; last_ip: string | null; session_id: string | null; turns: number; errors: number; first_at: string; last_at: string; last_status: string;
       }[];
     return rows.map((row) => ({
