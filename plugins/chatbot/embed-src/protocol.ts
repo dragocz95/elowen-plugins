@@ -1,4 +1,4 @@
-/** The v1 wire protocol, as the widget speaks it.
+/** The v2 wire protocol, as the widget speaks it.
  *
  *  Every constant comes from `../src/publicContract.js` — the same module the daemon-side public route is
  *  compiled from — so a frame type, a path or a bound cannot be spelled differently on the two sides of
@@ -6,6 +6,9 @@
 
 import {
   ACTION_DECISIONS,
+  ACTION_NONCE_MIN_CHARS,
+  ACTION_NONCE_MAX_CHARS,
+  CANONICAL_UUID_PATTERN,
   ACTION_KINDS,
   ACTION_OUTCOMES,
   PUBLIC_FRAME_TYPES,
@@ -116,14 +119,12 @@ export interface ActionFrame {
   confirmationNonce: string;
 }
 
-const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 export function readActionFrame(data: Record<string, unknown>): ActionFrame | null {
   const { actionId, kind, targetId, value, snapshotId, confirmationNonce } = data;
-  if (typeof actionId !== 'string' || !CANONICAL_UUID.test(actionId)) return null;
+  if (typeof actionId !== 'string' || !CANONICAL_UUID_PATTERN.test(actionId)) return null;
   if (typeof kind !== 'string' || !(ACTION_KINDS as readonly string[]).includes(kind)) return null;
   if (typeof snapshotId !== 'string' || (kind !== 'snapshot' && !SNAPSHOT_ID_PATTERN.test(snapshotId))) return null;
-  if (typeof confirmationNonce !== 'string' || confirmationNonce.length < 8 || confirmationNonce.length > 128) return null;
+  if (typeof confirmationNonce !== 'string' || confirmationNonce.length < ACTION_NONCE_MIN_CHARS || confirmationNonce.length > ACTION_NONCE_MAX_CHARS) return null;
   if (typeof data.requiresConfirmation !== 'boolean') return null;
   const requiresConfirmation = requiresVisitorConfirmation(kind as ActionKind);
   if (data.requiresConfirmation !== requiresConfirmation) return null;

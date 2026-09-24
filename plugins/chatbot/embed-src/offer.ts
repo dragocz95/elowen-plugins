@@ -11,15 +11,15 @@ export function escapeHtml(value: string): string {
 export function offerHtml(offer: Offer, origins: readonly string[], strings: WidgetStrings, active = true): string {
   const disabled = active ? '' : ' disabled';
   const choice = (offer.choices ?? []).map(({ label, reply }) =>
-    `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(reply ?? label)}"${disabled}>${escapeHtml(label)}</button>`).join('');
+    `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(reply ?? label)}"${disabled}>${escapeHtml(label)}</button>`).join('');
   const link = (label: string, url: string): string => allowedOfferUrl(url, origins)
-    ? `<button type="button" class="cb-quick-item cb-offer-link" data-cb-url="${escapeHtml(url)}"${disabled}>${escapeHtml(label)}</button>`
+    ? `<button type="button" class="cb-quick-item" data-cb-url="${escapeHtml(url)}"${disabled}>${escapeHtml(label)}</button>`
     : '';
   const links = (offer.links ?? []).map(({ label, url }) => link(label, url)).join('');
   const cards = (offer.cards ?? []).map((card) => {
     const action = card.action
       ? 'reply' in card.action
-        ? `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(card.action.reply)}"${disabled}>${escapeHtml(card.action.label)}</button>`
+        ? `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(card.action.reply)}"${disabled}>${escapeHtml(card.action.label)}</button>`
         : link(card.action.label, card.action.url)
       : '';
     return `<article class="cb-offer-card">${card.imageUrl && allowedOfferUrl(card.imageUrl, origins)

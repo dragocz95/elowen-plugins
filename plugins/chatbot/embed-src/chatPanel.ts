@@ -23,11 +23,10 @@ import {
   appearanceFontStack,
   appearanceInk,
   appearanceIconSvg,
-  appearanceShade,
   type ChatbotAppearance,
   type ChatbotLook,
 } from '../src/appearanceContract.js';
-import { effectsCss, buttonStyles, chatEffectsCss, gradient, gradientInk } from './effects.js';
+import { effectsCss, buttonStyles, chatEffectsCss, gradient, gradientInk, hoverShade } from './effects.js';
 import { playTone, unlockSound } from './sound.js';
 import type { ChatView } from './session.js';
 import { allowedOfferUrl, type Offer } from '../src/offerContract.js';
@@ -85,7 +84,7 @@ export interface ChatPanelOptions {
  *  markup it is handed; `chatConfig` below is the only caller. */
 function introHtml(input: { greeting: string; appearance: ChatbotAppearance; strings: WidgetStrings }): string {
   const { greeting, appearance, strings } = input;
-  const text = `<div class="cb-intro-text">${escapeHtml(greeting)}</div>`;
+  const text = `<div>${escapeHtml(greeting)}</div>`;
   if (appearance.quickButtons.length === 0) return text;
   const buttons = appearance.quickButtons
     .map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? '' : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`)
@@ -110,7 +109,6 @@ function introUtilities(
           const target = event.target instanceof Element ? event.target.closest('[data-cb-text]') : null;
           const text = target?.getAttribute('data-cb-text') ?? '';
           if (text !== '' && target instanceof HTMLButtonElement && !target.disabled) {
-            disableOffers(target.getRootNode() as ShadowRoot);
             onQuickButton(text);
           }
         },
@@ -165,7 +163,7 @@ function chatConfig(input: {
   const appearance = look.appearance;
   const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === 'circle' ? '50%' : '8px';
-  const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
+  const sendHover = hoverShade(appearance, appearance.colors.sendButton);
   const sendContainer = {
     default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
     hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
@@ -286,7 +284,7 @@ function lookStyle(appearance: ChatbotAppearance): string {
   return `
 :host {
   --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton};
-  --cb-attachment-surface: ${ramp.raised}; --cb-attachment-ink: ${ramp.foreground};
+  --cb-attachment-surface: ${ramp.raised};
   --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
 }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
@@ -322,11 +320,11 @@ ${chatEffectsCss(appearance)}
 function styleText(appearance: ChatbotAppearance): string {
   const GUTTER_PX = appearance.launcher.offset;
   const inset = appearanceViewportInset(appearance);
-  const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === 'dark' ? 'lighter' : 'darker');
+  const launcherHover = hoverShade(appearance, appearance.colors.launcher);
   const ramp = appearanceRamp(appearance);
   const headerInk = gradientInk(ramp.header, appearance.colors.headerEnd);
   const sendInk = appearanceInk(appearance.colors.sendButton);
-  const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === 'dark' ? 'lighter' : 'darker');
+  const sendHover = hoverShade(appearance, appearance.colors.sendButton);
   const corner: Record<typeof appearance.position, string> = {
     'bottom-right': `right: ${GUTTER_PX}px; bottom: ${GUTTER_PX}px;`,
     'bottom-left': `left: ${GUTTER_PX}px; bottom: ${GUTTER_PX}px;`,
@@ -690,25 +688,11 @@ export class ChatPanel implements ChatView {
   previewEffects(): void {
     if (this.key !== null) return;
     this.teaser.hidden = this.look.appearance.launcher.teaser === '';
-    this.launcher.classList.remove('launcher-nudge-bounce', 'launcher-nudge-wiggle');
-    if (this.look.appearance.launcher.nudge !== 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      void this.launcher.offsetWidth;
-      this.launcher.classList.add(`launcher-nudge-${this.look.appearance.launcher.nudge}`);
-    }
+    this.applyNudge(this.look.appearance.launcher.nudge !== 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? this.look.appearance.launcher.nudge : 'none');
   }
 
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
-
-  /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
-   *  server's projection, or one a site sends with `window.ElowenChatbot`.
-   *
-   *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
-   *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
-   *  words asked of the model again, on every reload — and a message shown on the visitor's behalf would
-   *  loop straight back into this widget. `addMessage` only draws it. */
-  appendVisitor(text: string): void {
-    this.draw({ role: 'user', text });
-  }
 
   beginAnswer(): void {
     this.disableEarlierOffers();
@@ -1314,6 +1298,13 @@ export class ChatPanel implements ChatView {
     this.nudgeTimer = null;
   }
 
+  private applyNudge(kind: ChatbotAppearance['launcher']['nudge']): void {
+    this.launcher.classList.remove('launcher-nudge-bounce', 'launcher-nudge-wiggle');
+    if (kind === 'none') return;
+    void this.launcher.offsetWidth;
+    this.launcher.classList.add(`launcher-nudge-${kind}`);
+  }
+
   private scheduleAttention(): void {
     this.clearAttentionTimers();
     const { launcher } = this.look.appearance;
@@ -1325,9 +1316,7 @@ export class ChatPanel implements ChatView {
     if (launcher.nudge === 'none' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const nudge = () => {
       if (this.isOpen() || this.openedEver || this.destroyed) return;
-      this.launcher.classList.remove('launcher-nudge-bounce', 'launcher-nudge-wiggle');
-      void this.launcher.offsetWidth;
-      this.launcher.classList.add(`launcher-nudge-${launcher.nudge}`);
+      this.applyNudge(launcher.nudge);
       this.nudgeCount++;
       if (this.nudgeCount < 2) this.nudgeTimer = setTimeout(nudge, launcher.nudgeDelay * 1000);
     };

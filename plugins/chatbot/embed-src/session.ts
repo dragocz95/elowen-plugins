@@ -48,8 +48,6 @@ import { readFeedback } from './feedback.js';
 
 /** The panel, as the conversation needs it: it shows, it asks, and it never decides. */
 export interface ChatView {
-  /** A message the visitor sent, when the panel did not show it itself. */
-  appendVisitor(text: string): void;
   /** The moment the visitor's message went out: show that an answer is coming. */
   beginAnswer(): void;
   /** One delta of an answer still arriving. */
@@ -233,9 +231,8 @@ export class ChatSession {
     }
   }
 
-  /** Send one message. `shown` says the panel already displayed it — a submit through the panel's own input
-   *  is shown by the panel itself, while a message sent on the visitor's behalf is not. */
-  async send(text: string, options: { shown?: boolean } = {}): Promise<void> {
+  /** Send one message already drawn by deep-chat's submit path. */
+  async send(text: string): Promise<void> {
     if (this.destroyed) return;
     const message = text.trim();
     if (message === '') return;
@@ -245,7 +242,6 @@ export class ChatSession {
       this.deps.view.error(this.strings.errorTooLong);
       return;
     }
-    if (!options.shown) this.deps.view.appendVisitor(message);
     this.deps.view.beginAnswer();
 
     let token: string;
