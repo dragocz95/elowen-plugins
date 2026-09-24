@@ -155,10 +155,10 @@ export class ChatSession {
   /** Pick the conversation up where the visitor left it, if this browser ever had one. Nothing is sent to
    *  the server when it did not: a page load with an untouched panel makes no request at all. */
   async start(): Promise<void> {
-    if (this.handoff !== null) {
-      try { await this.ensureToken(); } catch { this.deps.view.error(this.strings.errorUnavailable); return; }
-    }
-    if (this.token === null) return;
+    if (!this.hasStoredToken()) return;
+    // An avatar request may have started redeeming the handoff and cleared its code already.
+    // Share that acquisition before reading the conversation with the stored (now revoked) token.
+    try { await this.ensureToken(); } catch { this.deps.view.error(this.strings.errorUnavailable); return; }
     const conversation = await this.getConversation();
     if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
     const messages: RestoredMessage[] = [];

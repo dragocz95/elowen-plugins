@@ -912,6 +912,45 @@ describe('acting on the page', () => {
 });
 
 describe('navigation and active-turn restoration', () => {
+  it('waits for avatar-initiated handoff redemption before restoring or following a turn', async () => {
+    const values = new Map([['elowen.chatbot.cbt_0123456789abcdef01234567.token', 'old-token']]);
+    const storage = { getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); } };
+    const view = makeView(), page = makePage();
+    page.bridge.takeHandoff = () => 'a'.repeat(64);
+    let redeem!: (response: Response) => void;
+    const handoff = new Promise<Response>(resolve => { redeem = resolve; });
+    const actionId = '11111111-1111-4111-8111-111111111111';
+    const harness = makeSession({ view, page, storage, responses: ({ url }) => {
+      if (url.endsWith('/handoff')) return handoff;
+      if (url.endsWith('/avatar')) return new Response(new Blob(['image'], { type: 'image/png' }));
+      if (url.endsWith('/conversation')) return jsonResponse(200, { activeTurnId: 'T', turns: [
+        { turnId: 'T', message: 'Hello', lastSeq: 3, pendingActions: [] },
+      ] });
+      if (url.includes('/events?')) return new Response(streamOf([
+        frame('text_delta', { text: 'Before. ' }, 1),
+        frame('action', { actionId, kind: 'navigate', snapshotId: 's0123456789abcdef',
+          targetId: null, value: 'https://www.example.cz/next', requiresConfirmation: false }, 2),
+        frame('text_delta', { text: 'After.' }, 3), frame('done', { text: 'Before. After.' }, 4),
+      ]));
+      return jsonResponse(409, { error: 'action_closed' });
+    } });
+    const avatar = harness.session.loadAvatar();
+    const starting = harness.session.start();
+    await flush();
+    expect(harness.requests.map(request => new URL(request.url).pathname.split('/').at(-1))).toEqual(['handoff']);
+    redeem(jsonResponse(200, { token: 'new-token' }));
+    await Promise.all([avatar, starting]);
+    await flush();
+    expect(harness.requests.filter(request => request.url.endsWith('/handoff'))).toHaveLength(1);
+    expect(harness.requests.filter(request => request.url.endsWith('/conversation') || request.url.includes('/events?'))
+      .map(request => request.headers.authorization)).toEqual(['ChatbotVisitor new-token', 'ChatbotVisitor new-token']);
+    expect(harness.requests.filter(request => request.url.endsWith('/result'))).toHaveLength(0);
+    expect(view.answers).toEqual(['Before. After.']);
+    expect(view.errors).toEqual([]);
+  });
+
   it.each([403, 503, 200])('restores the stored conversation after a refused or malformed handoff (%s)', async status => {
     const storage = new Map<string, string>([['elowen.chatbot.cbt_0123456789abcdef01234567.token', 'original']]);
     const view = makeView(), page = makePage();

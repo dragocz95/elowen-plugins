@@ -71,7 +71,3 @@ export function publicAttachment(event) {
     }
     return null;
 }
-/** Stored receipt comes from core, never from turn JSON. */
-export function uploadLabel(receipt) {
-    return receipt.name.slice(0, 180);
-}

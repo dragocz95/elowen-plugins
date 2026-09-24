@@ -345,6 +345,8 @@ function styleText(appearance: ChatbotAppearance): string {
   // place on the corner and the same weight at every size the bounds allow. Its ring is the launcher's own
   // colour, which is what keeps it apart from whatever the page underneath happens to be.
   const dotSize = Math.max(8, Math.round(appearance.launcher.size * .32));
+  // The teaser speaks from the launcher: its tail sits over the launcher's centre, on the edge facing it.
+  const teaserTail = Math.round(appearance.launcher.size / 2) - 7;
   const dotRing = Math.max(2, Math.round(appearance.launcher.size * .04));
   const presenceDot = appearance.launcher.presenceDot ? `
 .launcher-dot {
@@ -430,9 +432,33 @@ function styleText(appearance: ChatbotAppearance): string {
 ${presenceDot}
 ${effectsCss(appearance)}
 .launcher-badge { position: absolute; top: -8px; left: -8px; min-width: 22px; padding: 2px 5px; border-radius: 999px; background: ${ramp.ember}; color: ${appearanceInk(ramp.ember)}; font-size: 12px; line-height: 18px; text-align: center; font-weight: 700; }
-.launcher-teaser { display: flex; align-items: center; gap: 8px; max-width: min(280px, var(--cb-avail-w)); padding: 10px 12px; overflow-wrap: anywhere; border: 1px solid ${ramp.border}; border-radius: 12px; background: ${ramp.raised}; color: ${ramp.foreground}; box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; }
+.launcher-teaser {
+  position: relative; display: flex; align-items: flex-start; gap: 6px;
+  max-width: min(260px, var(--cb-avail-w)); padding: 12px 8px 12px 16px;
+  border: 1px solid ${ramp.border}; border-radius: 18px; background: ${appearance.colors.panel}; color: ${ramp.foreground};
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
+  transform-origin: ${fromLeft ? `${teaserTail + 7}px` : `calc(100% - ${teaserTail + 7}px)`} ${fromTop ? '0%' : '100%'};
+  animation: cb-teaser-in .36s cubic-bezier(.2, .9, .3, 1.15) both;
+}
+.launcher-teaser::after {
+  content: ''; position: absolute; ${fromTop ? 'top' : 'bottom'}: -7px; ${fromLeft ? 'left' : 'right'}: ${teaserTail}px;
+  width: 12px; height: 12px; background: inherit; transform: rotate(45deg);
+  border-${fromTop ? 'top' : 'bottom'}: 1px solid ${ramp.border}; border-${fromTop ? 'left' : 'right'}: 1px solid ${ramp.border};
+}
+@keyframes cb-teaser-in { from { opacity: 0; transform: translateY(${fromTop ? -8 : 8}px) scale(.7); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .launcher-teaser { animation: none; } }
 .launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
-.launcher-teaser button { cursor: pointer; border: 0; background: transparent; color: inherit; font: inherit; font-size: 20px; line-height: 1; }
+.launcher-teaser-text {
+  flex: 1 1 auto; min-width: 0; padding: 2px 0; border: 0; background: transparent; color: inherit;
+  font: inherit; font-weight: 500; line-height: 1.45; text-align: left; overflow-wrap: anywhere; cursor: pointer;
+}
+.launcher-teaser-close {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  padding: 0; border: 0; border-radius: 50%; background: transparent; color: ${ramp.muted};
+  font: inherit; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.launcher-teaser-close:hover { background: ${ramp.field}; color: ${ramp.foreground}; }
+.launcher-teaser button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
 .header-actions { display: flex; align-items: center; gap: 4px; }
 .mute { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; }
 .mute svg { display: block; width: 20px; height: 20px; }
@@ -621,9 +647,14 @@ export class ChatPanel implements ChatView {
     this.teaser = document.createElement('div');
     this.teaser.className = 'launcher-teaser';
     this.teaser.hidden = true;
-    const teaserText = document.createElement('span');
+    // The invitation itself opens the chat, like the launcher it points at.
+    const teaserText = document.createElement('button');
+    teaserText.type = 'button';
+    teaserText.className = 'launcher-teaser-text';
+    teaserText.addEventListener('click', () => { unlockSound(); this.toggle(true); });
     const dismissTeaser = document.createElement('button');
     dismissTeaser.type = 'button';
+    dismissTeaser.className = 'launcher-teaser-close';
     dismissTeaser.textContent = '×';
     dismissTeaser.setAttribute('aria-label', this.strings.teaserClose);
     dismissTeaser.addEventListener('click', () => this.dismissTeaser());

@@ -6,6 +6,14 @@
 - A chatbot can return shared images and files to the same visitor through authenticated downloads. Attachments remain available after a widget reload while the visitor's conversation is retained.
 - Requires core 0.28.54 for streamed uploads and session-scoped conversation files.
 
+## chatbot 0.3.8 - 2026-09-24
+
+- Draw the launcher teaser as a speech bubble that points at the launcher and grows out of it, and let a click on the invitation open the chat.
+
+## chatbot 0.3.7 - 2026-09-24
+
+- Wait for navigation handoff redemption before restoring a visitor conversation, even when avatar loading starts redemption first. The widget no longer reads a revoked token, replays the navigation action as pending or draws the resumed answer twice.
+
 ## chatbot 0.3.6 - 2026-09-24
 
 - Removed unused chatbot database columns, internal store methods and duplicate validation while preserving existing visitor conversations and action history through migration 11.
