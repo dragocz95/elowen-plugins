@@ -10,7 +10,7 @@ group: Plugin reference
 
 The chatbot plugin puts an Elowen chatbot on a third-party website. Each chatbot is a non-interactive Elowen account bound to exactly one managed Project, and visitors reach it through a widget on the customer's own site. The plugin never calls a model itself: every admitted visitor message starts a real Elowen turn owned by the chatbot account.
 
-Current version: **0.3.11**. Requires Elowen 0.28.54 or later.
+Current version: **0.3.12**. Requires Elowen 0.28.54 or later.
 
 Only an administrator can install, configure and manage chatbots. Install the plugin from **Settings → Plugins → Available**, then open **Chatbots** in the main navigation.
 
