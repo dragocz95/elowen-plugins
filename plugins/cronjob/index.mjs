@@ -609,7 +609,9 @@ class CronAdapter {
         // Deliver the full reply: the platform sink chunks anything past one message's limit
         // (Discord splits on line boundaries), so a long report — e.g. a 60-item debtor list —
         // arrives complete across several messages instead of being clipped mid-list.
-        const body = `${header}${String(reply)}${footer ? `\n\n${footer}` : ''}`;
+        // A quiet run that still shared images sends the images alone, never the quiet marker.
+        const text = trimmed && !isQuietReply(trimmed) ? String(reply) : '';
+        const body = `${header}${text}${footer ? `${text ? '\n\n' : ''}${footer}` : ''}`;
         if (await this.deliverOrQueue(job, body, sharedImages)) {
           this.journal.note(receipt.id, { delivered: true, deliveryTarget: job.notifyChannelId ?? null });
         }

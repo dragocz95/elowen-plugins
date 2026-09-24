@@ -80,6 +80,27 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     expect(JSON.parse(readFileSync(pendingFile(dataRoot), 'utf-8'))).toEqual([]); // cleared once delivered
   });
 
+  it('delivers a quiet run\'s shared image without the quiet marker', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [{
+      id: 'quiet-image', name: 'illustration', schedule: 'every 5m', prompt: 'draw it', plain: true,
+      lastRun: new Date(Date.now() - 10 * 60_000).toISOString(), createdAt: new Date().toISOString(),
+      notifyChannelId: 'destination:msteams:a%3Aconv1',
+    }]);
+    const image = { type: 'image' as const, ref: `/api/brain/chat-images/${'c'.repeat(64)}.png` };
+    const delivered: { text: string; images?: unknown[] }[] = [];
+    const { adapter } = await loadCron(dataRoot, async (text, _channelId, images) => { delivered.push({ text, images }); });
+    wireCronHost(adapter, async (_src: unknown, _text: string, onEvent?: (event: unknown) => void) => {
+      onEvent?.(image);
+      return 'NOTHING_TO_REPORT';
+    });
+
+    await adapter.tick();
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.images).toEqual([image]);
+    expect(delivered[0]!.text).not.toContain('NOTHING_TO_REPORT');
+  });
+
   it('persists a scheduled image event and uploads it through notify after a failed delivery', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [{
