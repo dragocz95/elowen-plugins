@@ -1,5 +1,11 @@
 # Changelog
 
+## chatbot 0.3.9 - 2026-09-24
+
+- Visitors may attach one PNG, JPEG, GIF or WebP image of up to 10 MiB to a message, including a message with no text. The image is kept in the chatbot's managed Project when a conversation is deleted.
+- A chatbot can return shared images and files to the same visitor through authenticated downloads. Attachments remain available after a widget reload while the visitor's conversation is retained.
+- Requires core 0.28.54 for streamed uploads and session-scoped conversation files.
+
 ## chatbot 0.3.6 - 2026-09-24
 
 - Removed unused chatbot database columns, internal store methods and duplicate validation while preserving existing visitor conversations and action history through migration 11.
