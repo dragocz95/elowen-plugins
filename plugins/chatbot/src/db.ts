@@ -332,6 +332,32 @@ const MIGRATIONS = [
       CREATE INDEX p_chatbot_upload_pending ON p_chatbot_upload_receipts (expires_at) WHERE turn_id IS NULL;`);
     },
   },
+  {
+    /** Step 13 permits a reserved row before the Project write; every pre-existing row has a receipt. */
+    version: 13,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`CREATE TABLE p_chatbot_upload_receipts_new (
+        id TEXT PRIMARY KEY,
+        chatbot_user_id INTEGER NOT NULL,
+        visitor_id TEXT NOT NULL,
+        client_turn_id TEXT NOT NULL,
+        receipt_json TEXT,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        turn_id TEXT UNIQUE,
+        UNIQUE (chatbot_user_id, visitor_id, client_turn_id),
+        CHECK (turn_id IS NULL OR receipt_json IS NOT NULL)
+      );
+      INSERT INTO p_chatbot_upload_receipts_new
+        (id, chatbot_user_id, visitor_id, client_turn_id, receipt_json, name, created_at, expires_at, turn_id)
+        SELECT id, chatbot_user_id, visitor_id, client_turn_id, receipt_json, name, created_at, expires_at, turn_id
+        FROM p_chatbot_upload_receipts;
+      DROP TABLE p_chatbot_upload_receipts;
+      ALTER TABLE p_chatbot_upload_receipts_new RENAME TO p_chatbot_upload_receipts;
+      CREATE INDEX p_chatbot_upload_pending ON p_chatbot_upload_receipts (expires_at) WHERE turn_id IS NULL;`);
+    },
+  },
 ];
 
 /** The message as the widget composed it before step 8: an optional label, the visitor's words, and a

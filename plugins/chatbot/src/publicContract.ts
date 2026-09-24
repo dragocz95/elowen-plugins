@@ -27,6 +27,19 @@ export const WIDGET_ASSET_NAME = 'widget.js';
  *  against this same number before sending it. */
 export const MESSAGE_MAX_BYTES = 2 * 1024;
 export const VISITOR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const VISITOR_IMAGE_MIN_BYTES = 12;
+export const VISITOR_IMAGE_FORMATS = [
+  { mime: 'image/png', extensions: ['.png'], signatures: [[{ offset: 0, bytes: [137, 80, 78, 71, 13, 10, 26, 10] }]] },
+  { mime: 'image/jpeg', extensions: ['.jpg', '.jpeg'], signatures: [[{ offset: 0, bytes: [255, 216, 255] }]] },
+  { mime: 'image/gif', extensions: ['.gif'], signatures: [
+    [{ offset: 0, bytes: [71, 73, 70, 56, 55, 97] }],
+    [{ offset: 0, bytes: [71, 73, 70, 56, 57, 97] }],
+  ] },
+  { mime: 'image/webp', extensions: ['.webp'], signatures: [[
+    { offset: 0, bytes: [82, 73, 70, 70] },
+    { offset: 8, bytes: [87, 69, 66, 80] },
+  ]] },
+] as const;
 
 /** Ceiling on a snapshot action result, including aria text and its target capability list. */
 export const PAGE_STATE_MAX_BYTES = 32 * 1024;

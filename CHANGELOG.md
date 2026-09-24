@@ -1,5 +1,13 @@
 # Changelog
 
+## chatbot 0.3.11 - 2026-09-24
+
+- Open a shared image in a frameless in-page viewer that closes on a click beside the image, the close control or Escape, instead of navigating away from the customer page.
+- Centre the image-attachment icon inside its touch target.
+- Reserve visitor image uploads before reading bytes, reject duplicate submissions without storing another file, and keep successful uploads available for retry after a temporary turn failure. Migration 13 upgrades existing receipt rows in place and is required for an installed chatbot plugin.
+- Restore only answered attachments, bound concurrent downloads, show failed attachments with a retry action, and keep the image viewer accessible and inside the open chat lifecycle.
+- Share image limits and accepted formats across the picker and upload validation; report upload progress at useful milestones.
+
 ## image-gen 0.2.9, image-edit 0.2.11 - 2026-09-24
 
 - Generated and edited PNGs are saved in the current Project and return their file paths. An authorized `ShareImage` call is the separate delivery step; saving alone does not attach an image to chat. Specify `output_path` and `overwrite: true` together to replace an existing PNG; otherwise writes are create-only. Requires core 0.28.53.

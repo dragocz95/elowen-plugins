@@ -244,6 +244,37 @@ describe('visitor attention', () => {
     }
   });
 
+  it('persists teaser dismissal and respects its configured delay', () => {
+    vi.useFakeTimers();
+    const storage = new Map<string, string>();
+    const panel = new ChatPanel({ look: { name: 'Help', appearance: DEFAULT_APPEARANCE }, strings: widget,
+      onVisitorMessage: () => undefined, onStop: () => undefined, publicId: 'teaser-delay',
+      storage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, value); } } });
+    document.body.append(panel.host);
+    try {
+      const appearance = { ...DEFAULT_APPEARANCE, launcher: {
+        ...DEFAULT_APPEARANCE.launcher, teaser: 'Need a hand?', teaserDelay: 2,
+      } };
+      panel.applyAppearance({ name: 'Help', appearance });
+      const shadow = panel.host.shadowRoot!;
+      const teaser = shadow.querySelector<HTMLElement>('.launcher-teaser')!;
+      expect(teaser.hidden).toBe(true);
+      vi.advanceTimersByTime(1_999);
+      expect(teaser.hidden).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(teaser.hidden).toBe(false);
+      shadow.querySelector<HTMLButtonElement>('.launcher-teaser-close')!.click();
+      expect(teaser.hidden).toBe(true);
+      expect(storage.get('elowen-chatbot:teaser-delay:teaser')).toBe('1');
+      panel.applyAppearance({ name: 'Help', appearance: { ...appearance, position: 'top-left' } });
+      vi.advanceTimersByTime(2_000);
+      expect(teaser.hidden).toBe(true);
+    } finally {
+      panel.destroy();
+      vi.useRealTimers();
+    }
+  });
+
   it('draws the teaser as a bubble speaking from the launcher, and opens the chat from it', async () => {
     const withTeaser = (position: typeof DEFAULT_APPEARANCE.position) => ({
       ...DEFAULT_APPEARANCE, position, launcher: { ...DEFAULT_APPEARANCE.launcher, size: 60, teaser: 'Need a hand?' },

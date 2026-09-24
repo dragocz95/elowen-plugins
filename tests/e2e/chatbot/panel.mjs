@@ -220,6 +220,7 @@ try {
       const rect=element=>{const box=element.getBoundingClientRect();return {left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height};};
       return {field:rect(root.querySelector('#text-input-container')),
         picker:rect(root.querySelector('.input-button:has(#upload-images-icon)')),
+        icon:rect(root.querySelector('#upload-images-icon')),
         panel:rect(shell.querySelector('.panel')),
         viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth};
     });
@@ -229,11 +230,18 @@ try {
       'Image picker must fit vertically inside the input border');
     assert(pickerGeometry.picker.width>=44 && pickerGeometry.picker.height>=44,
       'Image picker needs a 44px touch target');
+    const centre=box=>({x:box.left+box.width/2,y:box.top+box.height/2});
+    const iconCentre=centre(pickerGeometry.icon);
+    const pickerCentre=centre(pickerGeometry.picker);
+    assert(Math.abs(iconCentre.x-pickerCentre.x)<=1 && Math.abs(iconCentre.y-pickerCentre.y)<=1,
+      'Image picker icon must be centred in its touch target');
     assert(pickerGeometry.panel.left>=0 && pickerGeometry.panel.right<=pickerGeometry.viewport && pickerGeometry.scrollWidth<=pickerGeometry.viewport,
       'Image picker or panel overflows the viewport');
     console.log(JSON.stringify({width,pickerGeometry}));
     const picker = await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button:has(#upload-images-icon)'));
     assert(picker.asElement(), 'Image picker button is absent');
+    assert.deepEqual(await picker.asElement().evaluate(el => ({role:el.getAttribute('role'),tabindex:el.getAttribute('tabindex'),label:el.getAttribute('aria-label')})),
+      {role:'button',tabindex:'0',label:'Přiložit obrázek'}, 'The picker needs an accessible name');
     const choosing = page.waitForFileChooser();
     await picker.asElement().click();
     await (await choosing).accept([imagePath]);
@@ -260,21 +268,21 @@ try {
     });
     await page.waitForFunction(() => {
       const root=panel.host.shadowRoot.querySelector('deep-chat').shadowRoot;
-      return root.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2
-        && root.querySelector('.cb-shared-image img')?.naturalWidth === 200;
+      return root.querySelector('.cb-shared-file-chip[href^="blob:"]')
+        && root.querySelector('.cb-shared-image img[src^="blob:"]')?.naturalWidth === 200;
     }, {timeout:5000});
     const shared=await page.evaluate(() => {
       const root=panel.host.shadowRoot.querySelector('deep-chat').shadowRoot;
       const items=[...root.querySelectorAll('.cb-shared-file')];
       const thumbnail=root.querySelector('.cb-shared-image img');
-      const imageLink=root.querySelector('.cb-shared-image a');
+      const imageLink=root.querySelector('.cb-shared-image button');
       const chip=root.querySelector('.cb-shared-file-chip');
       const votes=root.querySelector('[data-cb-feedback-turn="shared-turn"] .cb-feedback-votes');
       const imageBox=thumbnail.getBoundingClientRect();
       const chipBox=chip.getBoundingClientRect();
       const votesBox=votes.getBoundingClientRect();
-      return {names:items.map(item=>item.textContent.trim()),links:items.map(item=>item.querySelector('a')?.getAttribute('href').startsWith('blob:')),
-        image:{width:imageBox.width,height:imageBox.height,alt:thumbnail.alt,label:imageLink.getAttribute('aria-label'),target:imageLink.target},
+      return {names:items.map(item=>item.textContent.trim()),links:items.map(item=>(item.querySelector('a')?.getAttribute('href') ?? item.querySelector('img')?.getAttribute('src'))?.startsWith('blob:')),
+        image:{width:imageBox.width,height:imageBox.height,alt:thumbnail.alt,label:imageLink.getAttribute('aria-label'),anchors:root.querySelectorAll('.cb-shared-image a').length},
         chip:{width:chipBox.width,height:chipBox.height,iconCount:chip.querySelectorAll('svg').length,label:chip.getAttribute('aria-label')},
         gap:votesBox.top-chipBox.bottom,viewportWidth:innerWidth,bodyWidth:document.documentElement.scrollWidth};
     });
@@ -284,11 +292,52 @@ try {
       'The image thumbnail lost its aspect ratio or height limit');
     assert.equal(shared.image.alt,'');
     assert.equal(shared.image.label,'Otevřít obrázek');
-    assert.equal(shared.image.target,'_blank');
+    assert.equal(shared.image.anchors,0, 'A shared image must not navigate away from the page');
     assert(shared.chip.iconCount===2 && shared.chip.label.includes('Stáhnout soubor') && shared.chip.height>=44);
     assert(shared.gap>=2, 'Rating capsule overlaps the shared file');
     assert(shared.bodyWidth<=shared.viewportWidth, 'Attachment widens the page');
     await page.screenshot({path:'/tmp/chatbot-files-ui-'+width+'.png'});
+    const thumbnailButton=await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-image button'));
+    await thumbnailButton.asElement().click();
+    await page.waitForFunction(() => getComputedStyle(panel.host.shadowRoot.querySelector('.cb-lightbox')).opacity==='1');
+    const lightbox=await page.evaluate(() => {
+      const box=panel.host.shadowRoot.querySelector('.cb-lightbox');
+      const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+      const imageRect=box.querySelector('img').getBoundingClientRect();
+      const onTop=panel.host.shadowRoot.elementFromPoint(imageRect.left+imageRect.width/2, imageRect.top+imageRect.height/2);
+      const panelRect=panel.host.shadowRoot.querySelector('.panel').getBoundingClientRect();
+      const overPanel=panel.host.shadowRoot.elementFromPoint(panelRect.left+panelRect.width/2, panelRect.top+panelRect.height/2);
+      return {hidden:box.hidden,box:rect(box),image:rect(box.querySelector('img')),close:rect(box.querySelector('.cb-lightbox-close')),
+        imageOnTop:onTop===box.querySelector('img'),coversPanel:box.contains(overPanel),
+        focused:panel.host.shadowRoot.activeElement?.className,url:location.href,viewport:{width:innerWidth,height:innerHeight}};
+    });
+    assert.equal(lightbox.hidden,false, 'The image must open over the page');
+    assert(lightbox.imageOnTop && lightbox.coversPanel, 'The opened image must lie above the chat panel');
+    assert(lightbox.box.left<=0 && lightbox.box.top<=0 && lightbox.box.right>=lightbox.viewport.width && lightbox.box.bottom>=lightbox.viewport.height,
+      'The image backdrop must cover the viewport');
+    assert(lightbox.image.left>=0 && lightbox.image.top>=0 && lightbox.image.right<=lightbox.viewport.width && lightbox.image.bottom<=lightbox.viewport.height,
+      'The opened image must fit the viewport');
+    assert(lightbox.close.width>=44 && lightbox.close.height>=44 && lightbox.close.top>=0, 'The close control needs a 44px target');
+    assert.equal(lightbox.focused,'cb-lightbox-close');
+    await page.screenshot({path:'/tmp/chatbot-lightbox-'+width+'.png'});
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.activeElement?.className),'cb-lightbox-close',
+      'Tab escaped the modal image viewer');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    await page.keyboard.up('Shift');
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.activeElement?.className),'cb-lightbox-close',
+      'Shift+Tab escaped the modal image viewer');
+    await page.evaluate(() => panel.close());
+    assert.deepEqual(await page.evaluate(() => {
+      const viewer=panel.host.shadowRoot.querySelector('.cb-lightbox');
+      return {hidden:viewer.hidden,source:viewer.querySelector('img').hasAttribute('src')};
+    }),{hidden:true,source:false},'Closing chat must dismiss the viewer');
+    await page.evaluate(() => panel.open());
+    await thumbnailButton.asElement().click();
+    await page.mouse.click(lightbox.box.left+8, lightbox.box.bottom-8);
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('.cb-lightbox').hidden), true,
+      'A click beside the image must close it');
     const chipElement=await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-file-chip'));
     const chipColors=await page.evaluate(() => {
       const chip=panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-file-chip');
@@ -320,12 +369,6 @@ try {
       return result;
     });
     assert(longName.scroll>longName.visible && longName.overflow==='ellipsis', 'Long file name does not truncate inside chip');
-    const imageLink=await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-image a'));
-    const opened=browser.waitForTarget(target => target.type()==='page' && target.url().startsWith('blob:'), {timeout:5000});
-    await imageLink.asElement().click();
-    const fullImage=await (await opened).page();
-    await fullImage.waitForFunction(() => document.querySelector('img')?.naturalWidth===200);
-    await fullImage.close();
     assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-file-chip').download),'document.pdf');
     console.log(JSON.stringify({width,shared,longName,errors}));
     assert.deepEqual(errors,[]);

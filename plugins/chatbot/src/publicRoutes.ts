@@ -13,7 +13,7 @@ import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOri
 import { inspectAccount } from './preflight.js';
 import { parseStoredAppearance, resolveAppearance, type ChatbotAppearance } from './appearanceContract.js';
 import { AVATAR_CACHE_CONTROL, type AvatarFetch } from './avatarProxy.js';
-import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS, VISITOR_IMAGE_MAX_BYTES } from './publicContract.js';
+import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS, VISITOR_IMAGE_MIN_BYTES, VISITOR_IMAGE_MAX_BYTES } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validatePublicBotRequest, validateTurnSubmission, validateFeedback, type Validated } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
@@ -34,7 +34,7 @@ export interface PublicRouteDeps {
   queue: ChatbotTurnQueue;
   adapter: ChatbotAdapter;
   stores: ChatbotStores;
-  files?: ChatbotConversationFiles;
+  files: ChatbotConversationFiles;
   /** Woken after an event committed. A subscriber reads the durable log itself; it is never handed one. */
   broker: TurnEventBroker;
   /** The page actions this visitor's turns may take: what a widget reports back lands here. */
@@ -240,29 +240,27 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     const { clientTurnId, name, size: rawSize } = req.query;
     const size = Number(rawSize);
     if (!clientTurnId || !isCanonicalUuid(clientTurnId) || typeof name !== 'string'
-      || !name || name.length > 180 || !Number.isSafeInteger(size) || size < 12 || size > VISITOR_IMAGE_MAX_BYTES
+      || !name || name.length > 180 || !Number.isSafeInteger(size) || size < VISITOR_IMAGE_MIN_BYTES || size > VISITOR_IMAGE_MAX_BYTES
       || !req.stream) return reply(400, { error: 'invalid_image' }, headers);
-    if (store.turnByClientId(admitted.bot.chatbot_user_id, admitted.visitorId, clientTurnId)
-      || store.pendingUploadCount(admitted.bot.chatbot_user_id, admitted.visitorId, iso()) >= 3)
-      return reply(409, { error: 'upload_not_available' }, headers);
     const limited = store.consumeVisitorRate({ bot: admitted.bot, visitorId: admitted.visitorId,
       originValue: requestOrigin.value, nowMs: now().getTime() });
-    if (limited) return reply(429, { error: 'rate_limited' }, headers);
-    if (!deps.files) return reply(503, { error: 'bot_unavailable' }, headers);
+    if (limited) return admissionReply(limited, origin);
+    const id = randomUUID();
+    const reserved = store.reserveUpload({ id, chatbotUserId: admitted.bot.chatbot_user_id,
+      visitorId: admitted.visitorId, clientTurnId, name, now: iso(),
+      expiresAt: new Date(now().getTime() + 15 * 60_000).toISOString() });
+    if (!reserved) return reply(409, { error: 'upload_not_available' }, headers);
     try {
       const receipt = await deps.files.uploadProjectImage({
         botUserId: admitted.bot.chatbot_user_id, visitorScope: admitted.visitorId, name, size,
         body: verifiedImageStream(req.stream(), size),
       });
-      const id = randomUUID();
-      const accepted = store.saveUpload({ id, chatbotUserId: admitted.bot.chatbot_user_id,
-        visitorId: admitted.visitorId, clientTurnId, receipt, now: iso(),
-        expiresAt: new Date(now().getTime() + 15 * 60_000).toISOString() });
-      if (!accepted) return reply(409, { error: 'upload_not_available' }, headers);
+      store.completeUpload(id, receipt);
       return reply(201, { schemaVersion: PUBLIC_SCHEMA_VERSION, uploadId: id, name: receipt.name }, {
         ...headers, 'cache-control': 'private, no-store',
       });
     } catch (error) {
+      store.discardUpload(id);
       warn('chatbot upload failed: ' + (error instanceof Error ? error.message : String(error)));
       return reply(400, { error: 'invalid_image' }, headers);
     }
@@ -448,7 +446,6 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     if (!turn || turn.visitor_id !== admitted.visitorId || turn.chatbot_user_id !== admitted.bot.chatbot_user_id
       || !turn.core_session_id) return missing();
     if (!store.attachmentEventsOf(turnId).some((event) => event.kind === kind && event.storedName === storedName)) return missing();
-    if (!deps.files) return reply(503, { error: 'bot_unavailable' }, headers);
     const file = deps.files.readShared({ botUserId: turn.chatbot_user_id,
       sessionId: turn.core_session_id, kind, storedName });
     if (!file) return missing();

@@ -18,7 +18,7 @@ const UNRUNNABLE_DRAIN_LIMIT = 100;
 export interface QueueDeps {
   store: ChatbotStore;
   adapter: ChatbotAdapter;
-  files?: ChatbotConversationFiles;
+  files: ChatbotConversationFiles;
   /** Told, never handed the event, AFTER the append committed: a subscriber reads the durable log itself. */
   broker: TurnEventBroker;
   /** Injected so the durable log and the internal warning can be observed in a test without a daemon. */
@@ -194,7 +194,6 @@ export class ChatbotTurnQueue {
       const upload = store.uploadForTurn(turnId);
       let image: { bytes: Buffer; mimeType: string } | null = null;
       if (upload) {
-        if (!this.deps.files) { this.fail(turnId, 'turn_failed', null); return; }
         try {
           image = await this.deps.files.readProjectImage({ botUserId: turn.chatbot_user_id, receipt: upload.receipt });
         } catch (error) {

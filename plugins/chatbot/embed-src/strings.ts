@@ -5,6 +5,8 @@
  *  translations, loaded by the host application, while this runs on a third party's website where the
  *  host app is not present and one extra request would be one request too many. */
 
+import { VISITOR_IMAGE_MAX_BYTES } from '../src/publicContract.js';
+
 const WIDGET_LOCALES = ['cs', 'sk', 'en'] as const;
 export type WidgetLocale = (typeof WIDGET_LOCALES)[number];
 
@@ -43,6 +45,8 @@ export interface WidgetStrings {
   uploadProgress: string;
   attachImage: string;
   attachmentImage: string;
+  imageViewer: string;
+  imageClose: string;
   attachmentLoading: string;
   attachmentDownload: string;
   errorAttachment: string;
@@ -89,11 +93,13 @@ const CS: WidgetStrings = {
   errorTurn: 'Odpověď se nepodařilo dokončit. Zkuste to prosím znovu.',
   errorUnavailable: 'Chatbot teď není dostupný. Zkuste to prosím později.',
   errorTooLong: 'Zpráva je příliš dlouhá. Zkraťte ji prosím.',
-  errorImage: 'Přiložte prosím jeden obrázek PNG, JPEG, GIF nebo WebP do 10 MB.',
+  errorImage: 'Přiložte prosím jeden obrázek PNG, JPEG, GIF nebo WebP do {limit} MB.',
   errorImageUpload: 'Obrázek se nepodařilo nahrát. Zkuste to prosím znovu.',
   uploadProgress: 'Nahrávání obrázku: {percent} %',
   attachImage: 'Přiložit obrázek',
   attachmentImage: 'Otevřít obrázek',
+  imageViewer: 'Zobrazený obrázek',
+  imageClose: 'Zavřít obrázek',
   attachmentLoading: 'Načítání obrázku',
   attachmentDownload: 'Stáhnout soubor',
   errorAttachment: 'Přílohu se nepodařilo načíst.',
@@ -132,11 +138,13 @@ const SK: WidgetStrings = {
   errorTurn: 'Odpoveď sa nepodarilo dokončiť. Skúste to prosím znova.',
   errorUnavailable: 'Chatbot teraz nie je dostupný. Skúste to prosím neskôr.',
   errorTooLong: 'Správa je príliš dlhá. Skráťte ju prosím.',
-  errorImage: 'Priložte, prosím, jeden obrázok PNG, JPEG, GIF alebo WebP do 10 MB.',
+  errorImage: 'Priložte, prosím, jeden obrázok PNG, JPEG, GIF alebo WebP do {limit} MB.',
   errorImageUpload: 'Obrázok sa nepodarilo nahrať. Skúste to, prosím, znova.',
   uploadProgress: 'Nahrávanie obrázka: {percent} %',
   attachImage: 'Priložiť obrázok',
   attachmentImage: 'Otvoriť obrázok',
+  imageViewer: 'Zobrazený obrázok',
+  imageClose: 'Zavrieť obrázok',
   attachmentLoading: 'Načítavanie obrázka',
   attachmentDownload: 'Stiahnuť súbor',
   errorAttachment: 'Prílohu sa nepodarilo načítať.',
@@ -175,11 +183,13 @@ const EN: WidgetStrings = {
   errorTurn: 'The answer could not be finished. Please try again.',
   errorUnavailable: 'The chatbot is not available right now. Please try again later.',
   errorTooLong: 'The message is too long. Please shorten it.',
-  errorImage: 'Please attach one PNG, JPEG, GIF or WebP image up to 10 MB.',
+  errorImage: 'Please attach one PNG, JPEG, GIF or WebP image up to {limit} MB.',
   errorImageUpload: 'The image could not be uploaded. Please try again.',
   uploadProgress: 'Uploading image: {percent}%',
   attachImage: 'Attach image',
   attachmentImage: 'Open image',
+  imageViewer: 'Image viewer',
+  imageClose: 'Close image',
   attachmentLoading: 'Loading image',
   attachmentDownload: 'Download file',
   errorAttachment: 'The attachment could not be loaded.',
@@ -211,5 +221,8 @@ export function detectLocale(...candidates: (string | null | undefined)[]): Widg
 }
 
 export function widgetStrings(locale: WidgetLocale): WidgetStrings {
-  return BY_LOCALE[locale];
+  const strings = BY_LOCALE[locale];
+  return { ...strings, errorImage: fillTemplate(strings.errorImage, {
+    limit: String(VISITOR_IMAGE_MAX_BYTES / (1024 * 1024)),
+  }) };
 }
