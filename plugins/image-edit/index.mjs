@@ -1,13 +1,12 @@
 // Image-edit plugin: image-to-image through the host's image seam (ctx.images). The source image comes
-// from an accessible repo path (guarded) or a public URL; the edited PNG is saved to the plugin data dir
-// and served back to the chat by the daemon's /brain/images route, so it renders inline.
+// from the current project's execution target or a public URL; the edited PNG goes into the project.
+// ShareImage is the separate, explicit step that delivers the file to the conversation.
 //
 // The transport lives in core: an API-key provider goes to its OpenAI-compatible edits API and a connected
 // ChatGPT account to its own image backend, whose OAuth token never enters plugin code. This plugin loads
 // the source bytes and writes the result.
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { readFileSync } from 'node:fs';
 import { createImageRuntime } from './lib/runtime.mjs';
 
 export { providerUsable, resolveModel } from './lib/runtime.mjs';
@@ -40,7 +39,7 @@ export function editSize(value) {
 
 export function register(ctx) {
   // Credentials come from a configured brain provider (chosen in settings) — one central account or key.
-  const runtime = createImageRuntime(ctx, 'image-edit');
+  const runtime = createImageRuntime(ctx);
   if (!runtime) return;
   const { providerId, provider, model } = runtime;
   const publicHttp = ctx.host.publicHttp();
@@ -55,15 +54,19 @@ export function register(ctx) {
       'when neither is present the call is refused. To create a picture from nothing but a description use',
       'GenerateImage instead, since this tool always needs a source image. Put the desired change in instruction',
       '("make the sky orange", "remove the person on the left"), and set size to 1024x1024, 1536x1024, 1024x1536',
-      'or auto to keep the model\'s own choice. The result is a new PNG saved in the plugin data directory and',
-      'returned as a markdown image that renders inline in the web chat; the original file is never overwritten.',
+      'or auto to keep the model\'s own choice. The new PNG is saved in the current project, by default',
+      'under generated-images/ with a unique name. An optional output_path may be relative to the working',
+      'directory or absolute in the project environment. Only an explicit output_path can overwrite the',
+      'PNG source or any other existing PNG file. The result returns the file path; call ShareImage({path}) to show',
+      'it to the user in the web chat or on a connected platform.',
       'Image models are slow, so a call may take up to two minutes and then time out, the edit is a fresh render',
       'rather than a pixel-exact patch of the source, and the tool is unavailable until an image provider is',
       'configured in settings.',
     ].join(' '),
     parameters: Type.Object({
       instruction: Type.String({ description: 'What to change about the image, e.g. "remove the background and make it transparent white"' }),
-      path: Type.Optional(Type.String({ description: 'Source image as a file path inside your accessible repositories, e.g. "assets/logo.png" (PNG or JPEG). Use this or url, not both.' })),
+      path: Type.Optional(Type.String({ description: 'Source PNG or JPEG image path in the current project, relative to the working directory or absolute in the project environment. Use this or url, not both.' })),
+      output_path: Type.Optional(Type.String({ description: 'Optional output .png path in the project. Relative to the working directory or absolute in the project environment. Explicitly providing it allows replacing that file, including the source.' })),
       url: Type.Optional(Type.String({ description: 'Source image as a public http(s) URL. Use this or path, not both.' })),
       size: Type.Optional(Type.String({ description: 'Output resolution: "1024x1024" (square), "1536x1024" (landscape), "1024x1536" (portrait) or "auto". Any other value is treated as "auto".' })),
     }),
@@ -71,12 +74,13 @@ export function register(ctx) {
       try {
         const instruction = typeof p.instruction === 'string' ? p.instruction.trim() : '';
         if (!instruction) return runtime.ok('Error: instruction is required.');
-        // Load the source bytes from a guarded repo path or a public URL.
+        if (!!p.path === !!p.url) return runtime.ok('Error: provide exactly one source: path or url.');
+        // Load the source bytes from the selected project or a public URL.
         let bytes;
         let mime = 'image/png';
         if (p.path) {
           if (!/\.(?:png|jpe?g)$/i.test(String(p.path))) return runtime.ok('Error: path must point to a PNG or JPEG image.');
-          bytes = readFileSync(ctx.assertPathAllowed(p.path));
+          bytes = await runtime.files.read(p.path);
           if (/\.jpe?g$/i.test(p.path)) mime = 'image/jpeg';
         } else if (p.url) {
           const r = await requestSource(publicHttp, p.url, AbortSignal.timeout(FETCH_TIMEOUT_MS));
@@ -100,7 +104,7 @@ export function register(ctx) {
         const size = editSize(p.size);
         return runtime.render('edit', {
           providerId, model, prompt: instruction, images: [{ bytes, mime }], ...(size ? { size } : {}),
-        }, instruction);
+        }, p.output_path);
       } catch (e) { return runtime.fail(e); }
     },
   }));
