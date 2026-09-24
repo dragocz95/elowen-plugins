@@ -22,8 +22,8 @@ export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
   ];
   return (
     <div className="flex min-w-0 flex-col gap-4" aria-label={s.budgetTitle}>
-      <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
-        <span className="min-w-0 truncate text-muted-foreground">{s.budgetDay.replace('{day}', formatDay(budget.day, locale))}</span>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs">
+        <span className="whitespace-nowrap text-muted-foreground">{s.budgetDay.replace('{day}', formatDay(budget.day, locale))}</span>
         <C.Badge tone={verdict.ok ? 'muted' : 'warning'}>{status}</C.Badge>
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">

@@ -880,8 +880,8 @@ function BudgetUsage({ bot }) {
     { label: s.limit_dailyTurnLimit, value: budget.admittedTurns, limit: limits.dailyTurnLimit, format: (value) => integer(value, locale) }
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", "aria-label": s.budgetTitle, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 items-center justify-between gap-3 text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-muted-foreground", children: s.budgetDay.replace("{day}", formatDay(budget.day, locale)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "whitespace-nowrap text-muted-foreground", children: s.budgetDay.replace("{day}", formatDay(budget.day, locale)) }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: verdict.ok ? "muted" : "warning", children: status })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "grid min-w-0 grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2", children: entries.map(({ label, value, limit, format }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", children: [

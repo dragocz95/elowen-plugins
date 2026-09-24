@@ -212,8 +212,14 @@
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
   }
+  .gap-x-3 {
+    column-gap: calc(var(--spacing, 0.25rem) * 3);
+  }
   .gap-x-6 {
     column-gap: calc(var(--spacing, 0.25rem) * 6);
+  }
+  .gap-y-1\.5 {
+    row-gap: calc(var(--spacing, 0.25rem) * 1.5);
   }
   .gap-y-4 {
     row-gap: calc(var(--spacing, 0.25rem) * 4);
