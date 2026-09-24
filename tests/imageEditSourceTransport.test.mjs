@@ -10,9 +10,9 @@
 // + real host address policy. A core change that loosened the policy would fail here even though every
 // mock-based assertion still passed.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { resolvePublicHttpUrl } from 'elowen/dist/plugins/publicHttp.js';
 import { register as registerEdit } from '../plugins/image-edit/index.mjs';
@@ -86,11 +86,17 @@ function makeCtx(publicHttp) {
   const ctx = {
     config: { provider: 'p1', model: 'gpt-image-1' },
     logger: { info() {}, warn() {}, error() {} },
-    dataDir: () => dir,
     resolveProvider: (id) => (id === 'p1' ? keyed : null),
-    assertPathAllowed: (p) => p,
     registerTool: (tool) => tools.set(tool.name, tool),
-    registerChatImageSource: () => {},
+    projectImageFiles: () => ({
+      read: async (path) => readFileSync(path),
+      write: async (path, bytes, overwrite) => {
+        const destination = join(dir, path);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, bytes, { flag: overwrite ? 'w' : 'wx' });
+        return destination;
+      },
+    }),
     host: { publicHttp: () => publicHttp },
     images: {
       generate: async () => { throw new Error('EditImage must never call generate'); },
@@ -175,7 +181,7 @@ describe('image-edit remote sources against the real host transport', () => {
 
     const { text, rawFetchSockets } = await editFrom(tool, start);
 
-    assert.match(text, /\/api\/brain\/images\//);
+    assert.match(text, /authorized sender can use ShareImage/);
     assert.deepEqual(state.delivered, ['https://cdn.example/photo.png']);
     assert.deepEqual(state.cancelled, [start]);
     assert.deepEqual(state.validated, [start, 'https://cdn.example/photo.png']);
@@ -202,7 +208,7 @@ describe('image-edit remote sources against the real host transport', () => {
 
     const { text } = await editFrom(tool, start);
 
-    assert.match(text, /\/api\/brain\/images\//);
+    assert.match(text, /authorized sender can use ShareImage/);
     assert.deepEqual(state.delivered, ['https://images.example/photo.png']);
     assert.equal(edits.length, 1);
   });

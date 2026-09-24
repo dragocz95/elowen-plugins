@@ -1,5 +1,5 @@
 {
-  "description": "Generuje obrázky cez poskytovateľa s kľúčom API alebo pripojený účet ChatGPT. Obrázky sa zobrazia priamo v chate.",
+  "description": "Generuje obrázky cez nastaveného poskytovateľa. Súbory PNG ukladá do aktuálneho projektu; na zobrazenie v chate použite ShareImage.",
   "fields": {
     "provider": {
       "label": "Poskytovateľ",

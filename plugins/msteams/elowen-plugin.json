@@ -1,9 +1,9 @@
 {
   "name": "msteams",
-  "version": "0.8.5",
+  "version": "0.8.7",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
-  "requiresSharedApi": 4,
+  "requiresSharedApi": 5,
   "capabilities": {
     "reads": [
       "stores",
@@ -614,7 +614,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many generated images the bot attaches to a single outgoing reply."
+      "hint": "How many images shared by the agent the bot attaches to a single outgoing reply."
     },
     {
       "key": "sec_roles",

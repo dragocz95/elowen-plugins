@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -24,7 +24,7 @@ const PNG = Buffer.from('PNG-BYTES');
 function makeCtx({ provider, config = {}, dir = dataDir(), publicHttp } = {}) {
   const calls = { generate: [], edit: [] };
   const tools = new Map();
-  const sources = [];
+  const written = [];
   const image = { png: PNG, model: 'm', size: '1024x1024', quality: 'low', format: 'png', usage: null };
   const network = publicHttp ?? {
     validate: async (url) => url,
@@ -33,16 +33,23 @@ function makeCtx({ provider, config = {}, dir = dataDir(), publicHttp } = {}) {
   return {
     calls,
     tools,
-    sources,
+    written,
     dir,
     ctx: {
       config: { provider: 'p1', ...config },
       logger: log,
-      dataDir: () => dir,
       resolveProvider: (id) => (id === 'p1' ? provider : null),
-      assertPathAllowed: (p) => p,
       registerTool: (tool) => tools.set(tool.name, tool),
-      registerChatImageSource: (source) => sources.push(source),
+      projectImageFiles: () => ({
+        read: async (path) => readFileSync(path.startsWith('/') ? path : join(dir, path)),
+        write: async (path, bytes, overwrite) => {
+          const absolute = path.startsWith('/') ? path : join(dir, path);
+          mkdirSync(join(absolute, '..'), { recursive: true });
+          writeFileSync(absolute, bytes, { flag: overwrite ? 'w' : 'wx' });
+          written.push({ path: absolute, overwrite });
+          return absolute;
+        },
+      }),
       host: { publicHttp: () => network },
       images: {
         generate: async (req) => { calls.generate.push(req); return image; },
@@ -86,12 +93,38 @@ describe('image-gen on the host image seam', () => {
     assert.deepEqual(host.calls.generate, [{
       providerId: 'p1', model: 'gpt-image-2.5-flare', prompt: 'a blue owl', size: '1536x1024',
     }]);
-    const rendered = /\((\/api)?\/brain\/images\/([a-z0-9]+\.png)\)/.exec(out.content[0].text);
-    assert.ok(rendered, 'the tool answers with the inline markdown image');
-    assert.equal(readFileSync(join(host.dir, rendered[2])).toString(), 'PNG-BYTES');
-    assert.equal(host.sources.length, 1);
-    assert.deepEqual(host.sources[0].resolve(rendered[2]), { bytes: PNG, mimeType: 'image/png' });
-    assert.equal(host.sources[0].resolve('../outside.png'), null);
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
+    assert.match(host.written[0].path, /\/generated-images\/[\da-f-]+\.png$/);
+    assert.equal(host.written[0].overwrite, false);
+    assert.equal(readFileSync(host.written[0].path).toString(), 'PNG-BYTES');
+  });
+
+  it('uses an explicit output path and reports it for ShareImage', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerGen(host.ctx);
+    const out = await host.tools.get('GenerateImage').execute('call-1', { prompt: 'x', output_path: 'assets/banner.png' });
+    assert.equal(readFileSync(join(host.dir, 'assets/banner.png')).toString(), 'PNG-BYTES');
+    assert.deepEqual(host.written, [{ path: join(host.dir, 'assets/banner.png'), overwrite: false }]);
+    assert.match(out.content[0].text, /assets\/banner\.png/);
+  });
+
+  it('requires explicit overwrite and an output path before invoking the model', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerGen(host.ctx);
+    const tool = host.tools.get('GenerateImage');
+    const path = join(host.dir, 'existing.png');
+    writeFileSync(path, Buffer.from('ORIGINAL'));
+
+    const createOnly = await tool.execute('call-1', { prompt: 'x', output_path: path });
+    assert.match(createOnly.content[0].text, /EEXIST/);
+    assert.equal(readFileSync(path).toString(), 'ORIGINAL');
+    const noPath = await tool.execute('call-2', { prompt: 'x', overwrite: true });
+    assert.match(noPath.content[0].text, /overwrite requires an explicit output_path/);
+    assert.equal(host.calls.generate.length, 1);
+    const replaced = await tool.execute('call-3', { prompt: 'x', output_path: path, overwrite: true });
+    assert.match(replaced.content[0].text, /Image saved/);
+    assert.equal(readFileSync(path).toString(), 'PNG-BYTES');
+    assert.deepEqual(host.written, [{ path, overwrite: true }]);
   });
 
   it('keeps using an API-key provider, and stays unregistered without a usable provider', async () => {
@@ -124,6 +157,9 @@ describe('image-edit on the host image seam', () => {
     const source = join(host.dir, 'source.jpg');
     writeFileSync(source, Buffer.from('SOURCE'));
     await tool.execute('call-1', { instruction: 'make the sky orange', path: source, size: 'auto' });
+    assert.match(host.written[0].path, /\/generated-images\/[\da-f-]+\.png$/);
+    assert.equal(host.written[0].overwrite, false);
+    assert.equal(readFileSync(source).toString(), 'SOURCE');
 
     assert.equal(host.calls.edit.length, 1);
     const [req] = host.calls.edit;
@@ -137,11 +173,37 @@ describe('image-edit on the host image seam', () => {
     assert.equal(editSize('auto'), undefined);
   });
 
+  it('replaces the source only when its output path explicitly names that source', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerEdit(host.ctx);
+    const source = join(host.dir, 'source.png');
+    writeFileSync(source, Buffer.from('SOURCE'));
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x', path: source, output_path: source, overwrite: true,
+    });
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
+    assert.deepEqual(host.written, [{ path: source, overwrite: true }]);
+    assert.equal(readFileSync(source).toString(), 'PNG-BYTES');
+  });
+
+  it('refuses implicit replacement of the PNG source', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerEdit(host.ctx);
+    const source = join(host.dir, 'source.png');
+    writeFileSync(source, Buffer.from('SOURCE'));
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x', path: source, output_path: source,
+    });
+    assert.match(out.content[0].text, /EEXIST/);
+    assert.equal(readFileSync(source).toString(), 'SOURCE');
+    assert.deepEqual(host.written, []);
+  });
+
   it('refuses a source that is neither a repo path nor a URL', async () => {
     const host = makeCtx({ provider: keyed });
     registerEdit(host.ctx);
     const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x' });
-    assert.match(out.content[0].text, /repo file path or a public image URL/);
+    assert.match(out.content[0].text, /exactly one source/);
     assert.equal(host.calls.edit.length, 0);
   });
 
@@ -235,7 +297,7 @@ describe('image-edit on the host image seam', () => {
       url: 'https://images.example/start',
     });
 
-    assert.match(out.content[0].text, /\/api\/brain\/images\//);
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
     assert.deepEqual(requests.map(({ raw }) => raw), [
       'https://images.example/start',
       'https://images.example/photo.jpg',
@@ -350,7 +412,7 @@ describe('image-edit on the host image seam', () => {
     try {
       const url = 'https://images.example/photo.jpg';
       const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x', url });
-      assert.match(out.content[0].text, /\/api\/brain\/images\//);
+      assert.match(out.content[0].text, /authorized sender can use ShareImage/);
       assert.deepEqual(validated, [url]);
       assert.equal(requests.length, 1);
       assert.equal(requests[0].raw, url);

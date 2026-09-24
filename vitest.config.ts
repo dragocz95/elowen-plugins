@@ -15,13 +15,18 @@ import { defineConfig } from 'vitest/config';
  *
  *  Plugin tests written HERE stay on `node --test` (npm run test:node); `npm test` runs both runners. */
 const candidateRoot = process.env.ELOWEN_CORE_ROOT?.trim();
+const sharedRoot = process.env.ELOWEN_SHARED_PACKAGE_ROOT?.trim();
 export default defineConfig({
   // A paired worktree check must execute the candidate's SDK, not merely read its package version.
   resolve: {
-    alias: candidateRoot ? {
-      'elowen/dist': resolve(candidateRoot, 'dist'),
-      'elowen/plugin-api': resolve(candidateRoot, 'dist/plugins/api.js'),
-    } : {},
+    alias: {
+      ...(candidateRoot ? {
+        'elowen/dist': resolve(candidateRoot, 'dist'),
+        'elowen/plugin-api': resolve(candidateRoot, 'dist/plugins/api.js'),
+      } : {}),
+      ...(sharedRoot ? { 'elowen-plugin-shared': resolve(sharedRoot) }
+        : candidateRoot ? { 'elowen-plugin-shared': resolve(candidateRoot, 'packages/plugin-shared') } : {}),
+    },
   },
   // The plugin sources are .tsx and are only TRANSPILED here (automatic JSX runtime, vitest's default),
   // never type-checked: the bundle's type contract is checked by its own web-src/tsconfig.json at build

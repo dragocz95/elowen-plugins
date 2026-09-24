@@ -4,23 +4,14 @@
 // answer and the brain-event reducer all live in the shared engine — only the genuinely Teams-specific
 // pieces are here.
 import { CHUNK, splitContent, footerLine } from './format.mjs';
-import { extractImageRefs } from 'elowen-plugin-shared/format';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 
-/** Post a final text to a conversation. Generated-image links become real Teams image attachments (their
- *  relative daemon URLs are dead text here): the links are stripped and the images ride ahead of the
- *  (possibly split) text. Text without image links keeps the plain send path. */
-export async function postWithImages(adapter, conversationId, text, replyToId) {
-  const { cleaned, files } = extractImageRefs(text);
-  const data = typeof adapter.resolveImageFiles === 'function' ? adapter.resolveImageFiles(files) : [];
-  if (data.length && typeof adapter.sendImages === 'function') await adapter.sendImages(conversationId, data);
-  const body = data.length ? cleaned.trim() : text;
-  if (!body) return; // image-only reply — the attachments already stand alone
-  const pieces = splitContent(body);
+/** Post final text to a conversation. Shared images are sent from authorized image events. */
+export async function postFinalText(adapter, conversationId, text, replyToId) {
+  const pieces = splitContent(text);
   for (let i = 0; i < pieces.length; i++) {
-    // Thread the first text piece under the trigger only when no image preceded it (else the image carried it).
-    // `ai` marks it as model-written, which is what earns the Teams "AI generated" label and the feedback pair.
-    await adapter.tmSend(conversationId, pieces[i], { ai: true, ...(i === 0 && !data.length && replyToId ? { replyToId } : {}) });
+    // `ai` marks model-written text for Teams feedback.
+    await adapter.tmSend(conversationId, pieces[i], { ai: true, ...(i === 0 && replyToId ? { replyToId } : {}) });
   }
 }
 
@@ -74,4 +65,4 @@ const style = {
   quoteBlock: (lines) => `<blockquote>${lines.join('<br>')}</blockquote>`,
 };
 
-export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });
+export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postFinalText, footerLine });

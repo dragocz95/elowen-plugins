@@ -32,7 +32,7 @@ afterEach(() => { for (const p of dirs) rmSync(p, { recursive: true, force: true
 
 function fakeLogger() { return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }; }
 
-async function loadCron(dataRoot: string, notify: (text: string, channelId?: string) => Promise<void>, logger = fakeLogger()) {
+async function loadCron(dataRoot: string, notify: (text: string, channelId?: string, images?: unknown[]) => Promise<void>, logger = fakeLogger()) {
   const reg = await loadPlugins({
     dirs: [pluginsDir], enabled: ['cronjob'], dataRoot, logger, notify,
     pluginDb: pluginDbFor(dataRoot),
@@ -80,6 +80,64 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     expect(JSON.parse(readFileSync(pendingFile(dataRoot), 'utf-8'))).toEqual([]); // cleared once delivered
   });
 
+  it('delivers a quiet run\'s shared image without the quiet marker', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [{
+      id: 'quiet-image', name: 'illustration', schedule: 'every 5m', prompt: 'draw it', plain: true,
+      lastRun: new Date(Date.now() - 10 * 60_000).toISOString(), createdAt: new Date().toISOString(),
+      notifyChannelId: 'destination:msteams:a%3Aconv1',
+    }]);
+    const image = { type: 'image' as const, ref: `/api/brain/chat-images/${'c'.repeat(64)}.png` };
+    const delivered: { text: string; images?: unknown[] }[] = [];
+    const { adapter } = await loadCron(dataRoot, async (text, _channelId, images) => { delivered.push({ text, images }); });
+    wireCronHost(adapter, async (_src: unknown, _text: string, onEvent?: (event: unknown) => void) => {
+      onEvent?.(image);
+      return 'NOTHING_TO_REPORT';
+    });
+
+    await adapter.tick();
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.images).toEqual([image]);
+    expect(delivered[0]!.text).not.toContain('NOTHING_TO_REPORT');
+  });
+
+  it('persists a scheduled image event and uploads it through notify after a failed delivery', async () => {
+    const dataRoot = freshDataRoot();
+    writeJobs(dataRoot, [{
+      id: 'image-job', name: 'illustration', schedule: 'every 5m', prompt: 'draw it',
+      lastRun: new Date(Date.now() - 10 * 60_000).toISOString(), createdAt: new Date().toISOString(),
+      notifyChannelId: 'destination:msteams:a%3Aconv1',
+    }]);
+    const image = { type: 'image' as const, ref: `/api/brain/chat-images/${'a'.repeat(64)}.png`, caption: 'Generated' };
+    const preview = { type: 'image' as const, ref: `/api/brain/chat-images/${'b'.repeat(64)}.png`, preview: true as const };
+    const delivered: { text: string; channelId?: string; images?: unknown[] }[] = [];
+    const { adapter } = await loadCron(dataRoot, async () => { throw new Error('Teams unavailable'); });
+    let turns = 0;
+    wireCronHost(adapter, async (_src: unknown, _text: string, onEvent?: (event: unknown) => void) => {
+      turns += 1;
+      onEvent?.(preview);
+      onEvent?.(image);
+      return 'scheduled result';
+    });
+
+    await adapter.tick();
+    const pending = JSON.parse(readFileSync(pendingFile(dataRoot), 'utf8')) as { images?: unknown[] }[];
+    expect(pending[0]?.images).toEqual([image]);
+    // A crashed adapter's lease expires before a new generation may claim its pending result.
+    writeFileSync(pendingFile(dataRoot), JSON.stringify([{ ...pending[0], leaseUntil: Date.now() - 1 }]));
+    const { adapter: restarted } = await loadCron(dataRoot, async (text, channelId, images) => {
+      delivered.push({ text, channelId, images });
+    });
+    wireCronHost(restarted, async () => { throw new Error('a delivery retry must not rerun the model'); });
+    await restarted.tick(); // fresh adapter generation reads the persisted delivery without another turn
+    expect(turns).toBe(1);
+    expect(delivered).toEqual([{
+      text: expect.stringContaining('scheduled result'),
+      channelId: 'destination:msteams:a%3Aconv1',
+      images: [image],
+    }]);
+  });
+
   it('a ONE-SHOT job\'s result survives a delivery failure even though the job record is already gone', async () => {
     const dataRoot = freshDataRoot();
     writeJobs(dataRoot, [{
@@ -120,6 +178,8 @@ describe('cron delivery durability (Tier 1 #6)', () => {
     ]));
     const delivered: string[] = [];
     const { adapter } = await loadCron(dataRoot, async (t: string) => { delivered.push(t); });
+    const migrated = JSON.parse(readFileSync(pendingFile(dataRoot), 'utf8')) as { images: unknown[] }[];
+    expect(migrated.map((entry) => entry.images)).toEqual([[], []]);
     wireCronHost(adapter, async () => 'unused');
 
     await adapter.tick(); // nothing due — this tick only flushes the queue

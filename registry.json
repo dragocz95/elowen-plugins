@@ -43,7 +43,7 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.16",
+      "version": "0.6.18",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
@@ -55,12 +55,12 @@
         "skills": 1,
         "controls": 1
       },
-      "requiresSharedApi": 4
+      "requiresSharedApi": 5
     },
     {
       "name": "discord",
-      "version": "0.3.23",
-      "requiresCore": "0.28.50",
+      "version": "0.3.25",
+      "requiresCore": "0.28.53",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
       "author": "Elowen",
@@ -70,7 +70,7 @@
         "tools": 25,
         "apiRoutes": 1
       },
-      "requiresSharedApi": 4
+      "requiresSharedApi": 5
     },
     {
       "name": "editor",
@@ -102,9 +102,9 @@
     },
     {
       "name": "image-edit",
-      "version": "0.2.9",
-      "requiresCore": "0.28.50",
-      "description": "Edit an existing image from a text instruction (image-to-image) through a configured API-key provider or the connected ChatGPT account. The result shows in the chat.",
+      "version": "0.2.11",
+      "requiresCore": "0.28.53",
+      "description": "Edit an existing image through a configured provider. PNG files are saved in the current project; use ShareImage to show one in chat.",
       "category": "media",
       "author": "Elowen",
       "apiVersion": "2",
@@ -114,9 +114,9 @@
     },
     {
       "name": "image-gen",
-      "version": "0.2.7",
-      "requiresCore": "0.28.50",
-      "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
+      "version": "0.2.9",
+      "requiresCore": "0.28.53",
+      "description": "Image generation through a configured provider. PNG files are saved in the current project; use ShareImage to show one in chat.",
       "category": "media",
       "author": "Elowen",
       "apiVersion": "2",
@@ -140,7 +140,7 @@
     },
     {
       "name": "msteams",
-      "version": "0.8.5",
+      "version": "0.8.7",
       "requiresCore": "0.28.53",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
@@ -154,7 +154,7 @@
           "microsoftIdentity"
         ]
       },
-      "requiresSharedApi": 4
+      "requiresSharedApi": 5
     },
     {
       "name": "onedrive",
@@ -210,8 +210,8 @@
     },
     {
       "name": "telegram",
-      "version": "0.2.19",
-      "requiresCore": "0.28.50",
+      "version": "0.2.21",
+      "requiresCore": "0.28.53",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
       "author": "Elowen",
@@ -220,7 +220,7 @@
         "platforms": 1,
         "tools": 16
       },
-      "requiresSharedApi": 4
+      "requiresSharedApi": 5
     },
     {
       "name": "todo",
@@ -249,8 +249,8 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.23",
-      "requiresCore": "0.28.50",
+      "version": "0.2.25",
+      "requiresCore": "0.28.53",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
       "author": "Elowen",
@@ -260,7 +260,7 @@
         "tools": 6,
         "apiRoutes": 3
       },
-      "requiresSharedApi": 4
+      "requiresSharedApi": 5
     }
   ]
 }

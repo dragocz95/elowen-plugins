@@ -1,5 +1,5 @@
 {
-  "description": "Upravuje obrázky podľa textového zadania cez poskytovateľa s kľúčom API alebo pripojený účet ChatGPT. Výsledok sa zobrazí priamo v chate.",
+  "description": "Upravuje obrázky cez nastaveného poskytovateľa. Súbory PNG ukladá do aktuálneho projektu; na zobrazenie v chate použite ShareImage.",
   "fields": {
     "provider": {
       "label": "Poskytovateľ",

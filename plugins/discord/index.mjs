@@ -13,9 +13,9 @@ import { DiscordAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { listGuildChannels } from './lib/channels.mjs';
 import { normalizeConfig } from './lib/config.mjs';
-import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
+import { platformChatFilesDir, platformImageDir } from 'elowen-plugin-shared/images';
 
-export { stripForSpeech, extractImageRefs, stripThinking, parseModelExec, memberIsAdmin, matchPolicy, matchesId, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine, withoutFooter } from './lib/format.mjs';
+export { stripForSpeech, stripThinking, parseModelExec, memberIsAdmin, matchPolicy, matchesId, displayNameOf, resolveMentions, buildReplyContext, splitContent, footerLine, withoutFooter } from './lib/format.mjs';
 export { buildAskComponents, askTruncationNote, ASK_MAX_QUESTIONS, ASK_MAX_SELECT_OPTIONS } from './lib/ask.mjs';
 export { LiveMessage } from './lib/stream.mjs';
 export { resolveDisplaySettings, updateDisplayOverrides } from './lib/display.mjs';
@@ -50,10 +50,10 @@ export function register(ctx) {
   if (!token) { ctx.logger.warn('enabled but no botToken configured — not connecting'); return; }
   const dataDir = ctx.dataDir();
   const state = new StateStore(join(dataDir, 'channel-state.json'));
-  const imageDirs = platformImageDirs(dataDir);
+  const imageDir = platformImageDir(dataDir);
   // Pass chatCommands LAZILY (a function, not a snapshot) so a plugin registered after Discord — or a live
   // plugin reload — is always reflected in the registered slash set, /help and dispatch.
-  const adapter = new DiscordAdapter({ ...normalizeConfig(ctx.config), botToken: token }, ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion, () => ctx.chatCommands('discord'), platformChatFilesDir(dataDir));
+  const adapter = new DiscordAdapter({ ...normalizeConfig(ctx.config), botToken: token }, ctx.logger, state, ctx.listModels, imageDir, ctx.resolveProvider, ctx.answerQuestion, () => ctx.chatCommands('discord'), platformChatFilesDir(dataDir));
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
   ctx.logger.info('discord platform registered (slash commands + per-channel display + live tools + server tools)');

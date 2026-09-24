@@ -46,7 +46,7 @@
     "sec_media": { "label": "Limity médií", "hint": "Limity příchozích a odchozích obrázků a doba, po kterou zůstane otevřená čekající otázka." },
     "maxImageBytes": { "label": "Max. velikost příchozího obrázku", "hint": "Největší obrazová příloha v bajtech, kterou bot stáhne ke zpracování obrázku." },
     "maxImages": { "label": "Max. obrázků na zprávu", "hint": "Počet obrázků z jedné příchozí zprávy, které bot odešle modelu ke zpracování." },
-    "maxUploadImages": { "label": "Max. obrázků na odpověď", "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi." },
+    "maxUploadImages": { "label": "Max. obrázků na odpověď", "hint": "Kolik obrázků sdílených asistentem bot připojí k jedné odchozí odpovědi." },
     "sec_roles": { "label": "Pravidla přístupu podle role", "hint": "Určují, kterým odesílatelům v Teams bot povolí přístup. Můžete také přidat pokyny pro místnost." },
     "rolePolicies": { "label": "Pravidla přístupu podle role", "hint": "Odesílatele přijme první odpovídající pravidlo. ID může být Entra object ID odesílatele (GUID), jeho UPN či e-mail, celé ID konverzace (povolí přístup všem v daném chatu), nebo * pro všechny odesílatele. Pravidlo s * nechte až za konkrétními záznamy, jinak by je překrylo. Klíč `admin` povoluje pouze lomítkové příkazy pro správu místnosti a označení jejího kontextu jako důvěryhodného. Přístup k projektům a nástrojům vždy určuje účet Elowen propojený s odesílatelem. Nepřihlášený odesílatel s povoleným přístupem uvidí stávající přihlašovací kartu a asistent mu neodpoví." }
   },

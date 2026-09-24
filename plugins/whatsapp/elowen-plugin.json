@@ -1,9 +1,9 @@
 {
   "name": "whatsapp",
-  "version": "0.2.23",
+  "version": "0.2.25",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
-  "requiresSharedApi": 4,
+  "requiresCore": "0.28.53",
+  "requiresSharedApi": 5,
   "description": "WhatsApp bot (Baileys): message it and it replies through Elowen AI. Text commands (/model, /new, /help), a model picker for each chat (numbered menu, reply with a number), live-updating messages with a tool-call summary, status reactions and proactive notices from cron/tick tasks. Group tools: view and browse groups, create groups, add and remove members, and send messages to any chat (operator). Each sender (phone number, JID or whole group) is assigned allowed Elowen projects and a role prompt. Link the account by scanning a QR code or entering a pairing code.",
   "entry": "index.mjs",
   "provides": {
@@ -171,7 +171,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many generated images the bot attaches to a single outgoing reply."
+      "hint": "How many images shared by the agent the bot attaches to a single outgoing reply."
     },
     {
       "key": "askTimeoutMs",

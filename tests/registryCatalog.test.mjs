@@ -170,8 +170,11 @@ const EXPECTED_CAPABILITIES = {
   // widget's own connection: the bytes come from the owner's image host, fetched through the host's
   // validated public transport, which is the only place that resolves the address and pins it — a
   // customer's page has no reason to allow that host, and widening its policy is not something a widget
-  // may ask for. No `mutates`: it owns no prompt, memory or user row outside its own tables.
-  chatbot: { reads: ['db', 'stores', 'elowen-cli'], network: true },
+  // may ask for. `conversation-files` was added when visitors started attaching images and receiving
+  // shared files: it stores a visitor's upload in the chatbot's own managed Project, hands that image to
+  // the turn, and serves back only a file the chatbot's own turn shared. No `mutates`: it owns no prompt,
+  // memory or user row outside its own tables.
+  chatbot: { reads: ['db', 'stores', 'elowen-cli', 'conversation-files'], network: true },
   // `controls` was added when the semantic index started reading a managed project through the Sandbox
   // control instead of the host filesystem; core approved codebase as a Sandbox consumer in the same
   // change. Without it the index cannot see a managed project's files at all.

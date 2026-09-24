@@ -91,17 +91,19 @@ describe('discord destination and list config compatibility', () => {
     expect(discordDestinationId('1544035768526307389#draft')).toBe('1544035768526307389#draft');
 
     const reply = vi.fn(async () => undefined);
-    await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply }, 'hello');
+    // A text-only push resolves no image events; the adapter still owns the resolver.
+    const resolveImageFiles = () => [];
+    await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles }, 'hello');
     expect(reply).toHaveBeenCalledWith('999', 'hello');
     reply.mockClear();
     await DiscordAdapter.prototype.notify.call(
-      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles },
       'hello', 'destination:discord:123',
     );
     expect(reply).toHaveBeenCalledWith('123', 'hello');
     reply.mockClear();
     await DiscordAdapter.prototype.notify.call(
-      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles },
       'hello', '1544035768526307389#0',
     );
     expect(reply).toHaveBeenCalledWith('1544035768526307389', 'hello');
@@ -1041,33 +1043,6 @@ describe('discord answer streaming (live reply edits, two-bubble model)', () => 
     expect(edits.get('m1')).toBe('Final clean answer.');   // authoritative reply landed, NOT frozen at the draft
   });
 
-  it('an image-only reply deletes the streamed raw-markdown draft instead of freezing it (#4)', async () => {
-    const { LiveMessage } = await load();
-    const calls: { method: string; id: string; content: string }[] = [];
-    let uploads = 0;
-    let nextId = 0;
-    const adapter = {
-      cfg: { answerMode: 'live' },
-      resolveImageFiles: (names: string[]) => names.map((n) => ({ name: n, blob: new Uint8Array([1]) })),
-      uploadImages: async () => { uploads++; },
-      rest: async (method: string, path: string, body?: { content?: string }) => {
-        if (method === 'POST') { const id = `m${++nextId}`; calls.push({ method, id, content: body?.content ?? '' }); return { id }; }
-        const id = path.split('/').pop()!;
-        calls.push({ method, id, content: body?.content ?? '' });
-        return { id };
-      },
-    };
-    const lm = new LiveMessage(adapter, 'chan');
-    // The model streams text that is ONLY a generated-image link → a StreamingAnswer bubble is created
-    // holding raw markdown, which is dead text on Discord.
-    lm.onEvent({ type: 'text', delta: '![kočka](/api/brain/images/abc123.png)' });
-    await new Promise((r) => setTimeout(r, 20)); // the draft bubble (m1) is POSTed
-    await lm.finalize('![kočka](/api/brain/images/abc123.png)');
-    expect(uploads).toBe(1); // the image rode its own upload
-    // The raw-markdown draft is DELETED, not left frozen above the standalone image.
-    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.id)).toContain('m1');
-  });
-
   it('deletes a leftover continuation bubble whose create POST is still in flight at finalize (#7)', async () => {
     vi.useFakeTimers();
     try {
@@ -1313,40 +1288,6 @@ describe('discord interaction origin guard (a DM interaction is not a guild memb
   });
 });
 
-describe('discord extractImageRefs (generated-image markdown → uploads)', () => {
-  const load = async () => (await import(join(repoRoot, 'plugins/discord/index.mjs'))) as unknown as {
-    extractImageRefs: (t: string) => { cleaned: string; files: string[] };
-  };
-
-  it('extracts a relative daemon link and removes it from the text', async () => {
-    const { extractImageRefs } = await load();
-    const r = extractImageRefs('Tady je obrázek: ![kočka](/api/brain/images/abc123.png) hotovo');
-    expect(r.files).toEqual(['abc123.png']);
-    expect(r.cleaned).toBe('Tady je obrázek:  hotovo');
-  });
-
-  it('extracts multiple links, including an absolute-URL variant', async () => {
-    const { extractImageRefs } = await load();
-    const r = extractImageRefs('![a](/api/brain/images/aaa1.png)\n![b](https://example.com/api/brain/images/bbb2.png)');
-    expect(r.files).toEqual(['aaa1.png', 'bbb2.png']);
-    expect(r.cleaned.trim()).toBe('');
-  });
-
-  it('leaves text-only messages untouched', async () => {
-    const { extractImageRefs } = await load();
-    const r = extractImageRefs('žádný obrázek tady není');
-    expect(r.files).toEqual([]);
-    expect(r.cleaned).toBe('žádný obrázek tady není');
-  });
-
-  it('rejects names outside the daemon route pattern (path traversal stays inert text)', async () => {
-    const { extractImageRefs } = await load();
-    const r = extractImageRefs('![x](/api/brain/images/../evil.png) a ![y](/api/brain/images/UPPER.png)');
-    expect(r.files).toEqual([]);
-    expect(r.cleaned).toContain('../evil.png'); // untouched — never treated as a file
-  });
-});
-
 /** An image the agent shares (ShareImage) arrives as an `image` stream event, not as markdown in the
  *  reply — Discord must still turn it into a real upload, because the daemon path in the ref is dead text
  *  in a chat client. */
@@ -1363,7 +1304,7 @@ describe('discord shared-image delivery (image event → upload)', () => {
     const adapter = {
       cfg: { runtimeFooter: false, answerMode: 'final' },
       rest: async (_m: string, _p: string, body?: { content?: string }) => { posted.push(body?.content ?? ''); return { id: 'm1' }; },
-      // The text path asks with an empty list for every reply; only a real lookup is interesting here.
+      // Record only real image lookups.
       resolveImageFiles: (names: string[]) => {
         if (names.length) asked.push(names);
         return names.map((name) => ({ name, data: Buffer.from('IMG') }));
@@ -1387,17 +1328,7 @@ describe('discord shared-image delivery (image event → upload)', () => {
     expect(uploads[0].content).toBe('Tady je ten graf.'); // the caption rides the attachment
   });
 
-  it('still uploads a generated image referenced the older way', async () => {
-    const { LiveMessage } = await load();
-    const { adapter, uploads } = mk();
-    const lm = new LiveMessage(adapter, 'chan');
-    lm.onEvent({ type: 'image', ref: '/api/brain/images/abc123.png', id: 't1' });
-    await lm.finalize('Hotovo.');
-    expect(uploads.map((u) => u.names)).toEqual([['abc123.png']]);
-    expect(uploads[0].content).toBe(''); // no caption — the attachment stands on its own
-  });
-
-  it('never turns a ref outside the two image routes into a file read', async () => {
+  it('never turns a ref outside the chat-image route into a file read', async () => {
     const { LiveMessage } = await load();
     const { adapter, uploads, asked } = mk();
     const lm = new LiveMessage(adapter, 'chan');
