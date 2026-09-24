@@ -783,7 +783,8 @@ export class TelegramAdapter {
 
   // ── outbound helpers ──
 
-  /** Post a final text reply (image links become photo uploads) — the non-streamed path. */
+  /** Post a final text reply — the non-streamed path. Shared images travel as photo uploads from
+   *  authorized image events, never as links inside this text. */
   async reply(chatId, text, replyToId) {
     await postFinalText(this, chatId, text, replyToId);
   }
