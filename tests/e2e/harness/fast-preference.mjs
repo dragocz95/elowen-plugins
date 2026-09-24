@@ -31,7 +31,9 @@ export async function verifyFastPreference({ baseUrl, token, command, offReply, 
 
   const before = model.requests.length;
   await turn();
-  const requests = model.requests.slice(before);
+  // Core 0.28.54 prefetches GET /v1/models on every spawn before the turn's
+  // chat completions, so only the completion POSTs carry a body.model to assert on.
+  const requests = model.requests.slice(before).filter((r) => r.method === 'POST' && r.path === '/v1/chat/completions');
   assert.ok(requests.length > 0, 'Fast preference on still permits a real model turn');
   for (const request of requests) {
     assert.equal(request.body.model, 'mock-model', 'unsupported route retains the selected model');

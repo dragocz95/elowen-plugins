@@ -309,6 +309,8 @@ describe('visitor attention', () => {
 });
 
 describe('the appearance editor', () => {
+  // Each test mounts the full register, drawer and live shadow-DOM preview and waits on the real 900 ms autosave debounce, so its honest duration is multi-second.
+  const EDITOR_TIMEOUT = 20_000;
   it('writes effects, teaser and sound overrides and resets a gradient end to solid', async () => {
     const dialog = await openEditor();
     fireEvent.change(slider(dialog, strings.appearanceGlassBlur!), { target: { value: '22' } });
@@ -328,7 +330,7 @@ describe('the appearance editor', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: `${strings.appearanceGradientVisitor}: ${strings.appearanceSolid}` }));
     expect(previewPanel(dialog).chat.messageStyles.default.user.bubble.background).toBe(DEFAULT_APPEARANCE.colors.visitorBubble);
     await waitFor(() => expect(saved.body?.appearance).toMatchObject({ overrides: { colors: { visitorBubbleEnd: null } } }));
-  });
+  }, EDITOR_TIMEOUT);
 
   it('opens on the stored look, with the widget\'s own panel already drawn beside the controls', async () => {
     const dialog = await openEditor();
@@ -354,7 +356,7 @@ describe('the appearance editor', () => {
     expect(preview.style.textContent).toContain(`background: ${DEFAULT_APPEARANCE.colors.panel}`);
     expect(preview.chat.messageStyles.default.ai.bubble.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.botBubble);
     expect(preview.chat.names.ai.text).toBe(bot.displayName);
-  });
+  }, EDITOR_TIMEOUT);
 
   it('follows every control into the preview and auto-saves the appearance', async () => {
     const dialog = await openEditor();
@@ -382,7 +384,7 @@ describe('the appearance editor', () => {
     // The name is part of the look and autosaves in the same snapshot as the appearance.
     expect(previewPanel(dialog).host.shadowRoot!.querySelector('.title')!.textContent).toBe('Podatelna');
     await waitFor(() => expect(saved.body?.displayName).toBe('Podatelna'), { timeout: 3000 });
-  });
+  }, EDITOR_TIMEOUT);
 
   it('draws the quick buttons under the greeting, and a click on one is the visitor\'s own message', async () => {
     const dialog = await openEditor();
@@ -405,7 +407,7 @@ describe('the appearance editor', () => {
     utilities['cb-quick-item']!.events!.click!({ target: button });
     expect(previewPanel(dialog).chat.getMessages()).toEqual([{ role: 'user', text: 'Chci vyplnit formulář' }]);
     await waitFor(() => expect(saved.body).not.toBeNull());
-  });
+  }, EDITOR_TIMEOUT);
 
   it('confirms a template replacement, dropping changes only after approval', async () => {
     const dialog = await openEditor();
@@ -419,7 +421,7 @@ describe('the appearance editor', () => {
     await waitFor(() => expect(previewPanel(dialog).style.textContent).toContain(`background: ${APPEARANCE_TEMPLATES.clean.colors.panel}`));
     expect(within(dialog).queryByRole('button', { name: strings.appearanceReset!.replace('{value}', strings.appearanceColorPanel!) })).not.toBeInTheDocument();
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'clean', overrides: {} }));
-  });
+  }, EDITOR_TIMEOUT);
 
   it('previews, saves and resets an independent Indigo header', async () => {
     const dialog = await openEditor();
@@ -439,7 +441,7 @@ describe('the appearance editor', () => {
     expect(header).toHaveValue(templateRamp.header);
     expect(previewPanel(dialog).style.textContent).toContain(`background: linear-gradient(135deg, ${templateRamp.header}, ${APPEARANCE_TEMPLATES.indigo.colors.headerEnd}); color: ${templateRamp.headerInk}`);
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'indigo', overrides: {} }));
-  });
+  }, EDITOR_TIMEOUT);
 
   it('resets a single override without resetting the other choices', async () => {
     const dialog = await openEditor();
@@ -449,7 +451,7 @@ describe('the appearance editor', () => {
     expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue(String(DEFAULT_APPEARANCE.width));
     expect(slider(dialog, strings.appearanceHeightLabel!)).toHaveValue('640');
     await waitFor(() => expect(saved.body?.appearance).toEqual({ schemaVersion: 2, template: 'elowen', overrides: { height: 640 } }));
-  });
+  }, EDITOR_TIMEOUT);
 
   it('renders the launcher label, curated send icon and independent colours in the actual preview', async () => {
     const dialog = await openEditor();
@@ -470,7 +472,7 @@ describe('the appearance editor', () => {
     expect(preview.style.textContent).toContain(`background: linear-gradient(135deg, #123456, ${DEFAULT_APPEARANCE.colors.launcherEnd})`);
     expect(preview.chat.submitButtonStyles.submit.container.default.backgroundColor).toBe(DEFAULT_APPEARANCE.colors.sendButton);
     await waitFor(() => expect(saved.body).not.toBeNull());
-  });
+  }, EDITOR_TIMEOUT);
 
   it('cancels a template change without losing manual values', async () => {
     const dialog = await openEditor();
@@ -482,7 +484,7 @@ describe('the appearance editor', () => {
     expect(slider(dialog, strings.appearanceWidthLabel!)).toHaveValue('500');
     expect(within(dialog).getByRole('button', { name: strings.appearanceTemplate_elowen! })).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(saved.body).not.toBeNull());
-  });
+  }, EDITOR_TIMEOUT);
 
   it('previews header, typography, shape, launcher geometry and local fonts', async () => {
     const dialog = await openEditor();
@@ -508,7 +510,7 @@ describe('the appearance editor', () => {
     expect(preview.style.textContent).toContain('min-height: 72px');
     expect(preview.style.textContent).not.toContain('@import');
     await waitFor(() => expect(saved.body).not.toBeNull());
-  });
+  }, EDITOR_TIMEOUT);
 
   it('adds an icon chip with Enter, removes it and saves the object shape', async () => {
     const dialog = await openEditor();
@@ -521,7 +523,7 @@ describe('the appearance editor', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: strings.appearanceQuickRemove!.replace('{value}', 'Book') }));
     expect(within(dialog).queryByText('Book')).not.toBeInTheDocument();
     await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.quickButtons).toEqual([]));
-  });
+  }, EDITOR_TIMEOUT);
 
   it('shows an avatar once one is given, and keeps an obviously wrong address out of a save', async () => {
     const dialog = await openEditor();
@@ -534,7 +536,7 @@ describe('the appearance editor', () => {
     fireEvent.change(avatar, { target: { value: 'logo.svg' } });
     expect(within(dialog).getByText(strings.appearanceInvalid!)).toBeInTheDocument();
     expect(saved.body).toBeNull();
-  });
+  }, EDITOR_TIMEOUT);
 
   it('keeps a message the preview already drew when the look changes under it', async () => {
     const dialog = await openEditor();
@@ -555,7 +557,7 @@ describe('the appearance editor', () => {
     expect(after.messageStyles.default.ai.bubble.borderRadius).toBe('24px');
     expect(after.getMessages()).toEqual([{ role: 'user', text: 'Kde je podatelna?' }]);
     await waitFor(() => expect(saved.body).not.toBeNull());
-  });
+  }, EDITOR_TIMEOUT);
 
   it('auto-saves the whole look and the name together', async () => {
     const dialog = await openEditor();
@@ -579,7 +581,7 @@ describe('the appearance editor', () => {
     fireEvent.change(slider(dialog, strings.appearanceRadiusLabel!), { target: { value: '9' } });
     await waitFor(() => expect((saved.body!.appearance as StoredAppearance).overrides.radius).toBe(9));
     expect(saved.body!.expectedUpdatedAt).toBe('2026-09-21T17:00:00.000Z');
-  });
+  }, EDITOR_TIMEOUT);
 
   it('reports a failed save instead of pretending the look was stored', async () => {
     use(http.put('/api/plugins/chatbot/api/appearance', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
@@ -587,7 +589,7 @@ describe('the appearance editor', () => {
     fireEvent.change(slider(dialog, strings.appearanceRadiusLabel!), { target: { value: '2' } });
     expect(await within(dialog).findByText('boom')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Try again' })).toBeEnabled();
-  });
+  }, EDITOR_TIMEOUT);
 
   it('refuses a second identical quick button, and stops at the ceiling', async () => {
     const dialog = await openEditor();
@@ -603,7 +605,7 @@ describe('the appearance editor', () => {
     fireEvent.change(field, { target: { value: 'Dotaz 1' } });
     expect(within(dialog).getByText(strings.appearanceQuickDuplicate!)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: strings.appearanceQuickAdd! })).toBeDisabled();
-  });
+  }, EDITOR_TIMEOUT);
 
   it('offers a friendly launcher icon and a decorative presence dot, and carries both into the preview', async () => {
     const dialog = await openEditor();
@@ -640,5 +642,5 @@ describe('the appearance editor', () => {
 
     await waitFor(() => expect((saved.body?.appearance as StoredAppearance).overrides.launcher)
       .toEqual({ icon: 'smile', presenceDot: true, presenceDotColor: '#abcdef' }));
-  });
+  }, EDITOR_TIMEOUT);
 });
