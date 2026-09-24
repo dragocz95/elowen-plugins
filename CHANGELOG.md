@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.7 - 2026-09-24
+
+- Wait for navigation handoff redemption before restoring a visitor conversation, even when avatar loading starts redemption first. The widget no longer reads a revoked token, replays the navigation action as pending or draws the resumed answer twice.
+
 ## chatbot 0.3.6 - 2026-09-24
 
 - Removed unused chatbot database columns, internal store methods and duplicate validation while preserving existing visitor conversations and action history through migration 11.
