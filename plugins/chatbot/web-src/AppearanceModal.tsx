@@ -213,7 +213,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                 {select('typography.fontFamily', s.appearanceFontFamily, appearance.typography.fontFamily, Object.keys(APPEARANCE_FONT_STACKS).map(value => ({ value, label: s[`appearanceFont_${value}`] })))}
                 {select('typography.shadow', s.appearanceShadow, appearance.typography.shadow, Object.keys(APPEARANCE_SHADOWS).map(value => ({ value, label: s[`appearanceShadow_${value}`] })))}
                 {textField('typography.placeholder', s.appearancePlaceholder, appearance.typography.placeholder, APPEARANCE_PLACEHOLDER_MAX_CHARS)}
-                {field('intro', s.appearanceIntroLabel, <textarea id={`${id}-intro`} aria-label={s.appearanceIntroLabel} value={appearance.intro ?? ''} rows={3} maxLength={APPEARANCE_INTRO_MAX_CHARS} disabled={pending} placeholder={s.appearanceIntroPlaceholder} onChange={event => patch('intro', event.target.value || null)} className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary" />, s.appearanceIntroHint)}
+                {field('intro', s.appearanceIntroLabel, <C.Textarea id={`${id}-intro`} aria-label={s.appearanceIntroLabel} value={appearance.intro ?? ''} rows={3} maxLength={APPEARANCE_INTRO_MAX_CHARS} disabled={pending} placeholder={s.appearanceIntroPlaceholder} onChange={event => patch('intro', event.target.value || null)} />, s.appearanceIntroHint)}
               </>)}
               {section(s.appearanceQuickLabel, <MousePointerClick size={18} />, <>
                 <ul className="flex flex-wrap gap-2">

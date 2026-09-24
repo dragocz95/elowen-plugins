@@ -48,7 +48,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
           />
         ) : (
           <span
-            className={`absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-muted-foreground ${preview.state === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+            className={`absolute inset-0 flex items-center justify-center px-4 text-center text-caption text-muted-foreground ${preview.state === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
           >
             {preview.state === 'pending' ? strings.previewPending : strings.previewNone}
           </span>
@@ -57,7 +57,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
       <div className="flex min-w-0 items-center gap-2">
         {/* When the picture was taken, said once, next to the thing it describes. That it is older than
             the register would like is not stated anywhere: the register is already taking a new one. */}
-        {taken ? <span className="min-w-0 truncate text-[11px] text-muted-foreground">{taken}</span> : null}
+        {taken ? <span className="min-w-0 truncate text-caption text-muted-foreground">{taken}</span> : null}
         {preview.state === 'failed' ? <Badge tone="danger">{strings.previewFailed}</Badge> : null}
         <span className="flex-1" />
         {site.canManage ? (
@@ -71,7 +71,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }: {
           </Button>
         ) : null}
       </div>
-      {notice ? <p className="text-[11px] leading-tight text-muted-foreground">{notice}</p> : null}
+      {notice ? <p className="text-caption leading-tight text-muted-foreground">{notice}</p> : null}
     </section>
   );
 }
@@ -260,7 +260,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
             />
           </div>
         </div>
-        {detail.data?.lastError ? <p className="text-[11px] text-destructive">{detail.data.lastError}</p> : null}
+        {detail.data?.lastError ? <p className="text-caption text-destructive">{detail.data.lastError}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -271,7 +271,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       <div className="flex items-center gap-2">
         <Avatar size="sm" name={site.owner.name} user={avatarUser(site.owner)} />
         <span className="flex min-w-0 flex-col">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{strings.columnOwner}</span>
+          <span className="text-tiny uppercase tracking-wide text-muted-foreground">{strings.columnOwner}</span>
           <span className="truncate text-xs text-foreground">{site.owner.name}</span>
         </span>
       </div>
@@ -311,7 +311,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         ) : (
           <span className="text-sm text-foreground">{strings[VISIBILITY_STRING[site.visibility]]}</span>
         )}
-        {!allowPublicSites ? <p className="text-[11px] text-muted-foreground">{strings.publicDisabled}</p> : null}
+        {!allowPublicSites ? <p className="text-caption text-muted-foreground">{strings.publicDisabled}</p> : null}
       </DetailBlock>
 
       {/* Owner only. A guest is deliberately not sent the member list, so this block would tell them
@@ -319,7 +319,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       {canManage ? (
         <DetailBlock icon={Users} title={strings.guests} hint={strings.guestsHint}>
           {members.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">{strings.noGuests}</p>
+            <p className="text-caption text-muted-foreground">{strings.noGuests}</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {members.map((member) => (
@@ -360,7 +360,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
       ) : (
         <DetailBlock icon={History} title={strings.releases}>
           {fileReleases.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">{strings.noReleases}</p>
+            <p className="text-caption text-muted-foreground">{strings.noReleases}</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {fileReleases.map((release) => {
@@ -374,7 +374,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
                         .replace('{size}', formatBytes(release.sizeBytes))}
                       {live ? <Badge tone="success">{strings.releaseLive}</Badge> : null}
                     </span>
-                    <span className="truncate text-[11px] text-muted-foreground">{release.note || release.model}</span>
+                    <span className="truncate text-caption text-muted-foreground">{release.note || release.model}</span>
                   </span>
                   {canManage && !live ? (
                     <IconButton
@@ -398,7 +398,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
 
       {canManage ? (
         <DetailBlock icon={Trash2} title={strings.deleteTitle}>
-          <p className="text-[11px] text-muted-foreground">{strings.deleteHint}</p>
+          <p className="text-caption text-muted-foreground">{strings.deleteHint}</p>
           <div>
             <Button variant="ghost-danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>{strings.delete}</Button>
           </div>
@@ -463,7 +463,7 @@ function Metric({ icon: Icon, label, value, title }: {
     <div className="flex min-w-0 flex-col gap-1 px-2 py-3" title={title}>
       {/* The label keeps to one line: three of these sit side by side, and a label that wraps pushes its
           own value a line below the other two. */}
-      <span className="inline-flex min-w-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <span className="inline-flex min-w-0 items-center gap-1 text-tiny uppercase tracking-wide text-muted-foreground">
         <Icon size={11} aria-hidden className="shrink-0" />
         <span className="truncate">{label}</span>
       </span>

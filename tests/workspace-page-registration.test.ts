@@ -122,8 +122,8 @@ describe('single-surface plugin workspace registration', () => {
     // `ownsPageFrame` names SETTINGS sections that draw their own page frame. There are no settings
     // sections here, so naming anything would name an id that matches nothing.
     expect(registration.ownsPageFrame).toBeUndefined();
-    // API 19 is what publishes `SectionDeck` and `DeckNavigation`, and both gates must ask for it.
-    expect(web.requiresApiVersion).toBe(19);
+    // API 22 publishes the shared Textarea used by this bundle, and both gates must ask for it.
+    expect(web.requiresApiVersion).toBe(22);
     expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
     expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
     // It stays admin-only, and that flag is enforced by the SERVER rather than by the surface it is

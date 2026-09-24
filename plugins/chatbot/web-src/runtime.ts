@@ -178,8 +178,9 @@ interface ChatbotComponents {
     onClick?: () => void;
   }>;
   Input: ComponentType<ComponentProps<'input'>>;
-  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }>;
-  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  Textarea: ComponentType<ComponentProps<'textarea'>>;
+  LoadingLine: ComponentType<{ label?: string; layout?: 'inline' | 'block' | 'page' }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'block'; height?: string }>;
   Modal: ComponentType<{
     title: string;
     onClose: () => void;
@@ -313,7 +314,6 @@ interface ChatbotComponents {
     label: string;
     description?: string;
     hint?: string;
-    icon?: LucideIcon;
     control?: ReactNode;
     status?: ReactNode;
     actions?: ReactNode;
@@ -445,9 +445,9 @@ export function runtime(): ChatbotRuntime {
  *
  *  API 19 is what publishes `SectionDeck` and `DeckNavigation`; the manifest's `web.requiresApiVersion`
  *  and the number below must agree, because the host gates the load on the manifest's copy and the mount
- *  on this one. API 20 adds the host-owned window opener for stored chat sessions. */
+ *  on this one. API 20 adds the host-owned window opener for stored chat sessions; API 22 publishes Textarea. */
 export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 20, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 22, pages });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

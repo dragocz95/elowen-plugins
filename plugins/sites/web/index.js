@@ -553,7 +553,7 @@ function SitePlate({ site, strings }) {
           {
             "data-site-picture-state": preview.state,
             title: preview.capturedAt ? strings.previewCapturedAt.replace("{time}", relativeTime(preview.capturedAt)) : void 0,
-            className: "absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-[10px] font-medium text-destructive backdrop-blur-sm",
+            className: "absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-tiny font-medium text-destructive backdrop-blur-sm",
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 9, "aria-hidden": true }),
               strings.previewFailed
@@ -565,8 +565,8 @@ function SitePlate({ site, strings }) {
           site.url === null ? (
             // A draft has no address yet, and the slug it would get is not one. Saying so is the whole
             // content of the strip; printing the slug beside it only invites someone to try it.
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: strings.noAddress })
-          ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "min-w-0 truncate font-mono text-[11px] text-foreground", title: site.url, children: siteAddress(site) })
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 truncate text-caption text-muted-foreground", children: strings.noAddress })
+          ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "min-w-0 truncate font-mono text-caption text-foreground", title: site.url, children: siteAddress(site) })
         ] })
       ]
     }
@@ -637,14 +637,14 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
             strings[VISIBILITY_STRING[site.visibility]]
           ] })
         ] }),
-        hint ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: `min-w-0 text-[11px] leading-tight text-balance ${state === "failed" ? "text-destructive" : "text-warning"}`, children: hint }) : null,
+        hint ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: `min-w-0 text-caption leading-tight text-balance ${state === "failed" ? "text-destructive" : "text-warning"}`, children: hint }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "mt-auto flex min-w-0 items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Avatar, { size: 22, name: site.owner.name, user: avatarUser(site.owner) }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 flex-1 truncate text-xs text-muted-foreground", title: site.owner.name, children: site.owner.name }),
           site.projectSlug ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
             "span",
             {
-              className: "flex min-w-0 shrink items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] leading-5 text-muted-foreground",
+              className: "flex min-w-0 shrink items-center gap-1 rounded-full border border-border px-2 py-0.5 text-caption leading-5 text-muted-foreground",
               title: `${strings.project}: ${site.projectSlug}`,
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderGit2, { size: 11, "aria-hidden": true, className: "shrink-0" }),
@@ -654,7 +654,7 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
           ) : null
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex min-w-0 items-center gap-2 border-t border-border/70 pt-2.5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", title: `${strings.lastPublish}: ${published}`, children: published }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "min-w-0 truncate text-caption text-muted-foreground", title: `${strings.lastPublish}: ${published}`, children: published }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "flex-1" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
             "button",
@@ -666,7 +666,7 @@ function SiteCard({ site, strings, selected, onOpen, onNavigate }) {
                 event.stopPropagation();
                 onOpen();
               },
-              className: "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70",
+              className: "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-caption font-medium text-primary transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70",
               children: [
                 strings.openDetailShort,
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowUpRight, { size: 12, "aria-hidden": true })
@@ -742,10 +742,10 @@ function RecordRows({ records, strings }) {
     {
       className: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border/60 bg-muted/30 p-2",
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "rounded bg-background px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground", children: record.type }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "rounded bg-background px-1.5 py-0.5 font-mono text-tiny font-semibold text-muted-foreground", children: record.type }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "min-w-0", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-foreground", children: record.name }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-[11px] text-muted-foreground", children: record.value })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-caption text-foreground", children: record.name }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: "block break-all font-mono text-caption text-muted-foreground", children: record.value })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           IconButton,
@@ -1285,12 +1285,12 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
     ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "span",
       {
-        className: `absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-muted-foreground ${preview.state === "pending" ? "motion-safe:animate-pulse" : ""}`,
+        className: `absolute inset-0 flex items-center justify-center px-4 text-center text-caption text-muted-foreground ${preview.state === "pending" ? "motion-safe:animate-pulse" : ""}`,
         children: preview.state === "pending" ? strings.previewPending : strings.previewNone
       }
     ) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
-      taken ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-[11px] text-muted-foreground", children: taken }) : null,
+      taken ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-caption text-muted-foreground", children: taken }) : null,
       preview.state === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "danger", children: strings.previewFailed }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "flex-1" }),
       site.canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
@@ -1304,7 +1304,7 @@ function PreviewBlock({ site, notice, busy, onRefresh, strings }) {
         }
       ) : null
     ] }),
-    notice ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] leading-tight text-muted-foreground", children: notice }) : null
+    notice ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption leading-tight text-muted-foreground", children: notice }) : null
   ] });
 }
 function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
@@ -1495,7 +1495,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           )
         ] })
       ] }),
-      detail.data?.lastError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-destructive", children: detail.data.lastError }) : null
+      detail.data?.lastError ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-destructive", children: detail.data.lastError }) : null
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-col gap-1", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "text-base font-semibold leading-snug text-foreground", children: site.title }),
@@ -1504,7 +1504,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex items-center gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Avatar, { size: "sm", name: site.owner.name, user: avatarUser(site.owner) }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-[10px] uppercase tracking-wide text-muted-foreground", children: strings.columnOwner }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-tiny uppercase tracking-wide text-muted-foreground", children: strings.columnOwner }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-xs text-foreground", children: site.owner.name })
       ] })
     ] }),
@@ -1542,10 +1542,10 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
           })
         }
       ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-sm text-foreground", children: strings[VISIBILITY_STRING[site.visibility]] }),
-      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.publicDisabled }) : null
+      !allowPublicSites ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.publicDisabled }) : null
     ] }),
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Users, title: strings.guests, hint: strings.guestsHint, children: [
-      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
+      members.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.noGuests }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: members.map((member) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex items-center justify-between gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Avatar, { size: "sm", name: member.name, user: avatarUser(member) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-sm text-foreground", children: member.name })
@@ -1566,7 +1566,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm text-foreground", children: strings.projectPublicationLink.replace("{project}", site.projectSlug ?? "\u2014") }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate(`/projects?project=${site.projectId}`), children: strings.openProject }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
       const live = release.id === site.currentReleaseId;
       return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 flex-col", children: [
@@ -1576,7 +1576,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
             strings.releaseSummary.replace("{files}", String(release.fileCount)).replace("{size}", formatBytes(release.sizeBytes)),
             live ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Badge, { tone: "success", children: strings.releaseLive }) : null
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-[11px] text-muted-foreground", children: release.note || release.model })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate text-caption text-muted-foreground", children: release.note || release.model })
         ] }),
         canManage && !live ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           IconButton,
@@ -1594,7 +1594,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
       ] }, release.id);
     }) }) }),
     canManage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Trash2, title: strings.deleteTitle, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-[11px] text-muted-foreground", children: strings.deleteHint }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.deleteHint }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost-danger", icon: Trash2, onClick: () => setConfirmDelete(true), children: strings.delete }) })
     ] }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
@@ -1652,7 +1652,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
 }
 function Metric({ icon: Icon2, label, value, title }) {
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-1 px-2 py-3", title, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex min-w-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "inline-flex min-w-0 items-center gap-1 text-tiny uppercase tracking-wide text-muted-foreground", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: 11, "aria-hidden": true, className: "shrink-0" }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "truncate", children: label })
     ] }),

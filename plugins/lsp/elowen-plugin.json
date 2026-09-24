@@ -1,8 +1,8 @@
 {
   "name": "lsp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
+  "requiresCore": "0.28.53",
   "description": "Language server tools help with code: they check types after edits (LspDiagnostics), find definitions and references, show signatures, and list symbols. Results come from the language server for the file, not text search. Elowen supports TypeScript, Pyright, gopls, rust-analyzer, clangd, and more. It can install npm-based servers in its own folder. Turning it off stops all servers and disables the tools.",
   "entry": "dist/index.js",
   "consumesControls": [

@@ -13,6 +13,14 @@ import { Circle, Database, File, FileCode, FileCog, FileJson, FileText, Image,
 import type { ModelUsage } from './hostClient';
 import { vi } from 'vitest';
 
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
+  const n = bytes / 1024 ** i;
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
 export const openBrainSessionWindow = vi.fn<(sessionId: string) => void>();
 
 // The plugin is untyped .mjs, so the import is given the one signature this file uses.
@@ -100,20 +108,14 @@ export function formatDuration(ms: number): string {
   return `${hours}h ${mins % 60}m`;
 }
 
-/** Compact token count: 950 → "950", 12345 → "12.3k", 1_200_000 → "1.2M". */
-function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
 export function formatCost(usd: number, decimals = 4): string {
   return `$${usd.toFixed(decimals)}`;
 }
 
-function formatSpeed(tps: number | null | undefined): string {
-  return tps != null && tps > 0 ? `${Math.round(tps)} tok/s` : '—';
+function formatSpeed(tps: number | null | undefined, locale: string): string {
+  if (tps == null || !Number.isFinite(tps) || tps <= 0) return '—';
+  const number = new Intl.NumberFormat(locale, { minimumFractionDigits: tps < 1 ? 1 : 0, maximumFractionDigits: tps < 1 ? 1 : 0 });
+  return tps < 0.1 ? `<${number.format(0.1)} tok/s` : `${number.format(tps)} tok/s`;
 }
 
 // ── file paths (web/lib/filePath.ts + fileIcon.ts) ───────────────────────────────────────────────────
@@ -267,7 +269,7 @@ function cacheHitPct(u: { cacheRead: number; input: number }): number | null {
 
 /** Sorted, pre-formatted display rows + totals for `/usage/by-model`. Bar widths are max-normalized by
  *  tokens (the metric every executor reports), so cost-less models still get a meaningful bar. */
-export function buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary {
+export function buildUsageSummary(data: ModelUsage[] | undefined, locale: string): UsageSummary {
   const items = data ?? [];
   const maxTokens = Math.max(1, ...items.map((m) => m.usage.total));
   const rows: UsageRow[] = items
@@ -276,9 +278,9 @@ export function buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary 
       totalTokens: m.usage.total,
       costUsd: m.usage.costUsd,
       pct: (m.usage.total / maxTokens) * 100,
-      tokensLabel: formatTokens(m.usage.total),
-      costLabel: m.usage.costUsd == null ? DASH : formatCost(m.usage.costUsd),
-      speedLabel: formatSpeed(m.usage.outputTps),
+      tokensLabel: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(m.usage.total),
+      costLabel: m.usage.costUsd == null ? DASH : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(m.usage.costUsd),
+      speedLabel: formatSpeed(m.usage.outputTps, locale),
       cacheHitPct: cacheHitPct(m.usage),
     }))
     .sort((a, b) => b.totalTokens - a.totalTokens);
@@ -299,13 +301,13 @@ export function buildUsageSummary(data: ModelUsage[] | undefined): UsageSummary 
   return {
     rows,
     totalCost,
-    totalCostLabel: totalCost == null ? DASH : formatCost(totalCost),
+    totalCostLabel: totalCost == null ? DASH : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(totalCost),
     totalTokens,
-    totalTokensLabel: formatTokens(totalTokens),
+    totalTokensLabel: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(totalTokens),
     totalCacheTokens,
-    totalCacheLabel: formatTokens(totalCacheTokens),
+    totalCacheLabel: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(totalCacheTokens),
     modelsUsed: rows.length,
-    avgSpeedLabel: measuredSeconds > 0 ? formatSpeed(measuredOutput / measuredSeconds) : DASH,
+    avgSpeedLabel: measuredSeconds > 0 ? formatSpeed(measuredOutput / measuredSeconds, locale) : DASH,
     hasAnyUsage: totalTokens > 0 || costs.some((cost) => cost > 0),
   };
 }

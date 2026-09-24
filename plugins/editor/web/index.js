@@ -2063,7 +2063,7 @@ function formatBytes(bytes) {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
 }
 function StatusBar({ path, cursor, language, tabSize, size, dirty, labels }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "flex h-6 shrink-0 items-center gap-3 border-t border-border bg-background px-3 text-[11px] text-muted-foreground", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "flex h-6 shrink-0 items-center gap-3 border-t border-border bg-background px-3 text-caption text-muted-foreground", children: [
     /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "flex min-w-0 items-center gap-1.5", children: [
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(HardDrive, { size: 11, className: "shrink-0 text-primary", "aria-hidden": true }),
       dirty ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Circle, { size: 7, className: "shrink-0 fill-warning text-warning", "aria-label": labels.unsaved }) : null,
@@ -5719,7 +5719,7 @@ function ProjectEditor({ projectId, onClose, initialCommit, initialWorking, init
                 }
               )
             ] }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(LoadingState, {}) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
-              !commit && changedQuery.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { role: "alert", className: "mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning", children: [
+              !commit && changedQuery.isError ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { role: "alert", className: "mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-caption text-warning", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TriangleAlert, { size: 12, className: "shrink-0", "aria-hidden": true }),
                 /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "min-w-0 flex-1 truncate", children: gitErrorMessage(changedQuery.error) }),
                 /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", onClick: () => changedQuery.refetch(), className: "shrink-0 underline decoration-dotted underline-offset-2 hover:no-underline", children: s.treeRetry })
@@ -5989,10 +5989,10 @@ function ProjectGitPanel({ project }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityList, { children: git.data.commits.map((commit) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(EntityRow, { interactive: false, className: "py-0", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("button", { type: "button", onClick: () => navigate2(editorUrl(project.id, { commit: commit.hash })), title: s.viewCommit, className: "flex w-full min-w-0 flex-col gap-1 px-1 py-3 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70", children: [
         /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "flex min-w-0 items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "font-mono text-[11px] text-primary", children: commit.hash }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "font-mono text-caption text-primary", children: commit.hash }),
           /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: "min-w-0 flex-1 truncate text-xs text-foreground", children: commit.subject })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "text-[10px] text-muted-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: "text-tiny text-muted-foreground", children: [
           commit.author,
           " \xB7 ",
           commit.relative
@@ -6070,12 +6070,12 @@ function ProjectIconPicker({ project, onClose }) {
       } }) : !environmentReady ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.gitEnvironmentStopped, icon: Image }) : files.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(LoadingState2, {}) : files.isError ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ErrorState2, { message: utils3.apiErrorMessage(files.error), onRetry: () => {
         void files.refetch();
       } }) : images.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(EmptyState3, { title: s.noImages, icon: Image }) : groups.map(([dir, paths]) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: "flex flex-col gap-2", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "font-mono text-[11px] uppercase tracking-wide text-muted-foreground", children: dir }),
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "font-mono text-caption uppercase tracking-wide text-muted-foreground", children: dir }),
         /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: "grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2", children: paths.map((path) => {
           const selectedPath = selected === path;
           return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("button", { type: "button", onClick: () => setSelected(path), onDoubleClick: () => apply2(path), title: path, "aria-pressed": selectedPath, className: `flex flex-col items-center gap-1.5 rounded-lg border p-2 transition-colors ${selectedPath ? "border-primary bg-primary/[0.08]" : "border-border bg-card hover:border-border-strong hover:bg-accent"}`, children: [
             /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-border bg-background", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ProjectIcon2, { project: { id: project.id, icon: path }, size: 40 }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "w-full truncate text-center text-[11px] text-muted-foreground", children: path.slice(path.lastIndexOf("/") + 1) })
+            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: "w-full truncate text-center text-caption text-muted-foreground", children: path.slice(path.lastIndexOf("/") + 1) })
           ] }, path);
         }) })
       ] }, dir)),

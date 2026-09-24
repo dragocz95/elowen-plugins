@@ -111,7 +111,7 @@ export function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs,
             {rows.map((run) => (
               <C.DataTableRow key={run.id} height="tall" onOpen={() => setSelected(run)} openLabel={run.jobName}>
                 <C.DataTableCell lines="auto" priority="wide" className="font-mono text-xs">{format.format(new Date(run.startedAt))}</C.DataTableCell>
-                <C.DataTableCell lines="auto"><span className="font-medium">{run.jobName}</span><span className="text-[11px] text-muted-foreground">{run.schedule || s.badgeOneShot}</span></C.DataTableCell>
+                <C.DataTableCell lines="auto"><span className="font-medium">{run.jobName}</span><span className="text-caption text-muted-foreground">{run.schedule || s.badgeOneShot}</span></C.DataTableCell>
                 <C.DataTableCell lines="auto" priority="wide">{run.owner?.name || s.ownerSystem || 'System'}</C.DataTableCell>
                 <C.DataTableCell lines={1} priority="wide">{run.durationMs === null ? '—' : `${Math.round(run.durationMs / 100) / 10} s`}</C.DataTableCell>
                 <C.DataTableCell lines="auto"><C.Badge tone={tone(run)}>{statusLabel(run, s)}</C.Badge></C.DataTableCell>

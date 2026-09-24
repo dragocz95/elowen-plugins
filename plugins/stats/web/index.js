@@ -28,18 +28,20 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/elowen-plugin-ui-kit/shims/react.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs
 var require_react = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/react.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/react.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.react;
   }
 });
 
-// node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs
+// ../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs
 var require_jsx_runtime = __commonJS({
-  "node_modules/elowen-plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+  "../../elowen-worktrees/usage-summary-locale/packages/plugin-ui-kit/shims/jsx-runtime.cjs"(exports, module) {
+    "use strict";
     var runtime2 = typeof window !== "undefined" ? window.ElowenUiRuntime : void 0;
     if (!runtime2) throw new Error("elowen-plugin-ui-kit: window.ElowenUiRuntime is missing \u2014 plugin bundles only run inside the Elowen web app");
     module.exports = runtime2.jsxRuntime;
@@ -53,7 +55,7 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 11, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 21, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
@@ -236,6 +238,12 @@ var STATS_TREND_COLORS = {
   cost: STATS_SERIES_COLORS[1]
 };
 
+// plugins/stats/web-src/format.ts
+var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
+var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
+var percentage = (value, locale) => value == null ? "\u2014" : `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)}%`;
+var shortDateTime = (ms, locale) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(ms));
+
 // plugins/stats/web-src/components/PieChart.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var COLORS = STATS_SERIES_COLORS;
@@ -244,18 +252,18 @@ function calculatePieSegments(data) {
   const total = valid.reduce((sum, item) => sum + item.value, 0);
   let consumed = 0;
   return valid.sort((a, b) => b.value - a.value).map((item) => {
-    const percentage = item.value / total * 100;
+    const percentage2 = item.value / total * 100;
     const segment = {
       ...item,
-      percentage,
-      dashArray: `${percentage} ${100 - percentage}`,
+      percentage: percentage2,
+      dashArray: `${percentage2} ${100 - percentage2}`,
       dashOffset: -consumed
     };
-    consumed += percentage;
+    consumed += percentage2;
     return segment;
   });
 }
-function PieChart({ title, data, emptyText, renderIcon }) {
+function PieChart({ title, data, emptyText, renderIcon, locale }) {
   const segments = calculatePieSegments(data);
   const [activeId, setActiveId] = (0, import_react3.useState)(null);
   if (segments.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "py-10 text-center text-sm text-muted-foreground", children: emptyText });
@@ -287,10 +295,7 @@ function PieChart({ title, data, emptyText, renderIcon }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 px-7 text-center", children: active ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         renderIcon?.(active),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "font-mono text-sm tabular-nums text-foreground", children: [
-          active.percentage.toFixed(1),
-          "%"
-        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "font-mono text-sm tabular-nums text-foreground", children: percentage(active.percentage, locale) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-full truncate text-[0.65rem] text-muted-foreground", children: active.valueLabel })
       ] }) : null })
     ] }),
@@ -307,8 +312,8 @@ function PieChart({ title, data, emptyText, renderIcon }) {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "truncate text-foreground", title: segment.label, children: segment.label }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "whitespace-nowrap font-mono tabular-nums text-muted-foreground", children: [
-            segment.percentage.toFixed(1),
-            "% \xB7 ",
+            percentage(segment.percentage, locale),
+            " \xB7 ",
             segment.valueLabel
           ] })
         ]
@@ -372,13 +377,6 @@ function ResetUsageModal({ onClose }) {
 
 // plugins/stats/web-src/OriginDrawer.tsx
 var import_react6 = __toESM(require_react(), 1);
-
-// plugins/stats/web-src/format.ts
-var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
-var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
-var shortDateTime = (ms, locale) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(ms));
-
-// plugins/stats/web-src/OriginDrawer.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var {
   Button: Button2,
@@ -627,7 +625,6 @@ function padDailyUsage(rows, days, window2, now) {
   }
   return padded;
 }
-var percent = (value) => value == null ? "\u2014" : `${value.toFixed(1)}%`;
 var cacheTokens = (usage) => usage.cacheRead + usage.cacheWrite;
 function ModelDetail({ model, locale, strings }) {
   const usage = model.usage;
@@ -639,7 +636,7 @@ function ModelDetail({ model, locale, strings }) {
     [strings.detailOutput, integer(usage.output, locale)],
     [strings.detailCacheRead, integer(usage.cacheRead, locale)],
     [strings.detailCacheWrite, integer(usage.cacheWrite, locale)],
-    [strings.detailCacheRate, percent(cacheRate)],
+    [strings.detailCacheRate, percentage(cacheRate, locale)],
     [strings.detailCostSource, costSource]
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "flex min-w-0 flex-col gap-5", children: [
@@ -668,7 +665,7 @@ function StatsView() {
   const scope = me.data?.user?.is_admin === true ? requestedScope : "personal";
   const usage = useModelUsage(window2, scope);
   const daily = useUsageByDay(trendDays, scope);
-  const summary = buildUsageSummary(usage.data);
+  const summary = buildUsageSummary(usage.data, locale);
   const [query, setQuery] = (0, import_react7.useState)("");
   const [filter, setFilter] = (0, import_react7.useState)("all");
   const [page, setPage] = (0, import_react7.useState)(0);
@@ -705,18 +702,18 @@ function StatsView() {
     return `${from} \u2013 ${to}`;
   }, [window2, s.originRangeOpen, s.originRangeNow]);
   const trend = (0, import_react7.useMemo)(() => padDailyUsage(daily.data ?? [], trendDays, window2, now), [daily.data, now, trendDays, window2]);
-  const rowByExec = (0, import_react7.useMemo)(() => new Map(summary.rows.map((row) => [row.exec, row])), [summary.rows]);
+  const rowByExec = new Map(summary.rows.map((row) => [row.exec, row]));
   const pieTokens = (usage.data ?? []).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.total,
-    valueLabel: rowByExec.get(model.exec)?.tokensLabel ?? integer(model.usage.total, locale)
+    valueLabel: rowByExec.get(model.exec).tokensLabel
   }));
   const pieCosts = (usage.data ?? []).filter((model) => model.usage.costUsd != null).map((model) => ({
     id: model.exec,
     label: model.exec,
     value: model.usage.costUsd ?? 0,
-    valueLabel: rowByExec.get(model.exec)?.costLabel ?? "\u2014"
+    valueLabel: rowByExec.get(model.exec).costLabel
   }));
   const resetPage = () => setPage(0);
   const changeRange = (next) => {
@@ -845,18 +842,18 @@ function StatsView() {
     }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceDocument, { children: hasError ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { tone: "danger", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ErrorState2, { message: t.common.daemonUnreachable, onRetry: retry }) }) : isLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceState, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LoadingState2, { variant: "cards" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "workspace-master-detail", "data-detail": originOpen || selected != null, children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "flex min-w-0 flex-col gap-4", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(ControlSurfaceRegister, { className: "flex flex-col gap-5", children: !summary.hasAnyUsage ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(EmptyState2, { title: s.emptyTitle, description: s.emptyDescription, icon: ChartColumn }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid gap-4 xl:grid-cols-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.tokensByModel }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.tokensByModelHint }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.tokensByModel, data: pieTokens, emptyText: s.noChartData, renderIcon: renderModelIcon, locale })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.costByModel }),
             /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.costByModelHint }),
-            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(PieChart, { title: s.costByModel, data: pieCosts, emptyText: s.noChartData, renderIcon: renderModelIcon, locale })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-border bg-card p-4 text-card-foreground", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: "rounded-lg border border-hairline bg-raised p-4 text-raised-foreground", children: [
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "text-sm font-semibold text-foreground", children: s.trendTitle }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "mb-4 text-xs text-muted-foreground", children: s.trendHint }),
           /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(UsageTrend, { data: trend, locale, tokenLabel: s.trendTokens, costLabel: s.trendCost, emptyText: trendUnavailable ? s.trendUnavailable : s.noChartData })
@@ -893,7 +890,7 @@ function StatsView() {
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "font-mono text-xs text-foreground", children: row.exec }),
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.tokensLabel }),
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, className: "text-right font-mono text-xs tabular-nums text-foreground", children: row.costLabel }),
-                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percent(row.cacheHitPct) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: percentage(row.cacheHitPct, locale) }),
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableCell, { lines: 1, priority: "wide", className: "text-right font-mono text-xs tabular-nums text-muted-foreground", children: row.speedLabel }),
                     /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DataTableChevronCell, {})
                   ]

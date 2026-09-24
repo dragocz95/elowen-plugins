@@ -211,7 +211,7 @@ function IdentityCard({ person, users, onDetail }: {
           <p className="text-sm text-foreground">{profile?.displayName || person.name || s.personFallback}</p>
           <p className="break-all text-xs text-muted-foreground">{profile?.userPrincipalName || person.upn || '—'}</p>
           {profile?.mail && profile.mail !== profile.userPrincipalName ? <p className="break-all text-xs text-muted-foreground">{profile.mail}</p> : null}
-          <p className="break-all font-mono text-[11px] text-subtle-foreground">{profile?.id || person.aadObjectId || '—'}</p>
+          <p className="break-all font-mono text-caption text-subtle-foreground">{profile?.id || person.aadObjectId || '—'}</p>
           {profile ? <p className="text-xs text-muted-foreground">{profile.userType} · {profile.accountEnabled ? s.identityAccountEnabled : s.identityAccountDisabled}</p> : null}
         </div>
 
@@ -356,7 +356,7 @@ function PeopleAccess({ draft, response, search, filter, onIdentityDetail }: {
                   <div className="min-w-0">
                     <h2 className="truncate text-base font-semibold text-foreground">{selected.name || s.personFallback}</h2>
                     <p className="truncate text-sm text-muted-foreground">{selected.upn || selected.aadObjectId}</p>
-                    <p className="mt-1 break-all font-mono text-[11px] text-subtle-foreground">{selected.aadObjectId || selected.teamsId}</p>
+                    <p className="mt-1 break-all font-mono text-caption text-subtle-foreground">{selected.aadObjectId || selected.teamsId}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <C.Badge tone={policy ? 'accent' : undefined}>{policy ? s.badgeMapped : inherited ? s.badgeInherited : s.badgeUnmapped}</C.Badge>
                       {selected.hasPersonalChat ? <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><MessageCircle size={12} aria-hidden />{s.chatOpen}</span> : null}
@@ -387,11 +387,10 @@ function PeopleAccess({ draft, response, search, filter, onIdentityDetail }: {
                     </label>
 
                     <C.Field label={s.promptLabel} hint={s.promptHint}>
-                      <textarea
+                      <C.Textarea
                         value={policy.prompt ?? ''}
-                        onChange={(event) => patchPolicy({ prompt: event.target.value })}
+                        onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => patchPolicy({ prompt: event.target.value })}
                         rows={5}
-                        className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
                         placeholder={s.promptPlaceholder}
                       />
                     </C.Field>
@@ -479,7 +478,7 @@ function LoadedWorkspace({ detail }: { detail: PluginDetail }) {
     mascot: peopleError !== null || !configured ? 'error' : draft.status === 'saving' ? 'saving' : 'idle',
     status: (
       <span className="flex items-center gap-3">
-        <span className="workspace-status">{configured && people?.active ? s.workspaceReady : s.workspaceSetup}</span>
+        {configured && people?.active ? <span className="workspace-status">{s.workspaceReady}</span> : <span className="text-sm text-muted-foreground">{s.workspaceSetup}</span>}
         <C.AutoSaveStatus status={draft.status} onRetry={draft.retry} />
       </span>
     ),

@@ -1885,16 +1885,6 @@ export function register(ctx) {
     const owner = ownerOf(job);
     return owner !== null && owners.has(owner) ? { ...projected, owner: owners.get(owner) } : projected;
   };
-  const intervalLabel = (schedule) => {
-    const parsed = parseSchedule(schedule);
-    if (parsed?.kind !== 'interval') return schedule;
-    if (parsed.ms % 3_600_000 === 0) {
-      const hours = parsed.ms / 3_600_000;
-      return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
-    }
-    const minutes = parsed.ms / 60_000;
-    return minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`;
-  };
   const runActor = (req) => ({ userId: req.auth.userId, admin: req.auth.admin === true });
 
   // A bounded calendar projection: fixed schedules produce at most one card per job/day and intervals
@@ -1995,7 +1985,6 @@ export function register(ctx) {
         intervals.push({
           jobId: job.id,
           schedule: job.schedule,
-          intervalLabel: intervalLabel(job.schedule),
           enabled: job.enabled !== false,
           nextExpectedAt: next?.expectedAt ?? null,
           // The DAY of the next fire travels with its time. Active hours can defer an interval job past

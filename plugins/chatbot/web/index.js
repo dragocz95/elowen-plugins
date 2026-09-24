@@ -53,7 +53,7 @@ function runtime() {
   return value;
 }
 function registerChatbotUi(pages) {
-  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 20, pages });
+  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 22, pages });
 }
 async function apiJson(path, init) {
   return await runtime().api(path, init);
@@ -222,13 +222,6 @@ var ClipboardCopy = createLucideIcon("ClipboardCopy", [
 var Clock = createLucideIcon("Clock", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["polyline", { points: "12 6 12 12 16 14", key: "68esgv" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/code-xml.js
-var CodeXml = createLucideIcon("CodeXml", [
-  ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
-  ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
-  ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
 ]);
 
 // node_modules/lucide-react/dist/esm/icons/coins.js
@@ -498,17 +491,6 @@ var Volume2 = createLucideIcon("Volume2", [
   ],
   ["path", { d: "M16 9a5 5 0 0 1 0 6", key: "1q6k2b" }],
   ["path", { d: "M19.364 18.364a9 9 0 0 0 0-12.728", key: "ijwkga" }]
-]);
-
-// node_modules/lucide-react/dist/esm/icons/wrench.js
-var Wrench = createLucideIcon("Wrench", [
-  [
-    "path",
-    {
-      d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
-      key: "cbrjhi"
-    }
-  ]
 ]);
 
 // plugins/chatbot/web-src/BotsSection.tsx
@@ -21465,7 +21447,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
               select("typography.fontFamily", s.appearanceFontFamily, appearance.typography.fontFamily, Object.keys(APPEARANCE_FONT_STACKS).map((value) => ({ value, label: s[`appearanceFont_${value}`] }))),
               select("typography.shadow", s.appearanceShadow, appearance.typography.shadow, Object.keys(APPEARANCE_SHADOWS).map((value) => ({ value, label: s[`appearanceShadow_${value}`] }))),
               textField("typography.placeholder", s.appearancePlaceholder, appearance.typography.placeholder, APPEARANCE_PLACEHOLDER_MAX_CHARS),
-              field("intro", s.appearanceIntroLabel, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("textarea", { id: `${id2}-intro`, "aria-label": s.appearanceIntroLabel, value: appearance.intro ?? "", rows: 3, maxLength: APPEARANCE_INTRO_MAX_CHARS, disabled: pending, placeholder: s.appearanceIntroPlaceholder, onChange: (event) => patch("intro", event.target.value || null), className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary" }), s.appearanceIntroHint)
+              field("intro", s.appearanceIntroLabel, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Textarea, { id: `${id2}-intro`, "aria-label": s.appearanceIntroLabel, value: appearance.intro ?? "", rows: 3, maxLength: APPEARANCE_INTRO_MAX_CHARS, disabled: pending, placeholder: s.appearanceIntroPlaceholder, onChange: (event) => patch("intro", event.target.value || null) }), s.appearanceIntroHint)
             ] })),
             section(s.appearanceQuickLabel, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(MousePointerClick, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: "flex flex-wrap gap-2", children: appearance.quickButtons.map((button) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("li", { className: "flex max-w-full items-center gap-2 rounded-full border border-border bg-card py-1 pl-3 pr-1 text-sm", children: [
@@ -21689,13 +21671,12 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
               {
                 label: s.embedTitle,
                 description: s.embedHint,
-                icon: CodeXml,
-                status: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { className: "block max-w-44 truncate text-[11px]", children: bot.embedSnippet }),
+                status: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { className: "block max-w-44 truncate text-caption", children: bot.embedSnippet }),
                 actions: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.IconButton, { icon: ClipboardCopy, label: s.embedCopy, onClick: () => void copySnippet() })
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.budgetTitle, icon: Gauge, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "settings-group__panel", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BudgetUsage, { bot }) }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.budgetTitle, icon: Gauge, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BudgetUsage, { bot }) }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsGroup, { title: s.limitsTitle, hint: s.limitsHint, icon: Gauge, density: "compact", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
             C.SettingsRow,
             {
@@ -22152,7 +22133,7 @@ function ConversationsSection() {
   }
   const emptyTitle = filtering ? s.conversationsVisitorGone : s.conversationsEmptyTitle;
   const emptyDescription = filtering ? s.conversationsVisitorGoneDescription : s.conversationsEmptyDescription;
-  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: emptyTitle, description: emptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+  const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.conversationsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.LoadingState, { variant: "list" }) : answer.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.EmptyState, { title: emptyTitle, description: emptyDescription, icon: MessagesSquare }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COMPACT_COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableRow, { header: true, children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.columnTitle }),
@@ -22500,7 +22481,7 @@ function StatsSection() {
       {
         ...heading,
         actions: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(BotPicker, { bots, value: bot.chatbotUserId, onChange: setSelected, label: s.pickerLabel }),
-        children: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+        children: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.PageFilters, { fields: filters }),
           loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.ErrorState, { message: `${s.statsLoadError} \u2014 ${loadError}`, onRetry: load }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingState, { variant: "block" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
             /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.TimeSeriesChart, { data: chartData, series, height: 240, ariaLabel: s.chartTitle, emptyText: s.chartEmpty }),
@@ -22513,7 +22494,6 @@ function StatsSection() {
       C.SettingsRow,
       {
         label: s.spendTitle,
-        icon: Coins,
         description: s.spendHint,
         status: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-destructive", children: s.spendLoadError }) : spend === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingLine, { layout: "inline" }) : spend.turns === 0 && spend.cost === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-muted-foreground", children: s.spendEmptyTitle }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-mono text-xs tabular-nums", children: s.spendLine.replace("{turns}", integer(spend.turns, locale)).replace("{tokens}", spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale)).replace("{cost}", spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale)) })
       }
@@ -22536,7 +22516,6 @@ function SharedSettings({ plugin }) {
       {
         label: s.toolsRequiredLabel,
         description: s.toolsRequiredHint,
-        icon: Wrench,
         status: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: "font-mono text-xs", children: requiredTools.length === 0 ? "\u2014" : requiredTools.join(", ") })
       }
     ) })

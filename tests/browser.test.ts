@@ -289,7 +289,7 @@ describe('managed page favicon', () => {
 });
 
 describe('browser plugin contract', () => {
-  it('publishes manifest 0.4.6, matching locales and committed backend artifacts', () => {
+  it('publishes manifest 0.4.8, matching locales and committed backend artifacts', () => {
     const root = join(import.meta.dirname, '..', 'plugins', 'browser');
     const manifest = JSON.parse(readFileSync(join(root, 'elowen-plugin.json'), 'utf8')) as {
       version: string; userGrantable: boolean; entry: string;
@@ -297,7 +297,7 @@ describe('browser plugin contract', () => {
       provides: { tools: string[]; apiRoutes: string[]; wsRoutes: string[]; controls?: string[] };
       configSchema: { key: string }[];
     };
-    expect(manifest.version).toBe('0.4.6');
+    expect(manifest.version).toBe('0.4.8');
     // The capture seam is DECLARED, not merely registered: a control a sibling plugin resolves has to be
     // visible in the manifest, or an operator reading it cannot tell which plugins reach into which.
     expect(manifest.provides.controls).toEqual(['browserCapture']);

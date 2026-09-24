@@ -234,7 +234,7 @@ function PairingSettings({ surface }) {
       setUnpairing(false);
     }
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.PluginSection, { surface, className: "plugin-card", icon: QrCode, title: s.pairTitle, description: s.pairHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "settings-group__panel space-y-3", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.PluginSection, { surface, icon: QrCode, title: s.pairTitle, description: s.pairHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "space-y-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "flex flex-wrap items-center gap-2", children: [
       connected === true ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "danger", icon: Unlink, disabled: unpairing, onClick: () => setConfirmUnpair(true), children: s.unpairButton }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: QrCode, disabled: statusLoading, onClick: () => setOpen(true), children: s.pairButton }),
       statusError ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
@@ -328,7 +328,7 @@ function PairModal({ onClose }) {
     ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(C.ModalFooter, { children: [
       !connected ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "ghost", icon: RefreshCw, disabled: refreshing, onClick: () => void refresh(), children: s.pairRefresh }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: onClose, children: connected ? "OK" : s.close })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", onClick: onClose, children: s.close })
     ] })
   ] });
 }

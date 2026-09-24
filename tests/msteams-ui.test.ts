@@ -154,7 +154,8 @@ describe('Teams person access matching', () => {
     expect(source).toContain('grid-cols-[auto_minmax(0,1fr)]');
     expect(source).toContain('sm:grid-cols-[auto_minmax(0,1fr)_auto]');
     expect(source).toContain('col-span-2 sm:col-span-1');
-    expect(source).toContain('mt-1 break-all font-mono');
+    expect(source).toMatch(/className="break-all font-mono text-caption text-subtle-foreground"[^\n]*profile\?\.id \|\| person\.aadObjectId/);
+    expect(source).toMatch(/className="mt-1 break-all font-mono text-caption text-subtle-foreground"[^\n]*selected\.aadObjectId \|\| selected\.teamsId/);
     expect(source).toContain("toolbar={tab === 'people' ? {");
     expect(source).toContain('filters: toolbarFilters');
     expect(source).not.toContain('<C.ControlSurfaceToolbar>');

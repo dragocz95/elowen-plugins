@@ -36,7 +36,7 @@ export function ensurePluginUiRuntime(): void {
     reactDom: ReactDom,
     jsxRuntime: JsxRuntime,
     components: {
-      Badge: C.Badge, Button: C.Button, Input: C.Input, Field: C.Field, Toggle: C.Toggle, Segmented: C.Segmented,
+      Badge: C.Badge, Button: C.Button, Input: C.Input, Textarea: C.Textarea, Field: C.Field, Toggle: C.Toggle, Segmented: C.Segmented,
       // The scalar slider: a plugin's panel settings drive a live preview with it.
       Slider: C.Slider,
       // The picker lives beside the other primitive ports now, so the register stub and a plugin's own
@@ -133,7 +133,7 @@ export function ensurePluginUiRuntime(): void {
       DEFAULT_RANGE: U.DEFAULT_RANGE, serializeRange: U.serializeRange, parseRange: U.parseRange,
       isStoredRange: U.isStoredRange, rangeBounds: U.rangeBounds,
       // Formatting + presentation vocabulary shared with the core surfaces.
-      formatCost: U.formatCost, formatDuration: U.formatDuration,
+      formatCost: U.formatCost, formatDuration: U.formatDuration, formatBytes: U.formatBytes,
       // The host's card-preview rule and its cap, published so the transcript card, the host's own
       // fallback card and the CLI panel cannot drift on which four rows a card shows.
       TODO_PREVIEW_ITEMS: U.TODO_PREVIEW_ITEMS, todoPreviewItems: U.todoPreviewItems,

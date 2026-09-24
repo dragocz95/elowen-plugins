@@ -128,9 +128,6 @@
     font-size: var(--text-xs, 0.75rem);
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
-  .text-\[9px\] {
-    font-size: 9px;
-  }
   .text-tiny {
     font-size: var(--text-tiny, 0.5625rem);
   }

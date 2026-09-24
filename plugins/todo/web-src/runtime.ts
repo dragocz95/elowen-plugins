@@ -1,27 +1,6 @@
-import type { AssertPublished } from 'elowen-plugin-ui-kit';
+import type { AssertPublished, PluginChatPickerProps, PluginChatCardProps, PluginChatRailSectionProps } from 'elowen-plugin-ui-kit';
+export type { PluginChatPickerProps, PluginChatCardProps, PluginChatRailSectionProps } from 'elowen-plugin-ui-kit';
 import type { ComponentType, ReactNode } from 'react';
-interface BrainCard {
-  id: string;
-  title?: string;
-  items?: readonly { text: string; status?: 'pending' | 'in_progress' | 'completed'; startedAt?: number; id?: string; label?: string; owner?: string; blockedBy?: string[] }[];
-  body?: string;
-  pinned?: boolean;
-}
-export interface PluginChatPickerProps {
-  plugin: string;
-  command: string;
-  sessionId: string | null;
-  argument?: string;
-  send(text: string): void;
-  close(): void;
-}
-export interface PluginChatCardProps {
-  card: BrainCard;
-  sessionId: string | null;
-  live: boolean;
-  open(command?: string): void;
-}
-
 export interface SessionTask {
   id: string;
   subject: string;
@@ -30,7 +9,7 @@ export interface SessionTask {
   status: 'pending' | 'in_progress' | 'completed';
   startedAt?: number;
   owner?: string;
-  blockedBy: string[];
+  blockedBy: readonly string[];
   blocks: string[];
 }
 interface Query<T> { data?: T; isLoading: boolean; isError: boolean; refetch(): void }
@@ -70,7 +49,6 @@ export interface TodoRuntime {
   };
 }
 interface HostWindow { ElowenUiRuntime?: { components: Pick<Components, PublishedNames>; hooks: Hooks; utils: TodoRuntime['utils'] }; __elowenRegisterPluginUi?: (plugin: string, registration: TodoRegistration) => void }
-export interface PluginChatRailSectionProps { variant: 'expanded' | 'compact'; sessionId: string | null; data: unknown; open: (target: string) => void; closeMobile?: () => void }
 export interface TodoRegistration {
   requiresApiVersion: number;
   chatPickers?: Record<string, ComponentType<PluginChatPickerProps>>;

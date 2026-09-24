@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { knownCost } from '../src/budget';
-import { Activity, Coins } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { apiJson, chatbotApi, runtime, type DateRange, type PageFilterField } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
@@ -168,7 +168,7 @@ export function StatsSection() {
         {...heading}
         actions={<BotPicker bots={bots} value={bot.chatbotUserId} onChange={setSelected} label={s.pickerLabel} />}
       >
-        <div className="settings-group__panel flex min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
         <C.PageFilters fields={filters} />
         {loadError !== null ? <C.ErrorState message={`${s.statsLoadError} — ${loadError}`} onRetry={load} />
           : answer === null ? <C.LoadingState variant="block" />
@@ -184,7 +184,6 @@ export function StatsSection() {
       <C.SettingsGroup density="compact">
         <C.SettingsRow
           label={s.spendTitle}
-          icon={Coins}
           description={s.spendHint}
           status={loadError !== null ? <span className="text-xs text-destructive">{s.spendLoadError}</span>
             : spend === null ? <C.LoadingLine layout="inline" />

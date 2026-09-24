@@ -403,11 +403,11 @@
   .text-\[2\.75rem\] {
     font-size: 2.75rem;
   }
-  .text-\[10px\] {
-    font-size: 10px;
+  .text-caption {
+    font-size: var(--text-caption, 0.6875rem);
   }
-  .text-\[11px\] {
-    font-size: 11px;
+  .text-tiny {
+    font-size: var(--text-tiny, 0.5625rem);
   }
   .leading-5 {
     --tw-leading: calc(var(--spacing, 0.25rem) * 5);

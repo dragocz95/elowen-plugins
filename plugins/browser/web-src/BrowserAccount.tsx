@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Globe2, HardDrive, ImageOff, Trash2, X } from 'lucide-react';
+import { Database, Globe2, ImageOff, Trash2, X } from 'lucide-react';
 import type { PluginPageProps } from 'elowen-plugin-ui-kit';
 import { apiError, jsonRequest, runtime } from './runtime';
 
@@ -179,7 +179,6 @@ export function BrowserAccount({ surface }: PluginPageProps) {
               description={strings.profileStorageHint || 'Cookies and sign-in state live only in your account profile. Live images are never stored.'}
             >
               <SettingsRow
-                icon={HardDrive}
                 label={strings.storageUsed || 'Space used'}
                 // The RULE goes behind the row's own help mark, where every other settings row keeps its
                 // explanation. What the reader needs at a glance is not the sentence but the fact that
@@ -216,7 +215,6 @@ export function BrowserAccount({ surface }: PluginPageProps) {
                 // Nothing is running is not an error and not a place to act, so it reads as one quiet
                 // record rather than an illustrated panel in the middle of a settings page.
                 <SettingsRow
-                  icon={Globe2}
                   label={strings.noSessions || 'No browser session is running'}
                   description={strings.noSessionsDescription || 'A session appears here when your agent opens the browser.'}
                 />

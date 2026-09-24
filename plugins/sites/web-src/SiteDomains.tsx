@@ -103,12 +103,12 @@ function RecordRows({ records, strings }: {
           key={record.type + ':' + record.name + ':' + record.value + ':' + index}
           className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border/60 bg-muted/30 p-2"
         >
-          <span className="rounded bg-background px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
+          <span className="rounded bg-background px-1.5 py-0.5 font-mono text-tiny font-semibold text-muted-foreground">
             {record.type}
           </span>
           <span className="min-w-0">
-            <code className="block break-all font-mono text-[11px] text-foreground">{record.name}</code>
-            <code className="block break-all font-mono text-[11px] text-muted-foreground">{record.value}</code>
+            <code className="block break-all font-mono text-caption text-foreground">{record.name}</code>
+            <code className="block break-all font-mono text-caption text-muted-foreground">{record.value}</code>
           </span>
           <IconButton
             icon={Copy}

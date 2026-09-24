@@ -27,8 +27,8 @@ export function CronNextRunMetric({ locale }: DashboardMetricProps) {
       <div className="font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl">
         {next ? new Date(next.at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '—'}
       </div>
-      <div className="mt-0.5 text-[11px] text-muted-foreground">{strings.nextRun}</div>
-      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{next?.name ?? strings.nextRunUnknown}</div>
+      <div className="mt-0.5 text-caption text-muted-foreground">{strings.nextRun}</div>
+      <div className="mt-0.5 truncate text-caption text-muted-foreground">{next?.name ?? strings.nextRunUnknown}</div>
     </a>
   );
 }
@@ -117,7 +117,7 @@ function AutomationDeck() {
 }
 
 registerCronUi({
-  requiresApiVersion: 17,
+  requiresApiVersion: 22,
   settings: { jobs: CronJobApp },
   ownsPageFrame: ['jobs'],
   dashboardMetrics: { 'next-run': CronNextRunMetric },

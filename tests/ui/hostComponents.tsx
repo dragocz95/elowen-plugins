@@ -12,7 +12,7 @@
  *  form's button set matches production.
  */
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
-  type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type ReactNode,
+  type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -46,6 +46,10 @@ export function Button({ icon: Icon, children, ...rest }: { variant?: string; ic
 
 export function Input({ ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...rest} />;
+}
+
+export function Textarea({ ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...rest} />;
 }
 
 /** The app renders the hint as a HelpTip "?" trigger beside the label, not as text under the control. */
@@ -1763,11 +1767,10 @@ export function MotionLayoutItem({ children, layoutId: _layoutId, ...rest }: HTM
 
 // ── loading line ─────────────────────────────────────────────────────────────────────────────────────
 
-export function LoadingLine({ label, spinner = false }: { label?: string; layout?: 'inline' | 'block' | 'page'; spinner?: boolean }) {
+export function LoadingLine({ label }: { label?: string; layout?: 'inline' | 'block' | 'page' }) {
   const { t } = useTranslation();
   return (
     <span role="status" aria-live="polite">
-      {spinner ? <Spinner size="md" /> : null}
       <span>{label ?? t.common.loading}</span>
     </span>
   );
@@ -2385,8 +2388,8 @@ export function SettingsGroup({ title, description, hint, icon: Icon, actions, t
 /** Ported from web/components/ui/SettingsSurface.tsx. `control` is the canonical spelling of the record's
  *  one control and `children` its alias; `trailingLayout="stack"` opts a record out of the single trailing
  *  line, which is what a row carrying more than one value needs on a phone. */
-export function SettingsRow({ label, description, hint, icon: Icon, iconNode, control, status, actions, trailingLayout = 'inline', children, className = '' }: {
-  label: string; description?: string; hint?: string; icon?: LucideIcon; iconNode?: ReactNode;
+export function SettingsRow({ label, description, hint, iconNode, control, status, actions, trailingLayout = 'inline', children, className = '' }: {
+  label: string; description?: string; hint?: string; iconNode?: ReactNode;
   control?: ReactNode; status?: ReactNode; actions?: ReactNode;
   trailingLayout?: 'inline' | 'stack';
   children?: ReactNode; className?: string;
@@ -2395,8 +2398,7 @@ export function SettingsRow({ label, description, hint, icon: Icon, iconNode, co
   return (
     <div className={`settings-row ${className}`} data-trailing={trailingLayout}>
       <div className="settings-row__label">
-        {iconNode ? <span className="settings-row__icon" data-icon-kind="brand" aria-hidden>{iconNode}</span>
-          : Icon ? <span className="settings-row__icon" data-icon-kind="glyph" aria-hidden><Icon size={15} /></span> : null}
+        {iconNode ? <span className="settings-row__icon" data-icon-kind="brand" aria-hidden>{iconNode}</span> : null}
         <div className="min-w-0">
           <span className="settings-row__title">
             <span>{label}</span>

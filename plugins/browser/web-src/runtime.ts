@@ -74,7 +74,7 @@ interface RuntimeComponents {
     onClose(): void;
   }>;
   Spinner: ComponentType<{ size?: 'xs' | 'sm' | 'md' | 'lg'; label?: string }>;
-  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'block'; height?: string }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: LucideIcon; action?: ReactNode }>;
   // The canonical settings anatomy (host web/components/ui/SettingsSurface.tsx), which is what every
@@ -96,7 +96,6 @@ interface RuntimeComponents {
     label: string;
     description?: string;
     hint?: string;
-    icon?: LucideIcon;
     iconNode?: ReactNode;
     /** THE control of the record. `children` is the host's own alias for it. */
     control?: ReactNode;

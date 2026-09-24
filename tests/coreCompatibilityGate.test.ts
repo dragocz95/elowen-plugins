@@ -90,11 +90,19 @@ describe('requiresCore gate against the built candidate', () => {
     expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_ENVIRONMENTS), `${name} would install on ${BASELINE_WITHOUT_ENVIRONMENTS}`).toBe(true);
   });
 
-  it.each(names)('%s is admitted by this candidate', (name) => {
+  const nextCoreConsumers = ['chatbot', 'cronjob', 'editor', 'github', 'lsp', 'msteams', 'sites', 'stats', 'todo'];
+
+  it.each(nextCoreConsumers)('%s declares the next core floor', (name) => {
+    expect(manifestOf(name).requiresCore).toBe('0.28.53');
+  });
+
+  it.each(names)('%s is admitted only by a capable candidate', (name) => {
     const manifest = manifestOf(name);
-    // The same expression the marketplace evaluates before copying a plugin folder.
+    // The marketplace must reject a new-API bundle from a core that cannot supply it.
     const refused = Boolean(manifest.requiresCore) && isNewer(manifest.requiresCore!, candidateVersion);
-    expect(refused, `${name} needs ${manifest.requiresCore} but the candidate is ${candidateVersion}`).toBe(false);
+    const needsNextCore = nextCoreConsumers.includes(name);
+    expect(refused, `${name} needs ${manifest.requiresCore} but the candidate is ${candidateVersion}`)
+      .toBe(needsNextCore && isNewer('0.28.53', candidateVersion));
   });
 
   it('is running against the candidate rather than a pinned release', () => {

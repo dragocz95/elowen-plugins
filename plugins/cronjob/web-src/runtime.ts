@@ -149,7 +149,6 @@ export interface CronWeekDay {
 export interface CronIntervalRow {
   jobId: string;
   schedule: string;
-  intervalLabel: string;
   enabled: boolean;
   nextExpectedAt: string | null;
   /** Calendar day of the next fire, in the scheduler timezone. Active hours can push it past midnight. */
@@ -357,7 +356,7 @@ type AnyComponent = ComponentType<any>;
 
 interface CronComponents {
   Avatar: AnyComponent;
-  Badge: AnyComponent; Button: AnyComponent; IconButton: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
+  Badge: AnyComponent; Button: AnyComponent; IconButton: AnyComponent; Input: AnyComponent; Textarea: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   HelpTip: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;

@@ -10,6 +10,9 @@ import {
   parseActiveHours, parseBuilderSchedule, renderActiveHours, renderBuilderSchedule,
 } from '../plugins/cronjob/web-src/scheduleBuilder';
 import manifest from '../plugins/cronjob/elowen-plugin.json' with { type: 'json' };
+import cs from '../plugins/cronjob/i18n/cs.json' with { type: 'json' };
+import sk from '../plugins/cronjob/i18n/sk.json' with { type: 'json' };
+import { intervalText } from '../plugins/cronjob/web-src/IntervalsStrip';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
@@ -61,7 +64,7 @@ const weekBody = (): CronWeekResponse => ({
   window: { startLocalDate: dates[0]!, endLocalDateExclusive: '2026-09-21' },
   jobs: [recurring, oneShot, poll],
   days: dates.map(day),
-  intervals: [{ jobId: poll.id, schedule: 'every 2m', intervalLabel: 'every 2m', enabled: true, nextExpectedAt: '2026-09-15T08:22:00.000Z', nextLocalDate: TODAY, nextLocalTime: '10:22', remainingToday: 720, lastOutcome: null, lastRunAt: null }],
+  intervals: [{ jobId: poll.id, schedule: 'every 2m', enabled: true, nextExpectedAt: '2026-09-15T08:22:00.000Z', nextLocalDate: TODAY, nextLocalTime: '10:22', remainingToday: 720, lastOutcome: null, lastRunAt: null }],
   truncated: false,
 });
 
@@ -145,6 +148,19 @@ function renderPage() {
   };
 }
 
+describe('localized interval chips', () => {
+  it.each([
+    ['en', strings, 'Every 1 minute', 'Every 2 minutes', 'Every 5 hours'],
+    ['cs', cs.web.strings, 'Každou 1 minutu', 'Každé 2 minuty', 'Každých 5 hodin'],
+    ['sk', sk.web.strings, 'Každú 1 minútu', 'Každé 2 minúty', 'Každých 5 hodín'],
+  ])('%s uses the appropriate plural form', (locale, values, one, few, other) => {
+    expect(intervalText('every 1m', values, locale)).toBe(one);
+    expect(intervalText('every 2m', values, locale)).toBe(few);
+    expect(intervalText('every 5h', values, locale)).toBe(other);
+    expect(intervalText('daily 07:30', values, locale)).toBe('daily 07:30');
+  });
+});
+
 describe('automation week calendar', () => {
   it('uses the canonical workbench with a bounded seven-day grid and no month control', async () => {
     renderPage();
@@ -172,7 +188,7 @@ describe('automation week calendar', () => {
     // register table and never as a card in a day column, where it would fire on all seven days.
     expect(screen.getAllByText('Inbox poll')).toHaveLength(1);
     const strip = screen.getByTestId('cron-intervals-strip');
-    expect(within(strip).getByText('every 2m')).toBeInTheDocument();
+    expect(within(strip).getByText('Every 2 minutes')).toBeInTheDocument();
     // Today: the next fire is this day's, so it IS shown. The companion test below proves it disappears
     // on another day — without this half, dropping the time entirely would keep both tests green.
     expect(within(strip).getByText('10:22')).toBeInTheDocument();
@@ -436,8 +452,8 @@ describe('automation week calendar', () => {
     }));
     window.history.replaceState({}, '', `/p/cronjob?job=${recurring.id}`);
     renderPage();
-    const block = await screen.findByTestId('cron-last-run');
-    expect(within(block).getByText(strings.lastStarted!)).toBeInTheDocument();
+    expect(await screen.findByText(strings.lastStarted!)).toBeInTheDocument();
+    const block = screen.getByTestId('cron-last-run');
     expect(within(block).getByText(new Date(lastRun).toLocaleString('en'))).toBeInTheDocument();
     expect(block.textContent).not.toContain('{');
   });
@@ -451,12 +467,12 @@ describe('automation week calendar', () => {
 });
 
 describe('cronjob bundle contracts', () => {
-  it('registers one page-owning jobs section on API 17', async () => {
+  it('registers one page-owning jobs section on API 22', async () => {
     let captured: Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'> | undefined;
     (window as unknown as { __elowenRegisterPluginUi?: (p: string, r: typeof captured) => void })
       .__elowenRegisterPluginUi = (_plugin, registration) => { captured = registration; };
     await import('../plugins/cronjob/web-src/index');
-    expect(captured?.requiresApiVersion).toBe(17);
+    expect(captured?.requiresApiVersion).toBe(22);
     expect(Object.keys(captured?.settings ?? {})).toEqual(['jobs']);
     expect(captured?.ownsPageFrame).toEqual(['jobs']);
   });
