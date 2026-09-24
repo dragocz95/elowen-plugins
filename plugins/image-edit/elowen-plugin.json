@@ -1,6 +1,6 @@
 {
   "name": "image-edit",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Edit an existing image through a configured provider. PNG files are saved in the current project; use ShareImage to show one in chat.",

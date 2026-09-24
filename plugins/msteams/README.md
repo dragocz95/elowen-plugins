@@ -8,9 +8,9 @@ Install **msteams** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.8.2 |
-| requiresCore | 0.28.50 |
-| requiresSharedApi | 4 |
+| Version | 0.8.7 |
+| requiresCore | 0.28.53 |
+| requiresSharedApi | 5 |
 
 Configure bot and tenant identity, account linking, sign-in, Microsoft 365 access, proactive destination, lookup, response presentation, service language, history, media, and role policies in the plugin settings.
 

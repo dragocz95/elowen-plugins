@@ -1,9 +1,9 @@
 {
   "name": "telegram",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
-  "requiresSharedApi": 4,
+  "requiresCore": "0.28.53",
+  "requiresSharedApi": 5,
   "description": "Telegram bot (grammY): message it and it answers from Elowen AI. Slash commands (/model, /reasoning, /display, /new, /help), per-chat model and presentation settings, live tool activity with independent answer delivery, status reactions and proactive cron/tick pushes. Chat tools: chat & member info, member count, pin/unpin, delete messages, ban/unban, promote, set title/description, forum topics (create/edit/close), plus send a message to any chat (operator). Each rolePolicy maps a Telegram user id / @username / chat id to allowed Elowen projects + a role prompt.",
   "entry": "index.mjs",
   "provides": {
