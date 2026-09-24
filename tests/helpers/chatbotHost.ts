@@ -1,4 +1,4 @@
-import type { PluginConversationTarget, PluginDb, SessionSource } from 'elowen/plugin-api';
+import type { PluginConversationTarget, PluginDb, SessionSource, PluginUserView, PluginHostStores } from 'elowen/plugin-api';
 import { pluginDbFor } from './pluginDb.js';
 import { ChatbotAdapter } from '../../plugins/chatbot/src/adapter.js';
 import { PageActionService } from '../../plugins/chatbot/src/actionService.js';
@@ -10,7 +10,7 @@ import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
 import { DEFAULT_LIMITS, type LimitValues } from '../../plugins/chatbot/src/limits.js';
-import type { ChatbotAccountView, ChatbotEffectiveChatExec, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
+import type { ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
 
 /** The fake host every chatbot suite drives the public path against.
  *
@@ -121,7 +121,7 @@ let hostCount = 0;
 /** The host as this plugin sees it. `accounts` and `projects` are handed in as LIVE arrays, so a test can
  *  change the world between two requests — which is exactly what the per-admission preflight exists for. */
 export function createChatbotHost(options: {
-  accounts?: ChatbotAccountView[];
+  accounts?: PluginUserView[];
   projects?: ChatbotProjectView[];
   pingIntervalMs?: number;
   actionTimeoutMs?: number;
@@ -132,7 +132,7 @@ export function createChatbotHost(options: {
    *  answer came from. The default names no model, which is what an instance with nothing configured answers
    *  — and what the plugin's own row must therefore state as nothing. A suite that is about the row replaces
    *  this with the account's real case; one that is about a REFUSAL lets it throw, the way core does. */
-  effectiveChatExec?: (userId: number) => ChatbotEffectiveChatExec | null;
+  effectiveChatExec?: (userId: number) => NonNullable<ReturnType<PluginHostStores['usersRead']['effectiveChatExec']>> | null;
   /** What the deployment's image host serves for the address an owner configured. The default is a small
    *  PNG, which is what the success path is about; a suite that is about a REFUSAL replaces it. */
   avatar?: (source: string) => Promise<AvatarFetch>;
@@ -146,7 +146,7 @@ export function createChatbotHost(options: {
   const db = pluginDbFor(`chatbot-test-${hostCount}`)('chatbot');
   migrate(db);
   const store = new ChatbotStore(db);
-  const accounts: ChatbotAccountView[] = options.accounts ?? [
+  const accounts: PluginUserView[] = options.accounts ?? [
     { id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' },
   ];
   const projects: ChatbotProjectView[] = options.projects ?? [{ id: 4, slug: 'ured', path: '/ured', executionKind: 'managed' }];

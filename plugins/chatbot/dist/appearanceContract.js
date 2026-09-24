@@ -1,9 +1,13 @@
 /** Shared appearance contract for storage, the public widget and the administrator preview. */
 export const APPEARANCE_SCHEMA_VERSION = 2;
 export const APPEARANCE_TEMPLATE_IDS = ['elowen', 'clean', 'mono', 'warm', 'indigo'];
-const APPEARANCE_MODES = ['light', 'dark'];
-const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
-const SEND_SHAPES = ['circle', 'rounded-square'];
+export const APPEARANCE_MODES = ['light', 'dark'];
+export const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+export const SEND_SHAPES = ['circle', 'rounded-square'];
+export const BUTTON_HOVERS = ['lift', 'fill', 'shine', 'glow'];
+export const MESSAGE_ENTRANCES = ['none', 'fade', 'slide'];
+export const LAUNCHER_NUDGES = ['none', 'bounce', 'wiggle'];
+export const SOUND_TONES = ['none', 'drop', 'chime', 'pop', 'bell'];
 /** One dependency-free icon catalog. Every consumer renders the same 24 px stroked path. */
 export const APPEARANCE_ICONS = [
     { id: 'arrow', path: 'M5 12h14 M13 6l6 6-6 6' },
@@ -503,7 +507,7 @@ function parseLauncher(input, partial) {
         result[key] = object.value[key];
     }
     if ('nudge' in object.value) {
-        const nudge = readEnum(object.value.nudge, ['none', 'bounce', 'wiggle'], 'launcher.nudge');
+        const nudge = readEnum(object.value.nudge, LAUNCHER_NUDGES, 'launcher.nudge');
         if (!nudge.ok)
             return nudge;
         result.nudge = nudge.value;
@@ -534,13 +538,13 @@ function parseEffects(input, partial) {
         result[key] = object.value[key];
     }
     if ('buttonHover' in object.value) {
-        const value = readEnum(object.value.buttonHover, ['lift', 'fill', 'shine', 'glow'], 'effects.buttonHover');
+        const value = readEnum(object.value.buttonHover, BUTTON_HOVERS, 'effects.buttonHover');
         if (!value.ok)
             return value;
         result.buttonHover = value.value;
     }
     if ('messageEntrance' in object.value) {
-        const value = readEnum(object.value.messageEntrance, ['none', 'fade', 'slide'], 'effects.messageEntrance');
+        const value = readEnum(object.value.messageEntrance, MESSAGE_ENTRANCES, 'effects.messageEntrance');
         if (!value.ok)
             return value;
         result.messageEntrance = value.value;
@@ -558,7 +562,7 @@ function parseSound(input, partial) {
     }
     const result = {};
     if ('tone' in object.value) {
-        const value = readEnum(object.value.tone, ['none', 'drop', 'chime', 'pop', 'bell'], 'sound.tone');
+        const value = readEnum(object.value.tone, SOUND_TONES, 'sound.tone');
         if (!value.ok)
             return value;
         result.tone = value.value;

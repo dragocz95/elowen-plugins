@@ -1,9 +1,10 @@
 import { randomUUID, randomBytes } from 'node:crypto';
+import type { PluginHttpResponse } from 'elowen/plugin-api';
 import type { ActionReportOutcome, PageActionService } from './actionService.js';
 import type { BotRow } from './db.js';
 import type { ChatbotAdapter } from './adapter.js';
 import type { TurnEventBroker } from './broker.js';
-import type { ChatbotClientOrigin, ChatbotHookRequest, ChatbotPublicResponse, ChatbotStores } from './coreSeams.js';
+import type { ChatbotClientOrigin, ChatbotHookRequest, ChatbotStores } from './coreSeams.js';
 import { actionRequestPayload, eventPayload, type AdmissionOutcome, type ChatbotStore } from './store.js';
 import type { TurnEventRow, TurnRow } from './db.js';
 import type { ChatbotTurnQueue } from './queue.js';
@@ -49,9 +50,9 @@ export interface PublicRouteDeps {
 }
 
 /** Every answer this route builds — including the streamed one, whose body is not a parsed object. */
-type Reply = ChatbotPublicResponse & { status: number };
+type Reply = PluginHttpResponse & { status: number };
 
-const reply = (status: number, body: ChatbotPublicResponse['body'], headers: Record<string, string> = {}): Reply => ({ status, headers, body });
+const reply = (status: number, body: PluginHttpResponse['body'], headers: Record<string, string> = {}): Reply => ({ status, headers, body });
 
 export function createPublicRoute(deps: PublicRouteDeps) {
   const { store, queue, adapter, stores, broker, actions, now, warn } = deps;
@@ -191,7 +192,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
   };
 
-  /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
+  /** `POST v2/visitors`: hand out a token for a website origin the chatbot allows. */
   const handleTokenIssuance = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
     const admitted = await publicBotRequest(req, origin);
     if ('reply' in admitted) return admitted.reply;
@@ -206,7 +207,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
   };
 
-  /** `POST v1/visitors/refresh`: rotate a live token for the SAME visitor, so a widget can keep one
+  /** `POST v2/visitors/refresh`: rotate a live token for the SAME visitor, so a widget can keep one
    *  conversation going past a token's lifetime without ever choosing its own identity. */
   const handleRefresh = async (req: ChatbotHookRequest, origin: string): Promise<Reply> => {
     const admitted = presentedToken(req);
@@ -225,7 +226,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     }, corsHeaders(origin));
   };
 
-  /** `POST v1/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
+  /** `POST v2/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
    *  the owner side of the relay, so a client that disconnects has stopped watching, not stopped work.
    *
    *  Everything that decides whether this message may be served happens in `store.admitTurn`, in the order the
@@ -327,7 +328,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     });
   };
 
-  /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
+  /** `GET v2/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
    *  recent turns, each one's public status and the answer it finished with. It is deliberately NOT a
    *  transcript read: the plugin serves the projection it published, never core's conversation. */
   const handleConversation = (req: ChatbotHookRequest, origin: string): Reply => {
@@ -419,7 +420,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
       updatedAt: saved.updated_at }, corsHeaders(origin));
   };
 
-  /** `GET v1/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
+  /** `GET v2/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
    *  documented for AUTHENTICATED plugin API only and this endpoint is public, so the stream is one this
    *  plugin owns; `after` replays exactly what a reconnecting widget has not rendered yet. */
   const handleTurnEvents = (req: ChatbotHookRequest, origin: string, turnId: string): Reply => {
@@ -453,7 +454,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     });
   };
 
-  /** `POST v1/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
+  /** `POST v2/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
    *  about a page action.
    *
    *  Both carry the visitor's own token and the origin allowlist gate, both must name THIS visitor's turn —
@@ -514,7 +515,7 @@ export function createPublicRoute(deps: PublicRouteDeps) {
     const requested = (req.headers['access-control-request-method'] ?? req.headers['Access-Control-Request-Method'] ?? '').toUpperCase();
     if (requested !== '' && requested !== 'GET' && requested !== 'POST') return reply(403, { error: 'origin_not_allowed' });
     const served = store.listBots()
-      .some((bot) => bot.status === 'enabled' && store.originsOf(bot.chatbot_user_id).includes(origin));
+      .some((bot) => bot.status === 'enabled' && checkAllowedOrigin(origin, store.originsOf(bot.chatbot_user_id)).ok);
     return served ? reply(204, undefined, corsHeaders(origin)) : reply(403, { error: 'origin_not_allowed' });
   };
 

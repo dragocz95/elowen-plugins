@@ -1,12 +1,10 @@
 import { Type } from 'typebox';
-import { Value } from 'typebox/value';
-import { OFFER_LIMITS, allowedOfferUrl, readOffer } from './offerContract.js';
-import { checkAllowedOrigin } from './origin.js';
+import { OFFER_LIMITS, readOffer } from './offerContract.js';
 import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
 import { parseAppearanceSelection } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf } from './limits.js';
-import { ACTION_DECISIONS, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, PAGE_FAILURE_DETAILS, PAGE_STATE_MAX_BYTES, PAGE_TEXT_MAX_CHARS, PAGE_URL_MAX_CHARS, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
+import { ACTION_DECISIONS, ACTION_NONCE_MIN_CHARS, ACTION_NONCE_MAX_CHARS, CANONICAL_UUID_PATTERN, ACTION_OUTCOMES, MESSAGE_MAX_BYTES, FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, PAGE_FAILURE_DETAILS, PAGE_STATE_MAX_BYTES, PAGE_TEXT_MAX_CHARS, PAGE_URL_MAX_CHARS, PUBLIC_SCHEMA_VERSION, } from './publicContract.js';
 const offerText = (maxLength) => Type.String({ minLength: 1, maxLength });
 const offerLabel = offerText(OFFER_LIMITS.label);
 const offerUrl = offerText(OFFER_LIMITS.url);
@@ -27,29 +25,10 @@ export const OFFER_SCHEMA = Type.Object({
     }, { additionalProperties: false }), { maxItems: OFFER_LIMITS.cards })),
 }, { additionalProperties: false });
 export function validateOffer(input, origins) {
-    if (!Value.Check(OFFER_SCHEMA, input)) {
-        const issue = Value.Errors(OFFER_SCHEMA, input)[0];
-        return { ok: false, error: `Offer is invalid: ${issue?.message ?? 'invalid value'}.` };
-    }
-    const offer = input;
-    if (!(offer.choices?.length || offer.links?.length || offer.cards?.length)) {
-        return { ok: false, error: 'Offer needs at least one choice, link, or card.' };
-    }
-    for (const [kind, url] of [
-        ...(offer.links ?? []).map((link) => ['link', link.url]),
-        ...(offer.cards ?? []).flatMap((card) => [
-            ...(card.imageUrl ? [['image', card.imageUrl]] : []),
-            ...(card.action && 'url' in card.action ? [['card action', card.action.url]] : []),
-        ]),
-    ]) {
-        if (url === undefined || !allowedOfferUrl(url, origins) || !checkAllowedOrigin(new URL(url).origin, origins).ok) {
-            return { ok: false, error: `Refused ${kind}: URL must be on this chatbot's allowed origins (HTTPS, or allowed HTTP).` };
-        }
-    }
-    const normalized = readOffer(offer, origins);
-    if (!normalized)
+    const offer = readOffer(input, origins);
+    if (!offer)
         return { ok: false, error: 'Offer labels and text must not be blank, and all fields must be valid.' };
-    return { ok: true, value: normalized };
+    return { ok: true, value: offer };
 }
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
  *  message of multi-byte text is larger than its length. The length comparison inside `readString` is only
@@ -59,9 +38,8 @@ const ORIGINS_MAX = 20;
  *  found, and a failed action with a stable code — both are short, and a page that sends more is not
  *  answering the question it was asked. */
 const RESULT_DETAIL_MAX_CHARS = 200;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function isCanonicalUuid(value) {
-    return UUID_PATTERN.test(value);
+    return CANONICAL_UUID_PATTERN.test(value);
 }
 const utf8Length = (value) => Buffer.byteLength(value, 'utf8');
 /** A plain JSON object with exactly the given keys. Anything else — an array, null, a prototype trick,
@@ -250,10 +228,10 @@ export function validateActionDecision(body) {
     if (!ACTION_DECISIONS.includes(decision.value)) {
         return { ok: false, error: 'that is not an answer to a confirmation' };
     }
-    const nonce = readString(outer.value, 'nonce', 128);
+    const nonce = readString(outer.value, 'nonce', ACTION_NONCE_MAX_CHARS);
     if (!nonce.ok)
         return nonce;
-    if (nonce.value.length < 8)
+    if (nonce.value.length < ACTION_NONCE_MIN_CHARS)
         return { ok: false, error: '"nonce" is too short to be one this server issued' };
     return { ok: true, value: { decision: decision.value, nonce: nonce.value } };
 }

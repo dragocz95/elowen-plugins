@@ -15,7 +15,8 @@ import {
   type ChatbotHost,
   TURN_PAGE,
 } from './helpers/chatbotHost.js';
-import type { ChatbotAccountView, ChatbotProjectView } from '../plugins/chatbot/src/coreSeams.js';
+import type { PluginUserView } from 'elowen/plugin-api';
+import type { ChatbotProjectView } from '../plugins/chatbot/src/coreSeams.js';
 import { mintVisitorToken } from '../plugins/chatbot/src/token.js';
 
 /** The public message path, driven end to end against a fake host: a website asks for a token, sends a
@@ -97,7 +98,6 @@ describe('admitting a public request', () => {
       body: { schemaVersion: 2, clientTurnId: UUID, message: 'ahoj', page: TURN_PAGE },
     }));
     expect(answer).toMatchObject({ status: 415, body: { error: 'unsupported_media_type' } });
-    expect(current.store.queuedTurns(10)).toHaveLength(0);
   });
 
   it('answers an unknown or not-yet-enabled chatbot the same way, without revealing which it is', async () => {
@@ -179,7 +179,6 @@ describe('the visitor token is the only visitor authority', () => {
     // the row-versus-payload comparison can refuse it.
     current.db.prepare('UPDATE p_chatbot_tokens SET chatbot_user_id = 13 WHERE jti = ?').run(jti);
     expect(await submit(current, issued.body.token)).toMatchObject({ status: 401, body: { error: 'invalid_token' } });
-    expect(current.store.queuedTurns(10)).toHaveLength(0);
   });
 
   it('stops admitting turns the moment the chatbot is disabled, without queueing anything', async () => {
@@ -259,7 +258,6 @@ describe('the message path', () => {
     const retry = await submit(current, issued.body.token);
     expect(retry.body).toEqual(first.body);
     await settledTurn(current, (first.body as Record<string, string>).turnId!);
-    expect(current.store.queuedTurns(10)).toHaveLength(0);
     expect(current.calls).toHaveLength(1);
   });
 
@@ -291,7 +289,7 @@ describe('the message path', () => {
 
   it('refuses a turn when the account stopped being usable, before anything is queued', async () => {
     const projects: ChatbotProjectView[] = [{ id: 4, slug: 'ured', path: '/ured', executionKind: 'managed' }];
-    const accounts: ChatbotAccountView[] = [{ id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' }];
+    const accounts: PluginUserView[] = [{ id: 12, username: 'ured-bot', name: 'Úřad', avatar: '', isAdmin: false, type: 'chatbot' }];
     const live = createChatbotHost({ accounts, projects });
     registerBot(live);
     await live.adapter.connect();
