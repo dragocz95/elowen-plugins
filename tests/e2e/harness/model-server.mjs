@@ -54,6 +54,14 @@ export async function startModelServer(opts = {}) {
     const body = await readJson(req);
     requests.push({ method: req.method, path: url.pathname, body });
 
+    if (req.method === 'GET' && url.pathname === '/v1/models') {
+      // Core 0.28.54 prefetches the provider catalog on every spawn; answer with
+      // the scripted model so the harness exercises that path instead of the fallback.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ object: 'list', data: [{ id: 'mock-model', object: 'model' }] }));
+      return;
+    }
+
     if (req.method !== 'POST' || url.pathname !== '/v1/chat/completions') {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: `unhandled ${req.method} ${url.pathname}` }));
