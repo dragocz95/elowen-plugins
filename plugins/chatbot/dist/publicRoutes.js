@@ -1,10 +1,11 @@
 import { randomUUID, randomBytes } from 'node:crypto';
+import { verifiedImageStream } from './visitorImages.js';
 import { actionRequestPayload, eventPayload } from './store.js';
 import { checkAllowedOrigin, corsHeaders, isTrustedRequestOrigin, readRequestOrigin } from './origin.js';
 import { inspectAccount } from './preflight.js';
 import { parseStoredAppearance, resolveAppearance } from './appearanceContract.js';
 import { AVATAR_CACHE_CONTROL } from './avatarProxy.js';
-import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS } from './publicContract.js';
+import { VISITOR_CREDENTIAL_ERRORS, HANDOFF_FRAGMENT_KEY, HANDOFF_CODE_PATTERN, HANDOFF_TTL_MS, EVENTS_AFTER_QUERY, PUBLIC_PATHS, PUBLIC_SCHEMA_VERSION, PUBLIC_SEGMENTS, VISITOR_IMAGE_MAX_BYTES } from './publicContract.js';
 import { hashToken, mintVisitorToken, newTokenId, newVisitorId, readAuthorizationToken, sameHash, verifyVisitorToken } from './token.js';
 import { isCanonicalUuid, validateActionDecision, validateActionResult, validatePublicBotRequest, validateTurnSubmission, validateFeedback } from './validation.js';
 import { matchesEtag, widgetAsset, widgetAssetHeaders } from './widgetAsset.js';
@@ -194,6 +195,52 @@ export function createPublicRoute(deps) {
             expiresAt: issued.expiresAt,
         }, corsHeaders(origin));
     };
+    /** The exact streaming mount authenticates the visitor before asking for even one request byte. */
+    const handleUpload = async (req, origin, requestOrigin) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        if (!checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id)).ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        const blocked = blockedReply(admitted.bot);
+        if (blocked)
+            return blocked;
+        const headers = corsHeaders(origin);
+        const { clientTurnId, name, size: rawSize } = req.query;
+        const size = Number(rawSize);
+        if (!clientTurnId || !isCanonicalUuid(clientTurnId) || typeof name !== 'string'
+            || !name || name.length > 180 || !Number.isSafeInteger(size) || size < 12 || size > VISITOR_IMAGE_MAX_BYTES
+            || !req.stream)
+            return reply(400, { error: 'invalid_image' }, headers);
+        if (store.turnByClientId(admitted.bot.chatbot_user_id, admitted.visitorId, clientTurnId)
+            || store.pendingUploadCount(admitted.bot.chatbot_user_id, admitted.visitorId, iso()) >= 3)
+            return reply(409, { error: 'upload_not_available' }, headers);
+        const limited = store.consumeVisitorRate({ bot: admitted.bot, visitorId: admitted.visitorId,
+            originValue: requestOrigin.value, nowMs: now().getTime() });
+        if (limited)
+            return reply(429, { error: 'rate_limited' }, headers);
+        if (!deps.files)
+            return reply(503, { error: 'bot_unavailable' }, headers);
+        try {
+            const receipt = await deps.files.uploadProjectImage({
+                botUserId: admitted.bot.chatbot_user_id, visitorScope: admitted.visitorId, name, size,
+                body: verifiedImageStream(req.stream(), size),
+            });
+            const id = randomUUID();
+            const accepted = store.saveUpload({ id, chatbotUserId: admitted.bot.chatbot_user_id,
+                visitorId: admitted.visitorId, clientTurnId, receipt, now: iso(),
+                expiresAt: new Date(now().getTime() + 15 * 60_000).toISOString() });
+            if (!accepted)
+                return reply(409, { error: 'upload_not_available' }, headers);
+            return reply(201, { schemaVersion: PUBLIC_SCHEMA_VERSION, uploadId: id, name: receipt.name }, {
+                ...headers, 'cache-control': 'private, no-store',
+            });
+        }
+        catch (error) {
+            warn('chatbot upload failed: ' + (error instanceof Error ? error.message : String(error)));
+            return reply(400, { error: 'invalid_image' }, headers);
+        }
+    };
     /** `POST v2/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
      *  the owner side of the relay, so a client that disconnects has stopped watching, not stopped work.
      *
@@ -235,6 +282,7 @@ export function createPublicRoute(deps) {
                 clientTurnId: parsed.value.clientTurnId,
                 message: parsed.value.message,
                 page: parsed.value.page,
+                uploadId: parsed.value.uploadId,
                 originValue: requestOrigin.value,
                 now: iso(),
                 nowMs: now().getTime(),
@@ -338,6 +386,8 @@ export function createPublicRoute(deps) {
                 lastSeq: seqs.get(turn.turn_id) ?? 0,
                 pendingActions: store.pendingActions(turn.turn_id).map(action => action.id),
                 message: turn.message,
+                uploadName: store.uploadNameForTurn(turn.turn_id),
+                attachments: store.attachmentEventsOf(turn.turn_id),
                 reply: replies.get(turn.turn_id) ?? null,
                 offer: offers.get(turn.turn_id) ?? null,
                 feedback: feedback.has(turn.turn_id) ? { rating: feedback.get(turn.turn_id).rating, comment: feedback.get(turn.turn_id).comment } : null,
@@ -359,6 +409,32 @@ export function createPublicRoute(deps) {
             truncated,
             turns,
         }, corsHeaders(origin));
+    };
+    /** A visitor can read only a durable Share* event of one of their own turns. */
+    const handleFile = (req, origin, turnId, kind, storedName) => {
+        const admitted = presentedToken(req);
+        if ('status' in admitted)
+            return admitted;
+        if (!checkAllowedOrigin(origin, store.originsOf(admitted.bot.chatbot_user_id)).ok)
+            return reply(403, { error: 'origin_not_allowed' });
+        const headers = { ...corsHeaders(origin), 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
+        const missing = () => reply(404, { error: 'not_found' }, headers);
+        if (!isCanonicalUuid(turnId) || (kind !== 'image' && kind !== 'file'))
+            return missing();
+        const turn = store.turn(turnId);
+        if (!turn || turn.visitor_id !== admitted.visitorId || turn.chatbot_user_id !== admitted.bot.chatbot_user_id
+            || !turn.core_session_id)
+            return missing();
+        if (!store.attachmentEventsOf(turnId).some((event) => event.kind === kind && event.storedName === storedName))
+            return missing();
+        if (!deps.files)
+            return reply(503, { error: 'bot_unavailable' }, headers);
+        const file = deps.files.readShared({ botUserId: turn.chatbot_user_id,
+            sessionId: turn.core_session_id, kind, storedName });
+        if (!file)
+            return missing();
+        return reply(200, file.bytes, { ...headers, 'content-type': kind === 'image' ? file.mimeType : 'application/octet-stream',
+            'content-disposition': kind === 'image' ? 'inline' : file.disposition || 'attachment' });
     };
     /** A rating belongs only to a finished answer by this token's visitor. */
     const handleFeedback = async (req, origin, requestOrigin, turnId) => {
@@ -593,12 +669,18 @@ export function createPublicRoute(deps) {
             return handleTokenIssuance(req, origin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.refresh)
             return handleRefresh(req, origin);
+        if (req.method === 'POST' && path === PUBLIC_PATHS.uploads)
+            return handleUpload(req, origin, requestOrigin);
         if (req.method === 'POST' && path === PUBLIC_PATHS.turns)
             return handleTurn(req, origin, requestOrigin);
         if (req.method === 'GET' && path === PUBLIC_PATHS.avatar)
             return handleAvatar(req, origin);
         if (req.method === 'GET' && path === PUBLIC_PATHS.conversation)
             return handleConversation(req, origin);
+        if (req.method === 'GET' && segments.length === 5
+            && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.files) {
+            return handleFile(req, origin, segments[1], segments[3], segments[4]);
+        }
         if (req.method === 'POST' && segments.length === 3
             && segments[0] === PUBLIC_SEGMENTS.turns && segments[2] === PUBLIC_SEGMENTS.feedback) {
             return handleFeedback(req, origin, requestOrigin, segments[1]);
@@ -645,6 +727,8 @@ function admissionReply(outcome, origin) {
             return reply(409, { error: 'turn_in_progress' }, headers);
         case 'chatbot_busy':
             return reply(429, { error: 'chatbot_busy' }, headers);
+        case 'invalid_upload':
+            return reply(409, { error: 'invalid_upload' }, headers);
         case 'limits_missing':
             // An enabled chatbot whose numbers are absent: there is no set to serve under and nothing to fall back
             // on, so it is the same refusal as any other chatbot that cannot run.

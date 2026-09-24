@@ -8,7 +8,7 @@ import { migrate } from './db.js';
 import { createAdminApi } from './adminApi.js';
 import { createAvatarFetcher } from './avatarProxy.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS } from './publicRoutes.js';
-import { PUBLIC_MOUNT } from './publicContract.js';
+import { PUBLIC_MOUNT, VISITOR_IMAGE_MAX_BYTES } from './publicContract.js';
 import { inspectAccount } from './preflight.js';
 import { ChatbotTurnQueue } from './queue.js';
 import { RETENTION_INTERVAL_MS, createRetentionCleaner, eraseConversations } from './retention.js';
@@ -30,12 +30,13 @@ export function register(published) {
     migrate(db);
     const store = new ChatbotStore(db);
     const stores = ctx.host.stores();
+    const files = ctx.host.conversationFiles();
     const now = () => new Date();
     const adapter = new ChatbotAdapter(warn);
     // One broker per process, shared by the queue that publishes and the streams that read. It holds live
     // subscribers only: every event a visitor can read is already durable in the plugin's own tables.
     const broker = new TurnEventBroker(warn);
-    const queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+    const queue = new ChatbotTurnQueue({ store, adapter, broker, files, now: () => now().toISOString(), warn });
     // The page actions of this process: what a visitor's turn may ask their page to do, and what becomes of an
     // action while the turn waits for it. One instance, because the tool that asks and the public route that
     // receives the answer must wake the same waiters.
@@ -99,6 +100,7 @@ export function register(published) {
         queue,
         adapter,
         stores,
+        files,
         broker,
         actions,
         pingIntervalMs: STREAM_PING_INTERVAL_MS,
@@ -114,6 +116,10 @@ export function register(published) {
     ctx.registerHttpRoute({
         path: PUBLIC_MOUNT,
         handler: async (req) => publicRoute(req),
+    });
+    ctx.registerHttpRoute({
+        path: `${PUBLIC_MOUNT}/uploads`, maxStreamBodyBytes: VISITOR_IMAGE_MAX_BYTES,
+        handler: async (req) => publicRoute({ ...req, path: 'uploads' }),
     });
     // Visitor-only tools are registered once for all chatbot accounts. The platform-scoped
     // declarations never reach owner or delegated conversations; execution still verifies the live turn.

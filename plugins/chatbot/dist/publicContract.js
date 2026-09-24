@@ -21,6 +21,7 @@ export const WIDGET_ASSET_NAME = 'widget.js';
  *  the page it was written on travels beside it as its own field, so the widget refuses an overlong message
  *  against this same number before sending it. */
 export const MESSAGE_MAX_BYTES = 2 * 1024;
+export const VISITOR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 /** Ceiling on a snapshot action result, including aria text and its target capability list. */
 export const PAGE_STATE_MAX_BYTES = 32 * 1024;
 /** How long the page address sent with a message may be. The widget sends `origin + pathname` only, so this
@@ -45,7 +46,7 @@ export const PAGE_TEXT_MAX_CHARS = 120;
 export const ACTION_NONCE_MIN_CHARS = 8;
 export const ACTION_NONCE_MAX_CHARS = 128;
 export const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'ping'];
+export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'attachment', 'ping'];
 /** What a visitor's widget may be asked to do inside the page. The allowlist lives on the SERVER: a frame
  *  naming anything else is a fact about a broken or hostile sender and is refused, never executed. */
 export const ACTION_KINDS = ['snapshot', 'navigate', 'read', 'focus', 'click', 'fill', 'select', 'scroll', 'request_submit'];
@@ -83,6 +84,8 @@ export const PUBLIC_SEGMENTS = {
     visitors: 'visitors',
     refresh: 'refresh',
     turns: 'turns',
+    uploads: 'uploads',
+    files: 'files',
     events: 'events',
     feedback: 'feedback',
     actions: 'actions',
@@ -99,6 +102,8 @@ export const PUBLIC_PATHS = {
     visitors: PUBLIC_SEGMENTS.visitors,
     refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
     turns: PUBLIC_SEGMENTS.turns,
+    uploads: PUBLIC_SEGMENTS.uploads,
+    file: (turnId, kind, storedName) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.files}/${kind}/${storedName}`,
     conversation: PUBLIC_SEGMENTS.conversation,
     /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
      *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */

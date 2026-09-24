@@ -15,8 +15,8 @@
  *  confirm deleted is a transcript that is still there, and pretending otherwise would leave a visitor's words
  *  in a database nobody is looking at any more.
  *
- *  Physical files are not part of this pass. The document workflow that would create them is a phase this
- *  plugin has not reached; when it lands, its files are deleted here, after the transaction and never before. */
+ *  Visitor uploads remain ordinary files in the bot's managed Project even after transcript deletion.
+ *  Unclaimed receipt metadata expires separately; the Project file is never removed here. */
 /** How many conversations one pass deletes. Each one is a network round trip to the daemon between two plugin
  *  transactions, so the bound keeps a pass short rather than making it thorough: a backlog is worked off by
  *  the following passes. */
@@ -50,7 +50,7 @@ export function createRetentionCleaner(deps) {
 async function runPass(deps) {
     const { store } = deps;
     const now = deps.now().toISOString();
-    const result = { deleted: 0, deferred: 0, tokens: 0, visitors: 0, windows: 0 };
+    const result = { deleted: 0, deferred: 0, tokens: 0, visitors: 0, windows: 0, uploads: 0 };
     for (const conversation of store.retentionCandidates({ now, limit: CONVERSATIONS_PER_PASS })) {
         const removed = await deleteOne(deps, conversation);
         if (removed)
@@ -58,12 +58,13 @@ async function runPass(deps) {
         else
             result.deferred += 1;
     }
+    result.uploads = store.purgeExpiredUploads({ now, limit: SWEEP_PER_PASS });
     result.tokens = store.purgeExpiredTokens({ now, limit: SWEEP_PER_PASS });
     result.visitors = store.purgeOrphanVisitors({ now, limit: SWEEP_PER_PASS });
     result.windows = store.purgeExpiredRateWindows({ now, limit: SWEEP_PER_PASS });
-    if (result.deleted > 0 || result.deferred > 0 || result.tokens > 0 || result.visitors > 0 || result.windows > 0) {
+    if (result.deleted > 0 || result.deferred > 0 || result.tokens > 0 || result.visitors > 0 || result.windows > 0 || result.uploads > 0) {
         deps.info(`chatbot retention: removed ${result.deleted} conversation(s)${result.deferred > 0 ? `, kept ${result.deferred} awaiting core` : ''}, `
-            + `${result.tokens} expired token(s), ${result.visitors} unreachable visitor(s), ${result.windows} rate window(s)`);
+            + `${result.tokens} expired token(s), ${result.visitors} unreachable visitor(s), ${result.windows} rate window(s), ${result.uploads} expired upload receipt(s)`);
     }
     return result;
 }
