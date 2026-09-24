@@ -24,10 +24,11 @@ import {
   type RateScope,
 } from './rateLimit.js';
 import { isActionKind } from './actions.js';
-import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome, type FeedbackRating } from './publicContract.js';
+import { ACTION_OUTCOMES, type ActionKind, type ActionOutcome, type FeedbackRating, type StoredFrameType } from './publicContract.js';
 import type { TurnPage } from './validation.js';
+import { DAY_MS } from './adminContract.js';
 
-/** The origin core attributes one chatbot's spend to, as `usage_by_origin.orgin` stores it: the platform name
+/** The origin core attributes one chatbot's spend to, as `usage_by_origin.origin` stores it: the platform name
  *  this plugin relays under. Read from the name rather than spelled out again, because a second spelling is a
  *  budget that silently counts nothing. */
 const USAGE_ORIGIN = `platform:${CHATBOT_PLATFORM}`;
@@ -129,12 +130,12 @@ export class ChatbotStore {
     return this.db.transaction(() => {
       const limits = { ...DEFAULT_LIMITS, ...input.limits };
       this.stmt(`INSERT INTO p_chatbot_bots
-                   (chatbot_user_id, public_id, customer_user_id, display_name, status, may_submit_forms,
+                   (chatbot_user_id, public_id, display_name, status, may_submit_forms,
                     rate_ip_per_minute, rate_chatbot_per_minute, rate_conversation_per_minute,
                     daily_turn_limit, daily_cost_microusd,
                     max_concurrent_turns, max_queue_depth, queue_timeout_seconds,
                     max_actions_per_turn, retention_days, created_at, updated_at)
-                 VALUES (?, ?, NULL, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                 VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           input.chatbotUserId,
           input.publicId,
@@ -235,10 +236,7 @@ export class ChatbotStore {
 
   deleteBot(chatbotUserId: number): void {
     this.db.transaction(() => {
-      this.stmt('DELETE FROM p_chatbot_feedback WHERE chatbot_user_id = ?').run(chatbotUserId);
-      this.stmt('DELETE FROM p_chatbot_actions WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
-      this.stmt('DELETE FROM p_chatbot_turn_events WHERE turn_id IN (SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ?)').run(chatbotUserId);
-      this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ?').run(chatbotUserId);
+      this.deleteConversationData(chatbotUserId, null);
       this.stmt('DELETE FROM p_chatbot_conversations WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_budget_days WHERE chatbot_user_id = ?').run(chatbotUserId);
       this.stmt('DELETE FROM p_chatbot_tokens WHERE chatbot_user_id = ?').run(chatbotUserId);
@@ -326,11 +324,6 @@ export class ChatbotStore {
     return this.turn(input.turnId)!;
   }
 
-  queuedTurns(limit: number): TurnRow[] {
-    return this.stmt(`SELECT * FROM p_chatbot_turns WHERE status = 'queued' ORDER BY created_at, turn_id LIMIT ?`)
-      .all(limit) as TurnRow[];
-  }
-
   /** The oldest turn of one chatbot that is waiting for a slot: FIFO, and the tie is broken by the turn id so
    *  two turns submitted in the same millisecond still have one order. This is the queue's own read, and it
    *  is what makes the queue a reader of durable state rather than of a list held in a process. */
@@ -376,11 +369,9 @@ export class ChatbotStore {
     return changed.changes > 0;
   }
 
-  /** Close one turn, in one transaction: its own row, the day's in-flight count and the conversation's
-   *  retention stamp.
+  /** Close one turn, in one transaction: its own row and the conversation's retention stamp.
    *
-   *  The three belong together. A turn that closed without releasing in-flight would hold a slot nobody can
-   *  free; a turn that closed without re-stamping its conversation would let a conversation be deleted while
+   *  A turn that closed without re-stamping its conversation would let a conversation be deleted while
    *  the visitor is still talking (the stamp is what the cleaner reads as "due"); and a turn whose core
    *  session id is known without being recorded would leave the cleaner with nothing to delete in core.
    *
@@ -409,24 +400,13 @@ export class ChatbotStore {
           now: input.now,
         });
       }
-      this.releaseInFlight(turn, input.now);
     });
-  }
-
-  /** One admitted turn leaves the day's in-flight count. The day is the one the turn was ADMITTED on, which
-   *  is where `admitTurn` counted it — a turn that runs past midnight must not decrement tomorrow's number
-   *  into the negative. A missing row is not repaired here: the counters are advisory and the boot reconcile
-   *  clears them. */
-  private releaseInFlight(turn: TurnRow, now: string): void {
-    this.stmt(`UPDATE p_chatbot_budget_days SET in_flight = in_flight - 1, updated_at = ?
-               WHERE chatbot_user_id = ? AND day = ? AND in_flight > 0`)
-      .run(now, turn.chatbot_user_id, utcDay(Date.parse(turn.created_at)));
   }
 
 
   /** Append one redacted event and return its sequence number. The row is committed before a caller may
    *  announce it, so a reconnect reads the same history a live subscriber saw. */
-  appendEvent(turnId: string, type: string, data: Record<string, unknown>, now: string): number {
+  appendEvent(turnId: string, type: StoredFrameType, data: Record<string, unknown>, now: string): number {
     return this.db.transaction(() => {
       const row = this.stmt('SELECT COALESCE(MAX(seq), 0) AS seq FROM p_chatbot_turn_events WHERE turn_id = ?').get(turnId) as { seq: number };
       const seq = row.seq + 1;
@@ -701,25 +681,19 @@ export class ChatbotStore {
   budgetDay(chatbotUserId: number, day: string): BudgetDayRow {
     return (this.stmt('SELECT * FROM p_chatbot_budget_days WHERE chatbot_user_id = ? AND day = ?')
       .get(chatbotUserId, day) as BudgetDayRow | undefined)
-      ?? { chatbot_user_id: chatbotUserId, day, admitted_turns: 0, in_flight: 0, updated_at: '' };
+      ?? { chatbot_user_id: chatbotUserId, day, admitted_turns: 0, updated_at: '' };
   }
 
   private bumpBudgetDay(chatbotUserId: number, day: string, now: string): void {
-    this.stmt(`INSERT INTO p_chatbot_budget_days (chatbot_user_id, day, admitted_turns, in_flight, updated_at)
-               VALUES (?, ?, 1, 1, ?)
+    this.stmt(`INSERT INTO p_chatbot_budget_days (chatbot_user_id, day, admitted_turns, updated_at)
+               VALUES (?, ?, 1, ?)
                ON CONFLICT (chatbot_user_id, day) DO UPDATE SET
                  admitted_turns = admitted_turns + 1,
-                 in_flight = in_flight + 1,
                  updated_at = excluded.updated_at`)
       .run(chatbotUserId, day, now);
   }
 
   // ── conversations and retention ─────────────────────────────────────────────────────────────────────
-
-  conversationOf(chatbotUserId: number, visitorId: string): ConversationRow | null {
-    return (this.stmt('SELECT * FROM p_chatbot_conversations WHERE chatbot_user_id = ? AND visitor_id = ?')
-      .get(chatbotUserId, visitorId) as ConversationRow | undefined) ?? null;
-  }
 
   /** Move one conversation's clock: its last activity, its due date, the core session it lives in and the
    *  visitor's last address.
@@ -789,18 +763,20 @@ export class ChatbotStore {
    *  crash cannot leave a conversation without its turns or turns without their conversation. */
   deleteConversation(conversation: ConversationRow): void {
     this.db.transaction(() => {
-      this.stmt('DELETE FROM p_chatbot_feedback WHERE chatbot_user_id = ? AND visitor_id = ?')
-        .run(conversation.chatbot_user_id, conversation.visitor_id);
-      this.stmt(`DELETE FROM p_chatbot_actions WHERE turn_id IN (
-                   SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`)
-        .run(conversation.chatbot_user_id, conversation.visitor_id);
-      this.stmt(`DELETE FROM p_chatbot_turn_events WHERE turn_id IN (
-                   SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?)`)
-        .run(conversation.chatbot_user_id, conversation.visitor_id);
-      this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ? AND visitor_id = ?')
-        .run(conversation.chatbot_user_id, conversation.visitor_id);
+      this.deleteConversationData(conversation.chatbot_user_id, conversation.visitor_id);
       this.stmt('DELETE FROM p_chatbot_conversations WHERE id = ?').run(conversation.id);
     });
+  }
+
+  /** Both bot deletion and conversation deletion remove the same turn-owned records. */
+  private deleteConversationData(chatbotUserId: number, visitorId: string | null): void {
+    const args = [chatbotUserId, visitorId, visitorId];
+    const turns = `SELECT turn_id FROM p_chatbot_turns WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)`;
+    this.stmt('DELETE FROM p_chatbot_feedback WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)').run(...args);
+    this.stmt(`DELETE FROM p_chatbot_handoffs WHERE action_id IN (SELECT id FROM p_chatbot_actions WHERE turn_id IN (${turns}))`).run(...args);
+    this.stmt(`DELETE FROM p_chatbot_actions WHERE turn_id IN (${turns})`).run(...args);
+    this.stmt(`DELETE FROM p_chatbot_turn_events WHERE turn_id IN (${turns})`).run(...args);
+    this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)').run(...args);
   }
 
   /** Tokens whose lifetime is over. Only the row is deleted: the token itself was never stored, and its
@@ -843,13 +819,6 @@ export class ChatbotStore {
     });
   }
 
-  /** Clear every day's in-flight count. Called by the boot reconcile only: this process runs no turn yet, so
-   *  the number is stale by definition, and a counter whose only writer is a `finally` would stay inflated
-   *  forever once a process died mid-turn. */
-  resetInFlight(now: string): number {
-    return this.stmt('UPDATE p_chatbot_budget_days SET in_flight = 0, updated_at = ? WHERE in_flight > 0').run(now).changes;
-  }
-
   // ── page actions ───────────────────────────────────────────────────────────────────────────────────
 
   /** The turn a visitor's action request belongs to: the one this visitor has RUNNING. A turn that is
@@ -873,7 +842,6 @@ export class ChatbotStore {
   createAction(input: {
     actionId: string;
     turnId: string;
-    snapshotId: string;
     kind: string;
     targetId: string | null;
     value: string | null;
@@ -885,14 +853,12 @@ export class ChatbotStore {
   }): ActionRow {
     return this.db.transaction(() => {
       this.stmt(`INSERT INTO p_chatbot_actions
-                   (id, turn_id, snapshot_id, action, target_id, request_json, status, requires_confirmation, confirmation_nonce_hash, created_at, expires_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                   (id, turn_id, action, request_json, status, requires_confirmation, confirmation_nonce_hash, created_at, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           input.actionId,
           input.turnId,
-          input.snapshotId,
           input.kind,
-          input.targetId,
           JSON.stringify({ schemaVersion: 1, kind: input.kind, targetId: input.targetId, value: input.value }),
           input.requiresConfirmation ? 'confirmation_required' : 'pending',
           input.requiresConfirmation ? 1 : 0,
@@ -1134,7 +1100,7 @@ function countOf(value: unknown): number | null {
 
 /** The instant a conversation becomes due, `retentionDays` after its last activity. */
 function dueAt(nowIso: string, retentionDays: number): string {
-  return new Date(Date.parse(nowIso) + retentionDays * 86_400_000).toISOString();
+  return new Date(Date.parse(nowIso) + retentionDays * DAY_MS).toISOString();
 }
 
 /** Decode one stored event payload. Only this plugin writes these rows, so a value that is not a JSON

@@ -138,15 +138,13 @@ describe('turns admitted today', () => {
     expect(host.calls).toHaveLength(1);
   });
 
-  it('releases the in-flight count when a turn settles', async () => {
+  it('keeps the admitted-turn count when a turn settles', async () => {
     let release: ((reply: string) => void) | null = null;
     host.handleTurn = () => new Promise<string | undefined>((resolve) => { release = resolve; });
     const issued = await issueToken(host);
     const accepted = await submit(issued.body.token as string, UUID);
-    expect(day().in_flight).toBe(1);
     release!('Dobrý den.');
     await settledTurn(host, (accepted.body as { turnId: string }).turnId);
-    expect(day().in_flight).toBe(0);
     expect(day().admitted_turns).toBe(1);
   });
 });

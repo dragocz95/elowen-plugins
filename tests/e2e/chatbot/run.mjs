@@ -725,12 +725,12 @@ try {
   // compromised server would; the only other click this run asked for is the ordinary consent box.
   const submitTarget = pageState.targets.find((candidate) => candidate.caps.includes('request_submit'));
   assert(submitTarget, 'the sample form described no submit button');
-  const clickRows = db.prepare('SELECT id, target_id FROM p_chatbot_actions WHERE action = ?').all('click');
+  const clickRows = db.prepare('SELECT id, request_json FROM p_chatbot_actions WHERE action = ?').all('click');
   const scenarioRow = clickRows.find((row) => row.id === hook.hostileActionId);
-  assert(scenarioRow && scenarioRow.target_id === submitTarget.id, `the scenario's own click row did not target the submit button: ${JSON.stringify(clickRows)}`);
+  assert(scenarioRow && JSON.parse(scenarioRow.request_json).targetId === submitTarget.id, `the scenario's own click row did not target the submit button: ${JSON.stringify(clickRows)}`);
   const approvedClicks = clickRows.filter((row) => row.id !== hook.hostileActionId);
   assert(
-    approvedClicks.length === 1 && approvedClicks[0].target_id !== submitTarget.id,
+    approvedClicks.length === 1 && JSON.parse(approvedClicks[0].request_json).targetId !== submitTarget.id,
     `the plugin approved a click it may not have: ${JSON.stringify(approvedClicks)}`,
   );
   pass('the server refused a click on a submit button, and the widget refused a hostile frame of the same kind');

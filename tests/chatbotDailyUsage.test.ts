@@ -25,7 +25,7 @@ describe('daily budget read model', () => {
   ])('reports exactly the admission verdict: $verdict', async ({ admitted, cost, turns, priced, verdict }) => {
     const host = createChatbotHost();
     registerBot(host);
-    host.db.prepare('INSERT INTO p_chatbot_budget_days VALUES (?, ?, ?, 0, ?)').run(12, day, admitted, new Date(NOW_MS).toISOString());
+    host.db.prepare('INSERT INTO p_chatbot_budget_days VALUES (?, ?, ?, ?)').run(12, day, admitted, new Date(NOW_MS).toISOString());
     host.db.prepare(`INSERT INTO usage_by_origin
       (day,user_id,origin,origin_kind,trusted,turns,input,output,cache_read,cache_write,total,cost,costed_turns,first_at,last_at)
       VALUES (?,12,'platform:chatbot','platform',1,?,0,0,1090000,0,1090000,?,?,?,?)`)
