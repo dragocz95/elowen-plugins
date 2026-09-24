@@ -8,6 +8,7 @@ import type { ChatbotBotView, ChatbotsAnswer } from '../plugins/chatbot/web-src/
 import { detectLocale, widgetStrings } from '../plugins/chatbot/embed-src/strings';
 import { ChatPanel } from '../plugins/chatbot/embed-src/chatPanel';
 import { HttpResponse, close, http, listen, resetHandlers, setDefaults, use } from './ui/http';
+import { TEST_LIMITS } from './helpers/chatbotHost.js';
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 
@@ -21,35 +22,13 @@ import { ensurePluginUiRuntime } from './ui/hostRuntime';
  *  harness answers it. */
 
 // deep-chat is the message renderer; it is a browser artifact and not what is under test here. The stub
-// keeps jsdom deterministic while the panel's own configuration — the thing the appearance decides — is
-// asserted as it really is.
-vi.mock('deep-chat', () => {
-  class StubChat extends HTMLElement {
-    onComponentRender?: (ref: unknown) => void;
-    connectedCallback(): void {
-      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-      this.onComponentRender?.(this);
-    }
-    getMessages(): { role?: string; text?: string }[] { return this._messages; }
-    addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
-    /** Like the real element: the submit path draws the message and hands it to the configured transport. */
-    submitUserMessage(content: { text?: string }): void {
-      this.addMessage({ role: 'user', text: content.text });
-      const connect = (this as unknown as { connect?: { handler?(body: unknown, signals: unknown): void } }).connect;
-      connect?.handler?.({ messages: [{ role: 'user', text: content.text }] }, {
-        onOpen: () => undefined, onResponse: () => undefined, onClose: () => undefined, stopClicked: {},
-      });
-    }
-    updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
-    disableSubmitButton(): void { /* renderer stub */ }
-    focusInput(): void { /* no focus in jsdom */ }
-    /** The panel scrolls a restored transcript to its end through this; jsdom has no layout, so it only has
-     *  to exist. */
-    scrollToBottom(): void { /* no layout in jsdom */ }
-    private readonly _messages: { role?: string; text?: string }[] = [];
-  }
-  if (!customElements.get('deep-chat')) customElements.define('deep-chat', StubChat);
-  return { DeepChat: StubChat };
+// lives in tests/helpers/deepChatStub.ts and keeps jsdom deterministic while the panel's own
+// configuration — the thing the appearance decides — is asserted as it really is. The mock factory
+// reaches the stub through a dynamic import because Vitest hoists vi.mock above the static imports.
+vi.mock('deep-chat', async () => {
+  const { DeepChatStub } = await import('./helpers/deepChatStub.js');
+  if (!customElements.get('deep-chat')) customElements.define('deep-chat', DeepChatStub);
+  return { DeepChat: DeepChatStub };
 });
 
 ensurePluginUiRuntime();
@@ -62,19 +41,9 @@ const SITE = 'https://www.example.cz';
 
 /** The limits the server reports for the fixture chatbot. The appearance editor never touches them, but the
  *  page it is opened from draws them, and a bot without them is not a bot this API can answer with: every
- *  field is present, null where the owner has not decided. */
-const LIMITS: LimitValues = {
-  rateIpPerMinute: 30,
-  rateChatbotPerMinute: 60,
-  rateConversationPerMinute: 10,
-  dailyTurnLimit: 200,
-  dailyCostMicrousd: null,
-  maxConcurrentTurns: 2,
-  maxQueueDepth: 4,
-  queueTimeoutSeconds: 60,
-  maxActionsPerTurn: 8,
-  retentionDays: 30,
-};
+ *  field is present, null where the owner has not decided. Shared with the other suites through the host
+ *  helper rather than restated here. */
+const LIMITS: LimitValues = { ...TEST_LIMITS };
 
 /** The chatbot the editor is opened on, typed as the view the plugin's own contract declares. The type is
  *  what a reader checks the fixture against; the runtime shape is what matters to the page, and a field the

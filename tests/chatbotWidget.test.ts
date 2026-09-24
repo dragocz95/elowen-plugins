@@ -27,61 +27,13 @@ import { CHATBOT_SITE, createChatbotHost, postRequest, registerBot } from './hel
  *  happens to it without the visitor's own click. */
 
 // deep-chat renders the messages; it is not what is under test here, and its bundle is a browser artifact.
-vi.mock('deep-chat', () => {
-  class StubChat extends HTMLElement {
-    history: unknown[] = [];
-    /** The real element calls this once its first render is done, which is what makes it able to take
-     *  messages. The stub renders the moment it reaches the document, so that is when it calls back. */
-    onComponentRender?: (ref: unknown) => void;
-    connectedCallback(): void {
-      if (!this.shadowRoot) {
-        const root = this.attachShadow({ mode: 'open' });
-        const list = document.createElement('div');
-        list.id = 'messages';
-        root.append(list);
-      }
-      this.onComponentRender?.(this);
-    }
-    getMessages(): { role?: string; text?: string; html?: string }[] { return this._messages; }
-    addMessage(message: { role?: string; text?: string; html?: string }): void {
-      this._messages.push(message);
-      const outer = document.createElement('div');
-      outer.className = `outer-message-container deep-chat-outer-container-role-${message.role ?? 'ai'}`;
-      const inner = document.createElement('div');
-      inner.className = 'inner-message-container';
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble text-message';
-      bubble.textContent = message.text ?? '';
-      inner.append(bubble);
-      outer.append(inner);
-      this.shadowRoot?.querySelector('#messages')?.append(outer);
-    }
-    updateMessage(message: { text?: string }, index: number): void {
-      this._messages[index] = { role: 'ai', ...message };
-      const bubble = this.shadowRoot?.querySelectorAll('.message-bubble')[index];
-      if (bubble) bubble.textContent = message.text ?? '';
-    }
-    /** Like the real element: the submit path draws the message and hands it to the configured transport,
-     *  whose signals are what put up the typing indicator. */
-    submitUserMessage(content: { text?: string }): void {
-      this.addMessage({ role: 'user', text: content.text });
-      this.submitted.push(content.text ?? '');
-      const connect = (this as unknown as { connect?: { handler?(body: unknown, signals: unknown): void } }).connect;
-      connect?.handler?.({ messages: [{ role: 'user', text: content.text }] }, {
-        onOpen: () => undefined, onResponse: () => undefined, onClose: () => undefined, stopClicked: {},
-      });
-    }
-    submitted: string[] = [];
-    focusInput(): void { /* no focus in jsdom */ }
-    disableSubmitButton(): void { /* no input validation in the renderer stub */ }
-    /** Unit tests cover the visibility gate; the browser regression measures actual scroll geometry. */
-    get clientHeight(): number { return this.closest('section')?.hidden ? 0 : 400; }
-    scrollToBottom(): void { this.scrolledToBottom += 1; }
-    scrolledToBottom = 0;
-    private readonly _messages: { role?: string; text?: string; html?: string }[] = [];
-  }
-  if (!customElements.get('deep-chat')) customElements.define('deep-chat', StubChat);
-  return { DeepChat: StubChat };
+// The stub lives in tests/helpers/deepChatStub.ts: the mock factory reaches it through a dynamic import
+// because Vitest hoists vi.mock above the static imports, and the custom-element registration stays
+// guarded beside it.
+vi.mock('deep-chat', async () => {
+  const { DeepChatStub } = await import('./helpers/deepChatStub.js');
+  if (!customElements.get('deep-chat')) customElements.define('deep-chat', DeepChatStub);
+  return { DeepChat: DeepChatStub };
 });
 
 const strings = widgetStrings('cs');

@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS } from '../../plugins/chatbot/src/appearanceContract';
+import { APPEARANCE_BOUNDS, APPEARANCE_ICONS, APPEARANCE_TEMPLATE_IDS, APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, BUTTON_HOVERS, LAUNCHER_NUDGES, MESSAGE_ENTRANCES, PANEL_POSITIONS, SOUND_TONES } from '../../plugins/chatbot/src/appearanceContract';
+import { LIMIT_FIELDS } from '../../plugins/chatbot/src/limits';
 
 /** Copy that ONLY a plugin's own views render lives in that plugin's manifest `web.strings`, and the
  *  bundle reads it through the runtime's `usePluginStrings(<plugin>)`. That record is untyped by
@@ -45,17 +46,22 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
     ],
   },
   // The limits form renders one field per entry of the chatbot's own limit table and reads
-  // `s[`limit_${field}`]`. The field names come from `plugins/chatbot/src/limits.ts`, the same table the
-  // server enforces the numbers from — one table, so the list below is the whole set it can produce.
+  // `s[`limit_${field}`]`, `s[`limitHint_${field}`]` and `s[`limitUnit_${field}`]`. The field names come
+  // from `plugins/chatbot/src/limits.ts`, the same table the server enforces the numbers from — one
+  // table, so the lists below are the whole sets each read can produce. Only two limits carry a unit in
+  // the manifest (`days`, `s`); a missing unit reads as the empty string and prints no unit, so those two
+  // keys are the complete `limitUnit_` family.
   {
     file: 'chatbot/web-src/LimitsModal.tsx',
     keys: [
-      'limit_rateIpPerMinute', 'limit_rateChatbotPerMinute', 'limit_rateConversationPerMinute',
-      'limit_dailyTurnLimit', 'limit_dailyCostMicrousd',
-      'limit_maxConcurrentTurns', 'limit_maxQueueDepth', 'limit_queueTimeoutSeconds',
-      'limit_maxActionsPerTurn', 'limit_retentionDays',
+      ...LIMIT_FIELDS.map((field) => `limit_${field}`),
+      ...LIMIT_FIELDS.map((field) => `limitHint_${field}`),
+      'limitUnit_queueTimeoutSeconds',
+      'limitUnit_retentionDays',
     ],
   },
+  // The panel positions read `s[`appearancePosition${Side}`]` with a camel-cased side. The sides come from
+  // `PANEL_POSITIONS` in the same appearance contract; the remaining option reads carry their prefixes.
   {
     file: 'chatbot/web-src/AppearanceModal.tsx',
     keys: [
@@ -64,6 +70,11 @@ const COMPUTED_READS: { file: string; keys: string[] }[] = [
       ...Object.keys(APPEARANCE_BOUNDS).map(key => `appearanceHint_${key}`),
       ...Object.keys(APPEARANCE_FONT_STACKS).map(key => `appearanceFont_${key}`),
       ...Object.keys(APPEARANCE_SHADOWS).map(key => `appearanceShadow_${key}`),
+      ...BUTTON_HOVERS.map((value) => `appearanceHover_${value}`),
+      ...MESSAGE_ENTRANCES.map((value) => `appearanceEntrance_${value}`),
+      ...LAUNCHER_NUDGES.map((value) => `appearanceNudge_${value}`),
+      ...SOUND_TONES.map((value) => `appearanceTone_${value}`),
+      ...PANEL_POSITIONS.map((value) => `appearancePosition${value.split('-').map((part) => part[0]!.toUpperCase() + part.slice(1)).join('')}`),
     ],
   },
   // A turn's own state is read as `s[`turnStatus_${status}`]`. The statuses are the plugin's own turn table
@@ -194,11 +205,12 @@ const foreignDeclaration = (name: string): RegExp =>
   // backtracks to zero and the negative lookahead passes on every declaration, including the intended ones.
   new RegExp(`(?:const|let|var)\\s+${name}\\s*=(?!\\s*(?:[\\w$.]+\\.)?usePluginStrings\\()`, 'g');
 
-interface Scan { statik: Read[]; computed: { plugin: string; where: string }[]; shadowed: string[]; sites: number; files: number }
+interface Scan { statik: Read[]; computed: { plugin: string; where: string }[]; prefixes: { plugin: string; where: string; prefix: string }[]; shadowed: string[]; sites: number; files: number }
 
 function collect(pluginsDir: string = PLUGINS): Scan {
   const statik: Read[] = [];
   const computed: { plugin: string; where: string }[] = [];
+  const prefixes: { plugin: string; where: string; prefix: string }[] = [];
   const shadowed: string[] = [];
   let sites = 0;
   let files = 0;
@@ -217,14 +229,21 @@ function collect(pluginsDir: string = PLUGINS): Scan {
           statik.push({ plugin: owner, key: key!, where });
         }
         if (new RegExp(`\\b${name}\\[`).test(source)) computed.push({ plugin: owner, where });
+        // The static head of a template computed read (`s[`limitHint_${field}`]` → `limitHint_`): what
+        // pins a newly introduced prefix to a declared family below. A fully dynamic read
+        // (`s[col.labelKey]`) has no head and stays covered only by the file-level declaration above.
+        // The trailing `$` of the `${` opener is not part of the head.
+        for (const [, raw] of source.matchAll(new RegExp(`\\b${name}\\[\\s*\`([A-Za-z_$][\\w$]*)`, 'g'))) {
+          prefixes.push({ plugin: owner, where, prefix: raw!.replace(/\$$/, '') });
+        }
       }
     }
   }
-  return { statik, computed, shadowed, sites, files };
+  return { statik, computed, prefixes, shadowed, sites, files };
 }
 
 describe('plugin web bundles against their own manifest strings', () => {
-  const { statik, computed, shadowed, sites, files } = collect();
+  const { statik, computed, prefixes, shadowed, sites, files } = collect();
 
   // A file that reuses the binding's name for something else is skipped by the scan above, which would
   // quietly take its reads outside the check — so it fails here instead, naming the file to rename in.
@@ -275,6 +294,21 @@ describe('plugin web bundles against their own manifest strings', () => {
       const plugin = entry.file.split('/')[0]!;
       const strings = manifestStrings(PLUGINS, plugin);
       for (const key of entry.keys) if (!strings.has(key)) missing.push(`${entry.file}: ${plugin}.${key}`);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every computed template prefix with a declared key family', () => {
+    // The file-level declaration above cannot see a PARTIAL entry: a file reading `s[`limitHint_${f}`]`
+    // while declaring only `limit_*` keys passes it. Every static template head a bundle reads must
+    // therefore start at least one key its own file declares — a newly introduced prefix with no
+    // corresponding family fails here until it is declared.
+    const byFile = new Map(COMPUTED_READS.map((entry) => [entry.file, entry.keys]));
+    const missing: string[] = [];
+    for (const { where, prefix } of prefixes) {
+      const keys = byFile.get(where);
+      if (!keys) continue; // no declaration at all: the test above already fails that file
+      if (!keys.some((key) => key.startsWith(prefix))) missing.push(`${where}: prefix "${prefix}" has no declared key family`);
     }
     expect(missing).toEqual([]);
   });
