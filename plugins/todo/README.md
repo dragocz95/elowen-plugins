@@ -8,8 +8,8 @@ Install **todo** from **Settings → Plugins → Available**, then enable it.
 
 | Field | Value |
 | --- | --- |
-| Version | 0.14.15 |
-| requiresCore | 0.28.50 |
+| Version | 0.14.17 |
+| requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 
 This plugin has no configuration fields.

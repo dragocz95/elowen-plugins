@@ -8,7 +8,7 @@ Install **skills** from **Settings → Plugins → Available**, then grant it to
 
 | Field | Value |
 | --- | --- |
-| Version | 0.5.0 |
+| Version | 0.5.1 |
 | requiresCore | 0.28.52 |
 | requiresSharedApi | none |
 

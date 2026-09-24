@@ -8,7 +8,7 @@ Install **onedrive** from **Settings → Plugins → Available**, connect a Micr
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.0 |
+| Version | 0.3.2 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 

@@ -8,8 +8,8 @@ Install **sites** from **Settings → Plugins → Available**, configure publica
 
 | Field | Value |
 | --- | --- |
-| Version | 0.14.5 |
-| requiresCore | 0.28.50 |
+| Version | 0.14.11 |
+| requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 
 Configure default visibility, public-site policy, publishers, per-account site limits, session lifetime, gateway target, and contact address in the plugin settings.
