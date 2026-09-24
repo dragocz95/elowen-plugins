@@ -95,7 +95,6 @@
       "lastSync": "Last sync",
       "never": "Never",
       "files": "Files",
-      "folder": "Folder",
       "openFolder": "Open in OneDrive",
       "workspaces": "Sandbox workspaces",
       "workspacesHint": "Each workspace is mirrored into its own folder, separate from the project itself.",

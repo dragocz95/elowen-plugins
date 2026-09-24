@@ -40,7 +40,6 @@
       "lastSync": "Poslední synchronizace",
       "never": "Nikdy",
       "files": "Soubory",
-      "folder": "Složka",
       "openFolder": "Otevřít v OneDrive",
       "workspaces": "Pracovní prostory sandboxu",
       "workspacesHint": "Každý pracovní prostor se synchronizuje do vlastní složky, odděleně od projektu.",
