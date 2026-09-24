@@ -1,7 +1,7 @@
 ---
 title: Image Editing
 slug: image-edit
-order: 42
+order: 67
 eyebrow: Plugin reference
 group: Plugin reference
 ---

@@ -1,7 +1,7 @@
 ---
 title: Project Editor
 slug: editor-plugin
-order: 39
+order: 60
 eyebrow: Plugin reference
 group: Plugin reference
 ---

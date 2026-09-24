@@ -1,7 +1,7 @@
 ---
 title: Chatbot Plugin
 slug: chatbot-plugin
-order: 42
+order: 65
 eyebrow: Plugin reference
 group: Plugin reference
 ---

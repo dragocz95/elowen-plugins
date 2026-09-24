@@ -1,7 +1,7 @@
 ---
 title: Language Server (LSP)
 slug: lsp-plugin
-order: 39
+order: 59
 eyebrow: Plugin reference
 group: Plugin reference
 ---

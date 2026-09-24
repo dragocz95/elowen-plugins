@@ -1,7 +1,7 @@
 ---
 title: Discord Plugin
 slug: discord-plugin
-order: 38
+order: 62
 eyebrow: Plugin reference
 group: Plugin reference
 ---

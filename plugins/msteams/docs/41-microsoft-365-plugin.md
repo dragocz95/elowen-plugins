@@ -1,7 +1,7 @@
 ---
 title: Microsoft Teams & Microsoft 365
 slug: microsoft-365-plugin
-order: 41
+order: 38
 eyebrow: Plugin reference
 group: Plugin reference
 ---

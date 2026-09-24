@@ -1,7 +1,7 @@
 ---
 title: Semantic Code Search (Codebase)
 slug: codebase-plugin
-order: 39
+order: 58
 eyebrow: Plugin reference
 group: Plugin reference
 ---

@@ -1,7 +1,7 @@
 ---
 title: Telegram Plugin
 slug: telegram-plugin
-order: 39
+order: 63
 eyebrow: Plugin reference
 group: Plugin reference
 ---

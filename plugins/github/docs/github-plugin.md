@@ -1,7 +1,7 @@
 ---
 title: GitHub
 slug: github-plugin
-order: 39
+order: 61
 eyebrow: Plugin reference
 group: Plugin reference
 ---

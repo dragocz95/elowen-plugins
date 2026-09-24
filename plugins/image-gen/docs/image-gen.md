@@ -1,7 +1,7 @@
 ---
 title: Image Generation
 slug: image-gen
-order: 42
+order: 66
 eyebrow: Plugin reference
 group: Plugin reference
 ---

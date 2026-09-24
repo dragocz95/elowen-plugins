@@ -1,7 +1,7 @@
 ---
 title: WhatsApp Plugin
 slug: whatsapp-plugin
-order: 40
+order: 64
 eyebrow: Plugin reference
 group: Plugin reference
 ---
