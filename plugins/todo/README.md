@@ -14,4 +14,4 @@ Install **todo** from **Settings → Plugins → Available**, then enable it.
 
 This plugin has no configuration fields.
 
-See the [Task List page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/47-todo-plugin.md).
+See the [Task List reference](docs/todo-plugin.md).

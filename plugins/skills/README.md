@@ -14,4 +14,4 @@ Install **skills** from **Settings → Plugins → Available**, then grant it to
 
 This plugin has no configuration fields.
 
-See the [Skills Plugin page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/45-skills-plugin.md).
+See the [Skills Plugin reference](docs/skills-plugin.md).

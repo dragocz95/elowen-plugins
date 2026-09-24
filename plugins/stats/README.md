@@ -14,4 +14,4 @@ Install **stats** from **Settings → Plugins → Available**, then enable it.
 
 This plugin has no configuration fields.
 
-See the [Usage Statistics page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/46-stats-plugin.md).
+See the [Usage Statistics reference](docs/stats-plugin.md).

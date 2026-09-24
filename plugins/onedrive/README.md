@@ -14,4 +14,4 @@ Install **onedrive** from **Settings → Plugins → Available**, connect a Micr
 
 Configure the root folder, sync interval, file-size limit, extra ignore patterns, and remote-deletion policy in the plugin settings.
 
-See the [OneDrive Mirror page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/43-onedrive-plugin.md).
+See the [OneDrive Mirror reference](docs/onedrive-plugin.md).
