@@ -10,7 +10,7 @@ import { ChatbotStore } from '../../plugins/chatbot/src/store.js';
 import { migrate } from '../../plugins/chatbot/src/db.js';
 import { newPublicId, newSecret } from '../../plugins/chatbot/src/token.js';
 import { DEFAULT_LIMITS, type LimitValues } from '../../plugins/chatbot/src/limits.js';
-import type { ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
+import type { ChatbotConversationFiles, ChatbotHookRequest, ChatbotProjectView, ChatbotRelayEvent, ChatbotStores } from '../../plugins/chatbot/src/coreSeams.js';
 
 /** The fake host every chatbot suite drives the public path against.
  *
@@ -71,6 +71,7 @@ export interface ChatbotHost {
   /** The page-action half: the same service the tool asks and the public route reports to. */
   actions: PageActionService;
   stores: ChatbotStores;
+  files: ChatbotConversationFiles;
   /** Every listing the plugin asked core's projection for, in order, so a test can see WHICH scope the
    *  plugin asked for rather than only which titles came back. */
   conversationReads: { actorUserId: number; ownerUserId?: number | null }[];
@@ -182,12 +183,31 @@ export function createChatbotHost(options: {
   let clockMs = NOW_MS;
   const now = (): Date => new Date(clockMs);
 
+  const uploaded = new Map<string, Uint8Array>();
+  const files: ChatbotConversationFiles = {
+    uploadProjectImage: async ({ botUserId, visitorScope, name, size, body }) => {
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of body) chunks.push(chunk);
+      const bytes = Buffer.concat(chunks);
+      if (bytes.length !== size) throw new Error('size mismatch');
+      const receipt = { path: `/guest/uploads/${visitorScope}/${name}`, relative: `uploads/${visitorScope}/${name}`,
+        name, size, visitorScope, project: { id: botUserId, slug: 'bot' } };
+      uploaded.set(receipt.path, bytes);
+      return receipt;
+    },
+    readProjectImage: async ({ receipt }) => {
+      const bytes = uploaded.get(receipt.path);
+      return bytes ? { bytes: Buffer.from(bytes), mimeType: 'image/png' } : null;
+    },
+    readShared: () => null,
+  };
   const host: ChatbotHost = {
     db,
     store,
     adapter,
     broker,
     stores,
+    files,
     conversationReads,
     calls,
     warnings,
@@ -222,6 +242,7 @@ export function createChatbotHost(options: {
     store,
     adapter,
     broker,
+    files,
     now: () => now().toISOString(),
     warn,
     schedule: (turnId, delayMs, fn) => {
@@ -244,6 +265,7 @@ export function createChatbotHost(options: {
     queue: host.queue,
     adapter,
     stores,
+    files,
     broker,
     actions: host.actions,
     pingIntervalMs: options.pingIntervalMs ?? STREAM_PING_INTERVAL_MS,
@@ -270,6 +292,7 @@ export function publicRequest(input: {
   origin?: typeof TRUSTED_REQUEST_ORIGIN | null;
   acceptsStreamBody?: boolean;
   query?: Record<string, string>;
+  stream?: ReadableStream<Uint8Array>;
 }): ChatbotHookRequest {
   const origin = input.origin === undefined ? TRUSTED_REQUEST_ORIGIN : input.origin;
   return {
@@ -280,6 +303,7 @@ export function publicRequest(input: {
     headers: input.headers ?? {},
     body: () => Promise.resolve(Buffer.from(JSON.stringify(input.body ?? {}), 'utf8')),
     json: () => Promise.resolve(input.body ?? {}),
+    ...(input.stream ? { stream: () => input.stream! } : {}),
     ...(input.acceptsStreamBody === false ? {} : { acceptsStreamBody: true }),
   } as ChatbotHookRequest;
 }

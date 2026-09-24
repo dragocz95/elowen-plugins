@@ -187,7 +187,7 @@ describe('strict payloads', () => {
     expect(isCanonicalUuid(uuid)).toBe(true);
     expect(isCanonicalUuid('2F1A4C3E-9B7D-4F6A-8C2E-1D5B7A9F0C34')).toBe(false);
     expect(validateTurnSubmission(turn({ clientTurnId: 'nope' }))).toMatchObject({ ok: false });
-    expect(validateTurnSubmission(turn())).toEqual({ ok: true, value: { clientTurnId: uuid, message: 'ahoj', page } });
+    expect(validateTurnSubmission(turn())).toEqual({ ok: true, value: { clientTurnId: uuid, message: 'ahoj', page, uploadId: null } });
   });
 
   it('bounds the message by BYTES and refuses an empty one', () => {
