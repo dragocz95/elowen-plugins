@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.14.12",
+  "version": "0.14.13",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Publish an application from a selected managed Project and preview it. Each site has its own visibility settings.",

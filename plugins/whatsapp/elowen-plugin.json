@@ -1,6 +1,6 @@
 {
   "name": "whatsapp",
-  "version": "0.2.26",
+  "version": "0.2.27",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "requiresSharedApi": 5,
