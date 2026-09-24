@@ -28,11 +28,13 @@ const transport = {
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
   // Forward the trigger quote exactly like postFinalText does for text: the image reply keeps its link
   // to the message it answers. The adapter quotes only the first image (matching sendText's first piece).
-  postImages: (a, jid, data, quoted) => a.sendImages(jid, data, quoted),
+  // The fifth argument is the agent's caption for the shared images (see the shared engine's finalize);
+  // the adapter puts it on the first image message, where Baileys renders it as the message's text.
+  postImages: (a, jid, data, quoted, caption) => a.sendImages(jid, data, quoted, caption),
   // Files the agent shared (ShareFile) go out as document messages, which keep the name and the bytes an
-  // image message would re-encode away.
+  // image message would re-encode away. The caption rides along the same way as for images.
   hasFiles: (a) => typeof a.resolveSharedFiles === 'function' && typeof a.sendDocuments === 'function',
-  postFiles: (a, jid, data, quoted) => a.sendDocuments(jid, data, quoted),
+  postFiles: (a, jid, data, quoted, caption) => a.sendDocuments(jid, data, quoted, caption),
 };
 
 // WhatsApp renders plain text (nothing to escape for mentions/fences), `*bold*` titles, no strikethrough on

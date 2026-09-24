@@ -357,3 +357,60 @@ describe('whatsapp delivers a shared file and retires a settled question through
     expect(wire.some((m) => m.edit)).toBe(false);
   });
 });
+
+/** The shared engine hands the agent's caption to the transport as the fifth argument; WhatsApp used to
+ *  drop it, so a shared picture arrived with no words about what it is. These drive a captioned event
+ *  THROUGH the installed engine into the adapter's send methods. */
+describe('whatsapp forwards the agent caption onto the first image/document message', () => {
+  const IMAGE = `${'b'.repeat(64)}.png`;
+
+  const mkCaptionAdapter = async () => {
+    const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as { WhatsAppAdapter: new (...args: unknown[]) => any };
+    const { LiveMessage } = await import(join(repoRoot, 'plugins/whatsapp/lib/stream.mjs')) as {
+      LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+    };
+    const seen: { images: { files: { name: string }[]; caption: unknown }[]; documents: { files: { name: string }[]; caption: unknown }[] } = { images: [], documents: [] };
+    const root = mkdtempSync(join(tmpdir(), 'elowen-whatsapp-caption-'));
+    const state = { get: () => ({}), patch: () => {} };
+    const adapter = new WhatsAppAdapter(
+      { language: 'en', runtimeFooter: false }, log, state, async () => [],
+      [], root, join(root, 'qr.png'), () => false, () => [],
+    );
+    adapter.resolveImageFiles = (names: string[]) => names.map((name) => ({ name, data: Buffer.from('PNG') }));
+    adapter.resolveSharedFiles = (refs: { ref: string; name: string }[]) => refs.map((ref) => ({ name: ref.name, data: Buffer.from('PDF-BYTES') }));
+    adapter.sendImages = async (_jid: string, files: { name: string }[], _quoted: unknown, caption: unknown) => {
+      seen.images.push({ files, caption });
+    };
+    adapter.sendDocuments = async (_jid: string, files: { name: string }[], _quoted: unknown, caption: unknown) => {
+      seen.documents.push({ files, caption });
+    };
+    adapter.sendText = async () => {};
+    return { adapter, LiveMessage, seen, root };
+  };
+
+  it('puts the image caption on the image send', async () => {
+    const { adapter, LiveMessage, seen, root } = await mkCaptionAdapter();
+    try {
+      const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+      lm.onEvent({ type: 'image', ref: `/api/brain/chat-images/${IMAGE}`, caption: 'The August report chart' });
+      await lm.finalize('Here is the chart.');
+      expect(seen.images).toHaveLength(1);
+      expect(seen.images[0].caption).toBe('The August report chart');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('puts the file caption on the document send', async () => {
+    const { adapter, LiveMessage, seen, root } = await mkCaptionAdapter();
+    try {
+      const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+      lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${'a'.repeat(64)}.bin`, name: 'report.pdf', size: 9, caption: 'The full report' });
+      await lm.finalize('Attached.');
+      expect(seen.documents).toHaveLength(1);
+      expect(seen.documents[0].caption).toBe('The full report');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
