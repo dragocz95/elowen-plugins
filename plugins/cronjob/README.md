@@ -14,4 +14,4 @@ Install **cronjob** from **Settings → Plugins → Available**, then grant it t
 
 Configure polling, retry, backoff, output, lookback, per-user job count, and minimum interval limits in the plugin settings.
 
-See the [Scheduling Plugin page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/41-cronjob-plugin.md).
+See the [Scheduling Plugin page in the Elowen user manual](https://elowen.run/docs/cronjob-plugin).
