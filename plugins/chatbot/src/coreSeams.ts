@@ -1,4 +1,4 @@
-import type { PluginContext, PluginHttpRequest, PluginHttpResponse, PluginHostStores, PluginUserView, SessionSource } from 'elowen/plugin-api';
+import type { PluginContext, PluginHttpRequest, PluginHttpResponse, PluginHostStores, PluginUserView, SessionSource, PluginToolRegistrationOptions } from 'elowen/plugin-api';
 
 /** The host contracts this plugin consumes that the published `elowen` package does not type yet.
  *
@@ -108,7 +108,8 @@ export interface ChatbotStores extends Omit<PluginHostStores, 'projects' | 'user
 
 /** The host surface this plugin uses, narrowed to what it calls. Every member exists on a core whose
  *  `requiresCore` this manifest declares; the restatement is about TYPE availability, not capability. */
-export type ChatbotContext = Omit<PluginContext, 'host' | 'registerHttpRoute' | 'registerPlatform'> & {
+export type ChatbotContext = Omit<PluginContext, 'host' | 'registerHttpRoute' | 'registerPlatform' | 'registerTool'> & {
+  registerTool: (tool: Parameters<PluginContext['registerTool']>[0], opts?: PluginToolRegistrationOptions & { platform?: string }) => void;
   host: Omit<PluginContext['host'], 'stores'> & { stores(): ChatbotStores };
   registerHttpRoute(route: {
     path: string;

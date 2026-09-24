@@ -44,13 +44,15 @@ it('replaces the offer for restore, while streaming both durable offer frames wi
   host.store.markTurnRunning(turnId, '2026-09-23T17:00:01.000Z');
   type Tool = { execute: (id: string, input: unknown) => Promise<{ details: Record<string, unknown> }> };
   let tool: Tool | null = null;
+  let registration: unknown;
   const ctx = {
     currentIdentity: () => ({ platform: 'chatbot', userId: visitorId, elowenUserId: 12 }),
     host: { stores: () => host.stores },
-    registerTool: (value: Tool) => { tool = value; },
+    registerTool: (value: Tool, opts: unknown) => { tool = value; registration = opts; },
   } as unknown as ChatbotContext;
   registerOfferTool({ ctx, store: host.store, broker: host.broker, now: () => '2026-09-23T17:00:02.000Z' });
   expect(tool).not.toBeNull();
+  expect(registration).toEqual({ platform: 'chatbot' });
   expect((await tool!.execute('blocked', { cards: [{ title: 'No', imageUrl: 'https://off-origin.example/pixel' }] })).details.status).toBe('refused');
   expect(host.store.events(turnId)).toHaveLength(0);
   const first = { choices: [{ label: 'First' }] };

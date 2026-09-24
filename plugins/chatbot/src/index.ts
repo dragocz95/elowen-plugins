@@ -124,9 +124,8 @@ export function register(published: PluginContext): void {
     handler: async (req) => publicRoute(req),
   });
 
-  // The one thing a turn may do to the visitor's page. Registered instance-wide: a chatbot account is
-  // created by an administrator at any time, so there is no single owner to scope it to. The tool itself
-  // refuses every turn that is not a live chatbot visitor turn.
+  // Visitor-only tools are registered once for all chatbot accounts. The platform-scoped
+  // declarations never reach owner or delegated conversations; execution still verifies the live turn.
   registerPageActionTool({ ctx, store, service: actions });
   registerOfferTool({ ctx, store, broker, now: () => now().toISOString() });
   // The page a visitor is writing from reaches the model beside their message, never inside it, so the

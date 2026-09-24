@@ -1,6 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { findVisitorTurn } from './visitorTurn.js';
 import { OFFER_SCHEMA, validateOffer } from './validation.js';
+import { CHATBOT_PLATFORM } from './adapter.js';
 export const OFFER_TOOL_NAME = 'ChatbotOffer';
 export function registerOfferTool(deps) {
     const { ctx, store, broker, now } = deps;
@@ -20,5 +21,5 @@ export function registerOfferTool(deps) {
             broker.publish(live.turn.turn_id);
             return { content: [{ type: 'text', text: 'Offer attached to this answer.' }], details: { status: 'done' } };
         },
-    }));
+    }), { platform: CHATBOT_PLATFORM });
 }

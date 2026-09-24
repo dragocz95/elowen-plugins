@@ -6,6 +6,7 @@ import type { ChatbotContext } from './coreSeams.js';
 import type { ChatbotStore } from './store.js';
 import type { TurnRow } from './db.js';
 import { findVisitorTurn } from './visitorTurn.js';
+import { CHATBOT_PLATFORM } from './adapter.js';
 
 /** The tool a turn calls to do something on the visitor's own page.
  *
@@ -107,7 +108,7 @@ export function registerPageActionTool(deps: PageActionToolDeps): void {
       });
       return text(sentenceFor(answer), detailsOf(answer));
     },
-  }));
+  }), { platform: CHATBOT_PLATFORM });
 }
 
 /** What the model reads. One sentence per outcome, and never a word about anything the tool was not asked
