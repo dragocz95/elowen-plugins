@@ -1,4 +1,5 @@
 import { runtime } from './runtime';
+import { botLabel } from './format';
 import type { ChatbotBotView } from './types';
 
 /** WHICH CHATBOT a read-only section is about.
@@ -23,7 +24,7 @@ export function BotPicker({ bots, value, onChange, label, disabled }: {
       disabled={disabled}
       value={String(value)}
       onChange={(next: string) => onChange(Number(next))}
-      options={bots.map((bot) => ({ value: String(bot.chatbotUserId), label: bot.displayName || s.botFallback }))}
+      options={bots.map((bot) => ({ value: String(bot.chatbotUserId), label: botLabel(bot, s) }))}
     />
   );
 }

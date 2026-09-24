@@ -516,6 +516,16 @@ describe('the feedback section', () => {
     await waitFor(() => expect(asked.feedback.at(-1)).toEqual({ chatbotUserId: '14', rating: 'up' }));
     expect(await screen.findByText(strings.feedbackEmpty!)).toBeInTheDocument();
   });
+
+  it('marks phone-only feedback content with the static phone-only class', async () => {
+    // The phone-only spans must carry the literal class Tailwind generates: it is referenced through the
+    // TABLE_PHONE_ONLY constant, never built dynamically, so the scanner keeps seeing it in the source.
+    renderSection('feedback');
+    await screen.findByText('Office hours are Monday to Friday.');
+    const phoneOnly = screen.getByText(/Městský úřad · /);
+    expect(phoneOnly).toHaveClass('@min-[40rem]:hidden');
+    expect(phoneOnly.textContent).toContain('Městský úřad');
+  });
 });
 
 describe('the chatbots section', () => {
@@ -693,6 +703,48 @@ describe('the chatbots section', () => {
     await waitFor(() => expect(asked.botPatch.at(-1)).toMatchObject({ action: 'enable' }), { timeout: 3000 });
   });
 
+  it('reports a failed auto-save with the server reason and recovers on the next edit', async () => {
+    // The first save is refused; the drawer names the server's reason, and the next edit saves cleanly
+    // and clears it. The autosave status error is a fixed message of its own — the drawer keeps showing
+    // the server's answer, not a stale copy of it.
+    let failNext = true;
+    use(http.patch('/api/plugins/chatbot/api/bots', async ({ request }) => {
+      const body = await request.json() as Record<string, unknown>;
+      asked.botPatch.push(body);
+      if (failNext) {
+        failNext = false;
+        return HttpResponse.json({ error: 'save_failed' }, { status: 500 });
+      }
+      return HttpResponse.json({
+        bot: {
+          ...bot,
+          chatbotUserId: Number(body.chatbotUserId),
+          displayName: String(body.displayName ?? ''),
+          origins: Array.isArray(body.origins) ? body.origins as string[] : bot.origins,
+          limits: (body.limits ?? bot.limits) as LimitValues,
+          missingLimits: LIMIT_FIELDS.filter((field) => field in MANDATORY_LIMITS && (body.limits as LimitValues)[field] === null),
+          maySubmitForms: typeof body.maySubmitForms === 'boolean' ? body.maySubmitForms : bot.maySubmitForms,
+          status: body.action === 'disable' ? 'disabled' : body.action === 'enable' ? 'enabled' : bot.status,
+          updatedAt: '2026-09-21T17:00:00.000Z',
+        },
+      });
+    }));
+    renderSection('bots');
+    await settled();
+    await screen.findByText('Městský úřad');
+    const drawer = await openBot('Městský úřad');
+
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
+    expect(await within(drawer).findByText('save_failed')).toBeInTheDocument();
+
+    // Toggling back reaches the value the server already holds, so nothing is dirty and nothing saves;
+    // one more toggle is a new edit, which saves cleanly and clears the server reason.
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
+    fireEvent.click(within(drawer).getByRole('switch', { name: strings.maySubmitFormsLabel! }));
+    await waitFor(() => expect(asked.botPatch).toHaveLength(2), { timeout: 3000 });
+    await waitFor(() => expect(within(drawer).queryByText('save_failed')).not.toBeInTheDocument());
+  });
+
   it('states the sensitive-data mode as unavailable instead of offering a switch it would refuse', async () => {
     renderSection('bots');
     await settled();
@@ -843,6 +895,19 @@ describe('the conversations section', () => {
     expect(screen.queryByText('Office hours')).not.toBeInTheDocument();
     expect(asked.conversations).toEqual([bot.chatbotUserId, second.chatbotUserId]);
     await waitFor(() => expect(asked.visitors).toEqual([bot.chatbotUserId, second.chatbotUserId]));
+  });
+
+  it('shows an unexpected turn status raw instead of a blank badge', async () => {
+    // No manifest string names this status, so the host answers the key with the empty string: the badge
+    // must read the raw status rather than rendering nothing.
+    use(http.get('/api/plugins/chatbot/api/conversations', ({ url }) => {
+      const conversations = conversationsOf(Number(url.searchParams.get('chatbotUserId')))
+        .map((conversation) => ({ ...conversation, lastStatus: 'mystery' }));
+      return HttpResponse.json({ conversations, total: conversations.length, limit: 25, offset: 0 });
+    }));
+    await openConversations();
+    // Every fixture row carries the unknown status, and every badge reads it raw.
+    await waitFor(() => expect(screen.getAllByText('mystery')).toHaveLength(3));
   });
 
   it('gives each visitor\'s address and last activity their own columns, and says so when no address was kept', async () => {
@@ -1201,6 +1266,42 @@ describe('the statistics section', () => {
     await openStats();
     expect(await screen.findByText(strings.statsLoadError!, { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('keeps the newer counters answer when an older one resolves last', async () => {
+    // Two reads in flight at once: the first chatbot's, then the second's after the picker moves. The
+    // older answer resolving last must not paint under the newer one.
+    const statsOf = (chatbotUserId: number, turns: number) => ({
+      chatbotUserId,
+      from: '2026-09-21',
+      to: '2026-09-21',
+      days: [{ day: '2026-09-21', turns, done: turns, errors: 0 }],
+      spend: [{ day: '2026-09-21', usage: { turns, tokens: turns * 100, costUsd: turns, costedTurns: turns } }],
+      totals: { turns, done: turns, errors: 0, queued: 0, running: 0 },
+      queueWait: { samples: 0, p50Seconds: null, p95Seconds: null },
+    });
+    let resolveOlder!: (response: Response) => void;
+    let resolveNewer!: (response: Response) => void;
+    const gateOlder = new Promise<Response>((resolve) => { resolveOlder = resolve; });
+    const gateNewer = new Promise<Response>((resolve) => { resolveNewer = resolve; });
+    use(http.get('/api/plugins/chatbot/api/stats', ({ url }) => {
+      const chatbotUserId = Number(url.searchParams.get('chatbotUserId'));
+      asked.stats.push(chatbotUserId);
+      return chatbotUserId === bot.chatbotUserId ? gateOlder : gateNewer;
+    }));
+    await openStats();
+    await waitFor(() => expect(asked.stats).toEqual([bot.chatbotUserId]));
+
+    fireEvent.change(screen.getByRole('combobox', { name: strings.pickerLabel! }), { target: { value: String(second.chatbotUserId) } });
+    await waitFor(() => expect(asked.stats).toEqual([bot.chatbotUserId, second.chatbotUserId]));
+
+    resolveNewer(HttpResponse.json(statsOf(second.chatbotUserId, 1)));
+    expect(await screen.findByText('1 turns · 100 tokens · $1.00')).toBeInTheDocument();
+    resolveOlder(HttpResponse.json(statsOf(bot.chatbotUserId, 9)));
+    await waitFor(() => expect(asked.stats).toHaveLength(2));
+    // The late older answer must not repaint the chart or the spend line.
+    expect(screen.queryByText('9 turns · 900 tokens · $9.00')).not.toBeInTheDocument();
+    expect(screen.getByText('1 turns · 100 tokens · $1.00')).toBeInTheDocument();
   });
 });
 

@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageSquareHeart, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
-import { TABLE_MOBILE_HIDDEN } from '../src/adminContract';
+import { TABLE_MOBILE_HIDDEN, TABLE_PHONE_ONLY } from '../src/adminContract';
 import { useChatbots } from './useChatbots';
-import { formatDateTime, integer } from './format';
+import { botLabel, feedbackBotLabel, formatDateTime, integer } from './format';
 import type { ChatbotFeedbackAnswer } from './types';
 
 const PAGE_SIZE = 25;
 const COLUMNS = '8rem 4rem minmax(0,1.7fr) minmax(0,1fr) 8rem 1.25rem';
 const MOBILE_COLUMNS = '3rem minmax(0,1fr) 1rem';
-const HIDE_MOBILE = TABLE_MOBILE_HIDDEN;
 
 export function FeedbackSection() {
   const { components: C, hooks, utils } = runtime();
@@ -60,11 +59,11 @@ export function FeedbackSection() {
           </div>
           <C.DataTable ariaLabel={s.sectionFeedback} columns={COLUMNS} compactColumns={COLUMNS} mobileColumns={MOBILE_COLUMNS}>
             <C.DataTableRow header>
-              <C.DataTableCell header lines={1} className={HIDE_MOBILE}>{s.feedbackBotFilter}</C.DataTableCell>
+              <C.DataTableCell header lines={1} className={TABLE_MOBILE_HIDDEN}>{s.feedbackBotFilter}</C.DataTableCell>
               <C.DataTableCell header lines={1}>{s.feedbackRatingFilter}</C.DataTableCell>
               <C.DataTableCell header lines={1}>{s.feedbackAnswer}</C.DataTableCell>
-              <C.DataTableCell header lines={1} className={HIDE_MOBILE}>{s.feedbackComment}</C.DataTableCell>
-              <C.DataTableCell header lines={1} className={HIDE_MOBILE}>{s.feedbackUpdated}</C.DataTableCell>
+              <C.DataTableCell header lines={1} className={TABLE_MOBILE_HIDDEN}>{s.feedbackComment}</C.DataTableCell>
+              <C.DataTableCell header lines={1} className={TABLE_MOBILE_HIDDEN}>{s.feedbackUpdated}</C.DataTableCell>
               <C.DataTableChevronCell />
             </C.DataTableRow>
             {answer.rows.map((row) => {
@@ -74,15 +73,15 @@ export function FeedbackSection() {
                 onOpen={row.sessionId === null ? undefined : () => utils.openBrainSessionWindow(row.sessionId!)}
                 openLabel={row.sessionId === null ? undefined : s.feedbackOpen.replace('{visitor}', row.visitorId)}
                 title={row.message}>
-                <C.DataTableCell lines={1} className={HIDE_MOBILE}>{row.chatbotName || s.botFallback}</C.DataTableCell>
+                <C.DataTableCell lines={1} className={TABLE_MOBILE_HIDDEN}>{feedbackBotLabel(row, s)}</C.DataTableCell>
                 <C.DataTableCell lines={1}><span title={label} aria-label={label}><Icon size={18} aria-hidden="true" /></span></C.DataTableCell>
                 <C.DataTableCell lines="auto">
                   <span className="block truncate" title={row.reply}>{row.reply}</span>
-                  <span className="@min-[40rem]:hidden text-xs text-muted-foreground">{row.chatbotName || s.botFallback} · {formatDateTime(row.updatedAt, locale)}</span>
-                  {row.comment ? <span className="@min-[40rem]:hidden block text-xs text-muted-foreground">{row.comment}</span> : null}
+                  <span className={`${TABLE_PHONE_ONLY} text-xs text-muted-foreground`}>{feedbackBotLabel(row, s)} · {formatDateTime(row.updatedAt, locale)}</span>
+                  {row.comment ? <span className={`${TABLE_PHONE_ONLY} block text-xs text-muted-foreground`}>{row.comment}</span> : null}
                 </C.DataTableCell>
-                <C.DataTableCell lines="auto" className={HIDE_MOBILE}>{row.comment ?? '—'}</C.DataTableCell>
-                <C.DataTableCell lines={1} className={HIDE_MOBILE}>{formatDateTime(row.updatedAt, locale)}</C.DataTableCell>
+                <C.DataTableCell lines="auto" className={TABLE_MOBILE_HIDDEN}>{row.comment ?? '—'}</C.DataTableCell>
+                <C.DataTableCell lines={1} className={TABLE_MOBILE_HIDDEN}>{formatDateTime(row.updatedAt, locale)}</C.DataTableCell>
                 <C.DataTableChevronCell />
               </C.DataTableRow>;
             })}
@@ -94,7 +93,7 @@ export function FeedbackSection() {
     <C.SelectMenu label={s.feedbackBotFilter} variant="line" value={chatbotUserId === null ? '' : String(chatbotUserId)}
       onChange={(value: string) => { setChatbotUserId(value === '' ? null : Number(value)); setPage(0); }}
       options={[{ value: '', label: s.feedbackAllBots }, ...register.bots.map(bot => ({
-        value: String(bot.chatbotUserId), label: bot.displayName || s.botFallback,
+        value: String(bot.chatbotUserId), label: botLabel(bot, s),
       }))]} />
     <C.SelectMenu label={s.feedbackRatingFilter} variant="line" value={rating}
       onChange={(value: string) => { if (value === 'all' || value === 'up' || value === 'down') { setRating(value); setPage(0); } }}

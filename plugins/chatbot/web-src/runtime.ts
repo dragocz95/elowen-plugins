@@ -92,8 +92,8 @@ export interface DateRange {
 }
 
 export type PageFilterField =
-  | { id: string; label: string; control: ReactNode; hint?: string; active: false }
-  | { id: string; label: string; control: ReactNode; hint?: string; active: true; activeLabel: string; onReset(): void };
+  | { id: string; label: string; control: ReactNode; active: false }
+  | { id: string; label: string; control: ReactNode; active: true; activeLabel: string; onReset(): void };
 
 
 /** Every component this bundle mounts, with the props it actually passes. The names are checked against

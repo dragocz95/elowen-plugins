@@ -141,7 +141,9 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
     } finally { setPending(false); }
   };
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
-    if (!(await save())) throw new Error(error ?? s.appearanceSaveFailed);
+    // The thrown message feeds the autosave status only: the server's own answer is already rendered from
+    // the `error` state save() sets above, so this must not read that state back here (it would be stale).
+    if (!(await save())) throw new Error(s.appearanceSaveFailed);
   }, { savable: name.trim() !== '' && valid, delay: 900 });
 
   return <>

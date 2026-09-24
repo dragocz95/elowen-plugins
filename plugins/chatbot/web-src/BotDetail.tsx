@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { LIMIT_FIELDS } from '../src/limits';
 import { apiJson, chatbotApi, jsonRequest, runtime } from './runtime';
-import { formatDateTime } from './format';
+import { botLabel, formatDateTime } from './format';
 import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
 import { BudgetUsage } from './BudgetUsage';
@@ -96,7 +96,9 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
   };
 
   const autosave = hooks.useAutoSaveStatus([origins, limits, maySubmitForms], async () => {
-    if (dirty && !(await save(null))) throw new Error(error ?? unknownError);
+    // The thrown message feeds the autosave status only: the server's own answer is already rendered from
+    // the `error` state save() sets above, so this must not read that state back here (it would be stale).
+    if (dirty && !(await save(null))) throw new Error(unknownError);
   }, { savable: dirty, delay: 900 });
 
   const openAppearance = async () => {
@@ -135,7 +137,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
 
   return (
     <C.Modal
-      title={bot.displayName || s.botFallback}
+      title={botLabel(bot, s)}
       description={bot.publicId}
       icon={Bot}
       size="md"
@@ -150,7 +152,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
           {blockers.map((text) => <p key={text} className="text-xs text-destructive" role="alert">{text}</p>)}
 
           <C.SettingsGroup title={s.detailFactsTitle} icon={BadgeCheck} columns={2} density="compact">
-            <C.SettingsRow label={s.detailName} status={bot.displayName || s.botFallback} />
+            <C.SettingsRow label={s.detailName} status={botLabel(bot, s)} />
             <C.SettingsRow label={s.detailAccount} status={bot.account === null ? '—' : `@${bot.account.username}`} />
             <C.SettingsRow label={s.detailProject} status={bot.projects.length === 1 ? bot.projects[0]!.slug : '—'} />
             <C.SettingsRow label={s.detailUpdated} status={formatDateTime(bot.updatedAt, locale)} />

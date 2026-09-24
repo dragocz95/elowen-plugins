@@ -91,6 +91,20 @@ var chatbotApi = {
 // plugins/chatbot/web-src/ChatbotDeck.tsx
 var import_react13 = __toESM(require_react(), 1);
 
+// plugins/chatbot/web-src/format.ts
+var formatDateTime = (value, locale) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "\u2014" : new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(date);
+};
+var formatDay = (day, locale) => {
+  const date = /* @__PURE__ */ new Date(`${day}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(date);
+};
+var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
+var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
+var botLabel = (bot, s) => bot.displayName || s.botFallback;
+var feedbackBotLabel = (row, s) => row.chatbotName || s.botFallback;
+
 // node_modules/lucide-react/dist/esm/createLucideIcon.js
 var import_react2 = __toESM(require_react());
 
@@ -672,18 +686,6 @@ var MANDATORY_FIELDS = Object.keys(MANDATORY_LIMITS);
 function specOf(field) {
   return LIMITS[field];
 }
-
-// plugins/chatbot/web-src/format.ts
-var formatDateTime = (value, locale) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "\u2014" : new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(date);
-};
-var formatDay = (day, locale) => {
-  const date = /* @__PURE__ */ new Date(`${day}T00:00:00.000Z`);
-  return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(date);
-};
-var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
-var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
 
 // plugins/chatbot/web-src/OriginsField.tsx
 var import_react3 = __toESM(require_react(), 1);
@@ -1608,6 +1610,7 @@ var DISPLAY_NAME_MAX_CHARS = 80;
 var STATS_MAX_DAYS = 366;
 var DAY_MS = 864e5;
 var TABLE_MOBILE_HIDDEN = "@max-[40rem]:hidden";
+var TABLE_PHONE_ONLY = "@min-[40rem]:hidden";
 
 // plugins/chatbot/web-src/AppearancePreview.tsx
 var import_react5 = __toESM(require_react(), 1);
@@ -21787,7 +21790,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
     }
   };
   const autosave = hooks.useAutoSaveStatus([editVersion], async () => {
-    if (!await save()) throw new Error(error ?? s.appearanceSaveFailed);
+    if (!await save()) throw new Error(s.appearanceSaveFailed);
   }, { savable: name.trim() !== "" && valid, delay: 900 });
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(C.Modal, { title: s.appearanceTitle, icon: Palette, size: "lg", presentation: "center", closeLabel: s.cancel, closeDisabled: pending, ...pending ? { "aria-busy": true } : {}, onClose, children: [
@@ -22011,7 +22014,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
     }
   };
   const autosave = hooks.useAutoSaveStatus([origins, limits, maySubmitForms], async () => {
-    if (dirty && !await save(null)) throw new Error(error ?? unknownError);
+    if (dirty && !await save(null)) throw new Error(unknownError);
   }, { savable: dirty, delay: 900 });
   const openAppearance = async () => {
     setOpeningAppearance(true);
@@ -22044,7 +22047,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
     C.Modal,
     {
-      title: bot.displayName || s.botFallback,
+      title: botLabel(bot, s),
       description: bot.publicId,
       icon: Bot,
       size: "md",
@@ -22057,7 +22060,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.ModalBody, { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "flex flex-col gap-4", children: [
           blockers.map((text) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "text-xs text-destructive", role: "alert", children: text }, text)),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(C.SettingsGroup, { title: s.detailFactsTitle, icon: BadgeCheck, columns: 2, density: "compact", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailName, status: bot.displayName || s.botFallback }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailName, status: botLabel(bot, s) }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailAccount, status: bot.account === null ? "\u2014" : `@${bot.account.username}` }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailProject, status: bot.projects.length === 1 ? bot.projects[0].slug : "\u2014" }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(C.SettingsRow, { label: s.detailUpdated, status: formatDateTime(bot.updatedAt, locale) }),
@@ -22359,13 +22362,13 @@ function BotsSection({ plugin, openBotId, onOpenBot }) {
   const body = loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${loadError}`, onRetry: register.reload }) : answer === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.LoadingState, { variant: "list" }) : bots.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.EmptyState, { title: s.botsEmptyTitle, description: s.botsEmptyDescription, icon: Bot }) : visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.EmptyState, { title: s.botsNoResults, description: s.botsNoResultsDescription, icon: Search }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.EntityList, { children: visible.map((bot) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.EntityRow, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "flex min-w-0 items-center gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Bot, { size: 16, className: "shrink-0 text-muted-foreground", "aria-hidden": true }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "min-w-0 truncate text-sm font-medium", children: bot.displayName || s.botFallback }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "min-w-0 truncate text-sm font-medium", children: botLabel(bot, s) }),
       /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.Badge, { tone: bot.blockers.length > 0 ? "warning" : bot.status === "enabled" ? "success" : void 0, children: statusText(bot, s) }),
       /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "ml-auto shrink-0", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         C.IconButton,
         {
           icon: Settings2,
-          label: s.openBot.replace("{name}", bot.displayName || s.botFallback),
+          label: s.openBot.replace("{name}", botLabel(bot, s)),
           onClick: () => onOpenBot(bot.chatbotUserId)
         }
       ) })
@@ -22436,7 +22439,7 @@ function BotPicker({ bots, value, onChange, label, disabled }) {
       disabled,
       value: String(value),
       onChange: (next) => onChange(Number(next)),
-      options: bots.map((bot) => ({ value: String(bot.chatbotUserId), label: bot.displayName || s.botFallback }))
+      options: bots.map((bot) => ({ value: String(bot.chatbotUserId), label: botLabel(bot, s) }))
     }
   );
 }
@@ -22446,7 +22449,6 @@ var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 25;
 var COLUMNS = "minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem";
 var MOBILE_COLUMNS = "minmax(0,1fr) 2rem 5.5rem 1rem";
-var PHONE_HIDDEN = TABLE_MOBILE_HIDDEN;
 var FIRST_DIRECTION = {
   title: "asc",
   ip: "asc",
@@ -22561,7 +22563,10 @@ function ConversationsSection() {
     }
   };
   const statusTone = (status) => status === "done" ? "success" : status === "error" ? "danger" : "warning";
-  const statusLabel = (status) => s[`turnStatus_${status}`] ?? status;
+  const statusLabel = (status) => {
+    const label = s[`turnStatus_${status}`];
+    return label === "" ? status : label;
+  };
   if (register.loadError !== null) {
     return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.SettingsGroup, { ...heading, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.ErrorState, { message: `${s.botsLoadError} \u2014 ${register.loadError}`, onRetry: register.reload }) });
   }
@@ -22574,8 +22579,8 @@ function ConversationsSection() {
     /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTable, { ariaLabel: s.conversationsTab, columns: COLUMNS, compactColumns: COLUMNS, mobileColumns: MOBILE_COLUMNS, children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableRow, { header: true, children: [
         sortCell("title", s.columnTitle),
-        sortCell("ip", s.columnIp, PHONE_HIDDEN),
-        sortCell("lastAt", s.columnLastSeen, PHONE_HIDDEN),
+        sortCell("ip", s.columnIp, TABLE_MOBILE_HIDDEN),
+        sortCell("lastAt", s.columnLastSeen, TABLE_MOBILE_HIDDEN),
         sortCell("turns", s.columnTurns),
         sortCell("lastStatus", s.columnLastTurn),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableChevronCell, {})
@@ -22589,8 +22594,8 @@ function ConversationsSection() {
           openLabel: conversation.sessionId === null ? void 0 : s.openConversation.replace("{visitor}", conversation.visitorId),
           children: [
             /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, children: conversation.title ?? s.conversationUntitled }),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: `font-mono text-xs ${PHONE_HIDDEN}`, children: conversation.ip ?? s.visitorIpUnknown }),
-            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: PHONE_HIDDEN, children: formatDateTime(conversation.lastAt, locale) }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: `font-mono text-xs ${TABLE_MOBILE_HIDDEN}`, children: conversation.ip ?? s.visitorIpUnknown }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(C.DataTableCell, { lines: 1, className: TABLE_MOBILE_HIDDEN, children: formatDateTime(conversation.lastAt, locale) }),
             /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(C.DataTableCell, { lines: 1, children: [
               integer(conversation.turns, locale),
               conversation.errors > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "ml-1 text-destructive", children: [
@@ -22650,7 +22655,7 @@ function ConversationsSection() {
       {
         open: confirming,
         title: s.conversationsEraseTitle,
-        description: s.conversationsEraseDescription.replace("{bot}", bot.displayName || s.botFallback).replace("{count}", integer(answer?.total ?? 0, locale)),
+        description: s.conversationsEraseDescription.replace("{bot}", botLabel(bot, s)).replace("{count}", integer(answer?.total ?? 0, locale)),
         confirmLabel: s.conversationsEraseConfirm,
         confirmVariant: "danger",
         pending: deleting,
@@ -22669,7 +22674,6 @@ var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE2 = 25;
 var COLUMNS2 = "8rem 4rem minmax(0,1.7fr) minmax(0,1fr) 8rem 1.25rem";
 var MOBILE_COLUMNS2 = "3rem minmax(0,1fr) 1rem";
-var HIDE_MOBILE = TABLE_MOBILE_HIDDEN;
 function FeedbackSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
@@ -22720,11 +22724,11 @@ function FeedbackSection() {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTable, { ariaLabel: s.sectionFeedback, columns: COLUMNS2, compactColumns: COLUMNS2, mobileColumns: MOBILE_COLUMNS2, children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTableRow, { header: true, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackBotFilter }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: TABLE_MOBILE_HIDDEN, children: s.feedbackBotFilter }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.feedbackRatingFilter }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, children: s.feedbackAnswer }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackComment }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: HIDE_MOBILE, children: s.feedbackUpdated }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: TABLE_MOBILE_HIDDEN, children: s.feedbackComment }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { header: true, lines: 1, className: TABLE_MOBILE_HIDDEN, children: s.feedbackUpdated }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableChevronCell, {})
       ] }),
       answer.rows.map((row) => {
@@ -22738,19 +22742,19 @@ function FeedbackSection() {
             openLabel: row.sessionId === null ? void 0 : s.feedbackOpen.replace("{visitor}", row.visitorId),
             title: row.message,
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: HIDE_MOBILE, children: row.chatbotName || s.botFallback }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: TABLE_MOBILE_HIDDEN, children: feedbackBotLabel(row, s) }),
               /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { title: label, "aria-label": label, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Icon3, { size: 18, "aria-hidden": "true" }) }) }),
               /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.DataTableCell, { lines: "auto", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "block truncate", title: row.reply, children: row.reply }),
-                /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "@min-[40rem]:hidden text-xs text-muted-foreground", children: [
-                  row.chatbotName || s.botFallback,
+                /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: `${TABLE_PHONE_ONLY} text-xs text-muted-foreground`, children: [
+                  feedbackBotLabel(row, s),
                   " \xB7 ",
                   formatDateTime(row.updatedAt, locale)
                 ] }),
-                row.comment ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "@min-[40rem]:hidden block text-xs text-muted-foreground", children: row.comment }) : null
+                row.comment ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: `${TABLE_PHONE_ONLY} block text-xs text-muted-foreground`, children: row.comment }) : null
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", className: HIDE_MOBILE, children: row.comment ?? "\u2014" }),
-              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: HIDE_MOBILE, children: formatDateTime(row.updatedAt, locale) }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: "auto", className: TABLE_MOBILE_HIDDEN, children: row.comment ?? "\u2014" }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableCell, { lines: 1, className: TABLE_MOBILE_HIDDEN, children: formatDateTime(row.updatedAt, locale) }),
               /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.DataTableChevronCell, {})
             ]
           },
@@ -22773,7 +22777,7 @@ function FeedbackSection() {
         },
         options: [{ value: "", label: s.feedbackAllBots }, ...register.bots.map((bot) => ({
           value: String(bot.chatbotUserId),
-          label: bot.displayName || s.botFallback
+          label: botLabel(bot, s)
         }))]
       }
     ),
@@ -22849,20 +22853,27 @@ function StatsSection() {
   const window2 = (0, import_react12.useMemo)(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
   const [answer, setAnswer] = (0, import_react12.useState)(null);
   const [loadError, setLoadError] = (0, import_react12.useState)(null);
+  const requestSequence = (0, import_react12.useRef)(0);
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
   (0, import_react12.useEffect)(() => {
+    requestSequence.current += 1;
     setAnswer(null);
     setLoadError(null);
   }, [chatbotUserId, window2.from, window2.to]);
   const load = (0, import_react12.useCallback)(() => {
+    const request = ++requestSequence.current;
     if (chatbotUserId === null) return;
     setLoadError(null);
     void apiJson(chatbotApi.stats({
       chatbotUserId,
       from: window2.from,
       to: window2.to
-    })).then(setAnswer).catch((error) => setLoadError(utils.apiErrorMessage(error) || s.statsLoadError));
+    })).then((result) => {
+      if (request === requestSequence.current) setAnswer(result);
+    }).catch((error) => {
+      if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.statsLoadError);
+    });
   }, [chatbotUserId, s.statsLoadError, utils, window2.from, window2.to]);
   (0, import_react12.useEffect)(() => {
     load();
@@ -23019,7 +23030,7 @@ function ChatbotDeck({ plugin, rest }) {
       const label = section.label(s);
       const matches = section.id === "bots" ? found.map((bot) => ({
         id: String(bot.chatbotUserId),
-        label: bot.displayName || s.botFallback,
+        label: botLabel(bot, s),
         onActivate: () => openBot(bot.chatbotUserId)
       })) : [];
       if (needle !== "" && matches.length === 0 && !label.toLowerCase().includes(needle)) return [];

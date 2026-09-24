@@ -4,7 +4,7 @@ import { apiJson, chatbotApi, runtime } from './runtime';
 import { TABLE_MOBILE_HIDDEN } from '../src/adminContract';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
-import { formatDateTime, integer } from './format';
+import { botLabel, formatDateTime, integer } from './format';
 import type { ChatbotConversationSort, ChatbotConversationsAnswer, ChatbotVisitorsAnswer } from './types';
 
 /** THE CONVERSATIONS SECTION: who talked to one chatbot, and what was said.
@@ -19,12 +19,10 @@ const PAGE_SIZE = 25;
 /** The grid: the conversation, the address it came from, when it was last active, how many turns, and what
  *  the last one did. The Chatbots window is narrower than the host's wide breakpoint, so no column may be
  *  `wide` or it would never show there: the wide and compact layouts are one template, and only a phone-width
- *  table drops the address and the time (`PHONE_HIDDEN`), where the mobile template has no track for them. */
+ *  table drops the address and the time below the host DataTable's own 40rem mobile container breakpoint
+ *  (`TABLE_MOBILE_HIDDEN`), where the mobile template has no track for them. */
 const COLUMNS = 'minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
-/** Hides a cell below the host DataTable's own 40rem mobile container breakpoint, the one that switches to
- *  MOBILE_COLUMNS; the two numbers must stay equal. */
-const PHONE_HIDDEN = TABLE_MOBILE_HIDDEN;
 /** A column clicked for the first time starts where a reader looks first: newest and busiest at the top,
  *  words and addresses from A. */
 const FIRST_DIRECTION: Record<ChatbotConversationSort, 'asc' | 'desc'> = {
@@ -171,7 +169,12 @@ export function ConversationsSection() {
 
   const statusTone = (status: string): 'success' | 'danger' | 'warning' | undefined =>
     status === 'done' ? 'success' : status === 'error' ? 'danger' : 'warning';
-  const statusLabel = (status: string): string => s[`turnStatus_${status}`] ?? status;
+  // The host answers a key it does not carry with the empty string, so a missing label reads as
+  // nothing rather than falling through: an unexpected status is shown raw instead of as a blank badge.
+  const statusLabel = (status: string): string => {
+    const label: string = s[`turnStatus_${status}`];
+    return label === '' ? status : label;
+  };
 
   // The register is this section's own precondition: there is nothing to read from until it arrives, and
   // "no chatbot yet" is a different answer from "not read yet" and from "could not be read".
@@ -198,8 +201,8 @@ export function ConversationsSection() {
             <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
                 {sortCell('title', s.columnTitle)}
-                {sortCell('ip', s.columnIp, PHONE_HIDDEN)}
-                {sortCell('lastAt', s.columnLastSeen, PHONE_HIDDEN)}
+                {sortCell('ip', s.columnIp, TABLE_MOBILE_HIDDEN)}
+                {sortCell('lastAt', s.columnLastSeen, TABLE_MOBILE_HIDDEN)}
                 {sortCell('turns', s.columnTurns)}
                 {sortCell('lastStatus', s.columnLastTurn)}
                 <C.DataTableChevronCell />
@@ -216,8 +219,8 @@ export function ConversationsSection() {
                   openLabel={conversation.sessionId === null ? undefined : s.openConversation.replace('{visitor}', conversation.visitorId)}
                 >
                   <C.DataTableCell lines={1}>{conversation.title ?? s.conversationUntitled}</C.DataTableCell>
-                  <C.DataTableCell lines={1} className={`font-mono text-xs ${PHONE_HIDDEN}`}>{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
-                  <C.DataTableCell lines={1} className={PHONE_HIDDEN}>{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className={`font-mono text-xs ${TABLE_MOBILE_HIDDEN}`}>{conversation.ip ?? s.visitorIpUnknown}</C.DataTableCell>
+                  <C.DataTableCell lines={1} className={TABLE_MOBILE_HIDDEN}>{formatDateTime(conversation.lastAt, locale)}</C.DataTableCell>
                   <C.DataTableCell lines={1}>
                     {integer(conversation.turns, locale)}
                     {conversation.errors > 0 ? <span className="ml-1 text-destructive">({integer(conversation.errors, locale)})</span> : null}
@@ -268,7 +271,7 @@ export function ConversationsSection() {
         open={confirming}
         title={s.conversationsEraseTitle}
         description={s.conversationsEraseDescription
-          .replace('{bot}', bot.displayName || s.botFallback)
+          .replace('{bot}', botLabel(bot, s))
           .replace('{count}', integer(answer?.total ?? 0, locale))}
         confirmLabel={s.conversationsEraseConfirm}
         confirmVariant="danger"

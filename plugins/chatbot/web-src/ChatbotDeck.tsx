@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { runtime, type DeckNavGroup, type DeckNavItem } from './runtime';
+import { botLabel } from './format';
 import { CHATBOT_SECTIONS, sectionForRoute, sectionHref } from './sections';
 import { matchingBots, normalizeQuery } from './search';
 import { useChatbots } from './useChatbots';
@@ -50,7 +51,7 @@ export function ChatbotDeck({ plugin, rest }: { plugin: string; rest: string[] }
       const matches = section.id === 'bots'
         ? found.map((bot) => ({
           id: String(bot.chatbotUserId),
-          label: bot.displayName || s.botFallback,
+          label: botLabel(bot, s),
           onActivate: () => openBot(bot.chatbotUserId),
         }))
         : [];

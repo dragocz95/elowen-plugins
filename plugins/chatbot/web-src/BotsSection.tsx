@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bot, Plus, Search, Settings2 } from 'lucide-react';
 import { runtime } from './runtime';
+import { botLabel } from './format';
 import { BotDetail, statusText } from './BotDetail';
 import { CreateBotDialog } from './CreateBotDialog';
 import { matchingBots } from './search';
@@ -32,14 +33,14 @@ export function BotsSection({ plugin, openBotId, onOpenBot }: {
                 <C.EntityRow key={bot.chatbotUserId}>
                   <div className="flex min-w-0 items-center gap-2">
                     <Bot size={16} className="shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 truncate text-sm font-medium">{bot.displayName || s.botFallback}</span>
+                    <span className="min-w-0 truncate text-sm font-medium">{botLabel(bot, s)}</span>
                     <C.Badge tone={bot.blockers.length > 0 ? 'warning' : bot.status === 'enabled' ? 'success' : undefined}>
                       {statusText(bot, s)}
                     </C.Badge>
                     <span className="ml-auto shrink-0">
                       <C.IconButton
                         icon={Settings2}
-                        label={s.openBot.replace('{name}', bot.displayName || s.botFallback)}
+                        label={s.openBot.replace('{name}', botLabel(bot, s))}
                         onClick={() => onOpenBot(bot.chatbotUserId)}
                       />
                     </span>

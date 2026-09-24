@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { knownCost, utcDay } from '../src/budget';
 import { DAY_MS, STATS_MAX_DAYS } from '../src/adminContract';
 import { Activity } from 'lucide-react';
@@ -54,7 +54,7 @@ export function chartPoints(days: readonly ChatbotStatsDayView[], spend: Chatbot
 }
 
 const pageFilterField = (
-  base: { id: string; label: string; control: ReactNode; hint?: string },
+  base: { id: string; label: string; control: ReactNode },
   active: boolean,
   activeLabel: string,
   onReset: () => void,
@@ -80,16 +80,21 @@ export function StatsSection() {
   const window = useMemo(() => statsWindow(range, now, hostBounds), [hostBounds, now, range]);
   const [answer, setAnswer] = useState<ChatbotStatsAnswer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Reads overlap when the reader switches chatbot or window while one is in flight. Only the newest
+  // read may paint: an older answer resolving last belongs to a chatbot or window no longer on screen.
+  const requestSequence = useRef(0);
 
   const bot = bots.find((candidate) => candidate.chatbotUserId === selected) ?? bots[0] ?? null;
   const chatbotUserId = bot?.chatbotUserId ?? null;
 
   useEffect(() => {
+    requestSequence.current += 1;
     setAnswer(null);
     setLoadError(null);
   }, [chatbotUserId, window.from, window.to]);
 
   const load = useCallback(() => {
+    const request = ++requestSequence.current;
     if (chatbotUserId === null) return;
     setLoadError(null);
     void apiJson<ChatbotStatsAnswer>(chatbotApi.stats({
@@ -97,8 +102,10 @@ export function StatsSection() {
       from: window.from,
       to: window.to,
     }))
-      .then(setAnswer)
-      .catch((error) => setLoadError(utils.apiErrorMessage(error) || s.statsLoadError));
+      .then((result) => { if (request === requestSequence.current) setAnswer(result); })
+      .catch((error) => {
+        if (request === requestSequence.current) setLoadError(utils.apiErrorMessage(error) || s.statsLoadError);
+      });
   }, [chatbotUserId, s.statsLoadError, utils, window.from, window.to]);
 
   useEffect(() => { load(); }, [load]);

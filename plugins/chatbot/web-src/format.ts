@@ -4,6 +4,8 @@
  *  value and two of them disagreeing about what "no price reported" looks like is a reader's bug to find.
  *  Every helper takes the locale the host reports, so a page rendered in Czech formats in Czech. */
 
+import type { ChatbotBotView, ChatbotFeedbackAnswer } from './types';
+
 /** A moment as the administrator reads it: absolute, short, in their own zone. */
 export const formatDateTime = (value: string, locale: string): string => {
   const date = new Date(value);
@@ -25,3 +27,14 @@ export const integer = (value: number, locale: string): string => new Intl.Numbe
  *  reported no price is unpriced, and printing it as free is a claim the data does not support. */
 export const money = (value: number | null, locale: string): string =>
   value == null ? '—' : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value);
+
+/** A chatbot's name as the reader sees it: its own display name, or the fallback when the owner gave it
+ *  none. One place, because the register, the pickers, the drawer and the confirmations all name one. */
+export const botLabel = (bot: Pick<ChatbotBotView, 'displayName'>, s: Record<string, string>): string =>
+  bot.displayName || s.botFallback;
+
+/** A feedback row's chatbot name, which is a stored copy on the row rather than the register's live value,
+ *  so it takes the row and not a bot — with the same fallback when the copy is empty. */
+type FeedbackRow = ChatbotFeedbackAnswer['rows'][number];
+export const feedbackBotLabel = (row: Pick<FeedbackRow, 'chatbotName'>, s: Record<string, string>): string =>
+  row.chatbotName || s.botFallback;
