@@ -1,4 +1,4 @@
-import { knownCost } from '../src/budget';
+import { knownCost, usdFromMicro } from '../src/budget';
 import type { ChatbotBotView } from './types';
 import { formatDay, integer, money } from './format';
 import { runtime } from './runtime';
@@ -11,7 +11,7 @@ export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
   const { budget, limits } = bot;
   const { verdict } = budget;
   const cost = knownCost(budget.usage);
-  const costLimit = limits.dailyCostMicrousd === null ? null : limits.dailyCostMicrousd / 1_000_000;
+  const costLimit = limits.dailyCostMicrousd === null ? null : usdFromMicro(limits.dailyCostMicrousd);
   const status = verdict.ok ? s.budgetAvailable
     : verdict.reason === 'limits_missing' ? s.budgetMissing
       : verdict.reason === 'budget_unverifiable' ? s.budgetUnknown

@@ -251,10 +251,6 @@ setDefaults(
         : { samples: 7, p50Seconds: 0.4, p95Seconds: 2.6 },
     });
   }),
-  http.get('/api/users/:id/tools', ({ params }) => HttpResponse.json([
-    { name: REQUIRED_TOOL, label: 'Act on the visitor page', icon: null, plugin: 'chatbot', group: 'plugin', state: 'allowed', toggleable: true },
-    { name: 'MemorySearch', label: 'Search memory', icon: null, plugin: null, group: 'memory', state: 'inherited', toggleable: false },
-  ].map((tool) => Number(params.id) === bot.chatbotUserId ? tool : { ...tool, state: 'unavailable', toggleable: false }))),
   // Core's own account directory, which only the creation dialog reads — for the grants an account already
   // holds, so that creating a chatbot adds to them rather than replacing them. The model row is NOT read
   // from here: core resolves a model on the plugin's own server side.

@@ -2,7 +2,7 @@
  *
  *  ONE entry in the primary navigation and no settings section. The manifest declares
  *  `web.presentation: "overlay"`, so the host opens `/p/chatbot` in its shared reading modal, keeps the
- *  page underneath mounted and owns the outer title; the four sections switch inside that modal in the
+ *  page underneath mounted and owns the outer title; the five sections switch inside that modal in the
  *  host's own `SectionDeck`.
  *
  *  Every section's route registers the same deck component — the deck reads the address and renders the

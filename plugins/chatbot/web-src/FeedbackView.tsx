@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageSquareHeart, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
+import { TABLE_MOBILE_HIDDEN } from '../src/adminContract';
 import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
 import type { ChatbotFeedbackAnswer } from './types';
@@ -8,7 +9,7 @@ import type { ChatbotFeedbackAnswer } from './types';
 const PAGE_SIZE = 25;
 const COLUMNS = '8rem 4rem minmax(0,1.7fr) minmax(0,1fr) 8rem 1.25rem';
 const MOBILE_COLUMNS = '3rem minmax(0,1fr) 1rem';
-const HIDE_MOBILE = '@max-[40rem]:hidden';
+const HIDE_MOBILE = TABLE_MOBILE_HIDDEN;
 
 export function FeedbackSection() {
   const { components: C, hooks, utils } = runtime();
@@ -52,7 +53,7 @@ export function FeedbackSection() {
     ? <C.ErrorState message={loadError} onRetry={() => setRefresh((current) => current + 1)} />
     : answer === null ? <C.LoadingState variant="list" />
       : answer.totals.total === 0 ? <C.EmptyState title={s.feedbackEmpty} description={s.feedbackEmptyHint} icon={MessageSquareHeart} />
-        : <div className="settings-group__panel flex min-w-0 flex-col gap-3">
+        : <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-wrap gap-2">
             <C.Badge tone="success"><ThumbsUp size={14} aria-hidden="true" /> {s.feedbackTotalUp.replace('{count}', integer(answer.totals.up, locale))}</C.Badge>
             <C.Badge tone="danger"><ThumbsDown size={14} aria-hidden="true" /> {s.feedbackTotalDown.replace('{count}', integer(answer.totals.down, locale))}</C.Badge>

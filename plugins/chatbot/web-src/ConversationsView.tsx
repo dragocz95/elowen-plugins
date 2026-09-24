@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessagesSquare, Trash2 } from 'lucide-react';
 import { apiJson, chatbotApi, runtime } from './runtime';
+import { TABLE_MOBILE_HIDDEN } from '../src/adminContract';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
 import { formatDateTime, integer } from './format';
@@ -23,7 +24,7 @@ const COLUMNS = 'minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem';
 const MOBILE_COLUMNS = 'minmax(0,1fr) 2rem 5.5rem 1rem';
 /** Hides a cell below the host DataTable's own 40rem mobile container breakpoint, the one that switches to
  *  MOBILE_COLUMNS; the two numbers must stay equal. */
-const PHONE_HIDDEN = '@max-[40rem]:hidden';
+const PHONE_HIDDEN = TABLE_MOBILE_HIDDEN;
 /** A column clicked for the first time starts where a reader looks first: newest and busiest at the top,
  *  words and addresses from A. */
 const FIRST_DIRECTION: Record<ChatbotConversationSort, 'asc' | 'desc'> = {

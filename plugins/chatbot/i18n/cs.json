@@ -240,7 +240,6 @@
       "sectionsSearch": "Hledat chatboty",
       "sectionsNoMatches": "Hledání neodpovídá žádný chatbot ani sekce.",
       "sectionBots": "Chatboti",
-      "sectionBotsHint": "Jeden řádek pro každého chatbota: účet a projekt, pod kterými běží.",
       "sectionConversations": "Konverzace",
       "sectionConversationsHint": "Co návštěvníci napsali jednomu chatbotovi, konverzaci po konverzaci.",
       "sectionFeedback": "Hodnocení",
