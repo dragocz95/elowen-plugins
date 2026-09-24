@@ -96,7 +96,7 @@
     },
     "maxUploadImages": {
       "label": "Max. obrázků na odpověď",
-      "hint": "Kolik vygenerovaných obrázků bot připojí k jedné odchozí odpovědi."
+      "hint": "Kolik obrázků sdílených asistentem bot připojí k jedné odchozí odpovědi."
     },
     "askTimeoutMs": {
       "label": "Časový limit otázky (ms)",

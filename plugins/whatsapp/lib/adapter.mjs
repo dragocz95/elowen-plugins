@@ -15,7 +15,7 @@ import { PICKER_CONTEXT, SHARED_PICKERS, applyPickerChoice, controlCommandsFrom,
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { fileMimeType, resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
+import { fileMimeType, resolveImageFiles, imageEventPayload, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
@@ -25,7 +25,7 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // governs both, so raising it for a slow chat cannot leave the menu expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
 const MENU_PAGE = 18;                     // numbered-menu options per page (leaves room for nav rows)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per reply (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per reply (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
                                          // chooses what to share, so this is a transport bound, not a preference
 
@@ -75,13 +75,13 @@ async function resolveSocketFactory() {
 
 export class WhatsAppAdapter {
   name = 'whatsapp';
-  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir, authDir, qrPngPath, answerQuestion, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.plog = pinoShim(logger); // pino-shaped logger for Baileys internals
     this.state = state;
     this.listModels = listModels;
-    this.imageDirs = imageDirs;
+    this.imageDir = imageDir;
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.authDir = authDir;
     this.qrPngPath = qrPngPath;
@@ -768,7 +768,7 @@ export class WhatsAppAdapter {
     return firstKey;
   }
 
-  /** Send generated images as image messages (the first optionally quoting the trigger). */
+  /** Send shared images as image messages (the first optionally quoting the trigger). */
   async sendImages(chatJid, files, quoted) {
     for (let i = 0; i < files.length; i++) {
       await this.sock.sendMessage(chatJid, { image: files[i].data }, i === 0 && quoted ? { quoted } : {}).catch(() => {});
@@ -791,10 +791,9 @@ export class WhatsAppAdapter {
     }
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
-   *  from the image plugins' data dirs. */
+  /** Load up to the configured cap of shared chat images by validated name. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
@@ -812,10 +811,14 @@ export class WhatsAppAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification chat. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, chatId, notice) {
+  async notify(text, chatId, notice, images) {
     const target = (typeof chatId === 'string' && chatId.trim()) || (typeof this.cfg.notifyChat === 'string' ? this.cfg.notifyChat.trim() : '');
     if (!target || !this.sock) return;
-    await this.sendText(toJid(target), lifecycleText(this.cfg.language, notice, text));
+    const jid = toJid(target);
+    const { names } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.sendImages(jid, files);
+    if (text) await this.sendText(jid, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The live socket, or a thrown error when not yet connected — used by the Whatsapp* tools. */

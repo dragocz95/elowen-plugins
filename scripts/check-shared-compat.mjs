@@ -79,7 +79,7 @@ const defaultExtraRoots = [resolve(root, '..', 'elowen'), resolve(root, '..', 'e
 const configuredExtras = process.env.ELOWEN_SHARED_EXTRA_ROOTS;
 const extraRoots = configuredExtras === undefined
   ? defaultExtraRoots
-  : configuredExtras.split(delimiter).filter(Boolean).map(resolve);
+  : configuredExtras.split(delimiter).filter(Boolean).map((path) => resolve(path));
 for (const extraRoot of extraRoots) {
   if (!existsSync(join(extraRoot, 'package.json'))) continue;
   const label = dirname(extraRoot) === dirname(root) ? extraRoot.split('/').pop() : extraRoot;

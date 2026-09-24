@@ -8,9 +8,9 @@ Install **telegram** from **Settings → Plugins → Available**, configure the 
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.18 |
-| requiresCore | 0.28.50 |
-| requiresSharedApi | 4 |
+| Version | 0.2.21 |
+| requiresCore | 0.28.53 |
+| requiresSharedApi | 5 |
 
 Configure the bot and allowed chats, notification destination, response and tool-activity presentation, reactions, service language, media, voice, and role policies in the plugin settings.
 

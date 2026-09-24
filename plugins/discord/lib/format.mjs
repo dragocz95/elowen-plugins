@@ -1,8 +1,8 @@
-// Discord text/format helpers. The transport-neutral pieces (stripForSpeech, extractImageRefs,
+// Discord text/format helpers. The transport-neutral pieces (stripForSpeech,
 // stripThinking, parseModelExec, the fenced-split core) live in elowen-plugin-shared/format; only Discord's
 // own chunk size, mention/name resolution, reply-quote and subtext footer stay here.
-import { splitContent as splitAtChunk, renderChatTables, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
-export { extractImageRefs, stripThinking, parseModelExec, stripForSpeech };
+import { splitContent as splitAtChunk, renderChatTables, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+export { stripThinking, parseModelExec, stripForSpeech };
 
 export const CHUNK = 1990;
 // Wide enough that an ordinary four-column table stays a table. Narrower values look kinder to a phone but

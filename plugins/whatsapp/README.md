@@ -8,9 +8,9 @@ Install **whatsapp** from **Settings → Plugins → Available**, configure the 
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.21 |
-| requiresCore | 0.28.50 |
-| requiresSharedApi | 4 |
+| Version | 0.2.25 |
+| requiresCore | 0.28.53 |
+| requiresSharedApi | 5 |
 
 Configure the phone number, group scope, notification destination, response and progress behavior, reactions, service language, media, voice, and sender policies in the plugin settings.
 

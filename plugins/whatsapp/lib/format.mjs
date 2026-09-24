@@ -1,8 +1,8 @@
-// WhatsApp text/format helpers. The transport-neutral pieces (extractImageRefs, stripThinking,
+// WhatsApp text/format helpers. The transport-neutral pieces (stripThinking,
 // parseModelExec, the fenced-split core) live in elowen-plugin-shared/format; only WhatsApp's own chunk size,
 // reply-quote and footer stay here.
-import { splitContent as splitAtChunk, renderChatTables, extractImageRefs, stripThinking, parseModelExec, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
-export { extractImageRefs, stripThinking, parseModelExec };
+import { splitContent as splitAtChunk, renderChatTables, stripThinking, parseModelExec, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+export { stripThinking, parseModelExec };
 
 export const CHUNK = 4000;               // split long replies into readable pieces
 const CHAT_TABLE_WIDTH = 48;             // narrow rows survive portrait phone chats without horizontal scanning

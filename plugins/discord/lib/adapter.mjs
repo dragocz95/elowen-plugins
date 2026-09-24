@@ -3,10 +3,10 @@
 import { memberIsAdmin, matchPolicy, displayNameOf, resolveMentions, buildReplyContext, parseModelExec, stripForSpeech, withoutFooter } from './format.mjs';
 import { buildAskComponents, askTruncationNote, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
-import { LiveMessage, postWithImages } from './stream.mjs';
+import { LiveMessage, postFinalText } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageEventPayload, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -21,7 +21,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, no
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // default: a larger document is noted, not downloaded (cfg: maxFileBytes)
 const MAX_FILES = 5;                     // default general-file uploads accepted per message (cfg: maxFiles)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
                                          // agent chooses what to share, so this is a transport bound, not a preference
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
@@ -179,13 +179,13 @@ async function collectAttachments(list, maxImageBytes, maxImages, maxFileBytes, 
 
 export class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = '', resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
-    this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.imageDir = imageDir; // where ShareImage stores authorized chat images
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
@@ -1007,14 +1007,13 @@ export class DiscordAdapter {
   }
 
   async reply(channelId, text, replyToId) {
-    await postWithImages(this, channelId, text, replyToId);
+    await postFinalText(this, channelId, text, replyToId);
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
-   *  from the image plugins' data dirs. A missing/unreadable file is skipped silently — the text still
-   *  goes out without it. */
+  /** Load up to the configured cap of shared chat images by validated name.
+   *  A missing/unreadable file is skipped; the answer text still goes out. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind the `file` events of this turn — the counterpart of resolveImageFiles for a
@@ -1110,10 +1109,13 @@ export class DiscordAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification channel. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, channelId, notice) {
+  async notify(text, channelId, notice, images) {
     const target = discordDestinationId(channelId) || discordDestinationId(this.cfg.notifyChannelId);
     if (!target) return;
-    await this.reply(target, lifecycleText(this.cfg.language, notice, text));
+    const { names, caption } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.uploadImages(target, caption, files);
+    if (text) await this.reply(target, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The one 429 discipline every Discord call shares (rest + both multipart posters): on a rate-limited

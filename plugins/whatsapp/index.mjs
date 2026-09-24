@@ -23,9 +23,9 @@ import { StateStore } from './lib/state.mjs';
 import { WhatsAppAdapter } from './lib/adapter.mjs';
 import { registerTools } from './lib/tools.mjs';
 import { normalizeConfig } from './lib/config.mjs';
-import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
+import { platformChatFilesDir, platformImageDir } from 'elowen-plugin-shared/images';
 
-export { stripThinking, extractImageRefs, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
+export { stripThinking, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { parseAskReply } from './lib/ask.mjs';
 export { senderIsAdmin, matchPolicy, matchesId } from './lib/jid.mjs';
 export { LiveMessage } from './lib/stream.mjs';
@@ -35,10 +35,10 @@ export function register(ctx) {
   const state = new StateStore(join(dataDir, 'channel-state.json'));
   const authDir = join(dataDir, 'auth');
   try { mkdirSync(authDir, { recursive: true }); } catch { /* exists */ }
-  const imageDirs = platformImageDirs(dataDir);
+  const imageDir = platformImageDir(dataDir);
   // Pass chatCommands LAZILY (a function, not a snapshot) so a plugin registered after WhatsApp — or a live
   // plugin reload — is always reflected in /help and dispatch.
-  const adapter = new WhatsAppAdapter(normalizeConfig(ctx.config), ctx.logger, state, ctx.listModels, imageDirs, authDir, join(dataDir, 'qr.png'), ctx.answerQuestion, () => ctx.chatCommands('whatsapp'), platformChatFilesDir(dataDir));
+  const adapter = new WhatsAppAdapter(normalizeConfig(ctx.config), ctx.logger, state, ctx.listModels, imageDir, authDir, join(dataDir, 'qr.png'), ctx.answerQuestion, () => ctx.chatCommands('whatsapp'), platformChatFilesDir(dataDir));
   ctx.registerPlatform(adapter);
   registerTools(ctx, adapter);
 

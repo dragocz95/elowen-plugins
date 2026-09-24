@@ -8,9 +8,9 @@ Install **discord** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.22 |
-| requiresCore | 0.28.50 |
-| requiresSharedApi | 4 |
+| Version | 0.3.25 |
+| requiresCore | 0.28.53 |
+| requiresSharedApi | 5 |
 
 Configure the bot, guild and thread scope, notification destination, response and tool-activity presentation, reactions, service language, history, media, voice, and role policies in the plugin settings.
 

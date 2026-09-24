@@ -90,7 +90,7 @@ describe('requiresCore gate against the built candidate', () => {
     expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_ENVIRONMENTS), `${name} would install on ${BASELINE_WITHOUT_ENVIRONMENTS}`).toBe(true);
   });
 
-  const nextCoreConsumers = ['chatbot', 'cronjob', 'editor', 'github', 'lsp', 'msteams', 'sites', 'stats', 'todo'];
+  const nextCoreConsumers = ['chatbot', 'cronjob', 'editor', 'github', 'image-edit', 'image-gen', 'lsp', 'msteams', 'sites', 'stats', 'todo'];
 
   it.each(nextCoreConsumers)('%s declares the next core floor', (name) => {
     expect(manifestOf(name).requiresCore).toBe('0.28.53');

@@ -6,10 +6,10 @@ import { parseModelExec, buildReplyContext, stripForSpeech, withoutFooter } from
 import { senderIds, senderIsAdmin, matchPolicy, displayNameOf } from './ids.mjs';
 import { buildAskKeyboard, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
-import { LiveMessage, postWithImages } from './stream.mjs';
+import { LiveMessage, postFinalText } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageEventPayload, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { PICKER_CONTEXT, PICKER_PROJECT, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -22,7 +22,7 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // the same thing from the user's side: an interactive question this chat still owes an answer to. One
 // `askTimeoutMs` governs both, so raising it for a slow chat cannot leave the picker expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
                                          // agent chooses what to share, so this is a transport bound, not a preference
 const TG_CAPTION_LIMIT = 1024;           // Telegram rejects the whole sendPhoto call above this, caption included
@@ -86,13 +86,13 @@ function chatTarget(v) {
 
 export class TelegramAdapter {
   name = 'telegram';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = '', resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
-    this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.imageDir = imageDir; // where ShareImage stores authorized chat images
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
@@ -785,7 +785,7 @@ export class TelegramAdapter {
 
   /** Post a final text reply (image links become photo uploads) — the non-streamed path. */
   async reply(chatId, text, replyToId) {
-    await postWithImages(this, chatId, text, replyToId);
+    await postFinalText(this, chatId, text, replyToId);
   }
 
   /** Send one text message. Returns the new message_id (null on failure). Retries once on a 429 flood
@@ -835,7 +835,7 @@ export class TelegramAdapter {
     return this.bot.api.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji }]);
   }
 
-  /** Send generated images as photo messages (the first optionally anchored to the trigger). A caption
+  /** Send shared images as photo messages (the first optionally anchored to the trigger). A caption
    *  rides on the FIRST photo only — Telegram shows one per photo, and repeating it under each would read
    *  as the bot saying the same thing several times. */
   async sendPhotos(chatId, files, extra = {}, caption) {
@@ -858,10 +858,10 @@ export class TelegramAdapter {
     }
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name from
-   *  the image plugins' data dirs. A missing/unreadable file is skipped silently. */
+  /** Load up to the configured cap of shared chat images by validated name.
+   *  A missing/unreadable file is skipped silently. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
@@ -918,11 +918,15 @@ export class TelegramAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification chat. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, chatId, notice) {
+  async notify(text, chatId, notice, images) {
     const target = (typeof chatId === 'string' && chatId.trim())
       || (typeof this.cfg.notifyChatId === 'string' ? this.cfg.notifyChatId.trim() : '');
     if (!target || !this.bot) return;
-    await this.reply(chatTarget(target), lifecycleText(this.cfg.language, notice, text));
+    const id = chatTarget(target);
+    const { names, caption } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.sendPhotos(id, files, {}, caption);
+    if (text) await this.reply(id, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The live bot, or a thrown error when not yet connected — used by the Telegram* tools. */

@@ -1,9 +1,9 @@
 {
   "name": "image-gen",
-  "version": "0.2.7",
+  "version": "0.2.9",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
-  "description": "Image generation through a configured API-key provider or the connected ChatGPT account. Generated images show directly in the chat.",
+  "requiresCore": "0.28.53",
+  "description": "Image generation through a configured provider. PNG files are saved in the current project; use ShareImage to show one in chat.",
   "entry": "index.mjs",
   "requires": {
     "config": [

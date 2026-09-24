@@ -1,5 +1,21 @@
 # Changelog
 
+## image-gen 0.2.9, image-edit 0.2.11 - 2026-09-24
+
+- Generated and edited PNGs are saved in the current Project and return their file paths. An authorized `ShareImage` call is the separate delivery step; saving alone does not attach an image to chat. Specify `output_path` and `overwrite: true` together to replace an existing PNG; otherwise writes are create-only. Requires core 0.28.53.
+
+## discord 0.3.25, telegram 0.2.21, whatsapp 0.2.25, msteams 0.8.7 - 2026-09-24
+
+- Chat images are uploaded only from explicit `ShareImage` events, not image-looking links in reply text. Scheduled direct-chat replies carry those image events into proactive delivery as attachments. Requires core 0.28.53 and shared API 5.
+
+## cronjob 0.6.18 - 2026-09-24
+
+- Scheduled reports now keep explicitly shared images attached when delivering to a notification channel, including retries after a failed delivery. Requires core 0.28.53 and shared API 5.
+
+## cronjob 0.6.17 - 2026-09-24
+
+- Updated its shared-package contract to API 5 for core 0.28.53. Existing scheduled prompts and delivery history remain unchanged.
+
 ## chatbot 0.3.10 - 2026-09-24
 
 - The image picker now fits inside the chat input on desktop and phones. Shared images open as compact thumbnails, shared files appear as download chips, and answer ratings no longer cover attachments. Attachment controls and labels follow the visitor's language.

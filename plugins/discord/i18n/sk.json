@@ -43,7 +43,7 @@
     },
     "maxUploadImages": {
       "label": "Max. obrázkov na odpoveď",
-      "hint": "Koľko vygenerovaných obrázkov bot pripojí k jednej odchádzajúcej odpovedi."
+      "hint": "Koľko obrázkov zdieľaných asistentom bot pripojí k jednej odchádzajúcej odpovedi."
     },
     "botToken": {
       "label": "Token bota",
