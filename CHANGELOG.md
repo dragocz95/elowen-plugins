@@ -1,5 +1,10 @@
 # Changelog
 
+## chatbot 0.3.11 - 2026-09-24
+
+- Open a shared image in a frameless in-page viewer that closes on a click beside the image, the close control or Escape, instead of navigating away from the customer page.
+- Centre the image-attachment icon inside its touch target.
+
 ## chatbot 0.3.10 - 2026-09-24
 
 - The image picker now fits inside the chat input on desktop and phones. Shared images open as compact thumbnails, shared files appear as download chips, and answer ratings no longer cover attachments. Attachment controls and labels follow the visitor's language.

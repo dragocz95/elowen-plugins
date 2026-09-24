@@ -43,6 +43,7 @@ export interface WidgetStrings {
   uploadProgress: string;
   attachImage: string;
   attachmentImage: string;
+  imageClose: string;
   attachmentLoading: string;
   attachmentDownload: string;
   errorAttachment: string;
@@ -94,6 +95,7 @@ const CS: WidgetStrings = {
   uploadProgress: 'Nahrávání obrázku: {percent} %',
   attachImage: 'Přiložit obrázek',
   attachmentImage: 'Otevřít obrázek',
+  imageClose: 'Zavřít obrázek',
   attachmentLoading: 'Načítání obrázku',
   attachmentDownload: 'Stáhnout soubor',
   errorAttachment: 'Přílohu se nepodařilo načíst.',
@@ -137,6 +139,7 @@ const SK: WidgetStrings = {
   uploadProgress: 'Nahrávanie obrázka: {percent} %',
   attachImage: 'Priložiť obrázok',
   attachmentImage: 'Otvoriť obrázok',
+  imageClose: 'Zavrieť obrázok',
   attachmentLoading: 'Načítavanie obrázka',
   attachmentDownload: 'Stiahnuť súbor',
   errorAttachment: 'Prílohu sa nepodarilo načítať.',
@@ -180,6 +183,7 @@ const EN: WidgetStrings = {
   uploadProgress: 'Uploading image: {percent}%',
   attachImage: 'Attach image',
   attachmentImage: 'Open image',
+  imageClose: 'Close image',
   attachmentLoading: 'Loading image',
   attachmentDownload: 'Download file',
   errorAttachment: 'The attachment could not be loaded.',

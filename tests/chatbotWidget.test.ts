@@ -1682,10 +1682,38 @@ describe('shared attachments in deep-chat', () => {
       const image = panel.host.shadowRoot!.querySelector('deep-chat')!.shadowRoot!.querySelector<HTMLImageElement>('.cb-shared-file img');
       expect(image?.src).toBe('blob:https://example.test/shared');
       expect(image?.alt).toBe('');
-      const link = image?.closest('a');
-      expect(link?.target).toBe('_blank');
-      expect(link?.getAttribute('aria-label')).toBe(strings.attachmentImage);
-      expect(link?.textContent).toBe('');
+      // The thumbnail opens the image over the page; it never navigates away from the customer's site.
+      expect(image?.closest('a')).toBeNull();
+      const open = image!.closest<HTMLButtonElement>('button')!;
+      expect(open.type).toBe('button');
+      expect(open.getAttribute('aria-label')).toBe(strings.attachmentImage);
+      expect(open.textContent).toBe('');
+
+      panel.open();
+      const shell = panel.host.shadowRoot!;
+      const lightbox = shell.querySelector<HTMLElement>('.cb-lightbox')!;
+      const close = lightbox.querySelector<HTMLButtonElement>('.cb-lightbox-close')!;
+      expect(lightbox.hidden).toBe(true);
+      open.click();
+      expect(lightbox.hidden).toBe(false);
+      expect(lightbox.getAttribute('role')).toBe('dialog');
+      expect(lightbox.querySelector('img')?.src).toBe('blob:https://example.test/shared');
+      expect(close.getAttribute('aria-label')).toBe(strings.imageClose);
+      expect(shell.activeElement).toBe(close);
+      // A click on the image itself keeps it open; a click beside it closes it.
+      lightbox.querySelector('img')!.click();
+      expect(lightbox.hidden).toBe(false);
+      lightbox.click();
+      expect(lightbox.hidden).toBe(true);
+      // Escape closes the image first and leaves the chat open.
+      open.click();
+      panel.host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(lightbox.hidden).toBe(true);
+      expect(panel.isOpen()).toBe(true);
+      open.click();
+      close.click();
+      expect(lightbox.hidden).toBe(true);
+      expect(lightbox.querySelector('img')?.hasAttribute('src')).toBe(false);
       panel.destroy();
       expect(revoked).toEqual(['blob:https://example.test/shared']);
     } finally { vi.unstubAllGlobals(); }
@@ -1724,7 +1752,8 @@ describe('shared attachments in deep-chat', () => {
       panel.showAttachment('T', file, async () => new Blob([new Uint8Array(12)], { type: 'image/png' }));
       await flush();
       const root = chat.shadowRoot!;
-      expect(root.querySelector('.cb-shared-image a')?.getAttribute('aria-label')).toBe(translated.attachmentImage);
+      expect(root.querySelector('.cb-shared-image button')?.getAttribute('aria-label')).toBe(translated.attachmentImage);
+      expect(panel.host.shadowRoot!.querySelector('.cb-lightbox-close')?.getAttribute('aria-label')).toBe(translated.imageClose);
       expect(root.querySelector('.cb-shared-image')?.textContent).not.toContain('Preview');
       panel.destroy();
     }

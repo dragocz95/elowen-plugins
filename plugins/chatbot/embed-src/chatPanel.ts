@@ -295,14 +295,16 @@ function lookStyle(appearance: ChatbotAppearance): string {
 }
 .cb-attachments:has(.cb-shared-file) { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-top:8px; padding-bottom:24px; }
 .cb-shared-file { box-sizing:border-box; min-width:0; max-width:100%; }
-.cb-shared-image a { display:block; width:max-content; max-width:100%; border-radius:8px; overflow:hidden; line-height:0; }
+.cb-shared-image button { display:block; width:max-content; max-width:100%; padding:0; border:0; border-radius:8px; background:none; overflow:hidden; line-height:0; cursor:zoom-in; }
 .cb-shared-image img { display:block; width:auto; height:auto; max-width:min(100%,240px); max-height:180px; object-fit:contain; border-radius:8px; }
-.cb-shared-image a:hover img { filter:brightness(.92); }
-.cb-shared-file a:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+.cb-shared-image button:hover img { filter:brightness(.92); }
+.cb-shared-file a:focus-visible, .cb-shared-image button:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-shared-file-chip { display:flex; width:min(100%,280px); min-height:44px; padding:8px 10px; text-decoration:none; }
 .cb-shared-file-chip svg { width:18px; height:18px; flex:0 0 auto; }
 .cb-shared-file-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .input-button:has(#upload-images-icon) { box-sizing:border-box; min-width:44px; min-height:44px; padding:10px; touch-action:manipulation; }
+/* deep-chat offsets this icon absolutely for its own 23px button; in the 44px target the flex box centres it. */
+.input-button #upload-images-icon { position:static; }
 .input-button:has(#upload-images-icon):focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-upload-name { display: block; padding-top: 6px; overflow-wrap: anywhere; font-size: .875em; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
@@ -460,6 +462,22 @@ ${effectsCss(appearance)}
 @keyframes cb-teaser-in { from { opacity: 0; transform: translateY(${fromTop ? -8 : 8}px) scale(.7); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .launcher-teaser { animation: none; } }
 .launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
+.cb-lightbox {
+  position: fixed; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center;
+  padding: 64px 16px 16px; background: rgba(0, 0, 0, .86); cursor: zoom-out;
+  animation: cb-lightbox-in .18s ease-out both;
+}
+.cb-lightbox[hidden] { display: none; }
+.cb-lightbox img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; cursor: default; }
+.cb-lightbox-close {
+  position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .14); color: #fff;
+  font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
+}
+.cb-lightbox-close:hover { background: rgba(255, 255, 255, .26); }
+.cb-lightbox-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@keyframes cb-lightbox-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cb-lightbox { animation: none; } }
 .launcher-teaser-text {
   flex: 1 1 auto; min-width: 0; padding: 2px 0; border: 0; background: transparent; color: inherit;
   font: inherit; font-weight: 500; line-height: 1.45; text-align: left; overflow-wrap: anywhere; cursor: pointer;
@@ -499,6 +517,9 @@ export class ChatPanel implements ChatView {
   private readonly avatar: HTMLImageElement;
   private readonly launcher: HTMLButtonElement;
   private readonly teaser: HTMLElement;
+  private readonly lightbox: HTMLElement;
+  private readonly lightboxImage: HTMLImageElement;
+  private lightboxReturn: HTMLElement | null = null;
   private readonly badge: HTMLElement;
   private readonly mute: HTMLButtonElement;
   private readonly storage: ChatPanelOptions['storage'];
@@ -671,7 +692,23 @@ export class ChatPanel implements ChatView {
     dismissTeaser.setAttribute('aria-label', this.strings.teaserClose);
     dismissTeaser.addEventListener('click', () => this.dismissTeaser());
     this.teaser.append(teaserText, dismissTeaser);
-    root.append(this.panel, this.teaser, this.launcher);
+    // A shared image opens over the page, frameless: a click beside it, the close control or Escape closes it.
+    this.lightbox = document.createElement('div');
+    this.lightbox.className = 'cb-lightbox';
+    this.lightbox.hidden = true;
+    this.lightbox.setAttribute('role', 'dialog');
+    this.lightbox.setAttribute('aria-modal', 'true');
+    this.lightbox.setAttribute('aria-label', this.strings.attachmentImage);
+    this.lightboxImage = document.createElement('img');
+    this.lightboxImage.alt = '';
+    const closeImage = document.createElement('button');
+    closeImage.type = 'button';
+    closeImage.className = 'cb-lightbox-close';
+    closeImage.textContent = '×';
+    closeImage.setAttribute('aria-label', this.strings.imageClose);
+    this.lightbox.append(this.lightboxImage, closeImage);
+    this.lightbox.addEventListener('click', (event) => { if (event.target !== this.lightboxImage) this.closeImage(); });
+    root.append(this.panel, this.teaser, this.launcher, this.lightbox);
     shadow.append(this.style, root);
 
     this.applyChrome();
@@ -694,8 +731,24 @@ export class ChatPanel implements ChatView {
       this.messages.addEventListener(event, () => this.cancelDrawScroll(), { passive: true });
     }
     this.host.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key === 'Escape' && !this.panel.hidden) this.toggle(false);
+      if ((event as KeyboardEvent).key !== 'Escape') return;
+      if (!this.lightbox.hidden) this.closeImage();
+      else if (!this.panel.hidden) this.toggle(false);
     });
+  }
+
+  private openImage(url: string, from: HTMLElement): void {
+    this.lightboxImage.src = url;
+    this.lightbox.hidden = false;
+    this.lightboxReturn = from;
+    this.lightbox.querySelector<HTMLButtonElement>('.cb-lightbox-close')!.focus();
+  }
+
+  private closeImage(): void {
+    this.lightbox.hidden = true;
+    this.lightboxImage.removeAttribute('src');
+    this.lightboxReturn?.focus();
+    this.lightboxReturn = null;
   }
 
   open(): void {
@@ -923,16 +976,15 @@ export class ChatPanel implements ChatView {
       item.className = `cb-shared-file cb-shared-${file.kind}`;
       if (file.kind === 'image') {
         if (url) {
-          const link = document.createElement('a');
-          link.href = url;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.setAttribute('aria-label', this.strings.attachmentImage);
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.setAttribute('data-cb-image', url);
+          open.setAttribute('aria-label', this.strings.attachmentImage);
           const img = document.createElement('img');
           img.src = url;
           img.alt = '';
-          link.append(img);
-          item.append(link);
+          open.append(img);
+          item.append(open);
         } else item.textContent = this.strings.attachmentLoading;
       } else {
         const name = file.name || this.strings.attachmentDownload;
@@ -989,6 +1041,8 @@ export class ChatPanel implements ChatView {
       void this.sendFeedbackComment(turnId, group.querySelector('textarea')?.value ?? '');
     } else if (turnId && button.classList.contains('cb-feedback-skip')) {
       this.skipFeedbackComment(turnId);
+    } else if (button.hasAttribute('data-cb-image')) {
+      this.openImage(button.getAttribute('data-cb-image') ?? '', button);
     } else if (button.hasAttribute('data-cb-url')) {
       const url = button.getAttribute('data-cb-url') ?? '';
       if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url);
