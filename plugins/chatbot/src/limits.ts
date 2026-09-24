@@ -123,24 +123,15 @@ export function specOf(field: LimitField): LimitSpec {
 }
 
 /** Every limit a row carries, with an unusable value reported as unset rather than as itself, so a hand-edited
- *  row cannot hand the enforcement code a number the admin API would have refused. */
+ *  row cannot hand the enforcement code a number the admin API would have refused. Derived from the spec
+ *  table above, so a limit added there is read here with no second list to keep in step. */
 export function storedLimits(row: BotLimitColumns): LimitValues {
-  const read = (field: LimitField): number | null => {
-    const value = row[LIMITS[field].column];
-    return isUsableLimit(value, LIMITS[field]) ? value : null;
-  };
-  return {
-    rateIpPerMinute: read('rateIpPerMinute'),
-    rateChatbotPerMinute: read('rateChatbotPerMinute'),
-    rateConversationPerMinute: read('rateConversationPerMinute'),
-    dailyTurnLimit: read('dailyTurnLimit'),
-    dailyCostMicrousd: read('dailyCostMicrousd'),
-    maxConcurrentTurns: read('maxConcurrentTurns'),
-    maxQueueDepth: read('maxQueueDepth'),
-    queueTimeoutSeconds: read('queueTimeoutSeconds'),
-    maxActionsPerTurn: read('maxActionsPerTurn'),
-    retentionDays: read('retentionDays'),
-  };
+  return Object.fromEntries(
+    LIMIT_FIELDS.map((field) => {
+      const value = row[LIMITS[field].column];
+      return [field, isUsableLimit(value, LIMITS[field]) ? value : null];
+    }),
+  ) as LimitValues;
 }
 
 /** Which mandatory numbers a set of values has not decided yet. The ONE completeness rule: a stored row, a
@@ -172,16 +163,7 @@ export function readBotLimits(row: BotRow | BotLimitColumns | null): BotLimits |
     if (!isUsableLimit(stored, OPTIONAL_LIMITS[field])) return null;
   }
   if (incompleteValues(values).length > 0) return null;
-  return {
-    rateIpPerMinute: values.rateIpPerMinute!,
-    rateChatbotPerMinute: values.rateChatbotPerMinute!,
-    rateConversationPerMinute: values.rateConversationPerMinute!,
-    dailyTurnLimit: values.dailyTurnLimit!,
-    dailyCostMicrousd: values.dailyCostMicrousd,
-    maxConcurrentTurns: values.maxConcurrentTurns!,
-    maxQueueDepth: values.maxQueueDepth!,
-    queueTimeoutSeconds: values.queueTimeoutSeconds!,
-    maxActionsPerTurn: values.maxActionsPerTurn!,
-    retentionDays: values.retentionDays!,
-  };
+  // Every mandatory number proved present above, so this one conversion only restates that proof in the
+  // type: no per-field assertion a later limit could slip past.
+  return values as BotLimits;
 }

@@ -31,7 +31,7 @@ export interface VisitorTokenPayload {
   exp: number;
 }
 
-type VisitorTokenFailure = 'malformed' | 'signature' | 'shape' | 'expired' | 'not_yet_valid' | 'bot_mismatch';
+type VisitorTokenFailure = 'malformed' | 'signature' | 'shape' | 'expired' | 'not_yet_valid';
 
 export type VisitorTokenVerification =
   | { ok: true; payload: VisitorTokenPayload }
@@ -84,13 +84,12 @@ const isPositiveInt = (value: unknown): value is number => typeof value === 'num
 
 /** Verify a token. The order is deliberate and must stay: the SIGNATURE is checked first, in constant
  *  time, so nothing an attacker wrote is parsed before it has been proven to be ours; only then the
- *  payload shape, then its lifetime, then the binding to the chatbot the request addressed. Database
- *  state (the row's hash and revocation) is the caller's next step. */
+ *  payload shape, then its lifetime. Binding to the chatbot the request addressed is the caller's next
+ *  step, against the live database row — never a parameter here. */
 export function verifyVisitorToken(input: {
   secret: string;
   token: string;
   nowMs: number;
-  expectedBot?: string;
 }): VisitorTokenVerification {
   const parts = input.token.split('.');
   if (parts.length !== 3 || parts[0] !== TOKEN_PREFIX || parts[1] === '' || parts[2] === '') return { ok: false, reason: 'malformed' };
@@ -117,7 +116,6 @@ export function verifyVisitorToken(input: {
   // A token that claims to have been issued in the future cannot be one this server minted, unless the
   // clock moved backwards; either way it is not honoured.
   if (parsed.iat > now + CLOCK_SKEW_SECONDS) return { ok: false, reason: 'not_yet_valid' };
-  if (input.expectedBot !== undefined && parsed.bot !== input.expectedBot) return { ok: false, reason: 'bot_mismatch' };
 
   return { ok: true, payload: parsed };
 }

@@ -65,13 +65,14 @@ export const PAGE_FIELD_VALUE_MAX_CHARS = 200;
  *  second thing to keep in step. */
 export const PAGE_TEXT_MAX_CHARS = 120;
 
-/** Every frame type a turn's public stream may carry. `ping` is never stored and only says the stream is
- *  alive; `action` is the server asking the page to do something it has already approved. A client that
- *  meets a type it does not know ignores it rather than guessing. */
+/** Bounds on an action nonce: long enough to be unguessable, short enough to stay out of any budget. */
 export const ACTION_NONCE_MIN_CHARS = 8;
 export const ACTION_NONCE_MAX_CHARS = 128;
 export const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** Every frame type a turn's public stream may carry. `ping` is never stored and only says the stream is
+ *  alive; `action` is the server asking the page to do something it has already approved. A client that
+ *  meets a type it does not know ignores it rather than guessing. */
 export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'attachment', 'ping'] as const;
 export type PublicFrameType = (typeof PUBLIC_FRAME_TYPES)[number];
 export type StoredFrameType = Exclude<PublicFrameType, 'ping'>;

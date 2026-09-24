@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { PluginApiAuth } from 'elowen/plugin-api';
 import { createAdminApi } from '../plugins/chatbot/src/adminApi.js';
+import { FEEDBACK_COMMENT_MAX_CHARS } from '../plugins/chatbot/src/publicContract.js';
 import { CHATBOT_SITE, NOW_MS, TEST_LIMITS, TURN_PAGE, createChatbotHost, issueToken, postRequest, publicRequest, registerBot } from './helpers/chatbotHost.js';
 
 const iso = (offset = 0) => new Date(NOW_MS + offset).toISOString();
@@ -95,5 +96,17 @@ describe('visitor feedback', () => {
     const filtered = await api.feedback(admin, { chatbotUserId: '12', rating: 'down' });
     expect(filtered.body).toMatchObject({ totals: { up: 0, down: 1, total: 1 }, rows: [{ chatbotUserId: 12, rating: 'down', reply: 'Answer', message: 'Question', sessionId: 'session-feedback' }] });
     expect((await api.feedback(admin, { rating: 'other' })).status).toBe(400);
+  });
+
+  it('keeps the database comment ceiling on the contract number', () => {
+    // The hook validates first, so this drives the store directly: a comment at the ceiling stores, one
+    // past it is refused by the table CHECK rather than truncated.
+    const host = createChatbotHost();
+    registerBot(host);
+    const turnId = record(host, 'visitor-boundary');
+    const save = (comment: string) =>
+      host.store.saveFeedback({ turnId, chatbotUserId: 12, visitorId: 'visitor-boundary', rating: 'up', comment, now: iso() });
+    save('x'.repeat(FEEDBACK_COMMENT_MAX_CHARS));
+    expect(() => save('x'.repeat(FEEDBACK_COMMENT_MAX_CHARS + 1))).toThrow();
   });
 });

@@ -5,6 +5,7 @@ import { registerOfferTool } from './offerTool.js';
 import { TurnEventBroker } from './broker.js';
 import { createCoreSessionBridge } from './coreSessions.js';
 import { migrate } from './db.js';
+import { DAY_MS } from './adminContract.js';
 import { createAdminApi } from './adminApi.js';
 import { createAvatarFetcher } from './avatarProxy.js';
 import { createPublicRoute, STREAM_PING_INTERVAL_MS } from './publicRoutes.js';
@@ -19,7 +20,6 @@ import { registerVisitorPageContext } from './visitorTurn.js';
 /** Default lifetime of a visitor token, in days. Declared in the manifest as `visitorTokenTtlDays` and
  *  read from configuration at issue time; this is only the fallback when a deployment stored no value. */
 const DEFAULT_TOKEN_TTL_DAYS = 30;
-const SECONDS_PER_DAY = 86_400;
 /** Register everything this plugin contributes: its platform adapter, its public hook, the administrator's
  *  own route and its tables. One entry point, so a reader can see the whole surface at once. */
 export function register(published) {
@@ -68,7 +68,7 @@ export function register(published) {
     const tokenTtlSeconds = () => {
         const configured = ctx.config.visitorTokenTtlDays;
         const days = typeof configured === 'number' && Number.isFinite(configured) && configured >= 1 ? configured : DEFAULT_TOKEN_TTL_DAYS;
-        return Math.round(days * SECONDS_PER_DAY);
+        return Math.round(days * (DAY_MS / 1000));
     };
     ctx.registerPlatform(adapter);
     // Deleting a conversation is ONE path, whether a due date or an administrator asked for it: core's own

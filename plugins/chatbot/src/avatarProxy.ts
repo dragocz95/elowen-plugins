@@ -17,20 +17,15 @@
  *  - the REQUEST is this plugin's, below: `https:` only, no redirect followed, no header or credential of any
  *    kind sent, a bounded wait, and a body whose size and media type are READ rather than believed. */
 
-/** The one method this module needs of the host's transport (`PluginPublicHttp` in the published plugin
- *  API). Narrowed to what is called, the way every other host seam this plugin consumes is narrowed, so the
- *  fetch can be driven by a fixture without standing up a socket. */
-export interface AvatarUpstream {
-  request(url: string, options?: { signal?: AbortSignal }): Promise<AvatarUpstreamResponse>;
-}
+import type { PluginPublicHttp, PluginPublicHttpResponse } from 'elowen/plugin-api';
 
-export interface AvatarUpstreamResponse {
-  status: number;
-  headers: Record<string, string>;
-  body: AsyncIterable<Uint8Array>;
-  /** Release the socket. Called on every path, including one where the body was cut short. */
-  cancel(reason?: Error): void;
-}
+/** The one method this module needs of the host's transport (`PluginPublicHttp` in the published plugin
+ *  API). Narrowed to what is called with a `Pick`, so the fetch can be driven by a fixture without
+ *  standing up a socket — while the response stays the published shape, so a fixture that drifts from
+ *  what the host really sends fails where it is read. */
+export type AvatarUpstream = Pick<PluginPublicHttp, 'request'>;
+
+export type AvatarUpstreamResponse = PluginPublicHttpResponse;
 
 /** How long the deployment may spend on the owner's image host. An avatar is chrome: a panel that is
  *  waiting for one is a panel a visitor cannot use, and the answer after this is "no avatar". */

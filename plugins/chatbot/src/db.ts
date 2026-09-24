@@ -1,4 +1,5 @@
 import type { PluginDb, PluginDbHandle } from 'elowen/plugin-api';
+import { FEEDBACK_COMMENT_MAX_CHARS } from './publicContract.js';
 
 /** Plugin-owned tables, all namespaced `p_chatbot_` so nothing here can collide with a core table. */
 const SCHEMA_VERSION = 1;
@@ -288,7 +289,9 @@ const MIGRATIONS = [
     },
   },
   {
-    /** Step 10: one visitor rating for each finished answer, removed with its turn. */
+    /** Step 10: one visitor rating for each finished answer, removed with its turn. The comment ceiling is
+     *  the contract's own number, interpolated rather than restated: a second literal here is a second
+     *  thing to keep in step with the validation the hook enforces. */
     version: 10,
     up(db: { exec(sql: string): void }): void {
       db.exec(`CREATE TABLE p_chatbot_feedback (
@@ -296,7 +299,7 @@ const MIGRATIONS = [
         chatbot_user_id INTEGER NOT NULL,
         visitor_id TEXT NOT NULL,
         rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
-        comment TEXT CHECK (comment IS NULL OR length(comment) <= 500),
+        comment TEXT CHECK (comment IS NULL OR length(comment) <= ${FEEDBACK_COMMENT_MAX_CHARS}),
         updated_at TEXT NOT NULL
       );
       CREATE INDEX p_chatbot_feedback_register ON p_chatbot_feedback (chatbot_user_id, rating, updated_at DESC);`);

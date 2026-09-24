@@ -51,10 +51,10 @@ function sign(secret: string, value: unknown): string {
 }
 
 describe('visitor token', () => {
-  it('verifies what it minted, for the chatbot it was minted for', () => {
+  it('verifies what it minted', () => {
     const issued = payload();
     const token = mintVisitorToken(SECRET, issued);
-    const verified = verifyVisitorToken({ secret: SECRET, token, nowMs: NOW, expectedBot: issued.bot });
+    const verified = verifyVisitorToken({ secret: SECRET, token, nowMs: NOW });
     expect(verified.ok).toBe(true);
     if (verified.ok) expect(verified.payload).toEqual(issued);
   });
@@ -82,13 +82,6 @@ describe('visitor token', () => {
     const future = payload({ iat: Math.floor(NOW / 1000) + 3600, exp: Math.floor(NOW / 1000) + 7200 });
     expect(verifyVisitorToken({ secret: SECRET, token: mintVisitorToken(SECRET, future), nowMs: NOW }))
       .toEqual({ ok: false, reason: 'not_yet_valid' });
-  });
-
-  it('refuses a token issued for a different chatbot', () => {
-    const issued = payload();
-    const token = mintVisitorToken(SECRET, issued);
-    expect(verifyVisitorToken({ secret: SECRET, token, nowMs: NOW, expectedBot: newPublicId() }))
-      .toEqual({ ok: false, reason: 'bot_mismatch' });
   });
 
   it('checks the payload SHAPE after the signature, so a well-signed oddity is still refused', () => {

@@ -140,7 +140,9 @@ function refusalSentence(reason) {
         case 'action_not_allowed':
             return 'Refused: this chatbot is not allowed to act on that page.';
         default:
-            return 'Refused.';
+            // Every refusal above is handled: a new one must add its own sentence here, never fall through to a
+            // generic one. The `never` assignment fails the build until it does.
+            return reason;
     }
 }
 function detailsOf(answer) {
