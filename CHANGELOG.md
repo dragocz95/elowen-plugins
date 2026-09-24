@@ -1,5 +1,17 @@
 # Changelog
 
+## discord 0.3.26, telegram 0.2.22, whatsapp 0.2.26, msteams 0.8.8, chatbot 0.3.12 - 2026-09-24
+
+- Move user documentation into each plugin's `docs/` folder, one page per plugin: discord 0.3.26, telegram 0.2.22 and whatsapp 0.2.26 split from the shared chat-platforms page (kept as an overview), msteams 0.8.8 keeps the `microsoft-365-plugin` slug while its maintainer notes stay developer-only, and chatbot 0.3.12 gains its first manual page (also fixing stale v1 hook and asset paths).
+
+## codebase 0.1.9, lsp 0.3.3, editor 0.5.4, github 0.1.25, browser 0.4.9, cronjob 0.6.19 - 2026-09-24
+
+- Move user documentation into each plugin's `docs/` folder, one page per plugin: codebase 0.1.9, lsp 0.3.3, editor 0.5.4 and github 0.1.25 split from the shared code-tools page (kept as an overview in the core manual), plus browser 0.4.9 and cronjob 0.6.19.
+
+## image-gen 0.2.10, image-edit 0.2.12, onedrive 0.3.3, sites 0.14.12, skills 0.5.2, stats 0.2.10, todo 0.14.18, voice-bot 0.1.5 - 2026-09-24
+
+- Move user documentation into each plugin's `docs/` folder, one page per plugin: image-gen 0.2.10 and image-edit 0.2.12 split from the shared image-tools page (kept as an overview), plus onedrive 0.3.3, sites 0.14.12, skills 0.5.2, stats 0.2.10, todo 0.14.18 and voice-bot 0.1.5.
+
 ## chatbot 0.3.11 - 2026-09-24
 
 - Open a shared image in a frameless in-page viewer that closes on a click beside the image, the close control or Escape, instead of navigating away from the customer page.

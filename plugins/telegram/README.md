@@ -8,7 +8,7 @@ Install **telegram** from **Settings → Plugins → Available**, configure the 
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.21 |
+| Version | 0.2.22 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 

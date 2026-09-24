@@ -1,11 +1,15 @@
 {
   "name": "sites",
-  "version": "0.14.11",
+  "version": "0.14.12",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Publish an application from a selected managed Project and preview it. Each site has its own visibility settings.",
   "entry": "dist/index.js",
-  "consumesControls": ["sandbox", "browserCapture", "publishedSitesGateway"],
+  "consumesControls": [
+    "sandbox",
+    "browserCapture",
+    "publishedSitesGateway"
+  ],
   "provides": {
     "tools": [
       "SiteCreate",
@@ -23,7 +27,10 @@
       "SiteUnshare",
       "SiteDelete"
     ],
-    "readOnlyTools": ["SiteList", "SiteGet"],
+    "readOnlyTools": [
+      "SiteList",
+      "SiteGet"
+    ],
     "httpRoutes": [
       "s"
     ],

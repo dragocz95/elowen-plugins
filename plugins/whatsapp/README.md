@@ -8,7 +8,7 @@ Install **whatsapp** from **Settings → Plugins → Available**, configure the 
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.25 |
+| Version | 0.2.26 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 

@@ -8,7 +8,7 @@ Install **voice-bot** from **Settings → Plugins → Available**, configure the
 
 | Field | Value |
 | --- | --- |
-| Version | 0.1.4 |
+| Version | 0.1.5 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 

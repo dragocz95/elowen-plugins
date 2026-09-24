@@ -8,7 +8,7 @@ Install **browser** from **Settings → Plugins → Available**, then grant it t
 
 | Field | Value |
 | --- | --- |
-| Version | 0.4.8 |
+| Version | 0.4.9 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 

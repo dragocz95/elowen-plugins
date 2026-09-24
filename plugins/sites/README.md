@@ -8,7 +8,7 @@ Install **sites** from **Settings → Plugins → Available**, configure publica
 
 | Field | Value |
 | --- | --- |
-| Version | 0.14.11 |
+| Version | 0.14.12 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 

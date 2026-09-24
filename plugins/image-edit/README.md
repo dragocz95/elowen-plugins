@@ -8,7 +8,7 @@ Install **image-edit** from **Settings → Plugins → Available**, configure it
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.11 |
+| Version | 0.2.12 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 

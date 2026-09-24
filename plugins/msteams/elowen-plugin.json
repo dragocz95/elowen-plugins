@@ -1,6 +1,6 @@
 {
   "name": "msteams",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "requiresSharedApi": 5,
@@ -51,7 +51,13 @@
       "MicrosoftExcel",
       "MicrosoftTeams"
     ],
-    "readOnlyTools": ["TeamsFindPerson", "TeamsChatInfo", "TeamsMembers", "TeamsMemberInfo", "TeamsListConversations"],
+    "readOnlyTools": [
+      "TeamsFindPerson",
+      "TeamsChatInfo",
+      "TeamsMembers",
+      "TeamsMemberInfo",
+      "TeamsListConversations"
+    ],
     "controls": [
       "microsoftIdentity"
     ]

@@ -1,6 +1,6 @@
 {
   "name": "discord",
-  "version": "0.3.25",
+  "version": "0.3.26",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "requiresSharedApi": 5,
@@ -43,7 +43,17 @@
       "DiscordAddThreadMember",
       "DiscordRemoveThreadMember"
     ],
-    "readOnlyTools": ["DiscordListChannels", "DiscordReadChannel", "DiscordListRoles", "DiscordListMembers", "DiscordServerInfo", "DiscordChannelInfo", "DiscordMemberInfo", "DiscordSearchMembers", "DiscordListPins"]
+    "readOnlyTools": [
+      "DiscordListChannels",
+      "DiscordReadChannel",
+      "DiscordListRoles",
+      "DiscordListMembers",
+      "DiscordServerInfo",
+      "DiscordChannelInfo",
+      "DiscordMemberInfo",
+      "DiscordSearchMembers",
+      "DiscordListPins"
+    ]
   },
   "deferLoading": [
     "Discord*"

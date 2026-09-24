@@ -8,7 +8,7 @@ Install **image-gen** from **Settings → Plugins → Available**, configure its
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.9 |
+| Version | 0.2.10 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 

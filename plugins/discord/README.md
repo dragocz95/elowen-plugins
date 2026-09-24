@@ -8,7 +8,7 @@ Install **discord** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.25 |
+| Version | 0.3.26 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 

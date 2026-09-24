@@ -8,7 +8,7 @@ Install **codebase** from **Settings → Plugins → Available**, then enable it
 
 | Field | Value |
 | --- | --- |
-| Version | 0.1.8 |
+| Version | 0.1.9 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 

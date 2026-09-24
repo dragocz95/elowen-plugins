@@ -8,7 +8,7 @@ Install **msteams** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.8.7 |
+| Version | 0.8.8 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 

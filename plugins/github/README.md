@@ -8,7 +8,7 @@ Install **github** from **Settings → Plugins → Available**, connect GitHub i
 
 | Field | Value |
 | --- | --- |
-| Version | 0.1.24 |
+| Version | 0.1.25 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 
