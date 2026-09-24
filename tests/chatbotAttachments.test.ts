@@ -103,6 +103,29 @@ describe('visitor image uploads', () => {
 });
 
 describe('shared attachment delivery', () => {
+  it('records core session ownership before an attachment event while relay remains active', async () => {
+    const visitor = await issueToken(host);
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    host.handleTurn = async ({ observer }) => {
+      observer?.onEvent({ type: 'session', sessionId: 'brain-ch-chatbot-session' });
+      observer?.onEvent({ type: 'file', ref: REF, name: 'invoice.pdf', size: 4 });
+      await hold;
+      return undefined;
+    };
+    const admitted = await host.handler(postRequest({
+      path: 'turns', headers: { origin: SITE, authorization: `ChatbotVisitor ${visitor.body.token}` },
+      body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message: 'send file', page: TURN_PAGE },
+    }));
+    const turnId = (admitted.body as { turnId: string }).turnId;
+    for (let i = 0; i < 50 && host.store.attachmentEventsOf(turnId).length === 0; i += 1)
+      await new Promise(resolve => setTimeout(resolve, 1));
+    expect(host.store.turn(turnId)?.status).toBe('running');
+    expect(host.store.turn(turnId)?.core_session_id).toBe('brain-ch-chatbot-session');
+    expect(host.store.attachmentEventsOf(turnId)).toHaveLength(1);
+    release();
+    expect(await settledTurn(host, turnId)).toBe('done');
+  });
   it('serves only a durable same-visitor, same-session share and restores an attachment-only answer', async () => {
     const first = await issueToken(host);
     const other = await issueToken(host);

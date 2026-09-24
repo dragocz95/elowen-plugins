@@ -540,6 +540,30 @@ describe('one visitor message', () => {
     expect(view.answers).toEqual(['Vidím obrázek.']);
   });
 
+  it('waits for the terminal frame before loading a live shared file', async () => {
+    const view = makeView();
+    const shown: string[] = [];
+    view.view.showAttachment = (_turnId, attachment) => { shown.push(attachment.storedName); };
+    const storedName = `${'a'.repeat(64)}.bin`;
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(value) {
+      controller = value;
+      value.enqueue(new TextEncoder().encode(frame('attachment', { kind: 'file', storedName, name: 'report.pdf', size: 4 }, 1)));
+    } });
+    const harness = makeSession({ view, page: makePage(), responses: ({ url }) => {
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T' });
+      return new Response(stream, { status: 200 });
+    } });
+    const sending = harness.session.send('report');
+    await flush();
+    expect(shown).toEqual([]);
+    controller.enqueue(new TextEncoder().encode(frame('done', { text: '' }, 2)));
+    controller.close();
+    await sending;
+    expect(shown).toEqual([storedName]);
+  });
+
   it('refuses a message that carries more than the hook would take', async () => {
     const view = makeView();
     const page = makePage();
@@ -912,8 +936,8 @@ describe('acting on the page', () => {
 });
 
 describe('navigation and active-turn restoration', () => {
-  it('waits for avatar-initiated handoff redemption before restoring or following a turn', async () => {
-    const values = new Map([['elowen.chatbot.cbt_0123456789abcdef01234567.token', 'old-token']]);
+  it.each([true, false])('waits for avatar-initiated handoff before restore, stored token: %s', async hasToken => {
+    const values = new Map(hasToken ? [['elowen.chatbot.cbt_0123456789abcdef01234567.token', 'old-token']] : []);
     const storage = { getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => { values.set(key, value); },
       removeItem: (key: string) => { values.delete(key); } };
@@ -1601,6 +1625,41 @@ describe('the avatar a customer\'s page is not asked to allow', () => {
 });
 
 describe('shared attachments in deep-chat', () => {
+  it('sends the selected file from deep-chat’s FormData transport with its latest message', () => {
+    const submitted: { text: string; image: File | null }[] = [];
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: (text, image) => { submitted.push({ text, image }); }, onStop: () => undefined });
+    document.body.append(panel.host);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & {
+      connect: { handler: (body: unknown, signals: unknown) => void };
+      addMessage(message: { role: string; text: string }): void;
+    };
+    const image = new File([new Uint8Array([137, 80, 78, 71])], 'picture.png', { type: 'image/png' });
+    const body = new FormData();
+    body.append('files', image);
+    body.append('message1', JSON.stringify({ role: 'user', text: 'Older text' }));
+    body.append('message2', JSON.stringify({ role: 'user', text: 'What is this?' }));
+    chat.addMessage({ role: 'user', text: 'What is this?' });
+    chat.connect.handler(body, { onOpen() {}, onResponse() {}, onClose() {}, stopClicked: {} });
+    expect(submitted).toEqual([{ text: 'What is this?', image }]);
+    panel.destroy();
+  });
+
+  it('accepts an image-only FormData submission', () => {
+    const submitted: { text: string; image: File | null }[] = [];
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: (text, image) => { submitted.push({ text, image }); }, onStop: () => undefined });
+    document.body.append(panel.host);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & {
+      connect: { handler: (body: unknown, signals: unknown) => void };
+    };
+    const image = new File([new Uint8Array([137, 80, 78, 71])], 'picture.png', { type: 'image/png' });
+    const body = new FormData();
+    body.append('files', image);
+    chat.connect.handler(body, { onOpen() {}, onResponse() {}, onClose() {}, stopClicked: {} });
+    expect(submitted).toEqual([{ text: '', image }]);
+    panel.destroy();
+  });
   it('creates Blob links only after guarded download, then revokes them on teardown', async () => {
     const revoked: string[] = [];
     class BlobUrls extends URL {}

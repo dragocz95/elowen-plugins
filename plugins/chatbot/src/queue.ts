@@ -229,7 +229,10 @@ export class ChatbotTurnQueue {
           onEvent: (event) => {
             const fields = relayEventFields(event);
             if (fields.type === 'session') {
-              if (fields.sessionId) sessionId = fields.sessionId;
+              if (fields.sessionId) {
+                sessionId = fields.sessionId;
+                store.setCoreSessionId(turnId, fields.sessionId);
+              }
               stepTextOpen = false;
               return;
             }

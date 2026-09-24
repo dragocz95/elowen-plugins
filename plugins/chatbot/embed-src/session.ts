@@ -134,6 +134,7 @@ export class ChatSession {
   private acquiringToken: Promise<string> | null = null;
   private allowedOrigins: string[] = [];
   private readonly offers = new Map<string, Offer>();
+  private readonly pendingAttachments = new Map<string, SharedAttachment[]>();
 
   constructor(private readonly deps: SessionDeps) {
     this.strings = deps.strings;
@@ -155,7 +156,7 @@ export class ChatSession {
   /** Pick the conversation up where the visitor left it, if this browser ever had one. Nothing is sent to
    *  the server when it did not: a page load with an untouched panel makes no request at all. */
   async start(): Promise<void> {
-    if (!this.hasStoredToken()) return;
+    if (!this.hasStoredToken() && this.acquiringToken === null) return;
     // An avatar request may have started redeeming the handoff and cleared its code already.
     // Share that acquisition before reading the conversation with the stored (now revoked) token.
     try { await this.ensureToken(); } catch { this.deps.view.error(this.strings.errorUnavailable); return; }
@@ -332,6 +333,7 @@ export class ChatSession {
 
   destroy(): void {
     this.destroyed = true;
+    this.pendingAttachments.clear();
     this.aborter?.abort();
     this.aborter = null;
   }
@@ -436,6 +438,10 @@ export class ChatSession {
         const offer = this.offers.get(turnId);
         this.offers.delete(turnId);
         if (offer) this.deps.view.showOffer(offer, true);
+        for (const attachment of this.pendingAttachments.get(turnId) ?? []) {
+          this.deps.view.showAttachment(turnId, attachment, () => this.loadShared(turnId, attachment));
+        }
+        this.pendingAttachments.delete(turnId);
         return 'ended';
       }
       case 'offer': {
@@ -445,10 +451,16 @@ export class ChatSession {
       }
       case 'attachment': {
         const attachment = readSharedAttachment(frame.data);
-        if (attachment) this.deps.view.showAttachment(turnId, attachment, () => this.loadShared(turnId, attachment));
+        if (attachment) {
+          const pending = this.pendingAttachments.get(turnId) ?? [];
+          if (!pending.some((entry) => entry.kind === attachment.kind && entry.storedName === attachment.storedName))
+            pending.push(attachment);
+          this.pendingAttachments.set(turnId, pending);
+        }
         return 'continue';
       }
       case 'error': {
+        this.pendingAttachments.delete(turnId);
         this.offers.delete(turnId);
         // Every public error code means the same thing to a visitor: this answer is not coming. The code is
         // kept for the log the server keeps, not for a sentence a customer's visitor has to interpret.

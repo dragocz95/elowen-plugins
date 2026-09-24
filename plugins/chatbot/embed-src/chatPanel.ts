@@ -1525,6 +1525,25 @@ export class ChatPanel implements ChatView {
 /** Read only the last submitted user message; older messages cannot lend it their image or words. */
 function lastUserSubmission(body: unknown): { text: string; image: File | null; invalid: boolean } {
   const empty = { text: '', image: null, invalid: false };
+  if (body instanceof FormData) {
+    const files = body.getAll('files');
+    const image = files[0];
+    if (files.length !== 1 || !(image instanceof File)) return { ...empty, invalid: true };
+    let lastIndex = 0;
+    let text = '';
+    for (const [key, value] of body.entries()) {
+      const match = /^message([1-9]\d*)$/.exec(key);
+      if (!match || Number(match[1]) < lastIndex || typeof value !== 'string') continue;
+      try {
+        const message: unknown = JSON.parse(value);
+        if (typeof message !== 'object' || message === null || typeof (message as { text?: unknown }).text !== 'string')
+          return { ...empty, invalid: true };
+        lastIndex = Number(match[1]);
+        text = (message as { text: string }).text;
+      } catch { return { ...empty, invalid: true }; }
+    }
+    return { text, image, invalid: false };
+  }
   if (typeof body !== 'object' || body === null) return empty;
   const messages = (body as { messages?: unknown }).messages;
   if (!Array.isArray(messages)) return empty;

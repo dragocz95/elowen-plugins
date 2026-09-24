@@ -418,6 +418,12 @@ export class ChatbotStore {
     return changed.changes > 0;
   }
 
+  /** Make a relay session available to attachment readers before any public share event. */
+  setCoreSessionId(turnId: string, sessionId: string): void {
+    this.stmt("UPDATE p_chatbot_turns SET core_session_id = ? WHERE turn_id = ? AND status = 'running'")
+      .run(sessionId, turnId);
+  }
+
   /** Close one turn, in one transaction: its own row and the conversation's retention stamp.
    *
    *  A turn that closed without re-stamping its conversation would let a conversation be deleted while
