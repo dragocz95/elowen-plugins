@@ -1645,17 +1645,21 @@ describe('shared attachments in deep-chat', () => {
     panel.destroy();
   });
 
-  it('accepts an image-only FormData submission', () => {
+  it('accepts an image-only FormData submission after earlier messages without reusing their text', () => {
     const submitted: { text: string; image: File | null }[] = [];
     const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
       onVisitorMessage: (text, image) => { submitted.push({ text, image }); }, onStop: () => undefined });
     document.body.append(panel.host);
     const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & {
       connect: { handler: (body: unknown, signals: unknown) => void };
+      addMessage(message: { role: string; text: string }): void;
     };
     const image = new File([new Uint8Array([137, 80, 78, 71])], 'picture.png', { type: 'image/png' });
     const body = new FormData();
     body.append('files', image);
+    body.append('message1', JSON.stringify({ role: 'user', text: 'Older text' }));
+    chat.addMessage({ role: 'user', text: 'Older text' });
+    chat.addMessage({ role: 'user', text: '' });
     chat.connect.handler(body, { onOpen() {}, onResponse() {}, onClose() {}, stopClicked: {} });
     expect(submitted).toEqual([{ text: '', image }]);
     panel.destroy();
