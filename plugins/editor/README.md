@@ -8,8 +8,8 @@ Install **editor** from **Settings → Plugins → Available**, then enable it.
 
 | Field | Value |
 | --- | --- |
-| Version | 0.5.0 |
-| requiresCore | 0.28.50 |
+| Version | 0.5.3 |
+| requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 
 This plugin has no configuration fields.

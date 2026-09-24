@@ -8,8 +8,8 @@ Install **lsp** from **Settings → Plugins → Available**, then enable it.
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.0 |
-| requiresCore | 0.28.50 |
+| Version | 0.3.2 |
+| requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 
 Configure diagnostics availability and the language-server idle timeout in the plugin settings.

@@ -8,8 +8,8 @@ Install **chatbot** from **Settings → Plugins → Available**, then open **Cha
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.0 |
-| requiresCore | 0.28.50 |
+| Version | 0.3.10 |
+| requiresCore | 0.28.54 |
 | requiresSharedApi | none |
 
 ## How it works
