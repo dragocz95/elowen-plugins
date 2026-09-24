@@ -21373,7 +21373,7 @@ var ChatPanel = class {
   /** Deep-chat hands the visitor's message to the widget's own transport. Its body is what it would have
    *  posted to a service; the widget reads the visitor's last words out of it and nothing else. */
   handleSubmit(body, signals) {
-    const { text, image, invalid } = lastUserSubmission(body);
+    const { text, image, invalid } = lastUserSubmission(body, this.chat.getMessages().at(-1));
     if (invalid) {
       this.error(this.strings.errorImage);
       signals.onClose();
@@ -21405,8 +21405,14 @@ var ChatPanel = class {
     } else this.queued[this.answerIndex] = message;
   }
 };
-function lastUserSubmission(body) {
+function lastUserSubmission(body, current) {
   const empty = { text: "", image: null, invalid: false };
+  if (body instanceof FormData) {
+    const files = body.getAll("files");
+    const image = files[0];
+    if (files.length !== 1 || !(image instanceof File) || current?.role !== "user") return { ...empty, invalid: true };
+    return { text: typeof current.text === "string" ? current.text : "", image, invalid: false };
+  }
   if (typeof body !== "object" || body === null) return empty;
   const messages = body.messages;
   if (!Array.isArray(messages)) return empty;
