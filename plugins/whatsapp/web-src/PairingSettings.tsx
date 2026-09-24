@@ -52,8 +52,8 @@ export function PairingSettings({ surface }: { surface: 'page' | 'deck' }) {
   };
 
   return (
-    <C.PluginSection surface={surface} className="plugin-card" icon={QrCode} title={s.pairTitle} description={s.pairHint}>
-      <div className="settings-group__panel space-y-3">
+    <C.PluginSection surface={surface} icon={QrCode} title={s.pairTitle} description={s.pairHint}>
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           {connected === true ? (
             // Paired state reads from the action itself — the red "Unpair" is only shown when linked,
@@ -156,7 +156,7 @@ function PairModal({ onClose }: { onClose: () => void }) {
         {!connected ? (
           <C.Button variant="ghost" icon={RefreshCw} disabled={refreshing} onClick={() => void refresh()}>{s.pairRefresh}</C.Button>
         ) : null}
-        <C.Button variant="accent" onClick={onClose}>{connected ? 'OK' : s.close}</C.Button>
+        <C.Button variant="accent" onClick={onClose}>{s.close}</C.Button>
       </C.ModalFooter>
     </C.Modal>
   );

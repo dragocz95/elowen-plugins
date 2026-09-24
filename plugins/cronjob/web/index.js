@@ -1435,7 +1435,7 @@ function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose, onCre
               )) }),
               /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: "text-xs text-muted-foreground", children: s.hoursTimeZone })
             ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(ScheduleField, { schedule, onChange: setSchedule }),
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(C.Field, { label: s.prompt, hint: s.helpCreatePrompt, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("textarea", { value: prompt, onChange: (e) => setPrompt(e.target.value), rows: 4, className: "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-ring" }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(C.Field, { label: s.prompt, hint: s.helpCreatePrompt, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(C.Textarea, { value: prompt, onChange: (e) => setPrompt(e.target.value), rows: 4 }) }),
             isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(C.Field, { label: s.ownerColumn, hint: s.ownerFieldHint, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
               C.Segmented,
               {
@@ -1605,7 +1605,7 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
               /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", className: "font-mono text-xs", children: format.format(new Date(run.startedAt)) }),
               /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(C.DataTableCell, { lines: "auto", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "font-medium", children: run.jobName }),
-                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "text-[11px] text-muted-foreground", children: run.schedule || s.badgeOneShot })
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "text-caption text-muted-foreground", children: run.schedule || s.badgeOneShot })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: "auto", priority: "wide", children: run.owner?.name || s.ownerSystem || "System" }),
               /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(C.DataTableCell, { lines: 1, priority: "wide", children: run.durationMs === null ? "\u2014" : `${Math.round(run.durationMs / 100) / 10} s` }),
@@ -1650,7 +1650,6 @@ function HistoryTab({ query, owner, outcome, range, todayLocalDate, jobs, onOpen
 // plugins/cronjob/web-src/JobDrawer.tsx
 var import_react9 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
-var textareaClass = "w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring";
 var writablePayload = (job) => {
   const {
     owner: _owner,
@@ -1887,8 +1886,8 @@ function JobDrawer({ job, myId, adminFields, destinations, models, onClose, onRe
           onChange: (conversationSessionId) => patch({ conversationSessionId })
         }
       ) }) : null,
-      adminFields || draft.projectRef?.kind === "managed" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("textarea", { value: draft.check ?? "", onChange: (e) => patch({ check: e.target.value || void 0 }), rows: 2, className: textareaClass, placeholder: 'test -n "$(ls /new-bookings 2>/dev/null)" && cat /new-bookings/*' }) }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Field, { label: s.prompt, hint: s.helpPrompt, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("textarea", { value: draft.prompt, onChange: (e) => patch({ prompt: e.target.value }), rows: 8, className: textareaClass, disabled: !mayPatch }) }),
+      adminFields || draft.projectRef?.kind === "managed" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Field, { label: s.check, hint: s.helpCheck, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Textarea, { value: draft.check ?? "", onChange: (e) => patch({ check: e.target.value || void 0 }), rows: 2, placeholder: 'test -n "$(ls /new-bookings 2>/dev/null)" && cat /new-bookings/*' }) }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Field, { label: s.prompt, hint: s.helpPrompt, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Textarea, { value: draft.prompt, onChange: (e) => patch({ prompt: e.target.value }), rows: 8, disabled: !mayPatch }) }),
       adminFields && (draft.ownerUserId == null || draft.ownerUserId === myId) ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(C.Field, { label: s.channel, hint: s.helpChannel, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
         DestinationField,
         {
@@ -2297,8 +2296,8 @@ function CronNextRunMetric({ locale }) {
   }, [jobs.data]);
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("a", { href: "/p/cronjob/settings/jobs", className: "min-w-0 rounded-lg transition-opacity hover:opacity-80", children: [
     /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "font-mono text-xl font-medium tabular-nums text-foreground @2xl:text-2xl", children: next ? new Date(next.at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "\u2014" }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 text-[11px] text-muted-foreground", children: strings.nextRun }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 truncate text-[11px] text-muted-foreground", children: next?.name ?? strings.nextRunUnknown })
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 text-caption text-muted-foreground", children: strings.nextRun }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: "mt-0.5 truncate text-caption text-muted-foreground", children: next?.name ?? strings.nextRunUnknown })
   ] });
 }
 function CronJobApp({ surface }) {
@@ -2388,7 +2387,7 @@ function AutomationDeck() {
   ] });
 }
 registerCronUi({
-  requiresApiVersion: 17,
+  requiresApiVersion: 22,
   settings: { jobs: CronJobApp },
   ownsPageFrame: ["jobs"],
   dashboardMetrics: { "next-run": CronNextRunMetric },

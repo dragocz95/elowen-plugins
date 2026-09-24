@@ -172,7 +172,7 @@ export function ConversationsSection() {
     : answer === null ? <C.LoadingState variant="list" />
       : answer.total === 0 ? <C.EmptyState title={emptyTitle} description={emptyDescription} icon={MessagesSquare} />
         : (
-          <div className="settings-group__panel flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-3">
             <C.DataTable ariaLabel={s.conversationsTab} columns={COLUMNS} compactColumns={COMPACT_COLUMNS} mobileColumns={MOBILE_COLUMNS}>
               <C.DataTableRow header>
                 <C.DataTableCell header lines={1}>{s.columnTitle}</C.DataTableCell>

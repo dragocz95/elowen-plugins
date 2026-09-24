@@ -62,8 +62,8 @@ export function ProjectGitPanel({ project }: { project: Project }) {
             {git.data.commits.map((commit) => (
               <EntityRow key={commit.hash} interactive={false} className="py-0">
                 <button type="button" onClick={() => navigate(editorUrl(project.id, { commit: commit.hash }))} title={s.viewCommit} className="flex w-full min-w-0 flex-col gap-1 px-1 py-3 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70">
-                  <span className="flex min-w-0 items-center gap-2"><span className="font-mono text-[11px] text-primary">{commit.hash}</span><span className="min-w-0 flex-1 truncate text-xs text-foreground">{commit.subject}</span></span>
-                  <span className="text-[10px] text-muted-foreground">{commit.author} · {commit.relative}</span>
+                  <span className="flex min-w-0 items-center gap-2"><span className="font-mono text-caption text-primary">{commit.hash}</span><span className="min-w-0 flex-1 truncate text-xs text-foreground">{commit.subject}</span></span>
+                  <span className="text-tiny text-muted-foreground">{commit.author} · {commit.relative}</span>
                 </button>
               </EntityRow>
             ))}

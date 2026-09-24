@@ -514,13 +514,9 @@ describe('GitHub plugin', () => {
     expect(manifest.userGrantable).not.toBe(true);
     const catalog = registry.plugins.find((entry) => entry.name === manifest.name);
     expect(catalog).toMatchObject({ name: manifest.name, version: manifest.version });
-    // 8, and no longer "nice to have". The floor stayed at 4 while `placement` was the only new thing,
-    // because the HOST reads that off the manifest and an older one just falls back to a rail section.
-    // The bundle CALLS `LinkedAccountRow` and `SummaryChip` (7), and the pull-request register now also
-    // calls `DataTableChevronCell` and passes `DataTableRow`'s `onOpen`/`openLabel` (8) — none of which an
-    // older host publishes: there they resolve to undefined and React throws while rendering. A refused
-    // load states the incompatibility; a crash inside the Account page does not.
-    expect(manifest.web.requiresApiVersion).toBe(8);
+    // The pull-request form now mounts the host Textarea, published in API 22. An older core must
+    // refuse this bundle instead of rendering an undefined component inside the Account page.
+    expect(manifest.web.requiresApiVersion).toBe(22);
     expect(manifest.web.nav).toBeUndefined();
     // GitHub is an identity, so it hangs in the Linked accounts drawer beside the chat platforms rather
     // than as a top-level Account menu of its own.

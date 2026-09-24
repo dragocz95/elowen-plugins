@@ -111,6 +111,7 @@ interface TeamsComponents {
   ConfirmDialog: AnyComponent;
   Button: AnyComponent;
   Input: AnyComponent;
+  Textarea: AnyComponent;
   Avatar: AnyComponent;
   Badge: AnyComponent;
   Field: AnyComponent;

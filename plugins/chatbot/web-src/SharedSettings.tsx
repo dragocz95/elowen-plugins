@@ -1,4 +1,4 @@
-import { ShieldCheck, SlidersHorizontal, Wrench } from 'lucide-react';
+import { ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { runtime, type PluginConfigField, type PluginDetail } from './runtime';
 import { useChatbots } from './useChatbots';
 
@@ -47,7 +47,6 @@ export function SharedSettings({ plugin }: { plugin: string }) {
         <C.SettingsRow
           label={s.toolsRequiredLabel}
           description={s.toolsRequiredHint}
-          icon={Wrench}
           status={(
             <span className="font-mono text-xs">
               {requiredTools.length === 0 ? '—' : requiredTools.join(', ')}

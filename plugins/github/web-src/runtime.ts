@@ -44,7 +44,7 @@ interface RuntimeHooks {
   useQueryClient(): QueryClient;
 }
 interface RuntimeComponents {
-  Button: AnyComponent; Input: AnyComponent; Badge: AnyComponent; Field: AnyComponent; SelectMenu: AnyComponent;
+  Button: AnyComponent; Input: AnyComponent; Textarea: AnyComponent; Badge: AnyComponent; Field: AnyComponent; SelectMenu: AnyComponent;
   Modal: AnyComponent; ModalBody: AnyComponent; ModalFooter: AnyComponent; LoadingState: AnyComponent; ErrorState: AnyComponent;
   EmptyState: AnyComponent; PatchView: AnyComponent; ConfirmDialog: AnyComponent;
   // The register table of open pull requests. `DataTableChevronCell` is the trailing open affordance
@@ -72,7 +72,7 @@ export function runtime(): GitHubRuntime {
  *  first paint, the panel only once the drawer is opened. */
 export function registerGitHubUi(account: ComponentType<any>, chip: ComponentType<any>, project: ComponentType<any>): void {
   (window as HostWindow).__elowenRegisterPluginUi?.('github', {
-    requiresApiVersion: 8,
+    requiresApiVersion: 22,
     account: { connection: account },
     accountChip: { connection: chip },
     project: { repository: project },

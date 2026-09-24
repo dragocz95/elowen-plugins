@@ -356,7 +356,7 @@ type AnyComponent = ComponentType<any>;
 
 interface CronComponents {
   Avatar: AnyComponent;
-  Badge: AnyComponent; Button: AnyComponent; IconButton: AnyComponent; Input: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
+  Badge: AnyComponent; Button: AnyComponent; IconButton: AnyComponent; Input: AnyComponent; Textarea: AnyComponent; Field: AnyComponent; Toggle: AnyComponent;
   HelpTip: AnyComponent;
   ConfirmDialog: AnyComponent; AutoSaveStatus: ComponentType<AutoSaveStatusProps>; LoadingState: AnyComponent; ErrorState: AnyComponent;
   ManageSelectionModal: ComponentType<ManageSelectionModalProps>; SelectionSummary: ComponentType<SelectionSummaryProps>; BrainModelField: AnyComponent;

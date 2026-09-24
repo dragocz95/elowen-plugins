@@ -71,7 +71,7 @@ function SitePlate({ site, strings }: { site: SiteView; strings: Record<string, 
           title={preview.capturedAt
             ? strings.previewCapturedAt.replace('{time}', relativeTime(preview.capturedAt))
             : undefined}
-          className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-[10px] font-medium text-destructive backdrop-blur-sm"
+          className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-card/90 px-1.5 py-0.5 text-tiny font-medium text-destructive backdrop-blur-sm"
         >
           <AlertTriangle size={9} aria-hidden />
           {strings.previewFailed}
@@ -82,9 +82,9 @@ function SitePlate({ site, strings }: { site: SiteView; strings: Record<string, 
         {site.url === null ? (
           // A draft has no address yet, and the slug it would get is not one. Saying so is the whole
           // content of the strip; printing the slug beside it only invites someone to try it.
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{strings.noAddress}</span>
+          <span className="min-w-0 truncate text-caption text-muted-foreground">{strings.noAddress}</span>
         ) : (
-          <code className="min-w-0 truncate font-mono text-[11px] text-foreground" title={site.url}>
+          <code className="min-w-0 truncate font-mono text-caption text-foreground" title={site.url}>
             {siteAddress(site)}
           </code>
         )}
@@ -179,7 +179,7 @@ export function SiteCard({ site, strings, selected, onOpen, onNavigate }: {
       </div>
 
       {hint ? (
-        <p className={`min-w-0 text-[11px] leading-tight text-balance ${state === 'failed' ? 'text-destructive' : 'text-warning'}`}>{hint}</p>
+        <p className={`min-w-0 text-caption leading-tight text-balance ${state === 'failed' ? 'text-destructive' : 'text-warning'}`}>{hint}</p>
       ) : null}
 
       {/* Who owns it and which Project it belongs to. `mt-auto` keeps the footer on the card's floor, so a
@@ -189,7 +189,7 @@ export function SiteCard({ site, strings, selected, onOpen, onNavigate }: {
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={site.owner.name}>{site.owner.name}</span>
         {site.projectSlug ? (
           <span
-            className="flex min-w-0 shrink items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] leading-5 text-muted-foreground"
+            className="flex min-w-0 shrink items-center gap-1 rounded-full border border-border px-2 py-0.5 text-caption leading-5 text-muted-foreground"
             title={`${strings.project}: ${site.projectSlug}`}
           >
             <FolderGit2 size={11} aria-hidden className="shrink-0" />
@@ -199,7 +199,7 @@ export function SiteCard({ site, strings, selected, onOpen, onNavigate }: {
       </div>
 
       <div className="flex min-w-0 items-center gap-2 border-t border-border/70 pt-2.5">
-        <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={`${strings.lastPublish}: ${published}`}>
+        <span className="min-w-0 truncate text-caption text-muted-foreground" title={`${strings.lastPublish}: ${published}`}>
           {published}
         </span>
         <span className="flex-1" />
@@ -208,7 +208,7 @@ export function SiteCard({ site, strings, selected, onOpen, onNavigate }: {
           data-site-open={site.id}
           aria-label={openLabel}
           onClick={(event) => { event.stopPropagation(); onOpen(); }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-caption font-medium text-primary transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
         >
           {strings.openDetailShort}
           <ArrowUpRight size={12} aria-hidden />

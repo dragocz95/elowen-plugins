@@ -3,8 +3,8 @@
  *  Both parity guards (tests/hostRuntimeParity.test.ts, tests/hostDictionaryParity.test.ts) hold the
  *  stand-ins in tests/ui/* to the INSTALLED package, because CI has the package and nothing else. That
  *  is the right truth for a stand-in — except while this repository is deliberately built against a host
- *  change that has not been released yet. The pinned release now carries every primitive and dictionary
- *  leaf used by the stand-ins, so both exception lists are empty.
+ *  change that has not been released yet. This file lists only the host additions absent from the
+ *  pinned package: API 22's Textarea and the window opener for stored chat sessions.
  *
  *  So the guards allow a stand-in to carry these names — and NOTHING else the package lacks. Every entry
  *  is a promise about the host, not a free pass: each guard also asserts that the package does NOT have
@@ -19,9 +19,9 @@
 /** Runtime primitives added after the pinned release. Names only — the maps are untyped records on both
  * sides. */
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
-  components: [],
+  components: ['Textarea'],
   hooks: [],
-  utils: [],
+  utils: ['openBrainSessionWindow'],
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */

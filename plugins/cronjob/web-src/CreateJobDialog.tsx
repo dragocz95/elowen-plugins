@@ -170,7 +170,7 @@ export function CreateJobDialog({ lifecycle, initialDate, myId, isAdmin, onClose
             <ScheduleField schedule={schedule} onChange={setSchedule} />
           )}
           <C.Field label={s.prompt} hint={s.helpCreatePrompt}>
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-ring" />
+            <C.Textarea value={prompt} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPrompt(e.target.value)} rows={4} />
           </C.Field>
           {isAdmin ? (
             <C.Field label={s.ownerColumn} hint={s.ownerFieldHint}>

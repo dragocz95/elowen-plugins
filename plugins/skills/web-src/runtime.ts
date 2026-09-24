@@ -1,19 +1,11 @@
-import type { AssertPublished } from 'elowen-plugin-ui-kit';
+import type { AssertPublished, PluginChatPickerProps } from 'elowen-plugin-ui-kit';
+export type { PluginChatPickerProps } from 'elowen-plugin-ui-kit';
 /** Typed access to the host's window.ElowenUiRuntime for the skills plugin bundle.
  *
  *  The runtime hands over untyped `components`/`hooks` records; this module narrows each entry to
  *  the signature the moved skills editor was written against in the core app. The narrowing is a
  *  local structural CONTRACT, not a source import — the bundle must not compile against `web/`. */
 import type { ComponentType, ReactNode } from 'react';
-export interface PluginChatPickerProps {
-  plugin: string;
-  command: string;
-  sessionId: string | null;
-  argument?: string;
-  send(text: string): void;
-  close(): void;
-}
-
 // ---- data shapes (structural mirrors of the daemon's wire types) --------------------------------
 
 export interface PluginSkill {

@@ -1,6 +1,6 @@
 {
   "name": "onedrive",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "description": "Syncs each project both ways with each person's OneDrive. Files created by the agent appear there without being shared in chat.",

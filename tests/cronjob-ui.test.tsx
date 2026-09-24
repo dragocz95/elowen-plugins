@@ -452,8 +452,8 @@ describe('automation week calendar', () => {
     }));
     window.history.replaceState({}, '', `/p/cronjob?job=${recurring.id}`);
     renderPage();
-    const block = await screen.findByTestId('cron-last-run');
-    expect(within(block).getByText(strings.lastStarted!)).toBeInTheDocument();
+    expect(await screen.findByText(strings.lastStarted!)).toBeInTheDocument();
+    const block = screen.getByTestId('cron-last-run');
     expect(within(block).getByText(new Date(lastRun).toLocaleString('en'))).toBeInTheDocument();
     expect(block.textContent).not.toContain('{');
   });
@@ -467,12 +467,12 @@ describe('automation week calendar', () => {
 });
 
 describe('cronjob bundle contracts', () => {
-  it('registers one page-owning jobs section on API 17', async () => {
+  it('registers one page-owning jobs section on API 22', async () => {
     let captured: Pick<PluginUiRegistration, 'requiresApiVersion' | 'settings' | 'ownsPageFrame'> | undefined;
     (window as unknown as { __elowenRegisterPluginUi?: (p: string, r: typeof captured) => void })
       .__elowenRegisterPluginUi = (_plugin, registration) => { captured = registration; };
     await import('../plugins/cronjob/web-src/index');
-    expect(captured?.requiresApiVersion).toBe(17);
+    expect(captured?.requiresApiVersion).toBe(22);
     expect(Object.keys(captured?.settings ?? {})).toEqual(['jobs']);
     expect(captured?.ownsPageFrame).toEqual(['jobs']);
   });

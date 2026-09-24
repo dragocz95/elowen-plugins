@@ -646,7 +646,7 @@ export function ProjectEditor({ projectId, onClose, initialCommit, initialWorkin
                         read back as "nothing changed" — the dots would simply be absent and the tree
                         would look clean (RBUG-02) — so it is named here instead of swallowed. */}
                     {!commit && changedQuery.isError ? (
-                      <p role="alert" className="mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
+                      <p role="alert" className="mb-1.5 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-caption text-warning">
                         <AlertTriangle size={12} className="shrink-0" aria-hidden />
                         <span className="min-w-0 flex-1 truncate">{gitErrorMessage(changedQuery.error)}</span>
                         <button type="button" onClick={() => changedQuery.refetch()} className="shrink-0 underline decoration-dotted underline-offset-2 hover:no-underline">{s.treeRetry}</button>

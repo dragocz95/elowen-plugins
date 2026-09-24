@@ -554,12 +554,11 @@ function PeopleAccess({ draft, response, search, filter, onIdentityDetail }) {
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Field, { label: s.promptLabel, hint: s.promptHint, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "textarea",
+          C.Textarea,
           {
             value: policy.prompt ?? "",
             onChange: (event) => patchPolicy({ prompt: event.target.value }),
             rows: 5,
-            className: "w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary",
             placeholder: s.promptPlaceholder
           }
         ) })
@@ -634,7 +633,7 @@ function LoadedWorkspace({ detail }) {
     description: s.workspaceIntro,
     mascot: peopleError !== null || !configured ? "error" : draft.status === "saving" ? "saving" : "idle",
     status: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "flex items-center gap-3", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "workspace-status", children: configured && people?.active ? s.workspaceReady : s.workspaceSetup }),
+      configured && people?.active ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "workspace-status", children: s.workspaceReady }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "text-sm text-muted-foreground", children: s.workspaceSetup }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.AutoSaveStatus, { status: draft.status, onRetry: draft.retry })
     ] }),
     action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(C.Button, { variant: "accent", icon: Download, disabled: !configured, onClick: () => {
@@ -707,6 +706,6 @@ function TeamsWorkspace() {
 
 // plugins/msteams/web-src/index.tsx
 registerTeamsUi({
-  requiresApiVersion: 12,
+  requiresApiVersion: 22,
   pages: { "": TeamsWorkspace }
 });

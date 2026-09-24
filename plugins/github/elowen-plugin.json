@@ -1,8 +1,8 @@
 {
   "name": "github",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "apiVersion": "2",
-  "requiresCore": "0.28.50",
+  "requiresCore": "0.28.53",
   "description": "Connect GitHub CLI for individual accounts: map repositories, securely push sandbox branches, manage pull requests, review changes and checks, and merge only after explicit confirmation.",
   "entry": "dist/index.js",
   "icon": "icon.svg",
@@ -115,7 +115,7 @@
   "web": {
     "entry": "web/index.js",
     "css": "web/index.css",
-    "requiresApiVersion": 8,
+    "requiresApiVersion": 22,
     "account": [
       {
         "id": "connection",

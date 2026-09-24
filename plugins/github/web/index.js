@@ -155,7 +155,7 @@ function runtime() {
 }
 function registerGitHubUi(account, chip, project) {
   window.__elowenRegisterPluginUi?.("github", {
-    requiresApiVersion: 8,
+    requiresApiVersion: 22,
     account: { connection: account },
     accountChip: { connection: chip },
     project: { repository: project }
@@ -631,7 +631,7 @@ function GitHubProjectPanel({ project }) {
     createOpen ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.Modal, { title: s.createPullRequest, size: "md", onClose: () => setCreateOpen(false), children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalBody, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.pullRequestTitle, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { autoFocus: true, value: createForm.title, onChange: (event) => setCreateForm({ ...createForm, title: event.target.value }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-28 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground", value: createForm.body, onChange: (event) => setCreateForm({ ...createForm, body: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Textarea, { className: "min-h-28", value: createForm.body, onChange: (event) => setCreateForm({ ...createForm, body: event.target.value }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.baseBranch, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Input, { value: createForm.base, onChange: (event) => setCreateForm({ ...createForm, base: event.target.value }) }) })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [
@@ -679,7 +679,7 @@ function GitHubProjectPanel({ project }) {
           ] }, file.path))
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.reviewEvent, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.SelectMenu, { value: reviewForm.event, onChange: (event) => setReviewForm({ ...reviewForm, event }), label: s.reviewEvent, options: [{ value: "APPROVE", label: s.approve }, { value: "REQUEST_CHANGES", label: s.requestChanges }, { value: "COMMENT", label: s.comment }] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { className: "min-h-20 w-full rounded-md border border-border bg-background p-3 text-sm text-foreground", value: reviewForm.body, onChange: (event) => setReviewForm({ ...reviewForm, body: event.target.value }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.description, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Textarea, { className: "min-h-20", value: reviewForm.body, onChange: (event) => setReviewForm({ ...reviewForm, body: event.target.value }) }) }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Field, { label: s.mergeMethod, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.SelectMenu, { value: mergeMethod, onChange: setMergeMethod, label: s.mergeMethod, options: [{ value: "squash", label: s.squash }, { value: "merge", label: s.mergeCommit }, { value: "rebase", label: s.rebase }] }) })
       ] }) : null }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(C.ModalFooter, { children: [

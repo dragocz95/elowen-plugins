@@ -75,7 +75,7 @@ interface RuntimeComponents {
     & ButtonHTMLAttributes<HTMLButtonElement>
   >;
   Badge: ComponentType<{ children: ReactNode; tone?: 'default' | 'accent' | 'muted' | 'danger' | 'success' | 'warning' }>;
-  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'kanban' | 'block'; height?: string }>;
+  LoadingState: ComponentType<{ variant?: 'list' | 'cards' | 'block'; height?: string }>;
   ErrorState: ComponentType<{ message: string; onRetry?: () => void }>;
   EmptyState: ComponentType<{ title: string; description?: string; icon?: IconComponent; action?: ReactNode }>;
   WorkspaceDetailRail: ComponentType<{ label: string; closeLabel: string; onClose(): void; children: ReactNode }>;
@@ -101,7 +101,7 @@ type PublishedNames = AssertPublished<keyof RuntimeComponents>;
 interface OneDriveRuntime {
   components: Pick<RuntimeComponents, PublishedNames>;
   hooks: RuntimeHooks;
-  utils: { apiErrorMessage(error: unknown): string };
+  utils: { apiErrorMessage(error: unknown): string; formatBytes(bytes: number): string };
   api(path: string, init?: RequestInit): Promise<unknown>;
 }
 
@@ -128,13 +128,4 @@ export function registerOneDriveUi(project: ComponentType<{ project: { id: numbe
 
 export function jsonBody(value: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) };
-}
-
-/** Bytes as something a person reads. Deliberately coarse: the exact byte count of a mirror is noise. */
-export function humanBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
-  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const value = bytes / 1024 ** index;
-  return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
 }

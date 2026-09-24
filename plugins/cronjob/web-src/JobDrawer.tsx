@@ -10,7 +10,6 @@ import { ActiveHoursField, ConversationField, DestinationField, ScheduleField } 
  *  both open the same editor. Existing jobs keep the debounced autosave with revision CAS; creation
  *  never goes through here (it has its own explicit submit contract). */
 
-const textareaClass = 'w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-ring';
 
 /** The fields of a job a client OWNS, i.e. everything the daemon did not derive for display. `owner`,
  *  `conversation`, `conversationUnresolved`, `runLocation`, `lifecycle`, `nextOccurrence` and
@@ -296,11 +295,11 @@ export function JobDrawer({ job, myId, adminFields, destinations, models, onClos
         ) : null}
         {adminFields || draft.projectRef?.kind === 'managed' ? (
           <C.Field label={s.check} hint={s.helpCheck}>
-            <textarea value={draft.check ?? ''} onChange={(e) => patch({ check: e.target.value || undefined })} rows={2} className={textareaClass} placeholder="test -n &quot;$(ls /new-bookings 2>/dev/null)&quot; &amp;&amp; cat /new-bookings/*" />
+            <C.Textarea value={draft.check ?? ''} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => patch({ check: e.target.value || undefined })} rows={2} placeholder="test -n &quot;$(ls /new-bookings 2>/dev/null)&quot; &amp;&amp; cat /new-bookings/*" />
           </C.Field>
         ) : null}
         <C.Field label={s.prompt} hint={s.helpPrompt}>
-          <textarea value={draft.prompt} onChange={(e) => patch({ prompt: e.target.value })} rows={8} className={textareaClass} disabled={!mayPatch} />
+          <C.Textarea value={draft.prompt} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => patch({ prompt: e.target.value })} rows={8} disabled={!mayPatch} />
         </C.Field>
         {adminFields && (draft.ownerUserId == null || draft.ownerUserId === myId) ? (
           <C.Field label={s.channel} hint={s.helpChannel}>

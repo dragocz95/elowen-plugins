@@ -77,14 +77,14 @@ export function ProjectIconPicker({ project, onClose }: { project: Project; onCl
           : images.length === 0 ? <EmptyState title={s.noImages} icon={ImageIcon} />
           : groups.map(([dir, paths]) => (
             <div key={dir} className="flex flex-col gap-2">
-              <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{dir}</span>
+              <span className="font-mono text-caption uppercase tracking-wide text-muted-foreground">{dir}</span>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
                 {paths.map((path) => {
                   const selectedPath = selected === path;
                   return (
                     <button key={path} type="button" onClick={() => setSelected(path)} onDoubleClick={() => apply(path)} title={path} aria-pressed={selectedPath} className={`flex flex-col items-center gap-1.5 rounded-lg border p-2 transition-colors ${selectedPath ? 'border-primary bg-primary/[0.08]' : 'border-border bg-card hover:border-border-strong hover:bg-accent'}`}>
                       <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-border bg-background"><ProjectIcon project={{ id: project.id, icon: path }} size={40} /></span>
-                      <span className="w-full truncate text-center text-[11px] text-muted-foreground">{path.slice(path.lastIndexOf('/') + 1)}</span>
+                      <span className="w-full truncate text-center text-caption text-muted-foreground">{path.slice(path.lastIndexOf('/') + 1)}</span>
                     </button>
                   );
                 })}
