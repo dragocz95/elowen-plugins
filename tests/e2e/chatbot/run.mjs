@@ -89,7 +89,8 @@ const LOOK = {
     width: 420,
     height: 560,
     radius: 4,
-    colors: { panel: '#101820', visitorBubble: '#ffd166', botBubble: '#ffffff', sendButton: '#0b6e4f', launcher: '#0b6e4f' },
+    colors: { panel: '#101820', visitorBubble: '#ffd166', botBubble: '#ffffff', sendButton: '#0b6e4f', launcher: '#0b6e4f', launcherEnd: null },
+    effects: { glass: false },
     intro: 'Dobrý den, pomohu vám s formulářem.',
     // An embedded image, deliberately: an avatar URL would be a request to a host the customer's page never
     // agreed to talk to, and this scenario refuses every request that leaves the page and the hook.
