@@ -81,8 +81,8 @@ export function schemaVersionBody(): Record<string, unknown> {
 
 /** One visitor message, and the page it was written on beside it rather than inside it: the message is only
  *  what the visitor wrote, and the page's address and title are the page's own unverified report. */
-export function turnRequestBody(clientTurnId: string, message: string, page: { url: string; title: string }): Record<string, unknown> {
-  return { schemaVersion: PUBLIC_SCHEMA_VERSION, clientTurnId, message, page };
+export function turnRequestBody(clientTurnId: string, message: string, page: { url: string; title: string }, uploadId: string | null = null): Record<string, unknown> {
+  return { schemaVersion: PUBLIC_SCHEMA_VERSION, clientTurnId, message, page, ...(uploadId ? { uploadId } : {}) };
 }
 
 /** The outcome of one performed action, as the server records it. */

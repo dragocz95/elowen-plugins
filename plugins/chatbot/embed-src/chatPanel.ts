@@ -28,12 +28,12 @@ import {
 } from '../src/appearanceContract.js';
 import { effectsCss, buttonStyles, chatEffectsCss, gradient, gradientInk, hoverShade } from './effects.js';
 import { playTone, unlockSound } from './sound.js';
-import type { ChatView } from './session.js';
+import type { ChatView, RestoredMessage, SharedAttachment } from './session.js';
 import { allowedOfferUrl, type Offer } from '../src/offerContract.js';
 import { escapeHtml, offerHtml, offerStyles, disableOffers } from './offer.js';
 import { feedbackHtml, feedbackStyles } from './feedback.js';
 import { FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, type FeedbackRating, type FeedbackSelection } from '../src/publicContract.js';
-import type { WidgetStrings } from './strings.js';
+import { fillTemplate, type WidgetStrings } from './strings.js';
 
 /** How much vertical room the panel leaves for the launcher and for a browser's own chrome. The visitor's
  *  viewport is the only thing that can force a panel to be smaller than the customer configured, so the
@@ -59,7 +59,7 @@ export interface ChatPanelOptions {
   strings: WidgetStrings;
   look: ChatbotLook;
   /** Where the visitor's own message goes. The panel never sends anything itself. */
-  onVisitorMessage: (text: string) => void;
+  onVisitorMessage: (text: string, image: File | null) => void;
   /** What the stop button does: stop watching the answer. The turn itself keeps running. */
   onStop: () => void;
   onFeedback?: (turnId: string, rating: FeedbackRating, comment: string | null) => Promise<FeedbackSelection | null>;
@@ -145,8 +145,8 @@ function quickItemStyles(appearance: ChatbotAppearance): { default: Record<strin
 /** Everything the panel hands to the chat element. ONE function, so the look a visitor sees and the look the
  *  administrator previews cannot be two different sets of properties.
  *
- *  Deliberately unused from the library's own surface: `attachmentContainerStyle` and `dropupStyles` style an
- *  attachment rail and a button menu this widget does not have (no files, no dropup), while `customButtons`
+ *  The image attachment control is limited to one file; the other file and menu controls stay unused.
+ *  `customButtons`
  *  provides the session-owned stop control. Quick buttons belong in the greeting. `maxVisibleMessages` is left
  *  at the library's own bound: how many messages a conversation keeps in the DOM is not a property of how it
  *  looks. */
@@ -197,6 +197,7 @@ function chatConfig(input: {
       boxShadow: '0 2px 8px rgb(0 0 0 / .16)',
     } } },
     hiddenMessages: { smoothScroll: true, clickScroll: 'last', styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
+    images: { files: { maxNumberOfFiles: 1, acceptedFormats: '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp' } },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
@@ -287,6 +288,11 @@ function lookStyle(appearance: ChatbotAppearance): string {
   --cb-attachment-surface: ${ramp.raised};
   --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
 }
+.cb-shared-file { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; overflow-wrap: anywhere; }
+.cb-shared-file img { display: block; max-width: min(100%, 280px); max-height: 240px; object-fit: contain; border-radius: 8px; }
+.cb-shared-file a { color: inherit; text-decoration: underline; min-height: 44px; display: inline-flex; align-items: center; }
+.cb-shared-file a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.cb-upload-name { display: block; padding-top: 6px; overflow-wrap: anywhere; font-size: .875em; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
 .input-button:has([data-cb-stop-icon]) { right: .33em !important; }
@@ -444,7 +450,7 @@ export class ChatPanel implements ChatView {
    *  never described to the agent as part of the customer's page. */
   readonly host: HTMLDivElement;
   private readonly strings: WidgetStrings;
-  private readonly onVisitorMessage: (text: string) => void;
+  private readonly onVisitorMessage: (text: string, image: File | null) => void;
   private readonly onStop: () => void;
   private readonly onOpen: (() => void) | undefined;
   private readonly loadAvatar: (() => Promise<Blob | null>) | undefined;
@@ -485,7 +491,11 @@ export class ChatPanel implements ChatView {
   private readonly queued: { role: string; text: string }[] = [];
   private offerOrigins: string[] = [];
   /** One attachment record per answer, regardless of whether it is streamed or restored. */
-  private readonly attachments = new Map<number, { offer?: Offer; offerActive?: boolean; turnId?: string; selection?: FeedbackSelection | null; commentOpen?: boolean }>();
+  private readonly attachments = new Map<number, { offer?: Offer; offerActive?: boolean; turnId?: string; selection?: FeedbackSelection | null; commentOpen?: boolean; files?: SharedAttachment[] }>();
+  private readonly pendingFiles = new Map<string, SharedAttachment[]>();
+  private readonly uploadNames = new Map<number, string>();
+  private readonly fileUrls = new Map<string, string>();
+  private readonly loadingFiles = new Set<string>();
   private latestAnswerIndex: number | null = null;
   private readonly feedbackIndices = new Map<string, number>();
   private readonly feedbackBusy = new Set<string>();
@@ -718,7 +728,7 @@ export class ChatPanel implements ChatView {
     // way, or replayed by a reconnect, cannot leave the visitor reading a message that never existed.
     this.answerActive = false;
     this.syncAnswerControl();
-    this.answer = text === '' ? this.answer : text;
+    this.answer = text === '' ? this.answer || '\u00a0' : text;
     const signals = this.signals;
     this.signals = null;
     this.clearStatus();
@@ -766,6 +776,33 @@ export class ChatPanel implements ChatView {
     this.flushRedraw();
   }
 
+  uploadProgress(loaded: number, total: number): void {
+    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(Math.min(100, Math.round(100 * loaded / total))) }));
+  }
+
+  showAttachment(turnId: string, attachment: SharedAttachment, load: () => Promise<Blob | null>): void {
+    const key = `${turnId}:${attachment.kind}:${attachment.storedName}`;
+    const index = this.feedbackIndices.get(turnId);
+    const list = index === undefined ? this.pendingFiles.get(turnId) ?? [] : this.attachments.get(index)?.files ?? [];
+    if (!list.some((item) => item.kind === attachment.kind && item.storedName === attachment.storedName)) list.push(attachment);
+    if (index === undefined) this.pendingFiles.set(turnId, list);
+    else {
+      this.attachments.set(index, { ...this.attachments.get(index), files: list });
+      this.renderFollowing(index);
+    }
+    if (this.fileUrls.has(key) || this.loadingFiles.has(key)) return;
+    this.loadingFiles.add(key);
+    void Promise.resolve().then(load).then((blob) => {
+      if (this.destroyed) return;
+      if (!blob) { this.notice(this.strings.errorAttachment); return; }
+      const url = URL.createObjectURL(blob);
+      this.fileUrls.set(key, url);
+      const target = this.feedbackIndices.get(turnId);
+      if (target !== undefined) this.renderFollowing(target);
+    }).catch(() => { if (!this.destroyed) this.notice(this.strings.errorAttachment); })
+      .finally(() => this.loadingFiles.delete(key));
+  }
+
   setAllowedOrigins(origins: string[]): void {
     this.offerOrigins = origins;
   }
@@ -783,7 +820,9 @@ export class ChatPanel implements ChatView {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
-    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
+    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false,
+      files: this.pendingFiles.get(turnId) ?? this.attachments.get(index)?.files });
+    this.pendingFiles.delete(turnId);
     this.renderFollowing(index);
   }
 
@@ -834,6 +873,40 @@ export class ChatPanel implements ChatView {
       bubble.append(attachment);
     }
     attachment.innerHTML = markup;
+    for (const file of state.files ?? []) {
+      const key = `${state.turnId}:${file.kind}:${file.storedName}`;
+      const url = this.fileUrls.get(key);
+      const item = document.createElement('div');
+      item.className = 'cb-shared-file';
+      if (file.kind === 'image' && url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = file.caption || this.strings.attachmentImage;
+        item.append(img);
+      }
+      const label = document.createElement(url ? 'a' : 'span');
+      label.textContent = file.name || file.caption || (file.kind === 'image' ? this.strings.attachmentImage : this.strings.attachmentDownload);
+      if (url && label instanceof HTMLAnchorElement) {
+        label.href = url;
+        label.download = file.kind === 'file' ? file.name || file.storedName : file.storedName;
+      }
+      item.append(label);
+      attachment.append(item);
+    }
+  }
+
+  private renderUpload(index: number): void {
+    if (!this.ready) return;
+    const name = this.uploadNames.get(index);
+    if (!name) return;
+    const user = Array.from(this.chat.shadowRoot?.querySelectorAll<HTMLElement>('.outer-message-container.deep-chat-outer-container-role-user') ?? [])
+      [this.chat.getMessages().slice(0, index + 1).filter((message) => message.role === 'user').length - 1];
+    const bubble = user?.querySelector<HTMLElement>('.inner-message-container .text-message');
+    if (!bubble || bubble.querySelector('.cb-upload-name')) return;
+    const label = document.createElement('span');
+    label.className = 'cb-upload-name';
+    label.textContent = name;
+    bubble.append(label);
   }
 
   private readonly attachmentClick = (event: Event): void => {
@@ -911,9 +984,14 @@ export class ChatPanel implements ChatView {
 
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
-  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[]): void {
+  restore(messages: RestoredMessage[]): void {
     for (const message of messages) {
-      this.draw({ role: message.role, text: message.text });
+      this.draw({ role: message.role, text: message.text || (message.uploadName || message.attachments?.length ? '\u00a0' : '') });
+      if (message.role === 'user' && message.uploadName) {
+        const index = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
+        this.uploadNames.set(index, message.uploadName);
+        this.renderUpload(index);
+      }
       if (message.role !== 'ai') continue;
       this.latestAnswerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       if (message.offer) this.showOffer(message.offer, message.offerActive === true);
@@ -958,6 +1036,8 @@ export class ChatPanel implements ChatView {
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.resetUnread();
     this.releaseAvatarObjectUrl();
+    for (const url of this.fileUrls.values()) URL.revokeObjectURL(url);
+    this.fileUrls.clear();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -986,7 +1066,7 @@ export class ChatPanel implements ChatView {
   private createChat(): ChatElement {
     const chat = document.createElement('deep-chat') as ChatElement;
     Object.assign(chat, this.chatConfig());
-    chat.validateInput = (text) => !this.answerActive && !!text?.trim();
+    chat.validateInput = (text, files) => !this.answerActive && (!!text?.trim() || !!files?.length);
     chat.connect = {
       stream: true,
       handler: (body, signals) => this.handleSubmit(body, signals as unknown as StreamSignals),
@@ -998,6 +1078,7 @@ export class ChatPanel implements ChatView {
       chat.shadowRoot?.addEventListener('click', this.attachmentClick);
       for (const [index, message] of this.queued.splice(0, this.queued.length).entries()) {
         chat.addMessage(message);
+        this.renderUpload(index);
         if (this.attachments.has(index)) {
           Array.from(chat.shadowRoot?.querySelectorAll<HTMLElement>('.outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)') ?? [])
             .at(-1)?.setAttribute('data-cb-answer-index', String(index));
@@ -1376,8 +1457,13 @@ export class ChatPanel implements ChatView {
   /** Deep-chat hands the visitor's message to the widget's own transport. Its body is what it would have
    *  posted to a service; the widget reads the visitor's last words out of it and nothing else. */
   private handleSubmit(body: unknown, signals: StreamSignals): void {
-    const text = lastUserText(body);
-    if (text === '') {
+    const { text, image, invalid } = lastUserSubmission(body);
+    if (invalid) {
+      this.error(this.strings.errorImage);
+      signals.onClose();
+      return;
+    }
+    if (text === '' && image === null) {
       signals.onClose();
       return;
     }
@@ -1385,7 +1471,7 @@ export class ChatPanel implements ChatView {
     this.signals = signals;
     this.answerIndex = null;
     signals.stopClicked.listener = () => this.stopAnswer();
-    this.onVisitorMessage(text);
+    this.onVisitorMessage(text, image);
   }
 
   /** A message written through the panel's own message list, for content that arrives outside a submit: a
@@ -1405,17 +1491,22 @@ export class ChatPanel implements ChatView {
   }
 }
 
-/** The visitor's last message out of a chat body, whatever shape the library chose for it. */
-function lastUserText(body: unknown): string {
-  if (typeof body !== 'object' || body === null) return '';
+/** Read only the last submitted user message; older messages cannot lend it their image or words. */
+function lastUserSubmission(body: unknown): { text: string; image: File | null; invalid: boolean } {
+  const empty = { text: '', image: null, invalid: false };
+  if (typeof body !== 'object' || body === null) return empty;
   const messages = (body as { messages?: unknown }).messages;
-  if (!Array.isArray(messages)) return '';
+  if (!Array.isArray(messages)) return empty;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const entry = messages[index];
     if (typeof entry !== 'object' || entry === null) continue;
-    const record = entry as { role?: unknown; text?: unknown };
+    const record = entry as { role?: unknown; text?: unknown; files?: unknown };
     if (record.role !== undefined && record.role !== 'user') continue;
-    if (typeof record.text === 'string' && record.text.trim() !== '') return record.text;
+    const files = record.files;
+    const text = typeof record.text === 'string' ? record.text : '';
+    if (!Array.isArray(files) || files.length === 0) return { text, image: null, invalid: false };
+    const image = (files[0] as { ref?: unknown } | undefined)?.ref;
+    return { text, image: image instanceof File ? image : null, invalid: files.length !== 1 || !(image instanceof File) };
   }
-  return '';
+  return empty;
 }

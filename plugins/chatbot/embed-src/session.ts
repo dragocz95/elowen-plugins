@@ -16,6 +16,7 @@
 import {
   EVENTS_AFTER_QUERY,
   MESSAGE_MAX_BYTES,
+  VISITOR_IMAGE_MAX_BYTES,
   PUBLIC_PATHS,
   PUBLIC_SCHEMA_VERSION,
   VISITOR_CREDENTIAL_ERRORS,
@@ -47,6 +48,9 @@ import { fillTemplate, type WidgetStrings } from './strings.js';
 import { readFeedback } from './feedback.js';
 
 /** The panel, as the conversation needs it: it shows, it asks, and it never decides. */
+export interface SharedAttachment { kind: 'image' | 'file'; storedName: string; name?: string; size?: number; caption?: string }
+export interface RestoredMessage { role: 'user' | 'ai'; text: string; uploadName?: string; attachments?: SharedAttachment[]; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }
+
 export interface ChatView {
   /** The moment the visitor's message went out: show that an answer is coming. */
   beginAnswer(): void;
@@ -59,7 +63,9 @@ export interface ChatView {
   notice(text: string): void;
   error(text: string): void;
   /** A transcript rebuilt from the server's projection. */
-  restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[]): void;
+  restore(messages: RestoredMessage[]): void;
+  showAttachment(turnId: string, attachment: SharedAttachment, load: () => Promise<Blob | null>): void;
+  uploadProgress(loaded: number, total: number): void;
   setAllowedOrigins(origins: string[]): void;
   showOffer(offer: Offer, active: boolean): void;
   /** Ask the visitor to confirm an irreversible action. Resolves true ONLY for a click the visitor
@@ -155,22 +161,28 @@ export class ChatSession {
     if (this.token === null) return;
     const conversation = await this.getConversation();
     if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
-    const messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[] = [];
+    const messages: RestoredMessage[] = [];
     for (const [index, turn] of conversation.turns.entries()) {
       if (typeof turn.message !== 'string') continue;
-      messages.push({ role: 'user', text: turn.message });
+      messages.push({ role: 'user', text: turn.message, ...(turn.uploadName ? { uploadName: turn.uploadName } : {}) });
       if (turn.turnId === conversation.activeTurnId) {
         this.cursors.set(turn.turnId, 0);
         this.restoring.set(turn.turnId, { through: turn.lastSeq, pending: new Set(turn.pendingActions) });
       } else {
-        if (typeof turn.reply === 'string' && turn.reply !== '') {
+        if (typeof turn.reply === 'string' && (turn.reply !== '' || turn.attachments.length > 0)) {
           const offer = readOffer(turn.offer, this.allowedOrigins);
-          messages.push({ role: 'ai', text: turn.reply, turnId: turn.turnId, feedback: readFeedback(turn.feedback), ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
+          messages.push({ role: 'ai', text: turn.reply, turnId: turn.turnId, attachments: turn.attachments,
+            feedback: readFeedback(turn.feedback), ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
         }
         this.cursors.set(turn.turnId, turn.lastSeq);
       }
     }
     if (messages.length > 0) this.deps.view.restore(messages);
+    for (const turn of conversation.turns) {
+      if (turn.turnId !== conversation.activeTurnId) for (const attachment of turn.attachments) {
+        this.deps.view.showAttachment(turn.turnId, attachment, () => this.loadShared(turn.turnId, attachment));
+      }
+    }
     if (conversation.activeTurnId !== null) {
       // A turn was still running when the visitor reloaded: its answer is in the durable log, and the feed
       // picks it up from what was already rendered.
@@ -231,15 +243,18 @@ export class ChatSession {
     }
   }
 
-  /** Send one message already drawn by deep-chat's submit path. */
-  async send(text: string): Promise<void> {
+  /** Send the one selected image before admitting its turn. */
+  async send(text: string, image: File | null = null): Promise<void> {
     if (this.destroyed) return;
     const message = text.trim();
-    if (message === '') return;
-    // An overlong message is refused here rather than by the hook, where it would surface as a failure of
-    // the whole turn.
+    if (message === '' && image === null) return;
     if (byteLength(message) > MESSAGE_MAX_BYTES) {
       this.deps.view.error(this.strings.errorTooLong);
+      return;
+    }
+    if (image && (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(image.type)
+      || image.size < 12 || image.size > VISITOR_IMAGE_MAX_BYTES)) {
+      this.deps.view.error(this.strings.errorImage);
       return;
     }
     this.deps.view.beginAnswer();
@@ -252,10 +267,45 @@ export class ChatSession {
       return;
     }
 
-    // Only the address and title travel with the message, beside it. Page structure requires an explicit
-    // snapshot action.
     const clientTurnId = newClientTurnId();
-    const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, message, this.deps.page.metadata()));
+    let uploadId: string | null = null;
+    if (image) {
+      const params = new URLSearchParams({ clientTurnId, name: image.name, size: String(image.size) });
+      const url = `${this.deps.baseUrl}/${PUBLIC_PATHS.uploads}?${params}`;
+      this.deps.view.uploadProgress(0, image.size);
+      // Request streaming is not supported by every mobile browser. Probe locally before sending; a failed
+      // upload must never be retried with a different body after the server may already have saved it.
+      let streaming = false;
+      try {
+        new Request(url, { method: 'POST', body: new ReadableStream(), duplex: 'half' } as RequestInit & { duplex: 'half' });
+        streaming = true;
+      } catch { /* This browser uploads the same File as a Blob. */ }
+      let loaded = 0;
+      const body = streaming ? image.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform: (chunk, controller) => {
+          loaded += chunk.byteLength;
+          this.deps.view.uploadProgress(loaded, image.size);
+          controller.enqueue(chunk);
+        },
+      })) : image;
+      try {
+        const response = await this.deps.fetch(url, {
+          method: 'POST', body, ...(streaming ? { duplex: 'half' } : {}), credentials: 'omit', mode: 'cors',
+          headers: { authorization: `${VISITOR_AUTHORIZATION_SCHEME} ${token}`, accept: 'application/json', 'content-type': 'application/octet-stream' },
+        } as RequestInit & { duplex?: 'half' });
+        if (!response.ok) { this.deps.view.error(this.strings.errorImageUpload); return; }
+        const result = await readJson(response);
+        if (typeof result?.uploadId !== 'string') { this.deps.view.error(this.strings.errorImageUpload); return; }
+        this.deps.view.uploadProgress(image.size, image.size);
+        uploadId = result.uploadId;
+      } catch {
+        this.deps.view.error(this.strings.errorImageUpload);
+        return;
+      }
+    }
+
+    // Only address and title travel beside the visitor's message. The receipt, not a Project path, binds the image.
+    const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, message, this.deps.page.metadata(), uploadId));
     if (!reply || reply.status !== 202) {
       await this.handleSendFailure(reply);
       return;
@@ -391,6 +441,11 @@ export class ChatSession {
       case 'offer': {
         const offer = readOffer(frame.data, this.allowedOrigins);
         if (offer) this.offers.set(turnId, offer);
+        return 'continue';
+      }
+      case 'attachment': {
+        const attachment = readSharedAttachment(frame.data);
+        if (attachment) this.deps.view.showAttachment(turnId, attachment, () => this.loadShared(turnId, attachment));
         return 'continue';
       }
       case 'error': {
@@ -635,6 +690,11 @@ export class ChatSession {
         reply: record.reply,
         offer: record.offer,
         feedback: record.feedback,
+        uploadName: typeof record.uploadName === 'string' && record.uploadName.length <= 180 ? record.uploadName : null,
+        attachments: Array.isArray(record.attachments) ? record.attachments.flatMap((value) => {
+          const attachment = readSharedAttachment(value);
+          return attachment ? [attachment] : [];
+        }).slice(0, 8) : [],
         lastSeq: typeof record.lastSeq === 'number' && record.lastSeq >= 0 ? record.lastSeq : 0,
         pendingActions: Array.isArray(record.pendingActions) ? record.pendingActions.filter((id): id is string => typeof id === 'string') : [],
       });
@@ -643,6 +703,18 @@ export class ChatSession {
       turns,
       activeTurnId: typeof body.activeTurnId === 'string' ? body.activeTurnId : null,
     };
+  }
+
+  /** Shared bytes never become a page URL: fetch with the visitor credential, then hand the Blob to the view. */
+  private async loadShared(turnId: string, attachment: SharedAttachment): Promise<Blob | null> {
+    const path = PUBLIC_PATHS.file(turnId, attachment.kind, attachment.storedName);
+    let response = await this.request(this.token, 'GET', path, null, undefined, false,
+      attachment.kind === 'image' ? 'image/*' : 'application/octet-stream');
+    if (await invalidCredential(response) && await this.refreshToken() === 'rotated') {
+      response = await this.request(this.token, 'GET', path, null, undefined, false, 'application/octet-stream');
+    }
+    if (!response?.ok) return null;
+    try { return await response.blob(); } catch { return null; }
   }
 
   // ── requests ──────────────────────────────────────────────────────────────────────────────────────
@@ -750,8 +822,25 @@ interface ConversationTurn {
   reply: unknown;
   offer: unknown;
   feedback: unknown;
+  uploadName: string | null;
+  attachments: SharedAttachment[];
   lastSeq: number;
   pendingActions: string[];
+}
+
+/** A persisted attachment is only a reference to our own guarded download route. */
+function readSharedAttachment(value: unknown): SharedAttachment | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  if (item.kind !== 'image' && item.kind !== 'file') return null;
+  const pattern = item.kind === 'image' ? /^[0-9a-f]{64}\.(?:png|jpg|gif|webp)$/ : /^[0-9a-f]{64}\.bin$/;
+  if (typeof item.storedName !== 'string' || !pattern.test(item.storedName)) return null;
+  if (item.kind === 'file' && (typeof item.name !== 'string' || !item.name || item.name.length > 180
+    || !Number.isSafeInteger(item.size) || (item.size as number) < 0 || (item.size as number) > 25 * 1024 * 1024)) return null;
+  return { kind: item.kind, storedName: item.storedName,
+    ...(typeof item.name === 'string' && item.name.length <= 180 ? { name: item.name } : {}),
+    ...(typeof item.size === 'number' ? { size: item.size } : {}),
+    ...(typeof item.caption === 'string' && item.caption.length <= 240 ? { caption: item.caption } : {}) };
 }
 
 /** A body the caller then validates field by field. A response that is not JSON is not an answer. */
