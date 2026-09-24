@@ -219,6 +219,7 @@ test('a return path can never leave the site', () => {
 
 test('a ticket can be redeemed exactly once', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   const { token, tokenHash } = mintTicket();
   store.putTicket(tokenHash, { siteId: 'site-1', userId: 4, returnPath: 'a.html', expiresAt: Date.now() + 60_000 });
 
@@ -230,6 +231,7 @@ test('a ticket can be redeemed exactly once', () => {
 
 test('an expired ticket is refused and consumed', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   const { token, tokenHash } = mintTicket();
   store.putTicket(tokenHash, { siteId: 'site-1', userId: 4, returnPath: '', expiresAt: Date.now() - 1 });
   assert.equal(store.takeTicket(hashToken(token), Date.now()), null);
@@ -238,6 +240,7 @@ test('an expired ticket is refused and consumed', () => {
 
 test('changing who may open a site invalidates the sessions already issued', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   assert.equal(store.siteById('site-1').accessGeneration, 1);
   store.addMember('site-1', 5);
@@ -250,6 +253,7 @@ test('changing who may open a site invalidates the sessions already issued', () 
 
 test('replacing site members is atomic and bumps access generation once', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   store.addMember('site-1', 2);
   store.replaceMembers('site-1', [3, 3]);
@@ -259,6 +263,7 @@ test('replacing site members is atomic and bumps access generation once', () => 
 
 test('deletion is durable, immediately invisible and safe to finish after a crash', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   store.addMember('site-1', 2);
   store.insertRelease({ id: 'rel-1', siteId: 'site-1', createdAt: new Date().toISOString(), model: 'm', fileCount: 1, sizeBytes: 1, note: '' });
@@ -288,6 +293,7 @@ test('deletion is durable, immediately invisible and safe to finish after a cras
 
 test('forgetting a removed account reports every site whose access changed', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   store.insertSite(site({ id: 'site-2', slug: 'other-def456' }));
   store.addMember('site-1', 5);
@@ -323,6 +329,7 @@ const serveHarness = (t, overrides = {}, handlerDeps = {}) => {
 
   const hostnameBase = overrides.siteHostBase ?? 'sites.example.com';
   const store = new SitesStore(makeDb(), { hostnameBase });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site(overrides));
   const addresses = new SiteAddressService({
     store,
@@ -850,6 +857,8 @@ test('the Sites DNS destination is parsed once, strictly, for both readiness and
   assert.deepEqual(targetShape(undefined, 'elowen.example'), { kind: 'hostname', value: 'elowen.example' });
   assert.deepEqual(targetShape('203.0.113.40', 'elowen.example'), { kind: 'ipv4', value: '203.0.113.40' });
   assert.deepEqual(targetShape('Origin.Example.COM.', null), { kind: 'hostname', value: 'origin.example.com' });
+  // Surrounding whitespace is the destination parser's to strip, not the hostname check's to accept.
+  assert.deepEqual(targetShape('  origin.example.com  ', null), { kind: 'hostname', value: 'origin.example.com' });
 
   // A trailing dot is a fully qualified value, not a hostname whose last label happens to be numeric.
   assert.deepEqual(targetShape('188.130.140.170.', null), { kind: 'ipv4', value: '188.130.140.170' });
@@ -862,7 +871,7 @@ test('the Sites DNS destination is parsed once, strictly, for both readiness and
   // `domainToASCII` drops a prefix and a trailing dot silently, so these must be refused before it runs.
   for (const rejected of [
     '188.130.140.170/32', 'https://bad.example/path', 'bad.example/path', '*.example.com',
-    'origin.example.com:443', 'localhost', '999.1.1.1', '188.130.140.170..',
+    'origin.example.com:443', 'localhost', '999.1.1.1', '188.130.140.170..', 'origin.example.com..',
     '2001:db8::1%eth0', 'origin example.com', 'user@origin.example.com',
   ]) {
     const resolved = resolveGatewayDnsTarget(rejected, 'elowen.example');
@@ -876,6 +885,7 @@ test('the Sites DNS destination is parsed once, strictly, for both readiness and
 
 test('site API exposes an unhealthy live publication and its concrete error without demoting it', async () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({
     id: 'api-proxy', ownerUserId: 1, kind: 'proxy', target: '3000', status: 'live',
     currentReleaseId: null, lastError: 'The validated container is not running',
@@ -922,6 +932,7 @@ test('site API exposes an unhealthy live publication and its concrete error with
 const toolHarness = (t, { projects, people: roster, configRaw = {}, gatewayHost = 'sites.elowen.example', sandboxAvailable = false, admin = false, projectRef, publications, certificates, activateRelease, domains } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db, { hostnameBase: gatewayHost });
+  store.migrateSourceReferences(() => null);
   const registered = new Map();
   const dir = mkdtempSync(join(tmpdir(), 'sites-tools-'));
   mkdirSync(join(dir, 'project'), { recursive: true });
@@ -1315,6 +1326,7 @@ test('a site queued for deletion is out of reach of every per-site tool', async 
 // Counting one here refused the Project removal in the post-removal hook, after the Project row was gone.
 test('a site queued for deletion no longer holds its Project', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({ id: 'id-1', slug: 'report-a1b2c3', projectId: 7 }));
   assert.deepEqual(store.siteIdsInProject(7), ['id-1']);
 
@@ -1366,6 +1378,7 @@ test('a model that echoes every supported optional property still creates a publ
 
 test('static deletion removes release data and the gateway record without runtime cleanup seams', async () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   const root = tempDir('delete-static');
   const target = site({ id: 'static-site', slug: 'static-a1b2c3' });
   store.insertSite(target);
@@ -1438,6 +1451,7 @@ test('a row written before the publication model is a static publication', () =>
 
 test('a proxy publication round trips its kind and port, and only live or failed rows are reconciled', () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({ id: 'proxy-1', slug: 'app-a1b2c3', kind: 'proxy', target: '3000', runtime: 'static', currentReleaseId: null }));
 
   const row = store.siteById('proxy-1');
@@ -1782,6 +1796,7 @@ test('the publication service establishes, probes and releases one transport per
   t.after(() => new Promise((resolve) => application.close(resolve)));
 
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({
     id: 'pub-1', slug: 'pub-a1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'draft', currentReleaseId: null,
@@ -1830,6 +1845,7 @@ test('the publication service establishes, probes and releases one transport per
 
 test('a managed publication cannot report release while the Sandbox transport is unavailable', async () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({
     id: 'pub-unavailable', slug: 'pub-d1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'deleting', currentReleaseId: null,
@@ -1845,6 +1861,7 @@ test('a managed publication cannot report release while the Sandbox transport is
 test('reconciliation keeps a 5xx publication live but records it as unhealthy', async (t) => {
   const endpoint = await projectServer(t, (_req, res) => { res.writeHead(503); res.end('down'); });
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({
     id: 'pub-5xx', slug: 'pub-f1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'live', currentReleaseId: null,
@@ -1867,6 +1884,7 @@ test('reconciliation keeps a 5xx publication live but records it as unhealthy', 
 
 test('a publication whose transport stopped answering is retried on a bounded cadence and never demoted', async () => {
   const store = new SitesStore(makeDb());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({
     id: 'pub-live', slug: 'pub-c1b2c3', projectId: 7, ownerUserId: 1, kind: 'proxy', target: '3000',
     runtime: 'static', status: 'live', currentReleaseId: null,

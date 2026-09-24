@@ -135,7 +135,6 @@ export class SiteGatewayManager {
                 delegatedRootWarning: hostname.delegatedRootWarning,
                 preferred: [],
                 fallback: [],
-                detail: resolved.error ?? 'The Sites DNS destination is unavailable.',
             };
         }
         return resolved.target.recordPlan(hostname);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createApiHandlers } from '../plugins/sites/dist/api.js';
+import { SiteDomainError } from '../plugins/sites/dist/domains.js';
 
 const target = {
   id: 'site-1',
@@ -75,7 +76,7 @@ const custom = {
 
 const response = { siteId: target.id, effectiveUrl: generated.url, generated, primaryHostnameId: null, domains: [custom] };
 
-const harness = () => {
+const harness = (domainOverrides = {}) => {
   const calls = [];
   const domains = {
     list: async (site) => { calls.push(['list', site.id]); return response; },
@@ -83,6 +84,7 @@ const harness = () => {
     check: async (site, id) => { calls.push(['check', site.id, id]); return custom; },
     makePrimary: async (site, id) => { calls.push(['primary', site.id, id]); return custom; },
     remove: async (site, id) => { calls.push(['remove', site.id, id]); return { removed: true }; },
+    ...domainOverrides,
   };
   const handlers = createApiHandlers({
     store: {
@@ -164,4 +166,13 @@ test('domain routes disclose nothing to a viewer who may open but not manage the
     assert.deepEqual(result.body, { error: 'forbidden' });
   }
   assert.deepEqual(h.calls, []);
+});
+
+test('making a not-ready domain primary answers a coded 409 instead of a 500', async () => {
+  const h = harness({
+    makePrimary: async () => { throw new SiteDomainError(409, 'domain_not_ready'); },
+  });
+  const result = await h.handlers.site(h.request('POST', 'site-1/domains/domain-1/primary'));
+  assert.equal(result.status, 409);
+  assert.deepEqual(result.body, { error: { code: 'domain_not_ready', params: {} } });
 });

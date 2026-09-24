@@ -58,6 +58,7 @@ const harness = (coordinatorOverrides = {}) => {
     randomId: () => 'domain-' + (++n),
     randomToken: () => 'secret-token-' + n,
   });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site);
   const addresses = new SiteAddressService({
     store,
@@ -230,4 +231,30 @@ test('claim failures expose only stable codes and bounded parameters', async () 
   });
   await assert.rejects(() => second.service.add(site, 'taken.customer.example'),
     (error) => error instanceof SiteDomainError && error.code === 'domain_claimed' && !JSON.stringify(error).includes('site-1'));
+});
+
+test('making a pending domain primary is refused with a coded 409', async () => {
+  const h = harness();
+  const row = h.store.claimCustomHostname(site.id, {
+    ascii: 'pending.customer.example', unicode: 'pending.customer.example', kind: 'subdomain', delegatedRootWarning: false,
+  });
+
+  await assert.rejects(() => h.service.makePrimary(h.store.siteById(site.id), row.id),
+    (error) => error instanceof SiteDomainError && error.status === 409 && error.code === 'domain_not_ready');
+});
+
+test('a domain that stops being ready before the primary write still loses the race with a 409', async () => {
+  const h = harness();
+  const row = h.store.claimCustomHostname(site.id, {
+    ascii: 'race.customer.example', unicode: 'race.customer.example', kind: 'subdomain', delegatedRootWarning: false,
+  });
+  h.store.verifyHostnameOwnership(row.id);
+  h.store.recordHostnameDns(row.id, 'ready', ['192.0.2.44']);
+  h.store.recordHostnameCertificate(row.id, { state: 'ready', notAfter: '2026-12-22T06:00:00.000Z' });
+  // The state changes between the read and the write: the transactional store predicate decides,
+  // never a stale pre-check, so this is still a refusal rather than a promotion.
+  h.store.recordHostnameCertificate(row.id, { state: 'issuing' });
+
+  await assert.rejects(() => h.service.makePrimary(h.store.siteById(site.id), row.id),
+    (error) => error instanceof SiteDomainError && error.status === 409 && error.code === 'domain_not_ready');
 });

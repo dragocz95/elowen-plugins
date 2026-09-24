@@ -167,6 +167,7 @@
       "domain_claimed": "Tato doména je už připojená k jinému webu v této instanci Elowen.",
       "domain_limit": "Web může mít nejvýše {count} vlastních domén.",
       "claim_expired": "Platnost této neověřené rezervace domény skončila. Přidejte doménu znovu a získáte novou hodnotu TXT.",
+      "domain_not_ready": "Tato doména ještě není připravená. Nejdřív dokončete ověření vlastnictví, směrování a certifikátu.",
       "lastPublish": "Poslední zveřejnění",
       "releases": "Verze",
       "port": "Port",

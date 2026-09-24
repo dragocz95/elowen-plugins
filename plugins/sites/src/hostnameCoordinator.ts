@@ -1,5 +1,5 @@
 import { Resolver } from 'node:dns/promises';
-import { probeGatewayCertificate, type GatewayCertificateProbe } from './certificate.js';
+import { probeGatewayCertificate, retryDue, type GatewayCertificateProbe } from './certificate.js';
 import { verifyOwnershipTxt, type OwnershipDnsResolver } from './dns.js';
 import type { SiteAddressBinding, SiteAddressService } from './address.js';
 import type { SiteGatewayManager } from './gateway.js';
@@ -50,8 +50,7 @@ export class SiteHostnameCoordinator {
   private async issue(record: SiteHostnameRecord): Promise<void> {
     const binding = this.binding(record);
     if (!binding) return;
-    const retryAt = record.certificateRetryAt === null ? 0 : Date.parse(record.certificateRetryAt);
-    if (Number.isFinite(retryAt) && retryAt > this.now()) return;
+    if (!retryDue(record.certificateRetryAt, this.now())) return;
 
     this.deps.store.recordHostnameCertificate(record.id, { state: 'requested' });
     const bindings = this.deps.addresses.bindings(this.now());
@@ -186,8 +185,7 @@ export class SiteHostnameCoordinator {
     if (!renew && !requested && record.certificateState === 'none') {
       this.deps.store.requestGeneratedCertificate(site.id, new Date(this.now()).toISOString());
     }
-    const retryAt = record.certificateRetryAt === null ? 0 : Date.parse(record.certificateRetryAt);
-    if (Number.isFinite(retryAt) && retryAt > this.now()) return;
+    if (!retryDue(record.certificateRetryAt, this.now())) return;
     const binding = this.binding(record);
     if (!binding) return;
     try {

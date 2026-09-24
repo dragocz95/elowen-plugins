@@ -4,7 +4,7 @@ import type { PluginContext } from 'elowen/plugin-api';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore, type Site } from './store.js';
 import { resolveConfig, type SitesConfig } from './config.js';
-import { SiteCertificateService } from './certificate.js';
+import { retryDue, SiteCertificateService } from './certificate.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers, type Person } from './api.js';
 import { registerTools } from './tools.js';
@@ -86,7 +86,7 @@ export function register(published: PluginContext): void {
     mayAttempt: (slug) => {
       const site = store.siteBySlug(slug);
       const retry = site ? store.generatedHostname(site.id)?.certificateRetryAt : null;
-      return retry === null || retry === undefined || Date.parse(retry) <= Date.now();
+      return retryDue(retry, Date.now());
     },
     issuedSlugs: () => gateway.hasBroker()
       ? store.allSites()

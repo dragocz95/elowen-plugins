@@ -331,6 +331,19 @@ describe('custom domains in Site detail', () => {
     expect(source.match(/apiErrorMessage/g) ?? []).toHaveLength(1);
   });
 
+  it('reports a not-ready Make primary refusal as a sentence', async () => {
+    // Ready at read time, refused at write time: the button only renders for a ready domain, and the
+    // server still decides through its transactional predicate.
+    const ready = domain('ready', 'certificate_ready', { isPrimary: false });
+    use(http.post('/api/plugins/sites/api/site/:id/domains/:domain/primary', () =>
+      HttpResponse.json({ error: { code: 'domain_not_ready', params: {} } }, { status: 409 })));
+
+    mount(site, domainResponse([ready]));
+    fireEvent.click(await screen.findByRole('button', { name: 'Make primary' }));
+
+    expect(await screen.findByText(strings.domain_not_ready)).toBeVisible();
+  });
+
   it('refreshes the register from the server after an automatic check fails', async () => {
     const pending = domain('awaiting_ownership', 'ownership_missing');
     let lists = 0;

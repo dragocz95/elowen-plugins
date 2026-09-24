@@ -149,6 +149,7 @@ test('a hostless v19 upgrade starts and reconciles generated rows when a base la
 
 test('claims are globally case-insensitive and the ten-hostname limit is enforced atomically', () => {
   const store = new SitesStore(makeDb(), storeOptions());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
   store.insertSite(site('site-2'));
 
@@ -166,6 +167,7 @@ test('claims are globally case-insensitive and the ten-hostname limit is enforce
 
 test('a custom hostname pending removal no longer consumes a site slot', () => {
   const store = new SitesStore(makeDb(), storeOptions());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
 
   const first = store.claimCustomHostname('site-1', parseSiteHostname('host-1.customer.example'));
@@ -186,6 +188,7 @@ test('a custom hostname pending removal no longer consumes a site slot', () => {
 test('an unverified reservation expires after 24 hours while a verified claim does not', () => {
   let now = NOW;
   const store = new SitesStore(makeDb(), storeOptions({ now: () => now }));
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
   store.insertSite(site('site-2'));
 
@@ -205,6 +208,7 @@ test('an unverified reservation expires after 24 hours while a verified claim do
 
 test('first ready custom hostname becomes primary and changing primary validates in one transaction', () => {
   const store = new SitesStore(makeDb(), storeOptions());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
   store.insertSite(site('site-2'));
 
@@ -235,6 +239,7 @@ test('first ready custom hostname becomes primary and changing primary validates
 test('stored DNS observations are decoded only from validated string arrays', () => {
   const db = makeDb();
   const store = new SitesStore(db, storeOptions());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
   const claimed = store.claimCustomHostname('site-1', parseSiteHostname('observed.customer.example'));
   store.recordHostnameDns(claimed.id, 'misdirected', ['192.0.2.10', '2001:db8::20']);
@@ -248,6 +253,7 @@ test('stored DNS observations are decoded only from validated string arrays', ()
 
 test('removal and Site deletion retain hostname reservations until cleanup completes', () => {
   const store = new SitesStore(makeDb(), storeOptions());
+  store.migrateSourceReferences(() => null);
   store.insertSite(site('site-1'));
   store.insertSite(site('site-2'));
   const claimed = store.claimCustomHostname('site-1', parseSiteHostname('held.customer.example'));

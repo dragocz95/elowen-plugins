@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { asSitesContext, asUserViews } from './coreSeams.js';
 import { SitesStore } from './store.js';
 import { resolveConfig } from './config.js';
-import { SiteCertificateService } from './certificate.js';
+import { retryDue, SiteCertificateService } from './certificate.js';
 import { createSiteHandler } from './serve.js';
 import { createApiHandlers } from './api.js';
 import { registerTools } from './tools.js';
@@ -83,7 +83,7 @@ export function register(published) {
         mayAttempt: (slug) => {
             const site = store.siteBySlug(slug);
             const retry = site ? store.generatedHostname(site.id)?.certificateRetryAt : null;
-            return retry === null || retry === undefined || Date.parse(retry) <= Date.now();
+            return retryDue(retry, Date.now());
         },
         issuedSlugs: () => gateway.hasBroker()
             ? store.allSites()

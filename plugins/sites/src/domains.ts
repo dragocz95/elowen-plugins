@@ -6,6 +6,7 @@ import type { SiteHostnameCoordinator } from './hostnameCoordinator.js';
 import {
   CUSTOM_HOSTNAME_LIMIT,
   HostnameClaimError,
+  HostnamePrimaryError,
   type Site,
   type SiteHostnameCertificateState,
   type SiteHostnameDnsState,
@@ -19,7 +20,8 @@ export type SiteDomainErrorCode =
   | 'reserved_hostname'
   | 'domain_claimed'
   | 'domain_limit'
-  | 'claim_expired';
+  | 'claim_expired'
+  | 'domain_not_ready';
 
 type SiteDomainStatus =
   | 'awaiting_ownership'
@@ -357,7 +359,14 @@ export class SiteDomainService {
 
   async makePrimary(site: Site, id: string): Promise<SiteDomainView> {
     this.custom(site, id);
-    this.deps.store.setPrimaryCustomHostname(site.id, id);
+    try {
+      this.deps.store.setPrimaryCustomHostname(site.id, id);
+    } catch (error) {
+      // The store predicate is the authority: state can change between reads, so a pre-check here
+      // could still promote a domain that stopped being ready. Its coded refusal becomes a 409.
+      if (error instanceof HostnamePrimaryError) throw new SiteDomainError(409, error.code);
+      throw error;
+    }
     const current = this.deps.store.siteById(site.id) ?? { ...site, primaryCustomHostnameId: id };
     return this.view(current, this.custom(current, id));
   }
