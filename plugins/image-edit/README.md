@@ -8,10 +8,10 @@ Install **image-edit** from **Settings → Plugins → Available**, configure it
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.8 |
+| Version | 0.2.9 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 
 Configure the image provider and model in the plugin settings.
 
-See the [Image Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/42-image-tools.md).
+See the [Image Editing reference](docs/image-edit.md).
