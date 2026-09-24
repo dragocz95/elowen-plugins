@@ -12,6 +12,4 @@ Install **discord** from **Settings → Plugins → Available**, configure the b
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 
-Configure the bot, guild and thread scope, notification destination, response and tool-activity presentation, reactions, service language, history, media, voice, and role policies in the plugin settings.
-
-See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+Full user docs: https://elowen.run/docs/discord-plugin (shared concepts: https://elowen.run/docs/chat-platform-plugins).

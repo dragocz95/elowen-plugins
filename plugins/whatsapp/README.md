@@ -12,6 +12,4 @@ Install **whatsapp** from **Settings → Plugins → Available**, configure the 
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 
-Configure the phone number, group scope, notification destination, response and progress behavior, reactions, service language, media, voice, and sender policies in the plugin settings.
-
-See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+Full user docs: https://elowen.run/docs/whatsapp-plugin (shared concepts: https://elowen.run/docs/chat-platform-plugins).
