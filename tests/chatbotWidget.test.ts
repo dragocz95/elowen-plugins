@@ -372,11 +372,14 @@ describe('describing the page', () => {
       </form>
     `);
     const snapshot = capturePageSnapshot();
-
-    for (const secret of ['TajneHeslo123', '4111111111111111', '123', '9001011234']) {
-      expect(snapshot.json).not.toContain(secret);
-    }
     const parsed = JSON.parse(snapshot.json) as Record<string, any>;
+
+    // The snapshot id is random hex and can contain "123" by chance; everything else is what the page described.
+    const { snapshotId: _randomId, ...described } = parsed;
+    const describedJson = JSON.stringify(described);
+    for (const secret of ['TajneHeslo123', '4111111111111111', '123', '9001011234']) {
+      expect(describedJson).not.toContain(secret);
+    }
     const byId = new Map<string, Record<string, unknown>>(parsed.targets.map((target: Record<string, unknown>) => [target.id as string, target]));
     // A password field is invisible to the agent in every way that matters: no value, no read, no write.
     // Its NAME here says nothing, so only the type it declares keeps it out.
