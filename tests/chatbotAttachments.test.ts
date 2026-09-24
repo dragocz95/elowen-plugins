@@ -19,6 +19,13 @@ beforeEach(async () => {
   await host.adapter.connect();
 });
 
+async function waitForAttachment(turnId: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (host.store.attachmentEventsOf(turnId).length === 0 && Date.now() < deadline)
+    await new Promise(resolve => setTimeout(resolve, 5));
+  expect(host.store.attachmentEventsOf(turnId), 'turn never recorded an attachment').toHaveLength(1);
+}
+
 function stream(bytes: Uint8Array, onPull?: () => void): ReadableStream<Uint8Array> {
   return new ReadableStream({ pull(controller) {
     onPull?.();
@@ -89,6 +96,64 @@ describe('visitor image uploads', () => {
     expect(await turn(second.body.token, id)).toMatchObject({ status: 409, body: { error: 'invalid_upload' } });
   });
 
+  it('reserves a receipt before reading bytes and refuses a repeated client turn', async () => {
+    const visitor = await issueToken(host);
+    const writes: string[] = [];
+    const original = host.files.uploadProjectImage;
+    host.files.uploadProjectImage = async (input) => {
+      writes.push(input.name);
+      return original(input);
+    };
+    expect((await upload(visitor.body.token, PNG)).status).toBe(201);
+    let pulls = 0;
+    expect(await upload(visitor.body.token, PNG, { onPull: () => { pulls += 1; } }))
+      .toMatchObject({ status: 409, body: { error: 'upload_not_available' } });
+    expect(pulls).toBe(0);
+    expect(writes).toHaveLength(1);
+    expect(host.store.pendingUploadCount(12, visitor.body.visitorId as string, new Date(NOW_MS).toISOString())).toBe(1);
+  });
+
+  it('refuses the fourth pending image before reading its body', async () => {
+    const visitor = await issueToken(host);
+    for (let i = 0; i < 3; i += 1)
+      expect((await upload(visitor.body.token, PNG, { clientTurnId: randomUUID() })).status).toBe(201);
+    let pulls = 0;
+    expect((await upload(visitor.body.token, PNG, { clientTurnId: randomUUID(), onPull: () => { pulls++; } })).status).toBe(409);
+    expect(pulls).toBe(0);
+  });
+
+  it('returns rate-limit retry timing and a missing-limits service refusal before pulling bytes', async () => {
+    const visitor = await issueToken(host);
+    host.setLimits(12, { rateConversationPerMinute: 1 });
+    expect((await upload(visitor.body.token, PNG, { clientTurnId: randomUUID() })).status).toBe(201);
+    let pulls = 0;
+    const limited = await upload(visitor.body.token, PNG, { clientTurnId: randomUUID(), onPull: () => { pulls++; } });
+    expect(limited).toMatchObject({ status: 429, body: { error: 'rate_limited' } });
+    expect(Number(limited.headers?.['retry-after'])).toBeGreaterThan(0);
+    expect(pulls).toBe(0);
+    host.db.prepare('UPDATE p_chatbot_bots SET rate_conversation_per_minute = NULL WHERE chatbot_user_id = 12').run();
+    const missing = await upload(visitor.body.token, PNG, { clientTurnId: randomUUID(), onPull: () => { pulls++; } });
+    expect(missing).toMatchObject({ status: 503, body: { error: 'bot_unavailable' } });
+    expect(pulls).toBe(0);
+  });
+
+  it('never claims a reserved receipt until its upload completes', async () => {
+    const visitor = await issueToken(host);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = host.files.uploadProjectImage;
+    host.files.uploadProjectImage = async (input) => { await gate; return original(input); };
+    let pulls = 0;
+    const pending = upload(visitor.body.token, PNG, { onPull: () => { pulls++; } });
+    await Promise.resolve();
+    const row = host.db.prepare('SELECT id, receipt_json FROM p_chatbot_upload_receipts').get() as { id: string; receipt_json: string | null };
+    expect(row.receipt_json).toBeNull();
+    expect(await turn(visitor.body.token, row.id)).toMatchObject({ status: 409, body: { error: 'invalid_upload' } });
+    release();
+    expect((await pending).status).toBe(201);
+    expect(pulls).toBe(1);
+  });
+
   it('expires unclaimed receipts without removing the uploaded Project file', async () => {
     const visitor = await issueToken(host);
     const saved = await upload(visitor.body.token, PNG);
@@ -103,6 +168,33 @@ describe('visitor image uploads', () => {
 });
 
 describe('shared attachment delivery', () => {
+  it('delivers an authorized image inline and refuses a mismatched file kind', async () => {
+    const visitor = await issueToken(host);
+    const name = `${'c'.repeat(64)}.png`;
+    host.handleTurn = async ({ observer }) => {
+      observer?.onEvent({ type: 'session', sessionId: 'brain-ch-chatbot-session' });
+      observer?.onEvent({ type: 'image', ref: `/api/brain/chat-images/${name}` });
+      return 'image';
+    };
+    const admitted = await host.handler(postRequest({ path: 'turns',
+      headers: { origin: SITE, authorization: `ChatbotVisitor ${visitor.body.token}` },
+      body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message: 'image', page: TURN_PAGE },
+    }));
+    const turnId = (admitted.body as { turnId: string }).turnId;
+    expect(await settledTurn(host, turnId)).toBe('done');
+    host.files.readShared = () => ({ bytes: PNG, mimeType: 'image/png' });
+    const response = await host.handler(publicRequest({ method: 'GET',
+      path: `turns/${turnId}/files/image/${name}`,
+      headers: { origin: SITE, authorization: `ChatbotVisitor ${visitor.body.token}` },
+    }));
+    expect(response).toMatchObject({ status: 200, headers: {
+      'content-type': 'image/png', 'content-disposition': 'inline',
+    } });
+    expect(await host.handler(publicRequest({ method: 'GET',
+      path: `turns/${turnId}/files/file/${name}`,
+      headers: { origin: SITE, authorization: `ChatbotVisitor ${visitor.body.token}` },
+    }))).toMatchObject({ status: 404 });
+  });
   it('records core session ownership before an attachment event while relay remains active', async () => {
     const visitor = await issueToken(host);
     let release!: () => void;
@@ -118,8 +210,7 @@ describe('shared attachment delivery', () => {
       body: { schemaVersion: 2, clientTurnId: CLIENT_TURN_ID, message: 'send file', page: TURN_PAGE },
     }));
     const turnId = (admitted.body as { turnId: string }).turnId;
-    for (let i = 0; i < 50 && host.store.attachmentEventsOf(turnId).length === 0; i += 1)
-      await new Promise(resolve => setTimeout(resolve, 1));
+    await waitForAttachment(turnId);
     expect(host.store.turn(turnId)?.status).toBe('running');
     expect(host.store.turn(turnId)?.core_session_id).toBe('brain-ch-chatbot-session');
     expect(host.store.attachmentEventsOf(turnId)).toHaveLength(1);

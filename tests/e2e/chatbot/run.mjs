@@ -1072,9 +1072,10 @@ try {
   assert(store.attachmentEventsOf(attachmentTurnId).length === 2, 'the two shared attachments were not durable');
   await page.waitForFunction(() => {
     const root = document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot;
-    return root.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2
-      && root.querySelector('.cb-shared-file img')?.naturalWidth === 1;
-  });
+    return root.querySelector('.cb-shared-file-chip[href^="blob:"]')
+      && root.querySelector('.cb-shared-image img[src^="blob:"]')?.naturalWidth === 1
+      && !root.querySelector('.cb-shared-image a');
+  }, {timeout:5000});
   await page.screenshot({ path: '/tmp/chatbot-live-attachments-1440.png' });
   assert(hook.requests.some(entry => entry.path.startsWith('/hooks/chatbot/v2/uploads?') && entry.method === 'POST'), 'the picker never called the upload route');
   assert(hook.requests.filter(entry => entry.path.includes(`/turns/${attachmentTurnId}/files/`) && entry.method === 'GET').length === 2,
@@ -1085,8 +1086,10 @@ try {
   await page.evaluate(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher').click());
   await page.waitForFunction(() => {
     const root = document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot;
-    return root.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2;
-  });
+    return root.querySelector('.cb-shared-file-chip[href^="blob:"]')
+      && root.querySelector('.cb-shared-image img[src^="blob:"]')?.naturalWidth === 1
+      && !root.querySelector('.cb-shared-image a');
+  }, {timeout:5000});
   pass('a reload restores the visitor upload and both authorized shared downloads');
 
   // An unreadable stored look is a refusal, not permission to flash a default launcher or create a visitor.

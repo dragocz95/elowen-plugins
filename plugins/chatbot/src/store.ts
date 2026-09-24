@@ -303,20 +303,32 @@ export class ChatbotStore {
       .get(chatbotUserId, visitorId, now) as { count: number }).count;
   }
 
-  saveUpload(input: { id: string; chatbotUserId: number; visitorId: string; clientTurnId: string;
-    receipt: ChatbotUploadReceipt; now: string; expiresAt: string }): boolean {
+  reserveUpload(input: { id: string; chatbotUserId: number; visitorId: string; clientTurnId: string;
+    name: string; now: string; expiresAt: string }): boolean {
     return this.db.transaction(() => {
-      const pending = this.stmt(`SELECT COUNT(*) AS count FROM p_chatbot_upload_receipts
-        WHERE chatbot_user_id = ? AND visitor_id = ? AND turn_id IS NULL AND expires_at > ?`)
-        .get(input.chatbotUserId, input.visitorId, input.now) as { count: number };
-      if (pending.count >= 3) return false;
+      if (this.turnByClientId(input.chatbotUserId, input.visitorId, input.clientTurnId)
+        || this.stmt(`SELECT id FROM p_chatbot_upload_receipts
+          WHERE chatbot_user_id = ? AND visitor_id = ? AND client_turn_id = ?`)
+          .get(input.chatbotUserId, input.visitorId, input.clientTurnId)) return false;
+      if (this.pendingUploadCount(input.chatbotUserId, input.visitorId, input.now) >= 3) return false;
       this.stmt(`INSERT INTO p_chatbot_upload_receipts
-        (id, chatbot_user_id, visitor_id, client_turn_id, receipt_json, name, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        (id, chatbot_user_id, visitor_id, client_turn_id, name, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(input.id, input.chatbotUserId, input.visitorId, input.clientTurnId,
-          JSON.stringify(input.receipt), input.receipt.name, input.now, input.expiresAt);
+          input.name, input.now, input.expiresAt);
       return true;
     });
+  }
+
+  completeUpload(id: string, receipt: ChatbotUploadReceipt): void {
+    const result = this.stmt(`UPDATE p_chatbot_upload_receipts SET receipt_json = ?, name = ?
+      WHERE id = ? AND receipt_json IS NULL AND turn_id IS NULL`)
+      .run(JSON.stringify(receipt), receipt.name, id);
+    if (result.changes !== 1) throw new Error('upload receipt completion failed');
+  }
+
+  discardUpload(id: string): void {
+    this.stmt('DELETE FROM p_chatbot_upload_receipts WHERE id = ? AND turn_id IS NULL').run(id);
   }
 
   uploadForTurn(turnId: string): { receipt: ChatbotUploadReceipt; name: string } | null {
@@ -642,7 +654,7 @@ export class ChatbotStore {
     if (existing) return { ok: false, reason: 'duplicate', turn: existing };
     if (input.uploadId) {
       const upload = this.stmt(`SELECT id FROM p_chatbot_upload_receipts WHERE id = ? AND chatbot_user_id = ?
-        AND visitor_id = ? AND client_turn_id = ? AND turn_id IS NULL AND expires_at > ?`)
+        AND visitor_id = ? AND client_turn_id = ? AND turn_id IS NULL AND receipt_json IS NOT NULL AND expires_at > ?`)
         .get(input.uploadId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.now);
       if (!upload) return { ok: false, reason: 'invalid_upload' };
     }

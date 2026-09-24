@@ -167,10 +167,6 @@ export class ChatbotTurnQueue {
             const upload = store.uploadForTurn(turnId);
             let image = null;
             if (upload) {
-                if (!this.deps.files) {
-                    this.fail(turnId, 'turn_failed', null);
-                    return;
-                }
                 try {
                     image = await this.deps.files.readProjectImage({ botUserId: turn.chatbot_user_id, receipt: upload.receipt });
                 }

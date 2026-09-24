@@ -17,7 +17,7 @@ describe('migration 9 adds the visitor address to the conversation', () => {
 
     migrate(db);
 
-    expect(db.appliedVersion()).toBe(12);
+    expect(db.appliedVersion()).toBe(13);
     expect(db.prepare('SELECT visitor_id, last_ip FROM p_chatbot_conversations').all())
       .toEqual([{ visitor_id: 'a'.repeat(32), last_ip: null }]);
   });

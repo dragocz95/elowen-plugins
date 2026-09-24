@@ -1,20 +1,11 @@
-import { VISITOR_IMAGE_MAX_BYTES } from './publicContract.js';
+import { VISITOR_IMAGE_MIN_BYTES, VISITOR_IMAGE_MAX_BYTES, VISITOR_IMAGE_FORMATS } from './publicContract.js';
 function imageMime(bytes) {
-    if (bytes.length >= 8 && Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
-        return 'image/png';
-    if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
-        return 'image/jpeg';
-    if (bytes.length >= 6 && (Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF87a'
-        || Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF89a'))
-        return 'image/gif';
-    if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString('ascii') === 'RIFF'
-        && Buffer.from(bytes.subarray(8, 12)).toString('ascii') === 'WEBP')
-        return 'image/webp';
-    return null;
+    return VISITOR_IMAGE_FORMATS.find((format) => format.signatures.some((alternative) => alternative.every((part) => bytes.length >= part.offset + part.bytes.length
+        && part.bytes.every((byte, index) => bytes[part.offset + index] === byte))))?.mime ?? null;
 }
 /** Inspect the first twelve bytes while forwarding the same stream to core's upload helper. */
 export function verifiedImageStream(body, size) {
-    if (!Number.isSafeInteger(size) || size < 12 || size > VISITOR_IMAGE_MAX_BYTES)
+    if (!Number.isSafeInteger(size) || size < VISITOR_IMAGE_MIN_BYTES || size > VISITOR_IMAGE_MAX_BYTES)
         throw new Error('invalid_image_size');
     const reader = body.getReader();
     let received = 0;
@@ -51,7 +42,7 @@ export function verifiedImageStream(body, size) {
         cancel(reason) { return reader.cancel(reason); },
     });
 }
-const IMAGE_REF = /^\/api\/brain\/chat-images\/([0-9a-f]{64}\.(?:png|jpg|gif|webp))$/;
+const IMAGE_REF = new RegExp(`^/api/brain/chat-images/([0-9a-f]{64}\\.(?:${VISITOR_IMAGE_FORMATS.flatMap((format) => [...format.extensions]).map((extension) => extension.slice(1)).join('|')}))$`);
 const FILE_REF = /^\/api\/brain\/chat-files\/([0-9a-f]{64}\.bin)$/;
 /** Core relay's ShareImage/ShareFile events only, never screenshots or a model-authored URL. */
 export function publicAttachment(event) {
