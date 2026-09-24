@@ -2,6 +2,7 @@
 
 ## discord 0.3.26, telegram 0.2.22, whatsapp 0.2.26, msteams 0.8.8, chatbot 0.3.12 - 2026-09-24
 
+- Give the chatbot agent the server-verified visitor id beside each message, separate from untrusted page data, so it can identify the visitor's own bookings and uploads without trusting a claimed id.
 - Move user documentation into each plugin's `docs/` folder, one page per plugin: discord 0.3.26, telegram 0.2.22 and whatsapp 0.2.26 split from the shared chat-platforms page (kept as an overview), msteams 0.8.8 keeps the `microsoft-365-plugin` slug while its maintainer notes stay developer-only, and chatbot 0.3.12 gains its first manual page (also fixing stale v1 hook and asset paths).
 
 ## codebase 0.1.9, lsp 0.3.3, editor 0.5.4, github 0.1.25, browser 0.4.9, cronjob 0.6.19 - 2026-09-24

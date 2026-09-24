@@ -134,8 +134,8 @@ export function register(published: PluginContext): void {
   // declarations never reach owner or delegated conversations; execution still verifies the live turn.
   registerPageActionTool({ ctx, store, service: actions });
   registerOfferTool({ ctx, store, broker, now: () => now().toISOString() });
-  // The page a visitor is writing from reaches the model beside their message, never inside it, so the
-  // conversation stores only what the visitor wrote.
+  // Server-verified visitor identity and the reported page reach the model beside the current message;
+  // the conversation stores only what the visitor wrote.
   registerVisitorPageContext({ ctx, store, warn });
 
   // One mount, dispatched by method, so the manifest declares exactly what exists.
