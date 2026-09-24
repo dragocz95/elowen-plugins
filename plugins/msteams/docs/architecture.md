@@ -167,7 +167,7 @@ the size afterwards (`lib/connector.mjs:108-111`).
   `access`, `channelName` for non-personal chats, `images`, and `history`. **`history` must be async**:
   the brain calls `.catch()` on its result, so a plain string would break the first turn of every new
   conversation — pinned deliberately by `tests/plugins/msteamsPlugin.test.ts:498`.
-- On success: `stream.finalize(replyText)`, or `postWithImages` when no stream exists (`:449-450`). The
+- On success: `stream.finalize(replyText)`, or `postFinalText` when no stream exists (`:449-450`). The
   reply is recorded to the transcript from the model's own text, **before** the runtime footer is
   appended, so a model shown its own history never starts forging that line (`:451-453`).
 - On failure (`:454-462`): the interval is cleared, the error is **logged and** replied. Both, on
@@ -247,7 +247,7 @@ supplies:
   bot messages), and **`lineBreak: '\n\n'`** (`:69`) — Teams treats a single newline as a soft wrap, so
   without this the whole tool trace renders as one run-on paragraph. Pinned by
   `tests/plugins/msteamsPlugin.test.ts:556`;
-- `postWithImages` sends the final text in transport-sized pieces. Shared images are handled
+- `postFinalText` sends the final text in transport-sized pieces. Shared images are handled
   separately through authorized `image` events.
 
 Sizing lives in `lib/format.mjs`: `CHUNK = 20000` (`:7`) against Teams' ~28 KB payload cap, and the

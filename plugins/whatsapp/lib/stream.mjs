@@ -10,7 +10,7 @@ import { resolveDisplaySettings } from 'elowen-plugin-shared/display';
 const EDIT_THROTTLE_MS = 1500; // WhatsApp is stricter than Discord/Telegram on edits — stay well under any limit
 
 /** Post the final answer text, quoting the trigger. Shared images travel as image events. */
-async function postWithImages(adapter, jid, text, quoted) {
+async function postFinalText(adapter, jid, text, quoted) {
   await adapter.sendText(jid, text, quoted);
 }
 
@@ -26,7 +26,7 @@ const transport = {
   remove: (a, jid, key) => a.sock.sendMessage(jid, { delete: key }).catch(() => {}),
   replyRef: (quoted) => ({ quoted }),
   hasImages: (a) => typeof a.resolveImageFiles === 'function' && typeof a.sendImages === 'function',
-  // Forward the trigger quote exactly like postWithImages does for text: the image reply keeps its link
+  // Forward the trigger quote exactly like postFinalText does for text: the image reply keeps its link
   // to the message it answers. The adapter quotes only the first image (matching sendText's first piece).
   postImages: (a, jid, data, quoted) => a.sendImages(jid, data, quoted),
   // Files the agent shared (ShareFile) go out as document messages, which keep the name and the bytes an
@@ -51,7 +51,7 @@ const style = {
   quoteBlock: (lines) => lines.map((l) => `> ${l}`).join('\n'),
 };
 
-const LiveBase = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine, editThrottleMs: EDIT_THROTTLE_MS });
+const LiveBase = createLiveMessage({ transport, style, CHUNK, splitContent, postFinalText, footerLine, editThrottleMs: EDIT_THROTTLE_MS });
 
 /** The WhatsApp live message: the shared engine with the answer pinned to `final`. The engine's live-answer
  *  path re-anchors and discards draft bubbles by DELETING them, and a deleted Baileys message leaves a

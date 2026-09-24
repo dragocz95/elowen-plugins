@@ -8,7 +8,7 @@ import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 
 /** Post final text to a chat. Shared images are sent from authorized image events. */
-export async function postWithImages(adapter, chatId, text, replyToId) {
+export async function postFinalText(adapter, chatId, text, replyToId) {
   const reply = replyToId ? { reply_parameters: { message_id: replyToId, allow_sending_without_reply: true } } : {};
   const pieces = splitContent(text);
   for (let i = 0; i < pieces.length; i++) {
@@ -45,4 +45,4 @@ const style = {
   summaryLine: (s) => `  ↳ ${s}`,
 };
 
-export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });
+export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postFinalText, footerLine });

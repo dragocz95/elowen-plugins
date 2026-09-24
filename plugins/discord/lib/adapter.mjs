@@ -3,10 +3,10 @@
 import { memberIsAdmin, matchPolicy, displayNameOf, resolveMentions, buildReplyContext, parseModelExec, stripForSpeech, withoutFooter } from './format.mjs';
 import { buildAskComponents, askTruncationNote, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
-import { LiveMessage, postWithImages } from './stream.mjs';
+import { LiveMessage, postFinalText } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageEventPayload, imageMimeType, resolveSharedFiles, fileMimeType } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -179,7 +179,7 @@ async function collectAttachments(list, maxImageBytes, maxImages, maxFileBytes, 
 
 export class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels, imageDir = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = '', resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
@@ -1007,7 +1007,7 @@ export class DiscordAdapter {
   }
 
   async reply(channelId, text, replyToId) {
-    await postWithImages(this, channelId, text, replyToId);
+    await postFinalText(this, channelId, text, replyToId);
   }
 
   /** Load up to the configured cap of shared chat images by validated name.
@@ -1109,10 +1109,13 @@ export class DiscordAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification channel. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, channelId, notice) {
+  async notify(text, channelId, notice, images) {
     const target = discordDestinationId(channelId) || discordDestinationId(this.cfg.notifyChannelId);
     if (!target) return;
-    await this.reply(target, lifecycleText(this.cfg.language, notice, text));
+    const { names, caption } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.uploadImages(target, caption, files);
+    if (text) await this.reply(target, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The one 429 discipline every Discord call shares (rest + both multipart posters): on a rate-limited

@@ -6,7 +6,7 @@ import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 
 /** Post a final text to a channel. Shared images are sent from authorized image events. */
-export async function postWithImages(adapter, channelId, text, replyToId) {
+export async function postFinalText(adapter, channelId, text, replyToId) {
   const pieces = splitContent(text);
   // The first piece is a real Discord reply to the triggering message (fail_if_not_exists:false —
   // a deleted trigger degrades to a plain message instead of a 400).
@@ -55,4 +55,4 @@ const style = {
   quoteBlock: (lines) => lines.map((l) => `> ${l}`).join('\n'),
 };
 
-export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });
+export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postFinalText, footerLine });

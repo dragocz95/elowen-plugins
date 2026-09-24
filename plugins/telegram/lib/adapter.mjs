@@ -6,10 +6,10 @@ import { parseModelExec, buildReplyContext, stripForSpeech, withoutFooter } from
 import { senderIds, senderIsAdmin, matchPolicy, displayNameOf } from './ids.mjs';
 import { buildAskKeyboard, collectQuestionAnswers, parseQuestionReply } from './ask.mjs';
 import { MESSAGES } from './messages.mjs';
-import { LiveMessage, postWithImages } from './stream.mjs';
+import { LiveMessage, postFinalText } from './stream.mjs';
 import { resolveDisplaySettings, updateDisplayOverrides, observesLiveEvents } from './display.mjs';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageEventPayload, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { voiceCreds, transcribeBuffer } from 'elowen-plugin-shared/voice';
 import { PICKER_CONTEXT, PICKER_PROJECT, applyPickerChoice, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
@@ -86,7 +86,7 @@ function chatTarget(v) {
 
 export class TelegramAdapter {
   name = 'telegram';
-  constructor(cfg, logger, state, listModels, imageDir = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = '', resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
@@ -785,7 +785,7 @@ export class TelegramAdapter {
 
   /** Post a final text reply (image links become photo uploads) — the non-streamed path. */
   async reply(chatId, text, replyToId) {
-    await postWithImages(this, chatId, text, replyToId);
+    await postFinalText(this, chatId, text, replyToId);
   }
 
   /** Send one text message. Returns the new message_id (null on failure). Retries once on a 429 flood
@@ -918,11 +918,15 @@ export class TelegramAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification chat. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, chatId, notice) {
+  async notify(text, chatId, notice, images) {
     const target = (typeof chatId === 'string' && chatId.trim())
       || (typeof this.cfg.notifyChatId === 'string' ? this.cfg.notifyChatId.trim() : '');
     if (!target || !this.bot) return;
-    await this.reply(chatTarget(target), lifecycleText(this.cfg.language, notice, text));
+    const id = chatTarget(target);
+    const { names, caption } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.sendPhotos(id, files, {}, caption);
+    if (text) await this.reply(id, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The live bot, or a thrown error when not yet connected — used by the Telegram* tools. */

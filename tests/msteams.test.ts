@@ -36,7 +36,7 @@ describe('msteams config policy normalization', () => {
 type AdapterModule = {
   MsTeamsAdapter: new (
     cfg: Record<string, unknown>, logger: typeof log, state: unknown, listModels: () => Promise<unknown[]>,
-    imageDirs?: string[], resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
+    imageDir?: string, resolveProvider?: () => null, answerQuestion?: (id: string, answers: unknown[]) => boolean,
     chatCommands?: () => { name: string; description: string; kind: string; execution?: string }[], accountLinking?: unknown,
   ) => {
     handleWebhook: (req: { method: string; headers: Record<string, string>; json: () => Promise<unknown> }) => Promise<{ status?: number }>;
@@ -54,7 +54,8 @@ type AdapterModule = {
     isForMe: (m: unknown) => boolean;
     accessFor: (ids: string[], convId: string) => { access?: Record<string, unknown> };
     verifyToken: (h: string | undefined, a: unknown) => Promise<boolean>;
-    notify: (text: string, channelId?: string) => Promise<void>;
+    notify: (text: string, channelId?: string, notice?: unknown, images?: unknown[]) => Promise<void>;
+    imageDir: string;
     appPackage: () => Buffer;
     readRoster: (conversationId: string) => Promise<Record<string, unknown>[]>;
     lookupPeople: (query: string) => Promise<Record<string, unknown>[]>;
@@ -1136,6 +1137,27 @@ describe('msteams proactive notify + app package', () => {
     const sent = calls.find((c) => c.kind === 'send');
     expect(sent?.args[0]).toBe('https://smba.test/emea');
     expect(sent?.args[2]).toMatchObject({ type: 'message', text: 'nightly build done' });
+  });
+
+  it('uploads an image a scheduled job shared through an explicit image event', async () => {
+    const { adapter, state, calls } = await makeAdapter({ notifyConversationId: 'a:conv1' });
+    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
+    const dir = mkdtempSync(join(tmpdir(), 'teams-notify-image-'));
+    const name = `${'a'.repeat(64)}.png`;
+    try {
+      writeFileSync(join(dir, name), Buffer.from('PNG'));
+      adapter.imageDir = dir;
+      await adapter.notify('Scheduled result', undefined, undefined, [
+        { type: 'image', ref: `/api/brain/chat-images/${name}`, caption: 'Generated' },
+      ]);
+      const sends = calls.filter((call) => call.kind === 'send');
+      expect(sends).toHaveLength(2);
+      expect(sends[0]!.args[2]).toMatchObject({
+        type: 'message', text: 'Generated',
+        attachments: [{ name, contentType: 'image/png', contentUrl: `data:image/png;base64,${Buffer.from('PNG').toString('base64')}` }],
+      });
+      expect(sends[1]!.args[2]).toMatchObject({ text: 'Scheduled result' });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('unwraps an encoded destination stored by the generic config picker', async () => {

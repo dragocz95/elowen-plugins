@@ -15,7 +15,7 @@ import { PICKER_CONTEXT, SHARED_PICKERS, applyPickerChoice, controlCommandsFrom,
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
-import { fileMimeType, resolveImageFiles, resolveSharedFiles } from 'elowen-plugin-shared/images';
+import { fileMimeType, resolveImageFiles, imageEventPayload, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
@@ -811,10 +811,14 @@ export class WhatsAppAdapter {
   /** Host-initiated push (cron/tick echoes) → the configured notification chat. No-op without one.
    *  A `notice` marks one of the daemon's standing announcements, which we say in the configured
    *  language; free-form text arrives without one and is delivered as written. */
-  async notify(text, chatId, notice) {
+  async notify(text, chatId, notice, images) {
     const target = (typeof chatId === 'string' && chatId.trim()) || (typeof this.cfg.notifyChat === 'string' ? this.cfg.notifyChat.trim() : '');
     if (!target || !this.sock) return;
-    await this.sendText(toJid(target), lifecycleText(this.cfg.language, notice, text));
+    const jid = toJid(target);
+    const { names } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.sendImages(jid, files);
+    if (text) await this.sendText(jid, lifecycleText(this.cfg.language, notice, text));
   }
 
   /** The live socket, or a thrown error when not yet connected — used by the Whatsapp* tools. */

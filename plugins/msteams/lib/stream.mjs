@@ -7,7 +7,7 @@ import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 
 /** Post final text to a conversation. Shared images are sent from authorized image events. */
-export async function postWithImages(adapter, conversationId, text, replyToId) {
+export async function postFinalText(adapter, conversationId, text, replyToId) {
   const pieces = splitContent(text);
   for (let i = 0; i < pieces.length; i++) {
     // `ai` marks model-written text for Teams feedback.
@@ -65,4 +65,4 @@ const style = {
   quoteBlock: (lines) => `<blockquote>${lines.join('<br>')}</blockquote>`,
 };
 
-export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postWithImages, footerLine });
+export const LiveMessage = createLiveMessage({ transport, style, CHUNK, splitContent, postFinalText, footerLine });

@@ -12,14 +12,14 @@ import { makeTokenVerifier } from './auth.mjs';
 import { matchPolicy, senderIds, senderIsAdmin, displayNameOf, ownerKey, isOwner, threadRef } from './ids.mjs';
 import { parseModelExec, splitContent } from './format.mjs';
 import { MESSAGES } from './messages.mjs';
-import { LiveMessage, postWithImages } from './stream.mjs';
+import { LiveMessage, postFinalText } from './stream.mjs';
 import { buildAskCard, buildPickerCard, collectQuestionAnswers, settledCard } from './cards.mjs';
 import { buildAppPackage } from './appPackage.mjs';
 import { PICKER_CONTEXT, applyPickerChoice, botControlCommandsFrom, controlCommandsFrom, localCommandsFrom, runControlCommand, runPickerCommand } from 'elowen-plugin-shared/chatCommands';
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { observesLiveEvents, resolveDisplaySettings, updateDisplayOverrides } from 'elowen-plugin-shared/display';
 import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
-import { resolveImageFiles, imageMimeType, resolveSharedFiles } from 'elowen-plugin-shared/images';
+import { resolveImageFiles, imageEventPayload, imageMimeType, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
 
@@ -125,7 +125,7 @@ function cfgNum(cfg, key, def, min, max) {
 
 export class MsTeamsAdapter {
   name = 'msteams';
-  constructor(cfg, logger, state, listModels, imageDir = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null, chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = '', resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null, chatFilesDir = '') {
     this.cfg = cfg;
     this.accountLinking = accountLinking;
     this.log = logger;
@@ -840,7 +840,7 @@ export class MsTeamsAdapter {
         remove: (type) => this.connector.deleteReaction(m.serviceUrl, conv.id, m.id, type)
           .catch((e) => this.log.warn(`msteams delete reaction ${type} failed in ${conv.id}: ${e?.message ?? e}`)),
       } : null,
-      send: (replyText) => postWithImages(this, conv.id, replyText, m.id),
+      send: (replyText) => postFinalText(this, conv.id, replyText, m.id),
       sendError: (errorMessage) => this.tmSend(conv.id, errorMessage, { replyToId: m.id }),
       errorText: (e) => this.msg.error(e?.message ?? e),
       // Recorded from the model's own text, BEFORE the runtime footer is appended on the way out — the
@@ -1357,7 +1357,7 @@ export class MsTeamsAdapter {
    *  conversation. The target may be a conversation id, or a PERSON (e-mail, Entra object id, `29:…`
    *  account id or display name) — a person's 1:1 chat is opened and remembered. No-op (with a warn)
    *  until the bot has seen at least one activity: proactive sends ride the last known serviceUrl. */
-  async notify(text, channelId, notice) {
+  async notify(text, channelId, notice, images) {
     let target = (typeof channelId === 'string' && channelId.trim().replace(/#\d+$/, ''))
       || (typeof this.cfg.notifyConversationId === 'string' ? this.cfg.notifyConversationId.trim() : '');
     if (target.startsWith('destination:')) {
@@ -1381,7 +1381,10 @@ export class MsTeamsAdapter {
     }
     // Use the same poster and splitting as a turn's final answer.
     // Translate before it splits: the pieces are sized to the transport, and a translation has its own length.
-    await postWithImages(this, conversationId, String(lifecycleText(this.cfg.language, notice, text)));
+    const { names, caption } = imageEventPayload(images);
+    const files = this.resolveImageFiles(names);
+    if (files.length) await this.sendImages(conversationId, files, caption);
+    if (text) await postFinalText(this, conversationId, String(lifecycleText(this.cfg.language, notice, text)));
   }
 
   /** A notify target that is not a known conversation: resolved through the people directory, falling
