@@ -21,6 +21,7 @@ export function visitorSource(input: {
   chatbotUserId: number;
   visitorId: string;
   displayName: string;
+  images?: { data: string; mimeType: string }[];
 }): ChatbotSessionSource {
   return {
     platform: CHATBOT_PLATFORM,
@@ -29,6 +30,7 @@ export function visitorSource(input: {
     userId: input.visitorId,
     roleIds: [],
     channelId: conversationChannelId(input.chatbotUserId, input.visitorId),
+    ...(input.images?.length ? { images: input.images } : {}),
     // Adapter-fetched metadata, injected into the channel session's system prompt at spawn time. It is the
     // bot's own configured name, never text a visitor typed.
     channelName: input.displayName || undefined,

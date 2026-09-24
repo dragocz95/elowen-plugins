@@ -20,7 +20,7 @@ export interface ChatbotClientOrigin {
 /** A public hook request as the core hands it to a plugin once the hook carries a canonical origin.
  *  `origin` is absent on daemons older than that seam, so every reader validates its shape instead of
  *  trusting the type (see `readRequestOrigin` in `./origin.js`). */
-export type ChatbotHookRequest = Omit<PluginHttpRequest, 'origin'> & { origin?: ChatbotClientOrigin };
+export type ChatbotHookRequest = Omit<PluginHttpRequest, 'origin'> & { origin?: ChatbotClientOrigin; stream?: () => ReadableStream<Uint8Array> };
 
 /** A visitor turn's session source. `access.denyTools` is the core seam a relay caller uses to NARROW the
  *  acting account's tool policy for one turn; the published package does not carry the field yet. */
@@ -54,6 +54,11 @@ export interface ChatbotRelayEvent {
   delta?: string;
   sessionId?: string;
   messageId?: string;
+  ref?: string;
+  name?: string;
+  size?: number;
+  caption?: string;
+  preview?: boolean;
 }
 
 /** The subscriber a relay caller attaches. Observational only: detaching it never aborts the turn. */
@@ -74,13 +79,25 @@ export interface ChatbotRelayControl {
 
 export interface ChatbotStores extends Omit<PluginHostStores, 'projects'>, ChatbotProjectStores {}
 
+export interface ChatbotUploadReceipt {
+  path: string; relative: string; name: string; size: number;
+  visitorScope: string; project: { id: number; slug: string };
+}
+
+export interface ChatbotConversationFiles {
+  uploadProjectImage(input: { botUserId: number; visitorScope: string; name: string; size: number; body: ReadableStream<Uint8Array> }): Promise<ChatbotUploadReceipt>;
+  readProjectImage(input: { botUserId: number; receipt: ChatbotUploadReceipt }): Promise<{ bytes: Buffer; mimeType: string } | null>;
+  readShared(input: { botUserId: number; sessionId: string; kind: 'image' | 'file'; storedName: string }): { bytes: Buffer; mimeType: string; name?: string; disposition?: string } | null;
+}
+
 /** The host surface this plugin uses, narrowed to what it calls. Every member exists on a core whose
  *  `requiresCore` this manifest declares; the restatement is about TYPE availability, not capability. */
 export type ChatbotContext = Omit<PluginContext, 'host' | 'registerHttpRoute' | 'registerPlatform' | 'registerTool'> & {
   registerTool: (tool: Parameters<PluginContext['registerTool']>[0], opts?: PluginToolRegistrationOptions & { platform?: string }) => void;
-  host: Omit<PluginContext['host'], 'stores'> & { stores(): ChatbotStores };
+  host: Omit<PluginContext['host'], 'stores'> & { stores(): ChatbotStores; conversationFiles(): ChatbotConversationFiles };
   registerHttpRoute(route: {
     path: string;
+    maxStreamBodyBytes?: number;
     handler(req: ChatbotHookRequest): Promise<PluginHttpResponse>;
   }): void;
   registerPlatform(adapter: {

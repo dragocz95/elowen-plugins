@@ -314,6 +314,24 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 12,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`CREATE TABLE p_chatbot_upload_receipts (
+        id TEXT PRIMARY KEY,
+        chatbot_user_id INTEGER NOT NULL,
+        visitor_id TEXT NOT NULL,
+        client_turn_id TEXT NOT NULL,
+        receipt_json TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        turn_id TEXT UNIQUE,
+        UNIQUE (chatbot_user_id, visitor_id, client_turn_id)
+      );
+      CREATE INDEX p_chatbot_upload_pending ON p_chatbot_upload_receipts (expires_at) WHERE turn_id IS NULL;`);
+    },
+  },
 ];
 
 /** The message as the widget composed it before step 8: an optional label, the visitor's words, and a
