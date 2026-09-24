@@ -40,13 +40,15 @@ export function createImageRuntime(ctx) {
     files,
     ok,
     fail: (error) => ok(`Error: ${error instanceof Error ? error.message : String(error)}`),
-    async render(operation, request, outputPath) {
+    async render(operation, request, outputPath, overwrite = false) {
       if (outputPath !== undefined && (typeof outputPath !== 'string' || !outputPath.trim() || !/\.png$/i.test(outputPath))) {
         throw new Error('output path must end in .png');
       }
+      if (typeof overwrite !== 'boolean') throw new Error('overwrite must be a boolean');
+      if (overwrite && outputPath === undefined) throw new Error('overwrite requires an explicit output_path');
       const image = await ctx.images[operation](request);
-      const path = await files.write(outputPath ?? `${OUTPUT_FOLDER}/${randomUUID()}.png`, image.png, outputPath !== undefined);
-      return ok(`Image saved: ${path}\nModel: ${image.model}\nSize: ${image.size ?? 'auto'}. Use ShareImage({path: "${path}"}) to show it to the user.`);
+      const path = await files.write(outputPath ?? `${OUTPUT_FOLDER}/${randomUUID()}.png`, image.png, overwrite);
+      return ok(`Image saved: ${path}\nModel: ${image.model}\nSize: ${image.size ?? 'auto'}. An authorized sender can use ShareImage({path: "${path}"}) to show it in chat.`);
     },
   };
 }

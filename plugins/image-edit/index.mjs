@@ -56,9 +56,9 @@ export function register(ctx) {
       '("make the sky orange", "remove the person on the left"), and set size to 1024x1024, 1536x1024, 1024x1536',
       'or auto to keep the model\'s own choice. The new PNG is saved in the current project, by default',
       'under generated-images/ with a unique name. An optional output_path may be relative to the working',
-      'directory or absolute in the project environment. Only an explicit output_path can overwrite the',
-      'PNG source or any other existing PNG file. The result returns the file path; call ShareImage({path}) to show',
-      'it to the user in the web chat or on a connected platform.',
+      'directory or absolute in the project environment. Files are created without replacing existing ones',
+      'unless overwrite is true and output_path is supplied. The result returns the file path. An authorized',
+      'sender can use ShareImage({path}) to show it in chat; path sharing may be refused for platform-role senders.',
       'Image models are slow, so a call may take up to two minutes and then time out, the edit is a fresh render',
       'rather than a pixel-exact patch of the source, and the tool is unavailable until an image provider is',
       'configured in settings.',
@@ -66,7 +66,8 @@ export function register(ctx) {
     parameters: Type.Object({
       instruction: Type.String({ description: 'What to change about the image, e.g. "remove the background and make it transparent white"' }),
       path: Type.Optional(Type.String({ description: 'Source PNG or JPEG image path in the current project, relative to the working directory or absolute in the project environment. Use this or url, not both.' })),
-      output_path: Type.Optional(Type.String({ description: 'Optional output .png path in the project. Relative to the working directory or absolute in the project environment. Explicitly providing it allows replacing that file, including the source.' })),
+      output_path: Type.Optional(Type.String({ description: 'Optional output .png path in the project. Relative to the working directory or absolute in the project environment.' })),
+      overwrite: Type.Optional(Type.Boolean({ description: 'Replace an existing output file, including a PNG source, when output_path is given. Defaults to false.' })),
       url: Type.Optional(Type.String({ description: 'Source image as a public http(s) URL. Use this or path, not both.' })),
       size: Type.Optional(Type.String({ description: 'Output resolution: "1024x1024" (square), "1536x1024" (landscape), "1024x1536" (portrait) or "auto". Any other value is treated as "auto".' })),
     }),
@@ -102,9 +103,9 @@ export function register(ctx) {
         }
 
         const size = editSize(p.size);
-        return runtime.render('edit', {
+        return await runtime.render('edit', {
           providerId, model, prompt: instruction, images: [{ bytes, mime }], ...(size ? { size } : {}),
-        }, p.output_path);
+        }, p.output_path, p.overwrite);
       } catch (e) { return runtime.fail(e); }
     },
   }));

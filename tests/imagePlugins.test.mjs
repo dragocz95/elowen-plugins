@@ -93,7 +93,7 @@ describe('image-gen on the host image seam', () => {
     assert.deepEqual(host.calls.generate, [{
       providerId: 'p1', model: 'gpt-image-2.5-flare', prompt: 'a blue owl', size: '1536x1024',
     }]);
-    assert.match(out.content[0].text, /Use ShareImage/);
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
     assert.match(host.written[0].path, /\/generated-images\/[\da-f-]+\.png$/);
     assert.equal(host.written[0].overwrite, false);
     assert.equal(readFileSync(host.written[0].path).toString(), 'PNG-BYTES');
@@ -102,10 +102,29 @@ describe('image-gen on the host image seam', () => {
   it('uses an explicit output path and reports it for ShareImage', async () => {
     const host = makeCtx({ provider: keyed });
     registerGen(host.ctx);
-    const out = await host.tools.get('GenerateImage').execute('call-1', { prompt: 'x', path: 'assets/banner.png' });
+    const out = await host.tools.get('GenerateImage').execute('call-1', { prompt: 'x', output_path: 'assets/banner.png' });
     assert.equal(readFileSync(join(host.dir, 'assets/banner.png')).toString(), 'PNG-BYTES');
-    assert.deepEqual(host.written, [{ path: join(host.dir, 'assets/banner.png'), overwrite: true }]);
+    assert.deepEqual(host.written, [{ path: join(host.dir, 'assets/banner.png'), overwrite: false }]);
     assert.match(out.content[0].text, /assets\/banner\.png/);
+  });
+
+  it('requires explicit overwrite and an output path before invoking the model', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerGen(host.ctx);
+    const tool = host.tools.get('GenerateImage');
+    const path = join(host.dir, 'existing.png');
+    writeFileSync(path, Buffer.from('ORIGINAL'));
+
+    const createOnly = await tool.execute('call-1', { prompt: 'x', output_path: path });
+    assert.match(createOnly.content[0].text, /EEXIST/);
+    assert.equal(readFileSync(path).toString(), 'ORIGINAL');
+    const noPath = await tool.execute('call-2', { prompt: 'x', overwrite: true });
+    assert.match(noPath.content[0].text, /overwrite requires an explicit output_path/);
+    assert.equal(host.calls.generate.length, 1);
+    const replaced = await tool.execute('call-3', { prompt: 'x', output_path: path, overwrite: true });
+    assert.match(replaced.content[0].text, /Image saved/);
+    assert.equal(readFileSync(path).toString(), 'PNG-BYTES');
+    assert.deepEqual(host.written, [{ path, overwrite: true }]);
   });
 
   it('keeps using an API-key provider, and stays unregistered without a usable provider', async () => {
@@ -160,11 +179,24 @@ describe('image-edit on the host image seam', () => {
     const source = join(host.dir, 'source.png');
     writeFileSync(source, Buffer.from('SOURCE'));
     const out = await host.tools.get('EditImage').execute('call-1', {
-      instruction: 'x', path: source, output_path: source,
+      instruction: 'x', path: source, output_path: source, overwrite: true,
     });
-    assert.match(out.content[0].text, /Use ShareImage/);
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
     assert.deepEqual(host.written, [{ path: source, overwrite: true }]);
     assert.equal(readFileSync(source).toString(), 'PNG-BYTES');
+  });
+
+  it('refuses implicit replacement of the PNG source', async () => {
+    const host = makeCtx({ provider: keyed });
+    registerEdit(host.ctx);
+    const source = join(host.dir, 'source.png');
+    writeFileSync(source, Buffer.from('SOURCE'));
+    const out = await host.tools.get('EditImage').execute('call-1', {
+      instruction: 'x', path: source, output_path: source,
+    });
+    assert.match(out.content[0].text, /EEXIST/);
+    assert.equal(readFileSync(source).toString(), 'SOURCE');
+    assert.deepEqual(host.written, []);
   });
 
   it('refuses a source that is neither a repo path nor a URL', async () => {
@@ -265,7 +297,7 @@ describe('image-edit on the host image seam', () => {
       url: 'https://images.example/start',
     });
 
-    assert.match(out.content[0].text, /Use ShareImage/);
+    assert.match(out.content[0].text, /authorized sender can use ShareImage/);
     assert.deepEqual(requests.map(({ raw }) => raw), [
       'https://images.example/start',
       'https://images.example/photo.jpg',
@@ -380,7 +412,7 @@ describe('image-edit on the host image seam', () => {
     try {
       const url = 'https://images.example/photo.jpg';
       const out = await host.tools.get('EditImage').execute('call-1', { instruction: 'x', url });
-      assert.match(out.content[0].text, /Use ShareImage/);
+      assert.match(out.content[0].text, /authorized sender can use ShareImage/);
       assert.deepEqual(validated, [url]);
       assert.equal(requests.length, 1);
       assert.equal(requests[0].raw, url);

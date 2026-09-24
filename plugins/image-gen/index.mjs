@@ -35,23 +35,25 @@ export function register(ctx) {
       '1536x1024 (landscape) or 1024x1536 (portrait); anything else falls back to the configured default.',
       'One PNG is saved as a file in the current project, by default under generated-images/ with a unique',
       'name; optional output path may be relative to the working directory or absolute in the project',
-      'environment. An explicit output path may overwrite a file. The result returns its absolute path:',
-      'call ShareImage({path}) to show it to the user in the web chat or on a connected platform.',
+      'environment. Files are created without replacing existing ones unless overwrite is true and',
+      'output_path is supplied. The result returns its absolute path. An authorized sender can use',
+      'ShareImage({path}) to show it in chat; path sharing may be refused for platform-role senders.',
       'Image models may take up to two minutes. The tool cannot render reliable text inside an image and',
       'needs an image provider configured in settings.',
     ].join(' '),
     parameters: Type.Object({
       prompt: Type.String({ description: 'What to draw: subject, style, composition, colours and mood, as concretely as you can, e.g. "a flat-design logo of a blue owl on a white background"' }),
       size: Type.Optional(Type.String({ description: 'Output resolution and aspect ratio: "1024x1024" (square), "1536x1024" (landscape) or "1024x1536" (portrait). Any other value uses the configured default.' })),
-      path: Type.Optional(Type.String({ description: 'Optional output .png path, relative to the project working directory or absolute in the project environment. An explicit path may overwrite an existing file.' })),
+      output_path: Type.Optional(Type.String({ description: 'Optional output .png path, relative to the project working directory or absolute in the project environment.' })),
+      overwrite: Type.Optional(Type.Boolean({ description: 'Replace an existing output file when output_path is given. Defaults to false.' })),
     }),
     execute: async (_id, p) => {
       try {
         const prompt = typeof p.prompt === 'string' ? p.prompt.trim() : '';
         if (!prompt) return runtime.ok('Error: prompt is required.');
-        return runtime.render('generate', {
+        return await runtime.render('generate', {
           providerId, model, prompt, size: normalizeSize(p.size, defaultSize),
-        }, p.path);
+        }, p.output_path, p.overwrite);
       } catch (e) { return runtime.fail(e); }
     },
   }));

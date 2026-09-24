@@ -14,6 +14,6 @@ Install **image-edit** from **Settings → Plugins → Available**, configure it
 
 Configure the image provider and model in the plugin settings.
 
-The tool saves a PNG in the current project's `generated-images/` folder by default and returns its path. An optional output path can place it elsewhere in the project, relative to the working directory or absolute in the managed environment. An explicit output path may overwrite an existing file. Without one, the source is never overwritten. A PNG source may be explicitly selected as the output; a JPEG source cannot be overwritten with PNG data. Use `ShareImage({path})` to show the saved image in the conversation; creating it does not send it automatically.
+The tool saves a PNG in the current project's `generated-images/` folder by default and returns its path. Use `output_path` to save elsewhere in the project, relative to the working directory or absolute in the managed environment. Existing files, including the PNG source, are only replaced with `overwrite: true`; without both options, the source is never overwritten. A JPEG source cannot be overwritten with PNG data. An authorized sender can use `ShareImage({path})` to show the saved image in chat; creating it does not send it automatically. Path sharing may be refused for a non-admin platform-role sender.
 
 See the [Image Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/42-image-tools.md).
