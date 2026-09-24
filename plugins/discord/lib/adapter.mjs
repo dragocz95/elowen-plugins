@@ -179,13 +179,13 @@ async function collectAttachments(list, maxImageBytes, maxImages, maxFileBytes, 
 
 export class DiscordAdapter {
   name = 'discord';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
-    this.imageDirs = imageDirs; // where ShareImage stores authorized chat images
+    this.imageDir = imageDir; // where ShareImage stores authorized chat images
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
@@ -1013,7 +1013,7 @@ export class DiscordAdapter {
   /** Load up to the configured cap of shared chat images by validated name.
    *  A missing/unreadable file is skipped; the answer text still goes out. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind the `file` events of this turn — the counterpart of resolveImageFiles for a

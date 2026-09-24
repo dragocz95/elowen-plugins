@@ -256,7 +256,7 @@ blockquote, which Teams draws as a full-width bordered strip, and not `* ` which
 Pinned character-for-character by `tests/plugins/msteamsPlugin.test.ts:467`.
 
 Images shared through `ShareImage` arrive as authorized `image` events. Their validated names
-resolve only against the daemon's `chat-images` directory through `platformImageDirs`, capped by
+resolve only against the daemon's `chat-images` directory through `platformImageDir`, capped by
 `maxUploadImages`. They go out as inline data-URI attachments with one content type used for both
 the attachment and the URI; mismatched types produce a picture Teams cannot render. A failed
 upload logs an error and does not prevent the text reply.

@@ -125,14 +125,14 @@ function cfgNum(cfg, key, def, min, max) {
 
 export class MsTeamsAdapter {
   name = 'msteams';
-  constructor(cfg, logger, state, listModels, imageDirs = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null, chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir = [], resolveProvider = () => null, answerQuestion = () => false, chatCommands = () => [], accountLinking = null, chatFilesDir = '') {
     this.cfg = cfg;
     this.accountLinking = accountLinking;
     this.log = logger;
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider;
-    this.imageDirs = imageDirs;
+    this.imageDir = imageDir;
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion;
     this.chatCommands = chatCommands;
@@ -1019,7 +1019,7 @@ export class MsTeamsAdapter {
 
   /** Shared chat images by validated name as upload-ready buffers. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** The bytes behind this turn's `file` events — the counterpart of {@link resolveImageFiles} for a file

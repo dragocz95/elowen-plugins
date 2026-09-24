@@ -12,7 +12,7 @@ import { registerTools } from './lib/tools.mjs';
 import { registerMicrosoftTools } from './lib/microsoftTools.mjs';
 import { createMicrosoftIdentityRuntime } from './lib/identityControl.mjs';
 import { normalizeConfig } from './lib/config.mjs';
-import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
+import { platformChatFilesDir, platformImageDir } from 'elowen-plugin-shared/images';
 
 export { matchesId, matchPolicy, senderIds, senderIsAdmin, displayNameOf } from './lib/ids.mjs';
 export { splitContent, footerLine, CHUNK } from './lib/format.mjs';
@@ -191,7 +191,7 @@ export function register(ctx) {
     ctx.logger.warn('enabled but appId/appPassword/tenantId are not all configured — not connecting');
     return;
   }
-  const imageDirs = platformImageDirs(dataDir);
+  const imageDir = platformImageDir(dataDir);
   const config = {
     ...normalizeConfig(ctx.config),
     appId,
@@ -214,7 +214,7 @@ export function register(ctx) {
   // is always reflected in /help and dispatch.
   adapter = new MsTeamsAdapter(
     config,
-    ctx.logger, state, ctx.listModels, imageDirs, ctx.resolveProvider, ctx.answerQuestion,
+    ctx.logger, state, ctx.listModels, imageDir, ctx.resolveProvider, ctx.answerQuestion,
     () => ctx.chatCommands('msteams'),
     accountLinking,
     platformChatFilesDir(dataDir),

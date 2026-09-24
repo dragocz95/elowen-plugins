@@ -75,13 +75,13 @@ async function resolveSocketFactory() {
 
 export class WhatsAppAdapter {
   name = 'whatsapp';
-  constructor(cfg, logger, state, listModels, imageDirs, authDir, qrPngPath, answerQuestion, chatCommands = () => [], chatFilesDir = '') {
+  constructor(cfg, logger, state, listModels, imageDir, authDir, qrPngPath, answerQuestion, chatCommands = () => [], chatFilesDir = '') {
     this.cfg = cfg;
     this.log = logger;
     this.plog = pinoShim(logger); // pino-shaped logger for Baileys internals
     this.state = state;
     this.listModels = listModels;
-    this.imageDirs = imageDirs;
+    this.imageDir = imageDir;
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.authDir = authDir;
     this.qrPngPath = qrPngPath;
@@ -793,7 +793,7 @@ export class WhatsAppAdapter {
 
   /** Load up to the configured cap of shared chat images by validated name. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
