@@ -50,9 +50,9 @@ export function offerStyles(quickButton: ButtonLook): string {
   return `
 .cb-offer { display:grid; gap:8px; box-sizing:border-box; margin-top:10px; }
 .cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
-.cb-offer .cb-quick-item { ${declarations(quickButton.default)} box-sizing:border-box; max-width:100%; }
-.cb-offer .cb-quick-item:hover { ${declarations(quickButton.hover)} }
-.cb-offer .cb-quick-item:active { ${declarations(quickButton.click)} }
+.cb-offer .cb-quick-item, .cb-shared-file-chip { ${declarations(quickButton.default)} box-sizing:border-box; max-width:100%; }
+.cb-offer .cb-quick-item:hover, .cb-shared-file-chip:hover { ${declarations(quickButton.hover)} }
+.cb-offer .cb-quick-item:active, .cb-shared-file-chip:active { ${declarations(quickButton.click)} }
 .cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--cb-attachment-border); border-radius:10px; background:var(--cb-attachment-surface); }
 .cb-offer-card img { display:block; width:100%; max-height:130px; object-fit:cover; }
 .cb-offer-content { display:flex; flex-direction:column; gap:4px; padding:10px; min-width:0; overflow-wrap:anywhere; }

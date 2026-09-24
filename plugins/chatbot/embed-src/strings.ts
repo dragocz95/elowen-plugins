@@ -41,7 +41,9 @@ export interface WidgetStrings {
   errorImage: string;
   errorImageUpload: string;
   uploadProgress: string;
+  attachImage: string;
   attachmentImage: string;
+  attachmentLoading: string;
   attachmentDownload: string;
   errorAttachment: string;
   /** A question the visitor answers themselves before anything irreversible happens. */
@@ -90,7 +92,9 @@ const CS: WidgetStrings = {
   errorImage: 'Přiložte prosím jeden obrázek PNG, JPEG, GIF nebo WebP do 10 MB.',
   errorImageUpload: 'Obrázek se nepodařilo nahrát. Zkuste to prosím znovu.',
   uploadProgress: 'Nahrávání obrázku: {percent} %',
-  attachmentImage: 'Sdílený obrázek',
+  attachImage: 'Přiložit obrázek',
+  attachmentImage: 'Otevřít obrázek',
+  attachmentLoading: 'Načítání obrázku',
   attachmentDownload: 'Stáhnout soubor',
   errorAttachment: 'Přílohu se nepodařilo načíst.',
   confirmTitle: 'Odeslat formulář {form}?',
@@ -131,7 +135,9 @@ const SK: WidgetStrings = {
   errorImage: 'Priložte, prosím, jeden obrázok PNG, JPEG, GIF alebo WebP do 10 MB.',
   errorImageUpload: 'Obrázok sa nepodarilo nahrať. Skúste to, prosím, znova.',
   uploadProgress: 'Nahrávanie obrázka: {percent} %',
-  attachmentImage: 'Zdieľaný obrázok',
+  attachImage: 'Priložiť obrázok',
+  attachmentImage: 'Otvoriť obrázok',
+  attachmentLoading: 'Načítavanie obrázka',
   attachmentDownload: 'Stiahnuť súbor',
   errorAttachment: 'Prílohu sa nepodarilo načítať.',
   confirmTitle: 'Odoslať formulár {form}?',
@@ -172,7 +178,9 @@ const EN: WidgetStrings = {
   errorImage: 'Please attach one PNG, JPEG, GIF or WebP image up to 10 MB.',
   errorImageUpload: 'The image could not be uploaded. Please try again.',
   uploadProgress: 'Uploading image: {percent}%',
-  attachmentImage: 'Shared image',
+  attachImage: 'Attach image',
+  attachmentImage: 'Open image',
+  attachmentLoading: 'Loading image',
   attachmentDownload: 'Download file',
   errorAttachment: 'The attachment could not be loaded.',
   confirmTitle: 'Send form {form}?',

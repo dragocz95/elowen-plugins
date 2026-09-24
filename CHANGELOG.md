@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.10 - 2026-09-24
+
+- The image picker now fits inside the chat input on desktop and phones. Shared images open as compact thumbnails, shared files appear as download chips, and answer ratings no longer cover attachments. Attachment controls and labels follow the visitor's language.
+
 ## chatbot 0.3.9 - 2026-09-24
 
 - Visitors may attach one PNG, JPEG, GIF or WebP image of up to 10 MiB to a message, including a message with no text. The image is kept in the chatbot's managed Project when a conversation is deleted.

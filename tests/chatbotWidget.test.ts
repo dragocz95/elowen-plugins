@@ -1681,6 +1681,11 @@ describe('shared attachments in deep-chat', () => {
       await flush();
       const image = panel.host.shadowRoot!.querySelector('deep-chat')!.shadowRoot!.querySelector<HTMLImageElement>('.cb-shared-file img');
       expect(image?.src).toBe('blob:https://example.test/shared');
+      expect(image?.alt).toBe('');
+      const link = image?.closest('a');
+      expect(link?.target).toBe('_blank');
+      expect(link?.getAttribute('aria-label')).toBe(strings.attachmentImage);
+      expect(link?.textContent).toBe('');
       panel.destroy();
       expect(revoked).toEqual(['blob:https://example.test/shared']);
     } finally { vi.unstubAllGlobals(); }
@@ -1700,7 +1705,29 @@ describe('shared attachments in deep-chat', () => {
     expect(chat.shadowRoot!.querySelector('.cb-upload-name')?.textContent).toBe('photo.png');
     expect(chat.shadowRoot!.querySelectorAll('.cb-shared-file')).toHaveLength(1);
     expect(chat.shadowRoot!.querySelector('.cb-shared-file')?.textContent).toBe('report.pdf');
+    expect(chat.shadowRoot!.querySelector('.cb-shared-file-chip .cb-shared-file-name')?.textContent).toBe('report.pdf');
+    expect(chat.shadowRoot!.querySelectorAll('.cb-shared-file-chip svg')).toHaveLength(2);
     panel.destroy();
+  });
+  it('uses the visitor locale for the picker and image action, never an agent caption', async () => {
+    for (const locale of ['cs', 'sk', 'en'] as const) {
+      const translated = widgetStrings(locale);
+      const panel = new ChatPanel({ strings: translated, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+        onVisitorMessage: () => undefined, onStop: () => undefined });
+      document.body.append(panel.host);
+      const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & { images?: {
+        button?: { position?: string; tooltip?: { text?: string } };
+      } };
+      expect(chat.images?.button).toMatchObject({ position: 'inside-start', tooltip: { text: translated.attachImage } });
+      const file = { kind: 'image' as const, storedName: `${'c'.repeat(64)}.png`, caption: 'Preview' };
+      panel.restore([{ role: 'ai', text: '', turnId: 'T', attachments: [file] }]);
+      panel.showAttachment('T', file, async () => new Blob([new Uint8Array(12)], { type: 'image/png' }));
+      await flush();
+      const root = chat.shadowRoot!;
+      expect(root.querySelector('.cb-shared-image a')?.getAttribute('aria-label')).toBe(translated.attachmentImage);
+      expect(root.querySelector('.cb-shared-image')?.textContent).not.toContain('Preview');
+      panel.destroy();
+    }
   });
 });
 
