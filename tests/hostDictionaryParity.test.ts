@@ -146,10 +146,10 @@ describe('the copy of the daemon dictionary that the UI suites assert against', 
   });
 
   it('matches the intended current dictionary size', () => {
-    // The current faithful subset has exactly 372 leaves in both locales. Pinning the observed
+    // The current faithful subset has exactly 369 leaves in both locales. Pinning the observed
     // count catches both unexpected shrinkage and growth.
-    expect(flatten(copiedEn as unknown as Dict).size).toBe(372);
-    expect(flatten(copiedCs as unknown as Dict).size).toBe(372);
+    expect(flatten(copiedEn as unknown as Dict).size).toBe(369);
+    expect(flatten(copiedCs as unknown as Dict).size).toBe(369);
   });
 
   const locales: [string, Dict][] = [

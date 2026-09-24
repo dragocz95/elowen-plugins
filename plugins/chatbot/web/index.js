@@ -502,6 +502,18 @@ var import_react7 = __toESM(require_react(), 1);
 var WIDGET_ASSET_NAME = "widget.js";
 var MESSAGE_MAX_BYTES = 2 * 1024;
 var VISITOR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+var VISITOR_IMAGE_FORMATS = [
+  { mime: "image/png", extensions: [".png"], signatures: [[{ offset: 0, bytes: [137, 80, 78, 71, 13, 10, 26, 10] }]] },
+  { mime: "image/jpeg", extensions: [".jpg", ".jpeg"], signatures: [[{ offset: 0, bytes: [255, 216, 255] }]] },
+  { mime: "image/gif", extensions: [".gif"], signatures: [
+    [{ offset: 0, bytes: [71, 73, 70, 56, 55, 97] }],
+    [{ offset: 0, bytes: [71, 73, 70, 56, 57, 97] }]
+  ] },
+  { mime: "image/webp", extensions: [".webp"], signatures: [[
+    { offset: 0, bytes: [82, 73, 70, 70] },
+    { offset: 8, bytes: [87, 69, 66, 80] }
+  ]] }
+];
 var PAGE_STATE_MAX_BYTES = 32 * 1024;
 var WIDGET_MAX_ACTIONS_PER_TURN = 50;
 var FEEDBACK_COMMENT_MAX_CHARS = 500;
@@ -1628,11 +1640,13 @@ var CS = {
   errorTurn: "Odpov\u011B\u010F se nepoda\u0159ilo dokon\u010Dit. Zkuste to pros\xEDm znovu.",
   errorUnavailable: "Chatbot te\u010F nen\xED dostupn\xFD. Zkuste to pros\xEDm pozd\u011Bji.",
   errorTooLong: "Zpr\xE1va je p\u0159\xEDli\u0161 dlouh\xE1. Zkra\u0165te ji pros\xEDm.",
-  errorImage: "P\u0159ilo\u017Ete pros\xEDm jeden obr\xE1zek PNG, JPEG, GIF nebo WebP do 10 MB.",
+  errorImage: "P\u0159ilo\u017Ete pros\xEDm jeden obr\xE1zek PNG, JPEG, GIF nebo WebP do {limit} MB.",
   errorImageUpload: "Obr\xE1zek se nepoda\u0159ilo nahr\xE1t. Zkuste to pros\xEDm znovu.",
   uploadProgress: "Nahr\xE1v\xE1n\xED obr\xE1zku: {percent} %",
   attachImage: "P\u0159ilo\u017Eit obr\xE1zek",
   attachmentImage: "Otev\u0159\xEDt obr\xE1zek",
+  imageViewer: "Zobrazen\xFD obr\xE1zek",
+  imageClose: "Zav\u0159\xEDt obr\xE1zek",
   attachmentLoading: "Na\u010D\xEDt\xE1n\xED obr\xE1zku",
   attachmentDownload: "St\xE1hnout soubor",
   errorAttachment: "P\u0159\xEDlohu se nepoda\u0159ilo na\u010D\xEDst.",
@@ -1670,11 +1684,13 @@ var SK = {
   errorTurn: "Odpove\u010F sa nepodarilo dokon\u010Di\u0165. Sk\xFAste to pros\xEDm znova.",
   errorUnavailable: "Chatbot teraz nie je dostupn\xFD. Sk\xFAste to pros\xEDm nesk\xF4r.",
   errorTooLong: "Spr\xE1va je pr\xEDli\u0161 dlh\xE1. Skr\xE1\u0165te ju pros\xEDm.",
-  errorImage: "Prilo\u017Ete, pros\xEDm, jeden obr\xE1zok PNG, JPEG, GIF alebo WebP do 10 MB.",
+  errorImage: "Prilo\u017Ete, pros\xEDm, jeden obr\xE1zok PNG, JPEG, GIF alebo WebP do {limit} MB.",
   errorImageUpload: "Obr\xE1zok sa nepodarilo nahra\u0165. Sk\xFAste to, pros\xEDm, znova.",
   uploadProgress: "Nahr\xE1vanie obr\xE1zka: {percent} %",
   attachImage: "Prilo\u017Ei\u0165 obr\xE1zok",
   attachmentImage: "Otvori\u0165 obr\xE1zok",
+  imageViewer: "Zobrazen\xFD obr\xE1zok",
+  imageClose: "Zavrie\u0165 obr\xE1zok",
   attachmentLoading: "Na\u010D\xEDtavanie obr\xE1zka",
   attachmentDownload: "Stiahnu\u0165 s\xFAbor",
   errorAttachment: "Pr\xEDlohu sa nepodarilo na\u010D\xEDta\u0165.",
@@ -1712,11 +1728,13 @@ var EN = {
   errorTurn: "The answer could not be finished. Please try again.",
   errorUnavailable: "The chatbot is not available right now. Please try again later.",
   errorTooLong: "The message is too long. Please shorten it.",
-  errorImage: "Please attach one PNG, JPEG, GIF or WebP image up to 10 MB.",
+  errorImage: "Please attach one PNG, JPEG, GIF or WebP image up to {limit} MB.",
   errorImageUpload: "The image could not be uploaded. Please try again.",
   uploadProgress: "Uploading image: {percent}%",
   attachImage: "Attach image",
   attachmentImage: "Open image",
+  imageViewer: "Image viewer",
+  imageClose: "Close image",
   attachmentLoading: "Loading image",
   attachmentDownload: "Download file",
   errorAttachment: "The attachment could not be loaded.",
@@ -1741,7 +1759,10 @@ function detectLocale(...candidates) {
   return "en";
 }
 function widgetStrings(locale) {
-  return BY_LOCALE[locale];
+  const strings = BY_LOCALE[locale];
+  return { ...strings, errorImage: fillTemplate(strings.errorImage, {
+    limit: String(VISITOR_IMAGE_MAX_BYTES / (1024 * 1024))
+  }) };
 }
 
 // node_modules/deep-chat/dist/deepChat.js
@@ -20111,6 +20132,9 @@ function feedbackStyles() {
 // plugins/chatbot/embed-src/chatPanel.ts
 var LAUNCHER_GAP_PX = 12;
 var SHARED_FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h9l5 5v15H5z M14 2v5h5 M8 12h8 M8 16h8"/></svg>';
+function attachmentKey(turnId, file) {
+  return `${turnId}:${file.kind}:${file.storedName}`;
+}
 var SHARED_DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12 m-4-4 4 4 4-4 M5 18v3h14v-3"/></svg>';
 function appearanceViewportInset(appearance) {
   return { width: appearance.launcher.offset * 2, height: appearance.launcher.offset * 2 + appearance.launcher.size + LAUNCHER_GAP_PX };
@@ -20211,7 +20235,7 @@ function chatConfig(input) {
     } } },
     hiddenMessages: { smoothScroll: true, clickScroll: "last", styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
     images: {
-      files: { maxNumberOfFiles: 1, acceptedFormats: ".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" },
+      files: { maxNumberOfFiles: 1, acceptedFormats: VISITOR_IMAGE_FORMATS.flatMap((format) => [...format.extensions, format.mime]).join(",") },
       button: { position: "inside-start", tooltip: { text: strings.attachImage } }
     },
     textInput: {
@@ -20300,14 +20324,18 @@ function lookStyle(appearance) {
 }
 .cb-attachments:has(.cb-shared-file) { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-top:8px; padding-bottom:24px; }
 .cb-shared-file { box-sizing:border-box; min-width:0; max-width:100%; }
-.cb-shared-image a { display:block; width:max-content; max-width:100%; border-radius:8px; overflow:hidden; line-height:0; }
+.cb-shared-image button { display:block; width:max-content; max-width:100%; padding:0; border:0; border-radius:8px; background:none; overflow:hidden; line-height:0; cursor:zoom-in; }
 .cb-shared-image img { display:block; width:auto; height:auto; max-width:min(100%,240px); max-height:180px; object-fit:contain; border-radius:8px; }
-.cb-shared-image a:hover img { filter:brightness(.92); }
-.cb-shared-file a:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+.cb-shared-image button:hover img { filter:brightness(.92); }
+.cb-shared-file a:focus-visible, .cb-shared-image button:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-shared-file-chip { display:flex; width:min(100%,280px); min-height:44px; padding:8px 10px; text-decoration:none; }
 .cb-shared-file-chip svg { width:18px; height:18px; flex:0 0 auto; }
+.cb-shared-file-chip-pending { opacity:.55; }
+.cb-shared-file-retry { border:1px solid var(--cb-feedback-accent); border-radius:8px; padding:8px 10px; background:transparent; color:inherit; cursor:pointer; }
 .cb-shared-file-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .input-button:has(#upload-images-icon) { box-sizing:border-box; min-width:44px; min-height:44px; padding:10px; touch-action:manipulation; }
+/* deep-chat offsets this icon absolutely for its own 23px button; in the 44px target the flex box centres it. */
+.input-button #upload-images-icon { position:static; }
 .input-button:has(#upload-images-icon):focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-upload-name { display: block; padding-top: 6px; overflow-wrap: anywhere; font-size: .875em; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
@@ -20451,6 +20479,22 @@ ${effectsCss(appearance)}
 @keyframes cb-teaser-in { from { opacity: 0; transform: translateY(${fromTop ? -8 : 8}px) scale(.7); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .launcher-teaser { animation: none; } }
 .launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
+.cb-lightbox {
+  position: fixed; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center;
+  padding: 64px 16px 16px; background: rgba(0, 0, 0, .86); cursor: zoom-out;
+  animation: cb-lightbox-in .18s ease-out both;
+}
+.cb-lightbox[hidden] { display: none; }
+.cb-lightbox img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; cursor: default; }
+.cb-lightbox-close {
+  position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .14); color: #fff;
+  font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
+}
+.cb-lightbox-close:hover { background: rgba(255, 255, 255, .26); }
+.cb-lightbox-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@keyframes cb-lightbox-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cb-lightbox { animation: none; } }
 .launcher-teaser-text {
   flex: 1 1 auto; min-width: 0; padding: 2px 0; border: 0; background: transparent; color: inherit;
   font: inherit; font-weight: 500; line-height: 1.45; text-align: left; overflow-wrap: anywhere; cursor: pointer;
@@ -20488,6 +20532,10 @@ var ChatPanel = class {
   avatar;
   launcher;
   teaser;
+  lightbox;
+  lightboxImage;
+  lightboxClose;
+  lightboxReturn = null;
   badge;
   mute;
   storage;
@@ -20519,10 +20567,9 @@ var ChatPanel = class {
   offerOrigins = [];
   /** One attachment record per answer, regardless of whether it is streamed or restored. */
   attachments = /* @__PURE__ */ new Map();
-  pendingFiles = /* @__PURE__ */ new Map();
   uploadNames = /* @__PURE__ */ new Map();
-  fileUrls = /* @__PURE__ */ new Map();
-  loadingFiles = /* @__PURE__ */ new Set();
+  fileStates = /* @__PURE__ */ new Map();
+  uploadMilestone = -1;
   latestAnswerIndex = null;
   feedbackIndices = /* @__PURE__ */ new Map();
   feedbackBusy = /* @__PURE__ */ new Set();
@@ -20650,7 +20697,24 @@ var ChatPanel = class {
     dismissTeaser.setAttribute("aria-label", this.strings.teaserClose);
     dismissTeaser.addEventListener("click", () => this.dismissTeaser());
     this.teaser.append(teaserText, dismissTeaser);
-    root.append(this.panel, this.teaser, this.launcher);
+    this.lightbox = document.createElement("div");
+    this.lightbox.className = "cb-lightbox";
+    this.lightbox.hidden = true;
+    this.lightbox.setAttribute("role", "dialog");
+    this.lightbox.setAttribute("aria-modal", "true");
+    this.lightbox.setAttribute("aria-label", this.strings.imageViewer);
+    this.lightboxImage = document.createElement("img");
+    this.lightboxImage.alt = "";
+    this.lightboxClose = document.createElement("button");
+    this.lightboxClose.type = "button";
+    this.lightboxClose.className = "cb-lightbox-close";
+    this.lightboxClose.textContent = "\xD7";
+    this.lightboxClose.setAttribute("aria-label", this.strings.imageClose);
+    this.lightbox.append(this.lightboxImage, this.lightboxClose);
+    this.lightbox.addEventListener("click", (event) => {
+      if (event.target !== this.lightboxImage) this.closeImage();
+    });
+    root.append(this.panel, this.teaser, this.launcher, this.lightbox);
     shadow.append(this.style, root);
     this.applyChrome();
     this.messages.append(this.chat);
@@ -20668,8 +20732,31 @@ var ChatPanel = class {
       this.messages.addEventListener(event, () => this.cancelDrawScroll(), { passive: true });
     }
     this.host.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !this.panel.hidden) this.toggle(false);
+      if (!this.lightbox.hidden && event.key === "Tab") {
+        event.preventDefault();
+        this.lightboxClose.focus();
+      } else if (event.key === "Escape") {
+        if (!this.lightbox.hidden) this.closeImage();
+        else if (!this.panel.hidden) this.toggle(false);
+      }
     });
+  }
+  openImage(url, from) {
+    this.lightboxImage.src = url;
+    this.lightbox.hidden = false;
+    this.lightboxReturn = from;
+    this.lightboxClose.focus();
+  }
+  hideImage() {
+    this.lightbox.hidden = true;
+    this.lightboxImage.removeAttribute("src");
+    this.lightboxReturn = null;
+  }
+  closeImage() {
+    const target = this.lightboxReturn;
+    this.hideImage();
+    if (target?.isConnected) target.focus();
+    else this.chat.focusInput();
   }
   open() {
     this.toggle(true);
@@ -20712,6 +20799,7 @@ var ChatPanel = class {
     this.answer = "";
     this.answerIndex = null;
     this.clearStatus();
+    this.uploadMilestone = -1;
     this.answerActive = true;
     this.syncAnswerControl();
     this.signals?.onOpen();
@@ -20767,33 +20855,47 @@ var ChatPanel = class {
     this.flushRedraw();
   }
   uploadProgress(loaded, total) {
-    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(Math.min(100, Math.round(100 * loaded / total))) }));
+    const milestone = Math.min(100, Math.floor(4 * loaded / total) * 25);
+    if (milestone === this.uploadMilestone) return;
+    this.uploadMilestone = milestone;
+    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(milestone) }));
+  }
+  uploadFinished() {
+    this.clearStatus();
   }
   showAttachment(turnId, attachment, load) {
-    const key = `${turnId}:${attachment.kind}:${attachment.storedName}`;
     const index = this.feedbackIndices.get(turnId);
-    const list = index === void 0 ? this.pendingFiles.get(turnId) ?? [] : this.attachments.get(index)?.files ?? [];
+    if (index === void 0) return;
+    const list = this.attachments.get(index)?.files ?? [];
     if (!list.some((item) => item.kind === attachment.kind && item.storedName === attachment.storedName)) list.push(attachment);
-    if (index === void 0) this.pendingFiles.set(turnId, list);
-    else {
-      this.attachments.set(index, { ...this.attachments.get(index), files: list });
-      this.renderFollowing(index);
-    }
-    if (this.fileUrls.has(key) || this.loadingFiles.has(key)) return;
-    this.loadingFiles.add(key);
-    void Promise.resolve().then(load).then((blob) => {
+    this.attachments.set(index, { ...this.attachments.get(index), files: list });
+    this.renderFollowing(index);
+    const key = attachmentKey(turnId, attachment);
+    if (this.fileStates.has(key)) return;
+    this.fileStates.set(key, { status: "loading", turnId, load });
+    this.loadAttachment(key);
+  }
+  loadAttachment(key) {
+    const state = this.fileStates.get(key);
+    if (!state || state.status === "ready") return;
+    const { turnId } = state;
+    state.status = "loading";
+    const index = this.feedbackIndices.get(turnId);
+    if (index !== void 0) this.renderFollowing(index);
+    void Promise.resolve().then(state.load).then((blob) => {
       if (this.destroyed) return;
-      if (!blob) {
-        this.notice(this.strings.errorAttachment);
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      this.fileUrls.set(key, url);
+      if (blob) {
+        state.status = "ready";
+        state.url = URL.createObjectURL(blob);
+      } else state.status = "failed";
       const target = this.feedbackIndices.get(turnId);
       if (target !== void 0) this.renderFollowing(target);
     }).catch(() => {
-      if (!this.destroyed) this.notice(this.strings.errorAttachment);
-    }).finally(() => this.loadingFiles.delete(key));
+      if (this.destroyed) return;
+      state.status = "failed";
+      const target = this.feedbackIndices.get(turnId);
+      if (target !== void 0) this.renderFollowing(target);
+    });
   }
   setAllowedOrigins(origins) {
     this.offerOrigins = origins;
@@ -20810,14 +20912,7 @@ var ChatPanel = class {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
-    this.attachments.set(index, {
-      ...this.attachments.get(index),
-      turnId,
-      selection,
-      commentOpen: false,
-      files: this.pendingFiles.get(turnId) ?? this.attachments.get(index)?.files
-    });
-    this.pendingFiles.delete(turnId);
+    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
     this.renderFollowing(index);
   }
   updateFeedback(turnId) {
@@ -20864,27 +20959,43 @@ var ChatPanel = class {
     }
     attachment.innerHTML = markup;
     for (const file of state.files ?? []) {
-      const key = `${state.turnId}:${file.kind}:${file.storedName}`;
-      const url = this.fileUrls.get(key);
+      const key = attachmentKey(state.turnId, file);
+      const fileState = this.fileStates.get(key);
+      const url = fileState?.status === "ready" ? fileState.url : void 0;
       const item = document.createElement("div");
       item.className = `cb-shared-file cb-shared-${file.kind}`;
       if (file.kind === "image") {
         if (url) {
-          const link = document.createElement("a");
-          link.href = url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          link.setAttribute("aria-label", this.strings.attachmentImage);
+          const open = document.createElement("button");
+          open.type = "button";
+          open.setAttribute("data-cb-image", url);
+          open.setAttribute("aria-label", this.strings.attachmentImage);
           const img = document.createElement("img");
           img.src = url;
           img.alt = "";
-          link.append(img);
-          item.append(link);
+          open.append(img);
+          item.append(open);
+        } else if (fileState?.status === "failed") {
+          const retry = document.createElement("button");
+          retry.type = "button";
+          retry.className = "cb-shared-file-retry";
+          retry.dataset.cbRetry = key;
+          retry.textContent = this.strings.errorAttachment;
+          item.append(retry);
         } else item.textContent = this.strings.attachmentLoading;
       } else {
         const name = file.name || this.strings.attachmentDownload;
-        const chip = document.createElement(url ? "a" : "span");
-        chip.className = "cb-shared-file-chip";
+        const chip = document.createElement(url ? "a" : fileState?.status === "failed" ? "button" : "span");
+        chip.className = `cb-shared-file-chip${url ? "" : " cb-shared-file-chip-pending"}`;
+        if (fileState?.status === "failed") {
+          chip.textContent = this.strings.errorAttachment;
+          chip.type = "button";
+          chip.dataset.cbRetry = key;
+          item.append(chip);
+          attachment.append(item);
+          continue;
+        }
+        if (!url) chip.setAttribute("aria-label", this.strings.attachmentLoading);
         if (url && chip instanceof HTMLAnchorElement) {
           chip.href = url;
           chip.download = name;
@@ -20933,6 +21044,10 @@ var ChatPanel = class {
       void this.sendFeedbackComment(turnId, group.querySelector("textarea")?.value ?? "");
     } else if (turnId && button.classList.contains("cb-feedback-skip")) {
       this.skipFeedbackComment(turnId);
+    } else if (button.dataset.cbRetry) {
+      this.loadAttachment(button.dataset.cbRetry);
+    } else if (button.hasAttribute("data-cb-image")) {
+      this.openImage(button.getAttribute("data-cb-image") ?? "", button);
     } else if (button.hasAttribute("data-cb-url")) {
       const url = button.getAttribute("data-cb-url") ?? "";
       if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url);
@@ -21041,8 +21156,8 @@ var ChatPanel = class {
     document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.resetUnread();
     this.releaseAvatarObjectUrl();
-    for (const url of this.fileUrls.values()) URL.revokeObjectURL(url);
-    this.fileUrls.clear();
+    for (const state of this.fileStates.values()) if (state.url) URL.revokeObjectURL(state.url);
+    this.fileStates.clear();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -21106,6 +21221,9 @@ var ChatPanel = class {
    *  occupies the native send slot without reaching into deep-chat's private submit/validation state. */
   syncAnswerControl() {
     this.chat.toggleAttribute("data-answer-active", this.answerActive);
+    const picker = this.chat.shadowRoot?.querySelector(".input-button:has(#upload-images-icon)");
+    picker?.setAttribute("aria-label", this.strings.attachImage);
+    picker?.setAttribute("title", this.strings.attachImage);
     const stop = this.chat.shadowRoot?.querySelector(".input-button:has([data-cb-stop-icon])");
     stop?.setAttribute("aria-label", this.strings.stop);
     stop?.setAttribute("title", this.strings.stop);
@@ -21392,6 +21510,7 @@ var ChatPanel = class {
     this.syncBadge();
   }
   toggle(open) {
+    if (!open) this.hideImage();
     this.panel.hidden = !open;
     this.launcher.setAttribute("aria-expanded", open ? "true" : "false");
     if (!open) return;
