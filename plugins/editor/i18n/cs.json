@@ -16,7 +16,6 @@
       "rootSystem": "Systém",
       "treeFailed": "Strom souborů se nepodařilo načíst.",
       "treeRetry": "Zkusit znovu",
-      "empty": "Není dostupný žádný projekt",
       "workspaceEyebrow": "Pracovní prostor pro kód",
       "workspaceReady": "Projekt {project} je připojen",
       "noProjects": "Není tu projekt k úpravě",

@@ -67,7 +67,6 @@
       "rootSystem": "System",
       "treeFailed": "The project tree could not be loaded.",
       "treeRetry": "Try again",
-      "empty": "No available project",
       "workspaceEyebrow": "Code workspace",
       "workspaceReady": "{project} connected",
       "noProjects": "No project to edit",
