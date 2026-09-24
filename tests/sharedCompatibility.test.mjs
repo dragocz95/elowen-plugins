@@ -38,6 +38,7 @@ function run({ root, daemon }) {
       ...process.env,
       ELOWEN_SHARED_CHECK_ROOT: root,
       ELOWEN_SHARED_DAEMON_ROOT: daemon,
+      ELOWEN_SHARED_PACKAGE_ROOT: join(root, 'node_modules', 'elowen-plugin-shared'),
       ELOWEN_SHARED_EXTRA_ROOTS: '',
     },
   });

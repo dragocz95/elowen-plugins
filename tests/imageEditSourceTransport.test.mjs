@@ -181,7 +181,7 @@ describe('image-edit remote sources against the real host transport', () => {
 
     const { text, rawFetchSockets } = await editFrom(tool, start);
 
-    assert.match(text, /Use ShareImage/);
+    assert.match(text, /authorized sender can use ShareImage/);
     assert.deepEqual(state.delivered, ['https://cdn.example/photo.png']);
     assert.deepEqual(state.cancelled, [start]);
     assert.deepEqual(state.validated, [start, 'https://cdn.example/photo.png']);
@@ -208,7 +208,7 @@ describe('image-edit remote sources against the real host transport', () => {
 
     const { text } = await editFrom(tool, start);
 
-    assert.match(text, /Use ShareImage/);
+    assert.match(text, /authorized sender can use ShareImage/);
     assert.deepEqual(state.delivered, ['https://images.example/photo.png']);
     assert.equal(edits.length, 1);
   });
