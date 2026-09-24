@@ -99,51 +99,11 @@ function introHtml(input: { greeting: string; appearance: ChatbotAppearance; str
 function introUtilities(
   appearance: ChatbotAppearance,
   onQuickButton: (text: string) => void,
-  onOfferLink: (url: string) => void,
-  onFeedbackRate: (turnId: string, rating: FeedbackRating) => void,
-  onFeedbackSend: (turnId: string, comment: string) => void,
-  onFeedbackSkip: (turnId: string) => void,
 ): Record<string, { events?: Record<string, (event: { target: EventTarget | null }) => void>; styles?: Record<string, Record<string, string>> }> {
   const ramp = appearanceRamp(appearance);
   return {
     'cb-quick': {
       styles: { default: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', justifyContent: 'center' } },
-    },
-    'cb-feedback-thumb': {
-      events: { click: (event) => {
-        const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-cb-rating]') : null;
-        const group = button?.closest<HTMLElement>('[data-cb-feedback-turn]');
-        if (button && group && FEEDBACK_RATINGS.some((rating) => rating === button.dataset.cbRating)) {
-          onFeedbackRate(group.dataset.cbFeedbackTurn!, button.dataset.cbRating as FeedbackRating);
-        }
-      } },
-      styles: { default: { padding: '5px' }, ...buttonStyles(appearance) },
-    },
-    'cb-feedback-send': {
-      events: { click: (event) => {
-        const group = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-cb-feedback-turn]') : null;
-        if (group) onFeedbackSend(group.dataset.cbFeedbackTurn!, group.querySelector('textarea')?.value ?? '');
-      } },
-      styles: { default: { fontWeight: '600' }, ...buttonStyles(appearance) },
-    },
-    'cb-feedback-skip': {
-      events: { click: (event) => {
-        const group = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-cb-feedback-turn]') : null;
-        if (group) onFeedbackSkip(group.dataset.cbFeedbackTurn!);
-      } },
-      styles: { default: { opacity: '.8' }, ...buttonStyles(appearance) },
-    },
-    'cb-offer-link': {
-      events: {
-        click: (event) => {
-          const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-cb-url]') : null;
-          if (button && !button.disabled) onOfferLink(button.getAttribute('data-cb-url') ?? '');
-        },
-      },
-      styles: { default: { textDecoration: 'underline' }, hover: { textDecoration: 'none' }, click: { opacity: '.75' } },
-    },
-    'cb-offer-button': {
-      styles: { default: { maxWidth: '100%' }, hover: { opacity: '.9' }, click: { opacity: '.75' } },
     },
     'cb-quick-item': {
       events: {
@@ -193,10 +153,6 @@ function chatConfig(input: {
    *  shows, or `null` when the look names no avatar or the panel has nothing to show. */
   avatar: string | null;
   onQuickButton: (text: string) => void;
-  onOfferLink: (url: string) => void;
-  onFeedbackRate: (turnId: string, rating: FeedbackRating) => void;
-  onFeedbackSend: (turnId: string, comment: string) => void;
-  onFeedbackSkip: (turnId: string) => void;
   onStop: () => void;
 }): Record<string, unknown> {
   const { look, strings } = input;
@@ -229,7 +185,13 @@ function chatConfig(input: {
       fontFamily: appearanceFontStack(appearance.typography.fontFamily),
     },
     inputAreaStyle: { backgroundColor: appearance.effects.glass ? 'transparent' : appearance.colors.panel },
-    scrollButton: { smoothScroll: true, styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
+    scrollButton: { smoothScroll: true, styles: { default: {
+      top: 'auto', bottom: '76px', left: 'auto', right: '16px', transform: 'none',
+      boxSizing: 'border-box', width: '32px', height: '32px', padding: '6px', borderRadius: '50%',
+      backgroundColor: appearance.colors.sendButton, color: appearanceInk(appearance.colors.sendButton),
+      border: `1px solid ${appearance.colors.sendButton}`,
+      boxShadow: '0 2px 8px rgb(0 0 0 / .16)',
+    } } },
     hiddenMessages: { smoothScroll: true, clickScroll: 'last', styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
@@ -298,7 +260,11 @@ function chatConfig(input: {
     // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
     // only the primary color source changes to the widget appearance's send color.
     auxiliaryStyle: `
-:host { --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton}; --cb-feedback-ink: ${appearanceInk(appearance.colors.sendButton)}; }
+:host {
+  --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton};
+  --cb-attachment-surface: ${ramp.raised}; --cb-attachment-ink: ${ramp.foreground};
+  --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
+}
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
 .input-button:has([data-cb-stop-icon]) { right: .33em !important; }
@@ -318,6 +284,7 @@ function chatConfig(input: {
   :host([data-answer-active]) [data-cb-stop-icon] { animation: none; }
 }
 ${chatEffectsCss(appearance)}
+#messages { box-sizing:border-box; padding-right:40px; }
 .input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()} ${feedbackStyles()}`,
     errorMessages: { displayServiceErrorMessages: false },
     introMessage: {
@@ -327,7 +294,7 @@ ${chatEffectsCss(appearance)}
         strings,
       }),
     },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton, input.onOfferLink, input.onFeedbackRate, input.onFeedbackSend, input.onFeedbackSkip),
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
     avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
     names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
   };
@@ -505,10 +472,12 @@ export class ChatPanel implements ChatView {
   private scrollPending = false;
   private drawScrollFrame: number | null = null;
   private readonly layoutObserver = new ResizeObserver(() => this.flushScroll());
-  private readonly queued: ({ role: string; text: string } | { role: string; html: string })[] = [];
+  private readonly queued: { role: string; text: string }[] = [];
   private offerOrigins: string[] = [];
-  private offerActive = false;
-  private readonly feedbackState = new Map<string, { selection: FeedbackSelection | null; commentOpen: boolean; index: number }>();
+  /** One attachment record per answer, regardless of whether it is streamed or restored. */
+  private readonly attachments = new Map<number, { offer?: Offer; offerActive?: boolean; turnId?: string; selection?: FeedbackSelection | null; commentOpen?: boolean }>();
+  private latestAnswerIndex: number | null = null;
+  private readonly feedbackIndices = new Map<string, number>();
   private readonly feedbackBusy = new Set<string>();
   private readonly onFeedback: ChatPanelOptions['onFeedback'];
   /** A look that arrived while an answer was streaming. Replacing the chat element mid-answer would take the
@@ -730,8 +699,8 @@ export class ChatPanel implements ChatView {
   }
 
   beginAnswer(): void {
-    this.offerActive = false;
-    disableOffers(this.chat.shadowRoot);
+    this.disableEarlierOffers();
+    this.latestAnswerIndex = null;
     this.answer = '';
     this.answerIndex = null;
     this.clearStatus();
@@ -760,6 +729,7 @@ export class ChatPanel implements ChatView {
     if (!this.isOpen() || document.hidden) this.markUnread();
     if (signals === null) {
       this.writeAnswer(this.answer);
+      this.latestAnswerIndex = this.answerIndex;
       this.answerIndex = null;
       this.flushRedraw();
       return;
@@ -769,6 +739,7 @@ export class ChatPanel implements ChatView {
     const written = signals.onResponse({ text: this.answer, overwrite: true });
     return Promise.resolve(written).finally(() => {
       signals.onClose();
+      this.latestAnswerIndex = this.ready ? this.chat.getMessages().length - 1 : this.queued.length - 1;
       this.answerIndex = null;
       this.flushRedraw();
     });
@@ -795,33 +766,105 @@ export class ChatPanel implements ChatView {
     this.offerOrigins = origins;
   }
 
-  /** Deep-chat owns the markup message and its quick-button event utilities. */
+  /** Attach the current offer to its answer, replacing earlier frames of this turn. */
   showOffer(offer: Offer, active: boolean): void {
-    if (active) disableOffers(this.chat.shadowRoot);
-    this.offerActive = active;
-    this.draw({ role: 'ai', html: offerHtml(offer, this.offerOrigins, this.strings, active) });
+    const index = this.latestAnswerIndex;
+    if (index === null) return;
+    if (active) this.disableEarlierOffers();
+    this.attachments.set(index, { ...this.attachments.get(index), offer, offerActive: active });
+    this.renderAttachment(index);
   }
 
-  /** A finished answer has one native deep-chat HTML message for its own feedback controls. */
   showFeedback(turnId: string, selection: FeedbackSelection | null): void {
-    const index = this.ready ? this.chat.getMessages().length : this.queued.length;
-    this.feedbackState.set(turnId, { selection, commentOpen: false, index });
-    this.draw({ role: 'ai', html: feedbackHtml({ turnId, selection, commentOpen: false, strings: this.strings }) });
+    const index = this.latestAnswerIndex;
+    if (index === null) return;
+    this.feedbackIndices.set(turnId, index);
+    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
+    this.renderAttachment(index);
   }
 
   private updateFeedback(turnId: string): void {
-    const state = this.feedbackState.get(turnId);
+    const index = this.feedbackIndices.get(turnId);
+    if (index === undefined) return;
+    const follow = this.ready && this.atLatest();
+    this.renderAttachment(index);
+    if (follow) requestAnimationFrame(() => this.scrollToLatest());
+  }
+
+  private disableEarlierOffers(): void {
+    for (const [index, state] of this.attachments) {
+      if (!state.offer || !state.offerActive) continue;
+      state.offerActive = false;
+      this.renderAttachment(index);
+    }
+    disableOffers(this.chat.shadowRoot);
+  }
+
+  /** deep-chat renders text safely, but its updateMessage cannot append HTML to the last message.
+   *  Place our escaped, fixed controls beside the text bubble in that same native answer container.
+   *  This never measures or moves a library element and is replayed after a look/avatar redraw. */
+  private renderAttachment(index: number): void {
+    if (!this.ready) return;
+    const state = this.attachments.get(index);
     if (!state) return;
-    const html = feedbackHtml({ turnId, ...state, strings: this.strings });
-    if (!this.ready) this.queued[state.index] = { role: 'ai', html };
-    else {
-      this.chat.updateMessage({ html }, state.index);
-      requestAnimationFrame(() => this.scrollToLatest());
+    const root = this.chat.shadowRoot;
+    let answer = root?.querySelector<HTMLElement>(`[data-cb-answer-index="${index}"]`);
+    if (!answer && index === this.latestAnswerIndex) {
+      answer = Array.from(root?.querySelectorAll<HTMLElement>('.outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)') ?? []).at(-1) ?? null;
+      answer?.setAttribute('data-cb-answer-index', String(index));
+    }
+    const inner = answer?.querySelector<HTMLElement>('.inner-message-container');
+    if (!inner) return;
+    const markup = `${state.offer ? offerHtml(state.offer, this.offerOrigins, this.strings, state.offerActive === true) : ''}${state.turnId
+      ? feedbackHtml({ turnId: state.turnId, selection: state.selection ?? null, commentOpen: state.commentOpen === true, strings: this.strings }) : ''}`;
+    let attachment = inner.querySelector<HTMLElement>('.cb-attachments');
+    if (!attachment) {
+      attachment = document.createElement('div');
+      attachment.className = 'cb-attachments';
+      inner.append(attachment);
+    }
+    attachment.innerHTML = markup;
+    // These are our own generated controls, not a deep-chat element. The capsule lives on the
+    // bubble's edge; the offer and optional comment remain directly beneath that bubble.
+    const bubble = inner.querySelector<HTMLElement>('.text-message');
+    const votes = attachment.querySelector<HTMLElement>('.cb-feedback-votes');
+    if (bubble && votes) {
+      bubble.querySelector('.cb-feedback-votes')?.remove();
+      votes.dataset.cbFeedbackTurn = state.turnId;
+      votes.setAttribute('role', 'group');
+      votes.setAttribute('aria-label', this.strings.feedbackGroup);
+      bubble.append(votes);
     }
   }
 
+  private readonly attachmentClick = (event: Event): void => {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest<HTMLButtonElement>('.cb-feedback-thumb, .cb-attachments button');
+    if (!button || button.disabled) return;
+    const group = button.closest<HTMLElement>('[data-cb-feedback-turn]');
+    const turnId = group?.dataset.cbFeedbackTurn;
+    if (turnId && FEEDBACK_RATINGS.some((rating) => rating === button.dataset.cbRating)) {
+      if (button.getAttribute('aria-pressed') === 'true' && !group.classList.contains('cb-feedback-editing')) {
+        group.classList.add('cb-feedback-editing');
+        return;
+      }
+      void this.rateFeedback(turnId, button.dataset.cbRating as FeedbackRating);
+    } else if (turnId && button.classList.contains('cb-feedback-send')) {
+      void this.sendFeedbackComment(turnId, group.querySelector('textarea')?.value ?? '');
+    } else if (turnId && button.classList.contains('cb-feedback-skip')) {
+      this.skipFeedbackComment(turnId);
+    } else if (button.hasAttribute('data-cb-url')) {
+      const url = button.getAttribute('data-cb-url') ?? '';
+      if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url);
+    } else if (button.hasAttribute('data-cb-text')) {
+      const text = button.getAttribute('data-cb-text') ?? '';
+      if (text !== '') this.sendQuick(text);
+    }
+  };
+
   private async rateFeedback(turnId: string, rating: FeedbackRating): Promise<void> {
-    const state = this.feedbackState.get(turnId);
+    const index = this.feedbackIndices.get(turnId);
+    const state = index === undefined ? undefined : this.attachments.get(index);
     if (!state || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
     this.feedbackBusy.add(turnId);
     try {
@@ -830,6 +873,7 @@ export class ChatPanel implements ChatView {
       state.selection = saved;
       state.commentOpen = true;
       this.updateFeedback(turnId);
+      this.chat.shadowRoot?.querySelector<HTMLElement>(`[data-cb-answer-index="${index}"] .cb-feedback-comment textarea`)?.focus();
     } catch {
       this.notice(this.strings.feedbackError);
     } finally {
@@ -838,7 +882,8 @@ export class ChatPanel implements ChatView {
   }
 
   private async sendFeedbackComment(turnId: string, comment: string): Promise<void> {
-    const state = this.feedbackState.get(turnId);
+    const index = this.feedbackIndices.get(turnId);
+    const state = index === undefined ? undefined : this.attachments.get(index);
     if (!state?.selection || !this.onFeedback || this.feedbackBusy.has(turnId)) return;
     if (comment.length > FEEDBACK_COMMENT_MAX_CHARS) { this.notice(this.strings.feedbackError); return; }
     this.feedbackBusy.add(turnId);
@@ -848,6 +893,7 @@ export class ChatPanel implements ChatView {
       state.selection = saved;
       state.commentOpen = false;
       this.updateFeedback(turnId);
+      this.chat.shadowRoot?.querySelector<HTMLElement>(`[data-cb-answer-index="${index}"] .cb-feedback-thumb[aria-pressed="true"]`)?.focus();
     } catch {
       this.notice(this.strings.feedbackError);
     } finally {
@@ -856,19 +902,23 @@ export class ChatPanel implements ChatView {
   }
 
   private skipFeedbackComment(turnId: string): void {
-    const state = this.feedbackState.get(turnId);
+    const index = this.feedbackIndices.get(turnId);
+    const state = index === undefined ? undefined : this.attachments.get(index);
     if (!state || this.feedbackBusy.has(turnId)) return;
     state.commentOpen = false;
     this.updateFeedback(turnId);
+    this.chat.shadowRoot?.querySelector<HTMLElement>(`[data-cb-answer-index="${index}"] .cb-feedback-thumb[aria-pressed="true"]`)?.focus();
   }
 
   /** A transcript rebuilt from the server's projection, message by message, through the same path everything
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages: { role: 'user' | 'ai'; text: string; offer?: Offer; offerActive?: boolean; turnId?: string; feedback?: FeedbackSelection | null }[]): void {
     for (const message of messages) {
-      this.draw(message);
-      if (message.role === 'ai' && message.turnId) this.showFeedback(message.turnId, message.feedback ?? null);
+      this.draw({ role: message.role, text: message.text });
+      if (message.role !== 'ai') continue;
+      this.latestAnswerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       if (message.offer) this.showOffer(message.offer, message.offerActive === true);
+      if (message.turnId) this.showFeedback(message.turnId, message.feedback ?? null);
     }
     // A restored transcript opens where the visitor left off, which is its END: a reload that lands on the
     // first message hides the answer the visitor came back for. `addMessage` only follows a LIVE message.
@@ -927,10 +977,6 @@ export class ChatPanel implements ChatView {
       strings: this.strings,
       avatar: this.avatarSource(),
       onQuickButton: (text) => this.sendQuick(text),
-      onOfferLink: (url) => { if (allowedOfferUrl(url, this.offerOrigins)) location.assign(url); },
-      onFeedbackRate: (turnId, rating) => { void this.rateFeedback(turnId, rating); },
-      onFeedbackSend: (turnId, comment) => { void this.sendFeedbackComment(turnId, comment); },
-      onFeedbackSkip: (turnId) => this.skipFeedbackComment(turnId),
       onStop: () => this.stopAnswer(),
     });
   }
@@ -949,11 +995,15 @@ export class ChatPanel implements ChatView {
     chat.onComponentRender = () => {
       this.ready = true;
       this.syncAnswerControl();
-      for (const message of this.queued.splice(0, this.queued.length)) chat.addMessage(message);
-      const groups = chat.shadowRoot?.querySelectorAll('.cb-offer') ?? [];
-      groups.forEach((group, index) => {
-        if (index < groups.length - 1 || !this.offerActive) group.querySelectorAll('button').forEach((button) => { button.disabled = true; });
-      });
+      chat.shadowRoot?.addEventListener('click', this.attachmentClick);
+      for (const [index, message] of this.queued.splice(0, this.queued.length).entries()) {
+        chat.addMessage(message);
+        if (this.attachments.has(index)) {
+          Array.from(chat.shadowRoot?.querySelectorAll<HTMLElement>('.outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)') ?? [])
+            .at(-1)?.setAttribute('data-cb-answer-index', String(index));
+          this.renderAttachment(index);
+        }
+      }
       this.scrollToLatest();
     };
     return chat;
@@ -998,10 +1048,8 @@ export class ChatPanel implements ChatView {
     const carryingAnswer = this.answerIndex !== null;
     const carried = this.ready
       ? this.chat.getMessages()
-        .map((message) => typeof message.html === 'string'
-          ? { role: typeof message.role === 'string' ? message.role : 'ai', html: message.html }
-          : { role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' })
-        .filter((message) => 'html' in message || message.text !== '')
+        .map((message) => ({ role: typeof message.role === 'string' ? message.role : 'ai', text: typeof message.text === 'string' ? message.text : '' }))
+        .filter((message) => message.text !== '')
       : [];
     this.layoutObserver.disconnect();
     this.cancelDrawScroll();
@@ -1023,7 +1071,7 @@ export class ChatPanel implements ChatView {
   /** Draw one message, or hold it until the element can take it: `addMessage` on an element that has not
    *  rendered yet is dropped by the library with a warning, which would silently lose a restored
    *  conversation. */
-  private draw(message: { role: string; text: string } | { role: string; html: string }): void {
+  private draw(message: { role: string; text: string }): void {
     if (!this.ready) {
       this.queued.push(message);
       return;
@@ -1061,7 +1109,7 @@ export class ChatPanel implements ChatView {
    *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
    *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   private sendQuick(text: string): void {
-    this.offerActive = false;
+    this.disableEarlierOffers();
     this.appendVisitor(text);
     this.onVisitorMessage(text);
   }

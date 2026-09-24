@@ -41,11 +41,18 @@ export function disableOffers(root: ShadowRoot | null): void {
 
 export function offerStyles(): string {
   return `
-.outer-message-container:has(.cb-offer) .name { display:none; }
-.outer-message-container:has(.cb-offer) .inner-message-container { max-width:100%; }
-.cb-offer { display:grid; gap:8px; width:min(100%, 340px); box-sizing:border-box; }
+.outer-message-container:has(.cb-attachments) .inner-message-container { max-width:min(100%, 340px); }
+.cb-offer { display:grid; gap:8px; width:min(100%, 340px); box-sizing:border-box; margin-top:12px; }
 .cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; }
-.cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid currentColor; border-radius:10px; opacity:.95; }
+.cb-offer .cb-quick-item {
+  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-height:32px; max-width:100%;
+  padding:5px 9px; border:1px solid var(--cb-attachment-border); border-radius:8px;
+  color:var(--cb-attachment-ink); background:var(--cb-attachment-surface);
+  font:inherit; font-size:12px; text-align:left; cursor:pointer;
+}
+.cb-offer .cb-quick-item:hover { background:var(--cb-attachment-hover); }
+.cb-offer .cb-quick-item:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+.cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--cb-attachment-border); border-radius:10px; background:var(--cb-attachment-surface); }
 .cb-offer-card img { display:block; width:100%; max-height:130px; object-fit:cover; }
 .cb-offer-content { display:flex; flex-direction:column; gap:4px; padding:10px; min-width:0; overflow-wrap:anywhere; }
 .cb-offer-content strong { font-size:14px; }

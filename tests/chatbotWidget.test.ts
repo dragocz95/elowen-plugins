@@ -32,11 +32,35 @@ vi.mock('deep-chat', () => {
     /** The real element calls this once its first render is done, which is what makes it able to take
      *  messages. The stub renders the moment it reaches the document, so that is when it calls back. */
     onComponentRender?: (ref: unknown) => void;
-    connectedCallback(): void { this.onComponentRender?.(this); }
+    connectedCallback(): void {
+      if (!this.shadowRoot) {
+        const root = this.attachShadow({ mode: 'open' });
+        const list = document.createElement('div');
+        list.id = 'messages';
+        root.append(list);
+      }
+      this.onComponentRender?.(this);
+    }
     getMessages(): { role?: string; text?: string; html?: string }[] { return this._messages; }
-    addMessage(message: { role?: string; text?: string; html?: string }): void { this._messages.push(message); }
-    updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
-    submitUserMessage(content: { text?: string }): void { this._messages.push({ role: 'user', text: content.text }); }
+    addMessage(message: { role?: string; text?: string; html?: string }): void {
+      this._messages.push(message);
+      const outer = document.createElement('div');
+      outer.className = `outer-message-container deep-chat-outer-container-role-${message.role ?? 'ai'}`;
+      const inner = document.createElement('div');
+      inner.className = 'inner-message-container';
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble text-message';
+      bubble.textContent = message.text ?? '';
+      inner.append(bubble);
+      outer.append(inner);
+      this.shadowRoot?.querySelector('#messages')?.append(outer);
+    }
+    updateMessage(message: { text?: string }, index: number): void {
+      this._messages[index] = { role: 'ai', ...message };
+      const bubble = this.shadowRoot?.querySelectorAll('.message-bubble')[index];
+      if (bubble) bubble.textContent = message.text ?? '';
+    }
+    submitUserMessage(content: { text?: string }): void { this.addMessage({ role: 'user', text: content.text }); }
     focusInput(): void { /* no focus in jsdom */ }
     disableSubmitButton(): void { /* no input validation in the renderer stub */ }
     /** Unit tests cover the visibility gate; the browser regression measures actual scroll geometry. */
@@ -1507,23 +1531,43 @@ describe('offer messages in deep-chat', () => {
         cards: [{ title: '<b>markup</b>', action: { label: 'Details', url: 'https://example.test/details' } }],
       }, offerActive: true },
     ]);
-    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as unknown as {
-      getMessages(): { html?: string; text?: string }[];
-      htmlClassUtilities: Record<string, { events?: { click?: (event: { target: EventTarget | null }) => void } }>;
-    };
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & { getMessages(): { html?: string; text?: string }[] };
     const messages = chat.getMessages();
-    expect(messages.map(message => message.text ?? 'offer')).toEqual(['Earlier', 'offer', 'Latest', 'offer']);
-    expect(messages[1]!.html).toContain('disabled');
-    expect(messages[3]!.html).toContain('&lt;b&gt;markup&lt;/b&gt;');
-    expect(messages[3]!.html).not.toContain('<b>markup</b>');
-    expect(messages[3]!.html).toContain('data-cb-text="Sent reply"');
-    const button = document.createElement('button');
-    button.setAttribute('data-cb-text', 'Sent reply');
-    chat.htmlClassUtilities['cb-quick-item']!.events!.click!({ target: button });
+    expect(messages.map(message => message.text)).toEqual(['Earlier', 'Latest']);
+    const answers = chat.shadowRoot!.querySelectorAll<HTMLElement>('[data-cb-answer-index]');
+    expect(answers).toHaveLength(2);
+    expect(answers[0]!.querySelector('.cb-offer button')?.hasAttribute('disabled')).toBe(true);
+    expect(answers[1]!.textContent).toContain('<b>markup</b>');
+    expect(answers[1]!.querySelector('b')).toBeNull();
+    const button = answers[1]!.querySelector<HTMLButtonElement>('[data-cb-text="Sent reply"]')!;
+    button.click();
     expect(sent).toEqual(['Sent reply']);
-    button.disabled = true;
-    chat.htmlClassUtilities['cb-quick-item']!.events!.click!({ target: button });
+    button.click();
     expect(sent).toEqual(['Sent reply']);
+    panel.destroy();
+  });
+
+  it('keeps live attachments with their answer across an appearance redraw and disables old offers', () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    panel.beginAnswer();
+    panel.streamAnswer('Live **answer**');
+    panel.finishAnswer('Live **answer**');
+    panel.showOffer({ choices: [{ label: 'First' }] }, true);
+    panel.showFeedback('live-turn', null);
+    let chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
+    expect(chat.shadowRoot!.querySelectorAll('[data-cb-answer-index]')).toHaveLength(1);
+    expect(chat.shadowRoot!.querySelector('.text-message .cb-feedback-votes')).not.toBeNull();
+    expect(chat.shadowRoot!.querySelector('.cb-offer button')?.hasAttribute('disabled')).toBe(false);
+    panel.beginAnswer();
+    expect(chat.shadowRoot!.querySelector('.cb-offer button')?.hasAttribute('disabled')).toBe(true);
+    panel.finishAnswer('Another answer');
+    panel.applyAppearance({ name: 'Advisor', appearance: APPEARANCE_TEMPLATES.indigo });
+    chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
+    expect(chat.getMessages().map(message => message.text)).toEqual(['Live **answer**', 'Another answer']);
+    expect(chat.shadowRoot!.querySelector('[data-cb-answer-index="0"] .cb-offer button')?.hasAttribute('disabled')).toBe(true);
+    expect(chat.shadowRoot!.querySelector('[data-cb-answer-index="0"] .text-message .cb-feedback-votes')).not.toBeNull();
     panel.destroy();
   });
 
@@ -1561,38 +1605,36 @@ describe('visitor feedback controls', () => {
     });
     document.body.append(panel.host);
     panel.restore([{ role: 'ai', text: 'An answer', turnId, feedback: null }]);
-    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as unknown as {
-      getMessages(): { html?: string }[];
-      htmlClassUtilities: Record<string, { events?: { click?: (event: { target: EventTarget | null }) => void } }>;
-    };
-    const html = () => chat.getMessages()[1]!.html!;
-    const group = () => { const node = document.createElement('div'); node.innerHTML = html(); return node.querySelector<HTMLElement>('.cb-feedback')!; };
-    const click = (key: string, button: HTMLButtonElement) => chat.htmlClassUtilities[key]!.events!.click!({ target: button });
-    expect(html()).toContain('aria-pressed="false"');
-    click('cb-feedback-thumb', group().querySelector('[data-cb-rating="down"]')!);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & { getMessages(): { text?: string }[] };
+    const group = () => chat.shadowRoot!.querySelector<HTMLElement>('[data-cb-answer-index]')!;
+    const click = (selector: string) => group().querySelector<HTMLButtonElement>(selector)!.click();
+    expect(chat.getMessages().map(message => message.text)).toEqual(['An answer']);
+    expect(group().querySelectorAll('[aria-pressed="false"]')).toHaveLength(2);
+    click('[data-cb-rating="down"]');
     await flush();
     expect(saved).toEqual([{ rating: 'down', comment: null }]);
-    expect(html()).toContain('aria-pressed="true"');
-    expect(html()).toContain('<textarea');
-    click('cb-feedback-skip', group().querySelector('.cb-feedback-skip')!);
-    expect(html()).not.toContain('<textarea');
-    click('cb-feedback-thumb', group().querySelector('[data-cb-rating="up"]')!);
+    expect(group().querySelector('[data-cb-rating="down"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(group().querySelector('textarea')).not.toBeNull();
+    click('.cb-feedback-skip');
+    expect(group().querySelector('textarea')).toBeNull();
+    click('[data-cb-rating="down"]');
+    expect(group().querySelector('.cb-feedback-votes')?.classList.contains('cb-feedback-editing')).toBe(true);
+    click('[data-cb-rating="up"]');
     await flush();
-    const withComment = group();
-    withComment.querySelector('textarea')!.value = 'Useful detail';
-    click('cb-feedback-send', withComment.querySelector('.cb-feedback-send')!);
+    group().querySelector('textarea')!.value = 'Useful detail';
+    click('.cb-feedback-send');
     await flush();
     expect(saved).toEqual([{ rating: 'down', comment: null }, { rating: 'up', comment: null }, { rating: 'up', comment: 'Useful detail' }]);
-    expect(html()).not.toContain('<textarea');
+    expect(group().querySelector('textarea')).toBeNull();
     panel.destroy();
 
     const restored = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
       onVisitorMessage: () => undefined, onStop: () => undefined });
     document.body.append(restored.host);
     restored.restore([{ role: 'ai', text: 'An answer', turnId, feedback: { rating: 'up', comment: 'Useful detail' } }]);
-    const again = (restored.host.shadowRoot!.querySelector('deep-chat') as unknown as { getMessages(): { html?: string }[] }).getMessages()[1]!.html!;
-    expect(again).toContain('data-cb-rating="up"');
-    expect(again).toContain('aria-pressed="true"');
+    const again = restored.host.shadowRoot!.querySelector('deep-chat')!.shadowRoot!.querySelector<HTMLElement>('[data-cb-answer-index]')!;
+    expect(again.querySelector('[data-cb-rating="up"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(again.querySelector('.text-message')?.textContent).toContain('An answer');
     restored.destroy();
   });
 });
