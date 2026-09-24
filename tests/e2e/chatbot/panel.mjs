@@ -372,6 +372,40 @@ try {
     assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.cb-shared-file-chip').download),'document.pdf');
     console.log(JSON.stringify({width,shared,longName,errors}));
     assert.deepEqual(errors,[]);
+    // A rated short answer followed by a visitor message: the rating capsule hangs below the bubble and must
+    // neither sit under the next message nor be cut by the bottom of the message list.
+    await page.evaluate(async () => {
+      const chat=panel.host.shadowRoot.querySelector('deep-chat');
+      panel.restore([{role:'user',text:'Mám rezervaci?'}]);
+      panel.beginAnswer();
+      await panel.finishAnswer('Ano, máte.');
+      panel.showFeedback('rated-turn', {rating:'up',comment:null});
+      chat.submitUserMessage({text:'Můžeš ji zrušit?'});
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await panel.finishAnswer('Bohužel ne.');
+      panel.showFeedback('last-turn', {rating:'down',comment:null});
+      chat.scrollToBottom();
+      await new Promise(resolve => setTimeout(resolve,400));
+    });
+    const room=await page.evaluate(() => {
+      const root=panel.host.shadowRoot.querySelector('deep-chat').shadowRoot;
+      const list=root.querySelector('#messages').getBoundingClientRect();
+      return ['rated-turn','last-turn'].map(turn => {
+        const votes=root.querySelector(`[data-cb-feedback-turn="${turn}"] .cb-feedback-votes`);
+        const box=votes.getBoundingClientRect();
+        const container=votes.closest('.outer-message-container');
+        const next=container.nextElementSibling?.getBoundingClientRect();
+        const lowest=root.elementFromPoint(box.left+box.width/2, box.bottom-3);
+        return {turn,bottom:box.bottom,nextTop:next?.top ?? null,listBottom:list.bottom,onTop:votes.contains(lowest)};
+      });
+    });
+    console.log(JSON.stringify({width,room}));
+    for (const capsule of room) {
+      assert(capsule.onTop, `Rating capsule of ${capsule.turn} is covered`);
+      assert(capsule.nextTop===null || capsule.bottom<=capsule.nextTop, `Rating capsule of ${capsule.turn} overlaps the next message`);
+      assert(capsule.bottom<=capsule.listBottom, `Rating capsule of ${capsule.turn} is cut by the message list`);
+    }
+    assert.deepEqual(errors,[]);
     await page.close();
   }
 } finally {

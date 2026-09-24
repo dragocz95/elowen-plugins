@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.13 - 2026-09-24
+
+- Keep room below a rated answer so its rating capsule is no longer covered by the next message or cut off at the end of the message list.
+
 ## discord 0.3.26, telegram 0.2.22, whatsapp 0.2.26, msteams 0.8.8, chatbot 0.3.12 - 2026-09-24
 
 - Give the chatbot agent the server-verified visitor id beside each message, separate from untrusted page data, so it can identify the visitor's own bookings and uploads without trusting a claimed id.

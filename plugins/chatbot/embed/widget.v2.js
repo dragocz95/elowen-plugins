@@ -492,6 +492,8 @@ ${s.messageEntrance==="none"?"":`@keyframes cb-message-in { from { opacity: 0; t
 .text-message:has(.cb-attachments) { position:relative; overflow:visible; }
 .cb-attachments { box-sizing:border-box; width:100%; }
 .cb-attachments:has(.cb-offer):has(.cb-feedback-votes) { padding-bottom:18px; }
+/* The capsule hangs 16px below the bubble; keep that room free so the next message or the list's end cannot cover it. */
+.text-message:has(.cb-feedback-votes) { margin-bottom:18px; }
 .cb-feedback-votes {
   position:absolute; bottom:-16px; right:-8px; z-index:1; display:flex; padding:1px; border:1px solid var(--cb-attachment-border);
   border-radius:999px; background:var(--cb-attachment-surface); box-shadow:0 2px 7px rgb(0 0 0 / .12);
