@@ -1,6 +1,6 @@
 {
   "name": "discord",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "requiresSharedApi": 4,
@@ -301,7 +301,7 @@
       "step": 1,
       "placeholder": "4",
       "default": 4,
-      "hint": "How many generated images the bot attaches to a single outgoing reply."
+      "hint": "How many images shared by the agent the bot attaches to a single outgoing reply."
     },
     {
       "key": "sec_voice",

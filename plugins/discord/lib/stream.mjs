@@ -2,24 +2,17 @@
 // transport, the markdown render style, and the final-answer image strategy. The throttled editable
 // message, the streaming answer and the brain-event reducer all live in the shared engine — only the
 // pieces that genuinely differ from Telegram/other surfaces stay here.
-import { CHUNK, extractImageRefs, splitContent, footerLine } from './format.mjs';
+import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 
-/** Post a final text to a channel. Generated-image links become real Discord file uploads (their
- *  relative daemon URLs are dead text on Discord): the links are stripped and the files ride the
- *  FIRST chunk of the (possibly split) message. Text without image links — or an adapter without
- *  image dirs (tests use bare fakes) — keeps the plain JSON path. */
+/** Post a final text to a channel. Shared images are sent from authorized image events. */
 export async function postWithImages(adapter, channelId, text, replyToId) {
-  const { cleaned, files } = extractImageRefs(text);
-  const data = typeof adapter.resolveImageFiles === 'function' ? adapter.resolveImageFiles(files) : [];
-  const out = data.length ? (cleaned.trim() || '🎨') : text; // nothing loadable → keep the original text
-  const pieces = splitContent(out);
+  const pieces = splitContent(text);
   // The first piece is a real Discord reply to the triggering message (fail_if_not_exists:false —
   // a deleted trigger degrades to a plain message instead of a 400).
   const ref = replyToId ? { message_reference: { message_id: replyToId, fail_if_not_exists: false } } : {};
   for (let i = 0; i < pieces.length; i++) {
-    if (i === 0 && data.length) await adapter.uploadImages(channelId, pieces[i], data, 0, i === 0 ? ref : {});
-    else await adapter.rest('POST', `/channels/${channelId}/messages`, { content: pieces[i], ...(i === 0 ? ref : {}) });
+    await adapter.rest('POST', `/channels/${channelId}/messages`, { content: pieces[i], ...(i === 0 ? ref : {}) });
   }
 }
 

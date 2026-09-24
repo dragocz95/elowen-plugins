@@ -25,7 +25,7 @@ import { registerTools } from './lib/tools.mjs';
 import { normalizeConfig } from './lib/config.mjs';
 import { platformChatFilesDir, platformImageDirs } from 'elowen-plugin-shared/images';
 
-export { stripThinking, extractImageRefs, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
+export { stripThinking, parseModelExec, buildReplyContext, splitContent, footerLine } from './lib/format.mjs';
 export { parseAskReply } from './lib/ask.mjs';
 export { senderIsAdmin, matchPolicy, matchesId } from './lib/jid.mjs';
 export { LiveMessage } from './lib/stream.mjs';

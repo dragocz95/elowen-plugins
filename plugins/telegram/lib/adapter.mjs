@@ -22,7 +22,7 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // the same thing from the user's side: an interactive question this chat still owes an answer to. One
 // `askTimeoutMs` governs both, so raising it for a slow chat cannot leave the picker expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
                                          // agent chooses what to share, so this is a transport bound, not a preference
 const TG_CAPTION_LIMIT = 1024;           // Telegram rejects the whole sendPhoto call above this, caption included
@@ -92,7 +92,7 @@ export class TelegramAdapter {
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
-    this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.imageDirs = imageDirs; // where ShareImage stores authorized chat images
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
@@ -835,7 +835,7 @@ export class TelegramAdapter {
     return this.bot.api.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji }]);
   }
 
-  /** Send generated images as photo messages (the first optionally anchored to the trigger). A caption
+  /** Send shared images as photo messages (the first optionally anchored to the trigger). A caption
    *  rides on the FIRST photo only — Telegram shows one per photo, and repeating it under each would read
    *  as the bot saying the same thing several times. */
   async sendPhotos(chatId, files, extra = {}, caption) {
@@ -858,8 +858,8 @@ export class TelegramAdapter {
     }
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name from
-   *  the image plugins' data dirs. A missing/unreadable file is skipped silently. */
+  /** Load up to the configured cap of shared chat images by validated name.
+   *  A missing/unreadable file is skipped silently. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }

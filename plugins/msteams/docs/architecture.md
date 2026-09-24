@@ -247,21 +247,19 @@ supplies:
   bot messages), and **`lineBreak: '\n\n'`** (`:69`) — Teams treats a single newline as a soft wrap, so
   without this the whole tool trace renders as one run-on paragraph. Pinned by
   `tests/plugins/msteamsPlugin.test.ts:556`;
-- `postWithImages` (`:13`), which turns generated-image links into real attachments, strips the links,
-  and sends the images ahead of the (possibly split) text.
+- `postWithImages` sends the final text in transport-sized pieces. Shared images are handled
+  separately through authorized `image` events.
 
 Sizing lives in `lib/format.mjs`: `CHUNK = 20000` (`:7`) against Teams' ~28 KB payload cap, and the
 runtime footer is a non-breaking-space paragraph followed by `*— model · context %*` (`:24-27`) — not a
 blockquote, which Teams draws as a full-width bordered strip, and not `* ` which would read as a bullet.
 Pinned character-for-character by `tests/plugins/msteamsPlugin.test.ts:467`.
 
-Generated images travel by **name**: the reply text's image links are extracted by `postWithImages`, the
-names are resolved against the image plugins' data dirs plus the daemon's `chat-images` dir
-(`index.mjs:48` → `platformImageDirs`, `lib/adapter.mjs:613-615`, capped by `maxUploadImages`), and the
-files are attached. They go out as inline data-URI attachments with **one** content type used for both
-the attachment and the URI (`:618-631`) — declaring a `.gif` as png in one field and jpeg in the other
-produced a picture Teams could not render. A failed upload logs `image upload failed: …` and is
-swallowed (`:630`).
+Images shared through `ShareImage` arrive as authorized `image` events. Their validated names
+resolve only against the daemon's `chat-images` directory through `platformImageDirs`, capped by
+`maxUploadImages`. They go out as inline data-URI attachments with one content type used for both
+the attachment and the URI; mismatched types produce a picture Teams cannot render. A failed
+upload logs an error and does not prevent the text reply.
 
 ### 3.4 Files the agent shares: `ShareFile` → the file consent card
 

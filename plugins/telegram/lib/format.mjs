@@ -1,11 +1,11 @@
-// Telegram text/format helpers. The transport-neutral pieces (stripForSpeech, extractImageRefs,
+// Telegram text/format helpers. The transport-neutral pieces (stripForSpeech,
 // stripThinking, parseModelExec, the fenced-split core) live in elowen-plugin-shared/format; only Telegram's
 // own chunk size, reply-quote and footer stay here.
 // Telegram messages are sent as PLAIN TEXT (no parse_mode), so no markup ever needs escaping and a stray
 // `<`, `&` or unbalanced `*` in a model answer can never crash a send — the safe, consistent choice for
 // arbitrary agent output (see the plugin README/notes on the HTML-vs-plaintext trade-off).
-import { splitContent as splitAtChunk, renderChatTables, extractImageRefs, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
-export { extractImageRefs, stripThinking, parseModelExec, stripForSpeech };
+import { splitContent as splitAtChunk, renderChatTables, stripThinking, parseModelExec, stripForSpeech, runtimeFooter, stripRuntimeFooter } from 'elowen-plugin-shared/format';
+export { stripThinking, parseModelExec, stripForSpeech };
 
 export const CHUNK = 4000; // Telegram caps a text message at 4096 chars — stay comfortably under it
 const CHAT_TABLE_WIDTH = 48; // narrow plain-text rows stay readable in a portrait phone chat

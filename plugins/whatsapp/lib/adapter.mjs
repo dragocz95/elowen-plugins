@@ -25,7 +25,7 @@ const MAX_IMAGES = 4;                    // default vision cap per message (cfg:
 // governs both, so raising it for a slow chat cannot leave the menu expiring six minutes in.
 const ASK_TTL_MS = 6 * 60_000;           // default: drop a parked prompt after this (cfg: askTimeoutMs; > the core 5-min timeout)
 const MENU_PAGE = 18;                     // numbered-menu options per page (leaves room for nav rows)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per reply (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per reply (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
                                          // chooses what to share, so this is a transport bound, not a preference
 
@@ -768,7 +768,7 @@ export class WhatsAppAdapter {
     return firstKey;
   }
 
-  /** Send generated images as image messages (the first optionally quoting the trigger). */
+  /** Send shared images as image messages (the first optionally quoting the trigger). */
   async sendImages(chatJid, files, quoted) {
     for (let i = 0; i < files.length; i++) {
       await this.sock.sendMessage(chatJid, { image: files[i].data }, i === 0 && quoted ? { quoted } : {}).catch(() => {});
@@ -791,8 +791,7 @@ export class WhatsAppAdapter {
     }
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
-   *  from the image plugins' data dirs. */
+  /** Load up to the configured cap of shared chat images by validated name. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }

@@ -3,18 +3,15 @@
 // brain-event reducer and the render/fold core all live in the shared engine. WhatsApp used to carry its
 // own copy of that lifecycle and kept drifting away from it (a final settle with no retry, an error reply
 // that could overtake an in-flight progress send), so only what genuinely differs stays here.
-import { CHUNK, extractImageRefs, splitContent, footerLine } from './format.mjs';
+import { CHUNK, splitContent, footerLine } from './format.mjs';
 import { createLiveMessage } from 'elowen-plugin-shared/liveMessage';
 import { resolveDisplaySettings } from 'elowen-plugin-shared/display';
 
 const EDIT_THROTTLE_MS = 1500; // WhatsApp is stricter than Discord/Telegram on edits — stay well under any limit
 
-/** Post the final answer text, quoting the trigger. Generated images already went out as their own image
- *  messages, so any leftover `/brain/images/…` link here is a dead relative daemon URL — strip it, unless
- *  stripping would leave nothing at all to send. */
+/** Post the final answer text, quoting the trigger. Shared images travel as image events. */
 async function postWithImages(adapter, jid, text, quoted) {
-  const { cleaned } = extractImageRefs(text);
-  await adapter.sendText(jid, cleaned.trim() || text, quoted);
+  await adapter.sendText(jid, text, quoted);
 }
 
 // The Baileys transport for one editable message. Each closure receives the adapter so it calls the same

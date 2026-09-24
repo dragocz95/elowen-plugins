@@ -97,7 +97,6 @@ describe('image-gen on the host image seam', () => {
     assert.match(host.written[0].path, /\/generated-images\/[\da-f-]+\.png$/);
     assert.equal(host.written[0].overwrite, false);
     assert.equal(readFileSync(host.written[0].path).toString(), 'PNG-BYTES');
-    assert.ok(!out.content[0].text.includes('/api/brain/images/'));
   });
 
   it('uses an explicit output path and reports it for ShareImage', async () => {

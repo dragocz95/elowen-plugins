@@ -1160,26 +1160,6 @@ describe('msteams proactive notify + app package', () => {
     expect(sends.map((c) => c.args[1])).toEqual(['a:new-1', 'a:new-1']);
   });
 
-  it('uploads an image a scheduled job generated instead of pushing a dead link', async () => {
-    const { adapter, state, calls } = await makeAdapter({ notifyConversationId: 'a:conv1' });
-    state.patch('a:conv1', { ref: { serviceUrl: 'https://smba.test/emea' } });
-    // The daemon URL in the text is relative — literal text in Teams, and unreachable for the reader.
-    const sentImages: unknown[][] = [];
-    (adapter as unknown as { resolveImageFiles: (n: string[]) => unknown[] }).resolveImageFiles =
-      (names: string[]) => names.map((name) => ({ name, data: Buffer.from('PNG') }));
-    (adapter as unknown as { sendImages: (...a: unknown[]) => Promise<void> }).sendImages =
-      async (...args: unknown[]) => { sentImages.push(args); };
-
-    await adapter.notify('Ranní přehled:\n\n![graf](/api/brain/images/abcd.png)');
-
-    expect(sentImages).toHaveLength(1);
-    expect(sentImages[0]![0]).toBe('a:conv1');
-    expect(sentImages[0]![1]).toEqual([{ name: 'abcd.png', data: Buffer.from('PNG') }]);
-    const texts = calls.filter((c) => c.kind === 'send').map((c) => (c.args[2] as { text?: string })?.text ?? '');
-    expect(texts.join('\n')).toContain('Ranní přehled:');
-    expect(texts.join('\n')).not.toContain('/api/brain/images/');
-  });
-
   it('stays silent before the bot has seen any serviceUrl', async () => {
     const { adapter, calls } = await makeAdapter({ notifyConversationId: 'a:conv1' });
     await adapter.notify('lost');

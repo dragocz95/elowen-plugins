@@ -1017,7 +1017,7 @@ export class MsTeamsAdapter {
     await this.connector.remove(serviceUrl, conversationId, activityId).catch(() => {});
   }
 
-  /** Generated-image files (by name, from the image plugins' data dirs) as upload-ready buffers. */
+  /** Shared chat images by validated name as upload-ready buffers. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
@@ -1379,10 +1379,7 @@ export class MsTeamsAdapter {
       conversationId = await this.notifyConversationFor(target, serviceUrl);
       if (!conversationId) return; // already warned, with the reason
     }
-    // Through the same poster a turn's answer uses. Splitting the text alone was not merely incomplete:
-    // a cron job that GENERATES an image delivered its `/api/brain/images/…` markdown link into Teams as
-    // literal text, which is a dead relative daemon URL for anyone reading it. postWithImages uploads
-    // those files as real attachments and splits the remaining text exactly as this loop did.
+    // Use the same poster and splitting as a turn's final answer.
     // Translate before it splits: the pieces are sized to the transport, and a translation has its own length.
     await postWithImages(this, conversationId, String(lifecycleText(this.cfg.language, notice, text)));
   }

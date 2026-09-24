@@ -21,7 +21,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, no
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // default: a larger document is noted, not downloaded (cfg: maxFileBytes)
 const MAX_FILES = 5;                     // default general-file uploads accepted per message (cfg: maxFiles)
-const MAX_UPLOAD_IMAGES = 4;             // default generated-image uploads per outgoing message (cfg: maxUploadImages)
+const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per outgoing message (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per outgoing message — no config key: the
                                          // agent chooses what to share, so this is a transport bound, not a preference
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper's per-file limit — larger clips are just noted
@@ -185,7 +185,7 @@ export class DiscordAdapter {
     this.state = state;
     this.listModels = listModels;
     this.resolveProvider = resolveProvider; // central brain-provider key resolver (voice STT/TTS)
-    this.imageDirs = imageDirs; // where the image-gen/image-edit plugins store their generated files
+    this.imageDirs = imageDirs; // where ShareImage stores authorized chat images
     this.chatFilesDir = chatFilesDir; // where the daemon stores files the agent shared (ShareFile)
     this.answerQuestion = answerQuestion; // deliver a parked AskUserQuestion answer back to the turn
     this.chatCommands = chatCommands; // () => core names/descriptions/kind — presentation/dispatch is local
@@ -1010,9 +1010,8 @@ export class DiscordAdapter {
     await postWithImages(this, channelId, text, replyToId);
   }
 
-  /** Load up to the configured cap (default MAX_UPLOAD_IMAGES) of generated images by validated name
-   *  from the image plugins' data dirs. A missing/unreadable file is skipped silently — the text still
-   *  goes out without it. */
+  /** Load up to the configured cap of shared chat images by validated name.
+   *  A missing/unreadable file is skipped; the answer text still goes out. */
   resolveImageFiles(names) {
     return resolveImageFiles(this.imageDirs, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
   }
