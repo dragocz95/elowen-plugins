@@ -51,7 +51,7 @@
     line-height: var(--tw-leading, var(--text-xs--line-height, calc(1 / 0.75)));
   }
   .text-tiny {
-    font-size: var(--text-tiny, 0.5625rem);
+    font-size: var(--text-tiny, 0.625rem);
   }
   .leading-none {
     --tw-leading: 1;

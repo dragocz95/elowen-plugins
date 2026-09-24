@@ -484,7 +484,7 @@
     font-size: var(--text-caption, 0.6875rem);
   }
   .text-tiny {
-    font-size: var(--text-tiny, 0.5625rem);
+    font-size: var(--text-tiny, 0.625rem);
   }
   .leading-relaxed {
     --tw-leading: var(--leading-relaxed, 1.625);
