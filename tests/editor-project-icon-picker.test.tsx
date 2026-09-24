@@ -4,6 +4,7 @@ import { http, HttpResponse, listen, resetHandlers, setupServer, close } from '.
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { ProjectIconPicker } from '../plugins/editor/web-src/ProjectIconPicker';
+import { ProjectEditIcon } from '../plugins/editor/web-src/ProjectEditIcon';
 import { ProjectIcon } from './ui/hostProjectIcon';
 import manifest from '../plugins/editor/elowen-plugin.json';
 
@@ -62,6 +63,13 @@ function mount(node: React.ReactNode) {
 }
 
 describe('project icon from a managed workspace', () => {
+  it('opens the shared picker from the project edit field', async () => {
+    mount(<ProjectEditIcon project={managed} />);
+    expect(await screen.findByText('Icon')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose icon' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose icon' }));
+    expect(within(await screen.findByRole('dialog', { name: 'Choose icon' })).getByPlaceholderText('Search image…')).toBeInTheDocument();
+  });
   it('lists images inside the environment and persists a project-relative path', async () => {
     mount(<ProjectIconPicker project={managed} onClose={() => {}} />);
     const dialog = within(await screen.findByRole('dialog', { name: 'Choose icon' }));

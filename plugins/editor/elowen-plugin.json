@@ -1,6 +1,6 @@
 {
   "name": "editor",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Project file editor with Monaco, file management, previews for Markdown, images, PDF, media, Office and CSV files, a binary download fallback, and read-only Git history. A managed project offers two separate roots: Project, at the project's own directory inside its environment, and System, the whole persistent environment filesystem; Git history belongs to the Project root. Administrators may also browse and edit persisted host files through the System (/) root; kernel virtual filesystems are excluded. Disabling it removes the editor UI and makes its grandfathered file API unavailable while project registration and task Git history remain available.",
@@ -57,6 +57,7 @@
       }
     ],
     "projectRows": true,
+    "projectEditIcon": true,
     "strings": {
       "title": "Editor",
       "project": "Project",
@@ -138,6 +139,8 @@
       "discardChanges": "Discard unsaved changes?",
       "openEditor": "Open editor",
       "chooseIcon": "Choose icon",
+      "iconLabel": "Icon",
+      "iconHint": "An image from the project repo (e.g. a logo). Shown everywhere the project appears.",
       "gitEnvironmentStopped": "The managed environment is not running.",
       "iconSearch": "Search image…",
       "noImages": "No images in this project",

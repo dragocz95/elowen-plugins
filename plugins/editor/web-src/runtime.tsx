@@ -103,7 +103,7 @@ type ProjectRowsHook = (input: { projects: Project[] }) => {
   actions?: Record<number, { id: string; label: string; icon?: string; disabled?: boolean; tone?: 'danger'; onSelect: () => void }[]>;
   overlay?: ReactNode;
 };
-interface Registration { requiresApiVersion: number; pages: Record<string, PluginPage>; project?: Record<string, ProjectPanel>; projectRows?: ProjectRowsHook }
+interface Registration { requiresApiVersion: number; pages: Record<string, PluginPage>; project?: Record<string, ProjectPanel>; projectRows?: ProjectRowsHook; projectEditIcon?: ComponentType<{ project: Project }> }
 interface HostWindow { ElowenUiRuntime?: unknown; __elowenRegisterPluginUi?: (name: string, registration: Registration) => void }
 
 export function runtime(): EditorRuntime {
