@@ -1,5 +1,11 @@
 # Changelog
 
+## chatbot 0.3.6 - 2026-09-24
+
+- Removed unused chatbot database columns, internal store methods and duplicate validation while preserving existing visitor conversations and action history through migration 11.
+- Unified the visitor widget, public protocol and administration contracts without changing how submitted messages appear or how public origin refusals are reported.
+- Removed unused administration runtime declarations, props and strings; the shared CSS builder's cosmetic extra rules remain unchanged in this release.
+
 ## chatbot 0.3.4 - 2026-09-24
 
 - ChatbotOffer and ChatbotPageAction are advertised only in chatbot visitor sessions. Other conversations no longer receive visitor-only tools in their model tool lists or cached prompts. Requires core 0.28.53 for platform-scoped tool registration.
