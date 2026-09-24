@@ -414,3 +414,110 @@ describe('whatsapp forwards the agent caption onto the first image/document mess
     }
   });
 });
+
+/** The companion proof the stubbed-caption tests cannot give: the caption actually baked into the
+ *  Baileys wire payload by the REAL `sendImages`/`sendDocuments` (`adapter.mjs` payload
+ *  construction), on the first message only, bounded to the surface limit, quoting kept on the first.
+ *  Removing the `content.caption` assignment would leave the stubbed assertions green while production
+ *  again sends captionless media — these go red instead, because they read the wire. */
+describe('whatsapp bakes the agent caption into the wire payload', () => {
+  const QUOTED = { key: { id: 'M1', remoteJid: '1@s.whatsapp.net', fromMe: false } };
+
+  /** A real adapter with real send methods; only the disk resolvers are stubbed (in-memory bytes),
+   *  and the socket records every `{ content, options }` pair instead of sending. */
+  const mkWireAdapter = async () => {
+    const { WhatsAppAdapter } = await import(join(repoRoot, 'plugins/whatsapp/lib/adapter.mjs')) as { WhatsAppAdapter: new (...args: unknown[]) => any };
+    const { LiveMessage } = await import(join(repoRoot, 'plugins/whatsapp/lib/stream.mjs')) as {
+      LiveMessage: new (...args: unknown[]) => { onEvent: (e: unknown) => void; finalize: (reply?: string) => Promise<void> };
+    };
+    const wire: { content: any; options: any }[] = [];
+    const root = mkdtempSync(join(tmpdir(), 'elowen-whatsapp-wire-'));
+    const state = { get: () => ({}), patch: () => {} };
+    const adapter = new WhatsAppAdapter(
+      { language: 'en', runtimeFooter: false }, log, state, async () => [],
+      [], root, join(root, 'qr.png'), () => false, () => [],
+    );
+    adapter.resolveImageFiles = (_names: string[]) => [
+      { name: 'a.png', data: Buffer.from('PNG-A') },
+      { name: 'b.png', data: Buffer.from('PNG-B') },
+    ];
+    adapter.resolveSharedFiles = (_refs: unknown[]) => [
+      { name: 'first.pdf', data: Buffer.from('PDF-FIRST') },
+      { name: 'second.pdf', data: Buffer.from('PDF-SECOND') },
+    ];
+    adapter.sock = {
+      sendMessage: async (_jid: string, content: any, options: any = {}) => {
+        wire.push({ content, options });
+        return { key: { id: `k${wire.length}` } };
+      },
+    };
+    return { adapter, LiveMessage, wire, root };
+  };
+
+  it('rides the first image payload only, bounded, quoting kept on the first', async () => {
+    const { adapter, LiveMessage, wire, root } = await mkWireAdapter();
+    try {
+      const lm = new LiveMessage(adapter, '1@s.whatsapp.net', QUOTED);
+      lm.onEvent({ type: 'image', ref: `/api/brain/chat-images/${'b'.repeat(64)}.png`, caption: 'The August report chart' });
+      lm.onEvent({ type: 'image', ref: `/api/brain/chat-images/${'c'.repeat(64)}.png` });
+      await lm.finalize('Here is the chart.');
+
+      const images = wire.filter((s) => s.content.image);
+      expect(images).toHaveLength(2);
+      expect(images[0].content.caption).toBe('The August report chart');
+      expect('caption' in images[1].content, 'the caption must not repeat under the second image').toBe(false);
+      expect(images[0].options.quoted).toEqual(QUOTED);
+      expect('quoted' in images[1].options, 'only the first image answers the trigger').toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rides the first document payload only, quoting kept on the first', async () => {
+    const { adapter, LiveMessage, wire, root } = await mkWireAdapter();
+    try {
+      const lm = new LiveMessage(adapter, '1@s.whatsapp.net', QUOTED);
+      lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${'a'.repeat(64)}.bin`, name: 'first.pdf', size: 9, caption: 'The full report' });
+      lm.onEvent({ type: 'file', ref: `/api/brain/chat-files/${'d'.repeat(64)}.bin`, name: 'second.pdf', size: 10 });
+      await lm.finalize('Attached.');
+
+      const docs = wire.filter((s) => s.content.document);
+      expect(docs).toHaveLength(2);
+      expect(docs[0].content.caption).toBe('The full report');
+      expect(docs[0].content.fileName).toBe('first.pdf');
+      expect('caption' in docs[1].content, 'the caption must not repeat under the second document').toBe(false);
+      expect(docs[0].options.quoted).toEqual(QUOTED);
+      expect('quoted' in docs[1].options, 'only the first document answers the trigger').toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('clamps an over-long caption to the surface limit and drops a blank one', async () => {
+    const { adapter, LiveMessage, wire, root } = await mkWireAdapter();
+    try {
+      const lm = new LiveMessage(adapter, '1@s.whatsapp.net');
+      lm.onEvent({ type: 'image', ref: `/api/brain/chat-images/${'e'.repeat(64)}.png`, caption: `${'x'.repeat(2000)}` });
+      await lm.finalize('Long caption.');
+
+      const images = wire.filter((s) => s.content.image);
+      expect(images).toHaveLength(2);
+      expect(images[0].content.caption).toBe(`${'x'.repeat(1024)}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+
+    const retry = await mkWireAdapter();
+    try {
+      const lm = new LiveMessage(retry.adapter, '1@s.whatsapp.net');
+      lm.onEvent({ type: 'image', ref: `/api/brain/chat-images/${'f'.repeat(64)}.png`, caption: '   ' });
+      await lm.finalize('Blank caption.');
+
+      const images = retry.wire.filter((s) => s.content.image);
+      expect(images).toHaveLength(2);
+      expect('caption' in images[0].content, 'a blank caption must not produce an empty caption field').toBe(false);
+    } finally {
+      rmSync(retry.root, { recursive: true, force: true });
+    }
+  });
+});
