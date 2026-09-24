@@ -32,6 +32,14 @@ vi.mock('deep-chat', () => {
     }
     getMessages(): { role?: string; text?: string }[] { return this._messages; }
     addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
+    /** Like the real element: the submit path draws the message and hands it to the configured transport. */
+    submitUserMessage(content: { text?: string }): void {
+      this.addMessage({ role: 'user', text: content.text });
+      const connect = (this as unknown as { connect?: { handler?(body: unknown, signals: unknown): void } }).connect;
+      connect?.handler?.({ messages: [{ role: 'user', text: content.text }] }, {
+        onOpen: () => undefined, onResponse: () => undefined, onClose: () => undefined, stopClicked: {},
+      });
+    }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     disableSubmitButton(): void { /* renderer stub */ }
     focusInput(): void { /* no focus in jsdom */ }

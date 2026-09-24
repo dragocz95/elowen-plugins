@@ -16,7 +16,7 @@
     },
     {
       "name": "chatbot",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "requiresCore": "0.28.53",
       "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v2, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
       "category": "chat",

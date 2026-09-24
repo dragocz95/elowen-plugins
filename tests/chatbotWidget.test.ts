@@ -60,7 +60,17 @@ vi.mock('deep-chat', () => {
       const bubble = this.shadowRoot?.querySelectorAll('.message-bubble')[index];
       if (bubble) bubble.textContent = message.text ?? '';
     }
-    submitUserMessage(content: { text?: string }): void { this.addMessage({ role: 'user', text: content.text }); }
+    /** Like the real element: the submit path draws the message and hands it to the configured transport,
+     *  whose signals are what put up the typing indicator. */
+    submitUserMessage(content: { text?: string }): void {
+      this.addMessage({ role: 'user', text: content.text });
+      this.submitted.push(content.text ?? '');
+      const connect = (this as unknown as { connect?: { handler?(body: unknown, signals: unknown): void } }).connect;
+      connect?.handler?.({ messages: [{ role: 'user', text: content.text }] }, {
+        onOpen: () => undefined, onResponse: () => undefined, onClose: () => undefined, stopClicked: {},
+      });
+    }
+    submitted: string[] = [];
     focusInput(): void { /* no focus in jsdom */ }
     disableSubmitButton(): void { /* no input validation in the renderer stub */ }
     /** Unit tests cover the visibility gate; the browser regression measures actual scroll geometry. */
@@ -1559,6 +1569,9 @@ describe('offer messages in deep-chat', () => {
     const button = answers[1]!.querySelector<HTMLButtonElement>('[data-cb-text="Sent reply"]')!;
     button.click();
     expect(sent).toEqual(['Sent reply']);
+    // Through the panel's own submit, which is what shows the typing indicator, and drawn once.
+    expect((chat as unknown as { submitted: string[] }).submitted).toEqual(['Sent reply']);
+    expect(chat.getMessages().map(message => message.text)).toEqual(['Earlier', 'Latest', 'Sent reply']);
     button.click();
     expect(sent).toEqual(['Sent reply']);
     panel.destroy();

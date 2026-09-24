@@ -700,7 +700,7 @@ export class ChatPanel implements ChatView {
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
 
   /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
-   *  server's projection, one a quick button sent, or one a site sends with `window.ElowenChatbot`.
+   *  server's projection, or one a site sends with `window.ElowenChatbot`.
    *
    *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
    *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
@@ -764,6 +764,14 @@ export class ChatPanel implements ChatView {
     this.setStatus(text, false);
   }
 
+  /** Close a submit no conversation will answer — the administrator's preview has none. The typing indicator
+   *  goes away and a later look change redraws at once instead of waiting for an answer. */
+  closeUnanswered(): void {
+    this.signals?.onClose();
+    this.signals = null;
+    this.flushRedraw();
+  }
+
   error(text: string): void {
     this.answerActive = false;
     this.syncAnswerControl();
@@ -800,7 +808,7 @@ export class ChatPanel implements ChatView {
     if (index !== undefined) this.renderFollowing(index);
   }
 
-  /** Controls grow the answer bubble after its text has settled; a visitor reading the end of the
+  /** Controls make the answer bubble taller after its text has settled; a visitor reading the end of the
    *  conversation keeps seeing its end, including the offer's buttons. */
   private renderFollowing(index: number): void {
     const follow = this.ready && this.atLatest();
@@ -1127,13 +1135,14 @@ export class ChatPanel implements ChatView {
     return this.scrollPending || !!list && list.clientHeight > 0 && list.scrollHeight - list.clientHeight - list.scrollTop <= 1;
   }
 
-  /** A quick button is the visitor's own message: it is drawn in the transcript and then handed to the
-   *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
-   *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
+  /** A quick button is the visitor's own message, so it takes the panel's own submit: deep-chat draws it,
+   *  shows its typing indicator and hands it to `handleSubmit`, exactly as a typed message. Drawing it here
+   *  and calling the conversation directly would skip that indicator. Deep-chat hides the intro — and with
+   *  it the buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   private sendQuick(text: string): void {
+    if (this.answerActive) return;
     this.disableEarlierOffers();
-    this.appendVisitor(text);
-    this.onVisitorMessage(text);
+    this.chat.submitUserMessage({ text });
   }
 
   /** Rewrite the stylesheet and the headings the panel draws itself. Safe at any time: none of it belongs to

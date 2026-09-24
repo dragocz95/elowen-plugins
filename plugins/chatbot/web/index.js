@@ -20023,6 +20023,7 @@ function feedbackStyles() {
   return `
 .text-message:has(.cb-attachments) { position:relative; overflow:visible; }
 .cb-attachments { box-sizing:border-box; width:100%; }
+.cb-attachments:has(.cb-offer):has(.cb-feedback-votes) { padding-bottom:18px; }
 .cb-feedback-votes {
   position:absolute; bottom:-16px; right:-8px; z-index:1; display:flex; padding:1px; border:1px solid var(--cb-attachment-border);
   border-radius:999px; background:var(--cb-attachment-surface); box-shadow:0 2px 7px rgb(0 0 0 / .12);
@@ -20607,7 +20608,7 @@ var ChatPanel = class {
   }
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
   /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
-   *  server's projection, one a quick button sent, or one a site sends with `window.ElowenChatbot`.
+   *  server's projection, or one a site sends with `window.ElowenChatbot`.
    *
    *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
    *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
@@ -20660,6 +20661,13 @@ var ChatPanel = class {
   notice(text) {
     this.setStatus(text, false);
   }
+  /** Close a submit no conversation will answer — the administrator's preview has none. The typing indicator
+   *  goes away and a later look change redraws at once instead of waiting for an answer. */
+  closeUnanswered() {
+    this.signals?.onClose();
+    this.signals = null;
+    this.flushRedraw();
+  }
   error(text) {
     this.answerActive = false;
     this.syncAnswerControl();
@@ -20678,18 +20686,22 @@ var ChatPanel = class {
     if (index === null) return;
     if (active) this.disableEarlierOffers();
     this.attachments.set(index, { ...this.attachments.get(index), offer, offerActive: active });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
   showFeedback(turnId, selection) {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
     this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
   updateFeedback(turnId) {
     const index = this.feedbackIndices.get(turnId);
-    if (index === void 0) return;
+    if (index !== void 0) this.renderFollowing(index);
+  }
+  /** Controls make the answer bubble taller after its text has settled; a visitor reading the end of the
+   *  conversation keeps seeing its end, including the offer's buttons. */
+  renderFollowing(index) {
     const follow = this.ready && this.atLatest();
     this.renderAttachment(index);
     if (follow) requestAnimationFrame(() => this.scrollToLatest());
@@ -20986,13 +20998,14 @@ var ChatPanel = class {
     const list = this.chat.shadowRoot?.querySelector("#messages");
     return this.scrollPending || !!list && list.clientHeight > 0 && list.scrollHeight - list.clientHeight - list.scrollTop <= 1;
   }
-  /** A quick button is the visitor's own message: it is drawn in the transcript and then handed to the
-   *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
-   *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
+  /** A quick button is the visitor's own message, so it takes the panel's own submit: deep-chat draws it,
+   *  shows its typing indicator and hands it to `handleSubmit`, exactly as a typed message. Drawing it here
+   *  and calling the conversation directly would skip that indicator. Deep-chat hides the intro — and with
+   *  it the buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   sendQuick(text) {
+    if (this.answerActive) return;
     this.disableEarlierOffers();
-    this.appendVisitor(text);
-    this.onVisitorMessage(text);
+    this.chat.submitUserMessage({ text });
   }
   /** Rewrite the stylesheet and the headings the panel draws itself. Safe at any time: none of it belongs to
    *  the chat element, and none of it touches the conversation. */
@@ -21264,8 +21277,9 @@ function AppearancePreview({ look, label }) {
     const instance = new ChatPanel({
       strings,
       look: initial.current,
-      // The panel draws the visitor's own message itself; there is no conversation here to send it to.
-      onVisitorMessage: () => void 0,
+      // The panel draws the visitor's own message itself; there is no conversation here to send it to, so
+      // the submit is closed at once rather than left waiting for an answer that never comes.
+      onVisitorMessage: () => instance.closeUnanswered(),
       onStop: () => void 0
     });
     frameElement.appendChild(instance.host);
