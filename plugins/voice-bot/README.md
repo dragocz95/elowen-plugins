@@ -8,10 +8,10 @@ Install **voice-bot** from **Settings → Plugins → Available**, configure the
 
 | Field | Value |
 | --- | --- |
-| Version | 0.1.4 |
+| Version | 0.1.5 |
 | requiresCore | 0.28.50 |
 | requiresSharedApi | none |
 
 Configure the API URL and token, hourly call limit, call timeout, and default initialization message in the plugin settings.
 
-See the [Voice Calls page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/48-voice-bot-plugin.md).
+See the [Voice Calls reference](docs/voice-bot-plugin.md).

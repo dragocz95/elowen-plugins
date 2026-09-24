@@ -1,6 +1,6 @@
 {
   "name": "chatbot",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "apiVersion": "2",
   "requiresCore": "0.28.54",
   "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v2, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
@@ -51,7 +51,9 @@
       "min": 1,
       "max": 365,
       "step": 1,
-      "display": { "control": "slider" },
+      "display": {
+        "control": "slider"
+      },
       "default": 30,
       "hint": "A visitor token is the only authority an anonymous visitor has. When it expires the widget asks for a new one and the conversation continues in the same session; a token is never extended automatically."
     }

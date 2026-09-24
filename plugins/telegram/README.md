@@ -8,10 +8,8 @@ Install **telegram** from **Settings → Plugins → Available**, configure the 
 
 | Field | Value |
 | --- | --- |
-| Version | 0.2.21 |
+| Version | 0.2.22 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 
-Configure the bot and allowed chats, notification destination, response and tool-activity presentation, reactions, service language, media, voice, and role policies in the plugin settings.
-
-See the [Chat Platform Plugins page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/37-chat-platform-plugins.md).
+Full user docs: https://elowen.run/docs/telegram-plugin (shared concepts: https://elowen.run/docs/chat-platform-plugins).

@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": "2",
   "requiresCore": "0.28.52",
   "description": "Loads skills from disk and makes them available to the assistant.",

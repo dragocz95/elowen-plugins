@@ -8,10 +8,10 @@ Install **skills** from **Settings → Plugins → Available**, then grant it to
 
 | Field | Value |
 | --- | --- |
-| Version | 0.5.1 |
+| Version | 0.5.2 |
 | requiresCore | 0.28.52 |
 | requiresSharedApi | none |
 
 This plugin has no configuration fields.
 
-See the [Skills Plugin page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/45-skills-plugin.md).
+See the [Skills Plugin reference](docs/skills-plugin.md).

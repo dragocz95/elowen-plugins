@@ -8,10 +8,10 @@ Install **msteams** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.8.7 |
+| Version | 0.8.8 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 
-Configure bot and tenant identity, account linking, sign-in, Microsoft 365 access, proactive destination, lookup, response presentation, service language, history, media, and role policies in the plugin settings.
+Full user docs: https://elowen.run/docs/microsoft-365-plugin.
 
-See the [Microsoft Teams & Microsoft 365 page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/38-microsoft-365-plugin.md).
+Maintainer notes (developers only, no manual frontmatter): `docs/README.md`, `docs/architecture.md`, `docs/operations.md`, `docs/permissions.md`.
