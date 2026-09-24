@@ -501,6 +501,7 @@ var import_react7 = __toESM(require_react(), 1);
 // plugins/chatbot/src/publicContract.ts
 var WIDGET_ASSET_NAME = "widget.js";
 var MESSAGE_MAX_BYTES = 2 * 1024;
+var VISITOR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 var PAGE_STATE_MAX_BYTES = 32 * 1024;
 var WIDGET_MAX_ACTIONS_PER_TURN = 50;
 var FEEDBACK_COMMENT_MAX_CHARS = 500;
@@ -511,6 +512,8 @@ var PUBLIC_SEGMENTS = {
   visitors: "visitors",
   refresh: "refresh",
   turns: "turns",
+  uploads: "uploads",
+  files: "files",
   events: "events",
   feedback: "feedback",
   actions: "actions",
@@ -526,6 +529,8 @@ var PUBLIC_PATHS = {
   visitors: PUBLIC_SEGMENTS.visitors,
   refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
   turns: PUBLIC_SEGMENTS.turns,
+  uploads: PUBLIC_SEGMENTS.uploads,
+  file: (turnId, kind, storedName) => `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.files}/${kind}/${storedName}`,
   conversation: PUBLIC_SEGMENTS.conversation,
   /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
    *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */
@@ -1597,6 +1602,9 @@ var import_react5 = __toESM(require_react(), 1);
 
 // plugins/chatbot/embed-src/strings.ts
 var WIDGET_LOCALES = ["cs", "sk", "en"];
+function fillTemplate(template2, values) {
+  return template2.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match);
+}
 var CS = {
   launcher: "Otev\u0159\xEDt chat",
   title: "Chat",
@@ -1620,6 +1628,12 @@ var CS = {
   errorTurn: "Odpov\u011B\u010F se nepoda\u0159ilo dokon\u010Dit. Zkuste to pros\xEDm znovu.",
   errorUnavailable: "Chatbot te\u010F nen\xED dostupn\xFD. Zkuste to pros\xEDm pozd\u011Bji.",
   errorTooLong: "Zpr\xE1va je p\u0159\xEDli\u0161 dlouh\xE1. Zkra\u0165te ji pros\xEDm.",
+  errorImage: "P\u0159ilo\u017Ete pros\xEDm jeden obr\xE1zek PNG, JPEG, GIF nebo WebP do 10 MB.",
+  errorImageUpload: "Obr\xE1zek se nepoda\u0159ilo nahr\xE1t. Zkuste to pros\xEDm znovu.",
+  uploadProgress: "Nahr\xE1v\xE1n\xED obr\xE1zku: {percent} %",
+  attachmentImage: "Sd\xEDlen\xFD obr\xE1zek",
+  attachmentDownload: "St\xE1hnout soubor",
+  errorAttachment: "P\u0159\xEDlohu se nepoda\u0159ilo na\u010D\xEDst.",
   confirmTitle: "Odeslat formul\xE1\u0159 {form}?",
   confirmBody: "Zkontrolujte pros\xEDm vypln\u011Bn\xE9 \xFAdaje. Odesl\xE1n\xED potvrzujete vy, chatbot ho neprovede s\xE1m.",
   confirmSubmit: "Potvrdit odesl\xE1n\xED",
@@ -1654,6 +1668,12 @@ var SK = {
   errorTurn: "Odpove\u010F sa nepodarilo dokon\u010Di\u0165. Sk\xFAste to pros\xEDm znova.",
   errorUnavailable: "Chatbot teraz nie je dostupn\xFD. Sk\xFAste to pros\xEDm nesk\xF4r.",
   errorTooLong: "Spr\xE1va je pr\xEDli\u0161 dlh\xE1. Skr\xE1\u0165te ju pros\xEDm.",
+  errorImage: "Prilo\u017Ete, pros\xEDm, jeden obr\xE1zok PNG, JPEG, GIF alebo WebP do 10 MB.",
+  errorImageUpload: "Obr\xE1zok sa nepodarilo nahra\u0165. Sk\xFAste to, pros\xEDm, znova.",
+  uploadProgress: "Nahr\xE1vanie obr\xE1zka: {percent} %",
+  attachmentImage: "Zdie\u013Ean\xFD obr\xE1zok",
+  attachmentDownload: "Stiahnu\u0165 s\xFAbor",
+  errorAttachment: "Pr\xEDlohu sa nepodarilo na\u010D\xEDta\u0165.",
   confirmTitle: "Odosla\u0165 formul\xE1r {form}?",
   confirmBody: "Skontrolujte pros\xEDm vyplnen\xE9 \xFAdaje. Odoslanie potvrdzujete vy, chatbot ho nevykon\xE1 s\xE1m.",
   confirmSubmit: "Potvrdi\u0165 odoslanie",
@@ -1688,6 +1708,12 @@ var EN = {
   errorTurn: "The answer could not be finished. Please try again.",
   errorUnavailable: "The chatbot is not available right now. Please try again later.",
   errorTooLong: "The message is too long. Please shorten it.",
+  errorImage: "Please attach one PNG, JPEG, GIF or WebP image up to 10 MB.",
+  errorImageUpload: "The image could not be uploaded. Please try again.",
+  uploadProgress: "Uploading image: {percent}%",
+  attachmentImage: "Shared image",
+  attachmentDownload: "Download file",
+  errorAttachment: "The attachment could not be loaded.",
   confirmTitle: "Send form {form}?",
   confirmBody: "Please check the details you filled in. You are the one sending it; the chatbot never submits on its own.",
   confirmSubmit: "Confirm sending",
@@ -20176,6 +20202,7 @@ function chatConfig(input) {
       boxShadow: "0 2px 8px rgb(0 0 0 / .16)"
     } } },
     hiddenMessages: { smoothScroll: true, clickScroll: "last", styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
+    images: { files: { maxNumberOfFiles: 1, acceptedFormats: ".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" } },
     textInput: {
       placeholder: { text: appearance.typography.placeholder || strings.placeholder, style: { color: ramp.muted } },
       styles: {
@@ -20260,6 +20287,11 @@ function lookStyle(appearance) {
   --cb-attachment-surface: ${ramp.raised};
   --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
 }
+.cb-shared-file { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; overflow-wrap: anywhere; }
+.cb-shared-file img { display: block; max-width: min(100%, 280px); max-height: 240px; object-fit: contain; border-radius: 8px; }
+.cb-shared-file a { color: inherit; text-decoration: underline; min-height: 44px; display: inline-flex; align-items: center; }
+.cb-shared-file a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.cb-upload-name { display: block; padding-top: 6px; overflow-wrap: anywhere; font-size: .875em; }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
 :host([data-answer-active]) .input-button:not(:has([data-cb-stop-icon])) { display: none !important; }
 .input-button:has([data-cb-stop-icon]) { right: .33em !important; }
@@ -20299,6 +20331,7 @@ function styleText(appearance) {
   const fromTop = appearance.position.startsWith("top");
   const fromLeft = appearance.position.endsWith("left");
   const dotSize = Math.max(8, Math.round(appearance.launcher.size * 0.32));
+  const teaserTail = Math.round(appearance.launcher.size / 2) - 7;
   const dotRing = Math.max(2, Math.round(appearance.launcher.size * 0.04));
   const presenceDot = appearance.launcher.presenceDot ? `
 .launcher-dot {
@@ -20384,9 +20417,33 @@ function styleText(appearance) {
 ${presenceDot}
 ${effectsCss(appearance)}
 .launcher-badge { position: absolute; top: -8px; left: -8px; min-width: 22px; padding: 2px 5px; border-radius: 999px; background: ${ramp.ember}; color: ${appearanceInk(ramp.ember)}; font-size: 12px; line-height: 18px; text-align: center; font-weight: 700; }
-.launcher-teaser { display: flex; align-items: center; gap: 8px; max-width: min(280px, var(--cb-avail-w)); padding: 10px 12px; overflow-wrap: anywhere; border: 1px solid ${ramp.border}; border-radius: 12px; background: ${ramp.raised}; color: ${ramp.foreground}; box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]}; }
+.launcher-teaser {
+  position: relative; display: flex; align-items: flex-start; gap: 6px;
+  max-width: min(260px, var(--cb-avail-w)); padding: 12px 8px 12px 16px;
+  border: 1px solid ${ramp.border}; border-radius: 18px; background: ${appearance.colors.panel}; color: ${ramp.foreground};
+  box-shadow: ${APPEARANCE_SHADOWS[appearance.typography.shadow]};
+  transform-origin: ${fromLeft ? `${teaserTail + 7}px` : `calc(100% - ${teaserTail + 7}px)`} ${fromTop ? "0%" : "100%"};
+  animation: cb-teaser-in .36s cubic-bezier(.2, .9, .3, 1.15) both;
+}
+.launcher-teaser::after {
+  content: ''; position: absolute; ${fromTop ? "top" : "bottom"}: -7px; ${fromLeft ? "left" : "right"}: ${teaserTail}px;
+  width: 12px; height: 12px; background: inherit; transform: rotate(45deg);
+  border-${fromTop ? "top" : "bottom"}: 1px solid ${ramp.border}; border-${fromTop ? "left" : "right"}: 1px solid ${ramp.border};
+}
+@keyframes cb-teaser-in { from { opacity: 0; transform: translateY(${fromTop ? -8 : 8}px) scale(.7); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .launcher-teaser { animation: none; } }
 .launcher-teaser[hidden], .launcher-badge[hidden] { display: none; }
-.launcher-teaser button { cursor: pointer; border: 0; background: transparent; color: inherit; font: inherit; font-size: 20px; line-height: 1; }
+.launcher-teaser-text {
+  flex: 1 1 auto; min-width: 0; padding: 2px 0; border: 0; background: transparent; color: inherit;
+  font: inherit; font-weight: 500; line-height: 1.45; text-align: left; overflow-wrap: anywhere; cursor: pointer;
+}
+.launcher-teaser-close {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  padding: 0; border: 0; border-radius: 50%; background: transparent; color: ${ramp.muted};
+  font: inherit; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.launcher-teaser-close:hover { background: ${ramp.field}; color: ${ramp.foreground}; }
+.launcher-teaser button:focus-visible { outline: 2px solid ${ramp.ember}; outline-offset: 2px; }
 .header-actions { display: flex; align-items: center; gap: 4px; }
 .mute { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; border: 1px solid transparent; background: transparent; color: ${headerInk}; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; }
 .mute svg { display: block; width: 20px; height: 20px; }
@@ -20444,6 +20501,10 @@ var ChatPanel = class {
   offerOrigins = [];
   /** One attachment record per answer, regardless of whether it is streamed or restored. */
   attachments = /* @__PURE__ */ new Map();
+  pendingFiles = /* @__PURE__ */ new Map();
+  uploadNames = /* @__PURE__ */ new Map();
+  fileUrls = /* @__PURE__ */ new Map();
+  loadingFiles = /* @__PURE__ */ new Set();
   latestAnswerIndex = null;
   feedbackIndices = /* @__PURE__ */ new Map();
   feedbackBusy = /* @__PURE__ */ new Set();
@@ -20557,9 +20618,16 @@ var ChatPanel = class {
     this.teaser = document.createElement("div");
     this.teaser.className = "launcher-teaser";
     this.teaser.hidden = true;
-    const teaserText = document.createElement("span");
+    const teaserText = document.createElement("button");
+    teaserText.type = "button";
+    teaserText.className = "launcher-teaser-text";
+    teaserText.addEventListener("click", () => {
+      unlockSound();
+      this.toggle(true);
+    });
     const dismissTeaser = document.createElement("button");
     dismissTeaser.type = "button";
+    dismissTeaser.className = "launcher-teaser-close";
     dismissTeaser.textContent = "\xD7";
     dismissTeaser.setAttribute("aria-label", this.strings.teaserClose);
     dismissTeaser.addEventListener("click", () => this.dismissTeaser());
@@ -20638,7 +20706,7 @@ var ChatPanel = class {
   finishAnswer(text) {
     this.answerActive = false;
     this.syncAnswerControl();
-    this.answer = text === "" ? this.answer : text;
+    this.answer = text === "" ? this.answer || "\xA0" : text;
     const signals = this.signals;
     this.signals = null;
     this.clearStatus();
@@ -20680,6 +20748,35 @@ var ChatPanel = class {
     this.answerIndex = null;
     this.flushRedraw();
   }
+  uploadProgress(loaded, total) {
+    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(Math.min(100, Math.round(100 * loaded / total))) }));
+  }
+  showAttachment(turnId, attachment, load) {
+    const key = `${turnId}:${attachment.kind}:${attachment.storedName}`;
+    const index = this.feedbackIndices.get(turnId);
+    const list = index === void 0 ? this.pendingFiles.get(turnId) ?? [] : this.attachments.get(index)?.files ?? [];
+    if (!list.some((item) => item.kind === attachment.kind && item.storedName === attachment.storedName)) list.push(attachment);
+    if (index === void 0) this.pendingFiles.set(turnId, list);
+    else {
+      this.attachments.set(index, { ...this.attachments.get(index), files: list });
+      this.renderFollowing(index);
+    }
+    if (this.fileUrls.has(key) || this.loadingFiles.has(key)) return;
+    this.loadingFiles.add(key);
+    void Promise.resolve().then(load).then((blob) => {
+      if (this.destroyed) return;
+      if (!blob) {
+        this.notice(this.strings.errorAttachment);
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      this.fileUrls.set(key, url);
+      const target = this.feedbackIndices.get(turnId);
+      if (target !== void 0) this.renderFollowing(target);
+    }).catch(() => {
+      if (!this.destroyed) this.notice(this.strings.errorAttachment);
+    }).finally(() => this.loadingFiles.delete(key));
+  }
   setAllowedOrigins(origins) {
     this.offerOrigins = origins;
   }
@@ -20695,7 +20792,14 @@ var ChatPanel = class {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
-    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
+    this.attachments.set(index, {
+      ...this.attachments.get(index),
+      turnId,
+      selection,
+      commentOpen: false,
+      files: this.pendingFiles.get(turnId) ?? this.attachments.get(index)?.files
+    });
+    this.pendingFiles.delete(turnId);
     this.renderFollowing(index);
   }
   updateFeedback(turnId) {
@@ -20741,6 +20845,38 @@ var ChatPanel = class {
       bubble.append(attachment);
     }
     attachment.innerHTML = markup;
+    for (const file of state.files ?? []) {
+      const key = `${state.turnId}:${file.kind}:${file.storedName}`;
+      const url = this.fileUrls.get(key);
+      const item = document.createElement("div");
+      item.className = "cb-shared-file";
+      if (file.kind === "image" && url) {
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = file.caption || this.strings.attachmentImage;
+        item.append(img);
+      }
+      const label = document.createElement(url ? "a" : "span");
+      label.textContent = file.name || file.caption || (file.kind === "image" ? this.strings.attachmentImage : this.strings.attachmentDownload);
+      if (url && label instanceof HTMLAnchorElement) {
+        label.href = url;
+        label.download = file.kind === "file" ? file.name || file.storedName : file.storedName;
+      }
+      item.append(label);
+      attachment.append(item);
+    }
+  }
+  renderUpload(index) {
+    if (!this.ready) return;
+    const name = this.uploadNames.get(index);
+    if (!name) return;
+    const user = Array.from(this.chat.shadowRoot?.querySelectorAll(".outer-message-container.deep-chat-outer-container-role-user") ?? [])[this.chat.getMessages().slice(0, index + 1).filter((message) => message.role === "user").length - 1];
+    const bubble = user?.querySelector(".inner-message-container .text-message");
+    if (!bubble || bubble.querySelector(".cb-upload-name")) return;
+    const label = document.createElement("span");
+    label.className = "cb-upload-name";
+    label.textContent = name;
+    bubble.append(label);
   }
   attachmentClick = (event) => {
     if (!(event.target instanceof Element)) return;
@@ -20824,7 +20960,12 @@ var ChatPanel = class {
    *  else takes — which draws each one and asks the server for nothing. */
   restore(messages) {
     for (const message of messages) {
-      this.draw({ role: message.role, text: message.text });
+      this.draw({ role: message.role, text: message.text || (message.uploadName || message.attachments?.length ? "\xA0" : "") });
+      if (message.role === "user" && message.uploadName) {
+        const index = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
+        this.uploadNames.set(index, message.uploadName);
+        this.renderUpload(index);
+      }
       if (message.role !== "ai") continue;
       this.latestAnswerIndex = (this.ready ? this.chat.getMessages().length : this.queued.length) - 1;
       if (message.offer) this.showOffer(message.offer, message.offerActive === true);
@@ -20861,6 +21002,8 @@ var ChatPanel = class {
     document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.resetUnread();
     this.releaseAvatarObjectUrl();
+    for (const url of this.fileUrls.values()) URL.revokeObjectURL(url);
+    this.fileUrls.clear();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -20886,7 +21029,7 @@ var ChatPanel = class {
   createChat() {
     const chat = document.createElement("deep-chat");
     Object.assign(chat, this.chatConfig());
-    chat.validateInput = (text) => !this.answerActive && !!text?.trim();
+    chat.validateInput = (text, files) => !this.answerActive && (!!text?.trim() || !!files?.length);
     chat.connect = {
       stream: true,
       handler: (body, signals) => this.handleSubmit(body, signals)
@@ -20898,6 +21041,7 @@ var ChatPanel = class {
       chat.shadowRoot?.addEventListener("click", this.attachmentClick);
       for (const [index, message] of this.queued.splice(0, this.queued.length).entries()) {
         chat.addMessage(message);
+        this.renderUpload(index);
         if (this.attachments.has(index)) {
           Array.from(chat.shadowRoot?.querySelectorAll(".outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)") ?? []).at(-1)?.setAttribute("data-cb-answer-index", String(index));
           this.renderAttachment(index);
@@ -21229,8 +21373,13 @@ var ChatPanel = class {
   /** Deep-chat hands the visitor's message to the widget's own transport. Its body is what it would have
    *  posted to a service; the widget reads the visitor's last words out of it and nothing else. */
   handleSubmit(body, signals) {
-    const text = lastUserText(body);
-    if (text === "") {
+    const { text, image, invalid } = lastUserSubmission(body);
+    if (invalid) {
+      this.error(this.strings.errorImage);
+      signals.onClose();
+      return;
+    }
+    if (text === "" && image === null) {
       signals.onClose();
       return;
     }
@@ -21238,7 +21387,7 @@ var ChatPanel = class {
     this.signals = signals;
     this.answerIndex = null;
     signals.stopClicked.listener = () => this.stopAnswer();
-    this.onVisitorMessage(text);
+    this.onVisitorMessage(text, image);
   }
   /** A message written through the panel's own message list, for content that arrives outside a submit: a
    *  restored turn, a notice, an answer resumed after a reload. */
@@ -21256,18 +21405,23 @@ var ChatPanel = class {
     } else this.queued[this.answerIndex] = message;
   }
 };
-function lastUserText(body) {
-  if (typeof body !== "object" || body === null) return "";
+function lastUserSubmission(body) {
+  const empty = { text: "", image: null, invalid: false };
+  if (typeof body !== "object" || body === null) return empty;
   const messages = body.messages;
-  if (!Array.isArray(messages)) return "";
+  if (!Array.isArray(messages)) return empty;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const entry = messages[index];
     if (typeof entry !== "object" || entry === null) continue;
     const record = entry;
     if (record.role !== void 0 && record.role !== "user") continue;
-    if (typeof record.text === "string" && record.text.trim() !== "") return record.text;
+    const files = record.files;
+    const text = typeof record.text === "string" ? record.text : "";
+    if (!Array.isArray(files) || files.length === 0) return { text, image: null, invalid: false };
+    const image = files[0]?.ref;
+    return { text, image: image instanceof File ? image : null, invalid: files.length !== 1 || !(image instanceof File) };
   }
-  return "";
+  return empty;
 }
 
 // plugins/chatbot/web-src/AppearancePreview.tsx
