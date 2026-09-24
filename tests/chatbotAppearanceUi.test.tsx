@@ -243,6 +243,38 @@ describe('visitor attention', () => {
       Object.defineProperty(window, 'AudioContext', { configurable: true, value: previousAudio });
     }
   });
+
+  it('draws the teaser as a bubble speaking from the launcher, and opens the chat from it', async () => {
+    const withTeaser = (position: typeof DEFAULT_APPEARANCE.position) => ({
+      ...DEFAULT_APPEARANCE, position, launcher: { ...DEFAULT_APPEARANCE.launcher, size: 60, teaser: 'Need a hand?' },
+    });
+    const panel = new ChatPanel({ look: { name: 'Help', appearance: DEFAULT_APPEARANCE }, strings: widget, onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    try {
+      panel.applyAppearance({ name: 'Help', appearance: withTeaser('bottom-right') });
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+      const shadow = panel.host.shadowRoot!;
+      const teaser = shadow.querySelector<HTMLElement>('.launcher-teaser')!;
+      expect(teaser.hidden).toBe(false);
+      const css = shadow.querySelector('style')!.textContent!;
+      expect(css).toContain('bottom: -7px; right: 23px;');
+      expect(css).toContain('transform-origin: calc(100% - 30px) 100%;');
+
+      const invitation = shadow.querySelector<HTMLButtonElement>('.launcher-teaser-text')!;
+      expect(invitation.textContent).toBe('Need a hand?');
+      invitation.click();
+      expect(panel.isOpen()).toBe(true);
+      expect(teaser.hidden).toBe(true);
+
+      panel.close();
+      panel.applyAppearance({ name: 'Help', appearance: withTeaser('top-left') });
+      expect(shadow.querySelector('style')!.textContent).toContain('top: -7px; left: 23px;');
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+      expect(teaser.hidden).toBe(true);
+    } finally {
+      panel.destroy();
+    }
+  });
 });
 
 describe('the appearance editor', () => {
