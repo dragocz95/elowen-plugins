@@ -8,6 +8,10 @@
 
 - Chat images are uploaded only from explicit `ShareImage` events, not image-looking links in reply text. Scheduled direct-chat replies carry those image events into proactive delivery as attachments. Requires core 0.28.53 and shared API 5.
 
+## cronjob 0.6.18 - 2026-09-24
+
+- Scheduled reports now keep explicitly shared images attached when delivering to a notification channel, including retries after a failed delivery. Requires core 0.28.53 and shared API 5.
+
 ## cronjob 0.6.17 - 2026-09-24
 
 - Updated its shared-package contract to API 5 for core 0.28.53. Existing scheduled prompts and delivery history remain unchanged.

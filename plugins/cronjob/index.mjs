@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runtimeFooter } from 'elowen-plugin-shared/format';
+import { runtimeFooter, imageRefName } from 'elowen-plugin-shared/format';
 import { readJsonSafe, writeJsonAtomic } from 'elowen-plugin-shared/atomicJson';
 import { openRunJournal } from './lib/runJournal.mjs';
 
@@ -463,6 +463,7 @@ class CronAdapter {
       // Did the turn emit real output (a tool call, assistant text or a diff)? If it did before failing,
       // the run had side effects and must NOT be retried; only a failure that produced nothing is safe.
       let sawWork = false;
+      let sharedImages = [];
       // Hand the brain the guard's fresh output (if any) so it acts on it directly instead of re-running
       // the collector via a tool — the whole point of the gate is one cheap check, not a check + a re-fetch.
       let userText = checkOutput
@@ -529,6 +530,10 @@ class CronAdapter {
           boundDelivery = true;
           this.journal.note(receipt.id, { delivered: true });
         }
+        if (e?.type === 'image' && !e.preview && imageRefName(e.ref)) {
+          sharedImages.push({ type: 'image', ref: e.ref, ...(typeof e.caption === 'string' ? { caption: e.caption } : {}) });
+          sawWork = true;
+        }
         if (e?.type === 'tool' || e?.type === 'text' || e?.type === 'diff') sawWork = true;
       };
       // Bounded retry: a request-time failure — a transient relay/gateway/network blip that threw before
@@ -539,7 +544,7 @@ class CronAdapter {
       // per-turn accumulators each attempt.
       let reply;
       for (let attempt = 1; ; attempt++) {
-        idle = null; boundDelivery = false; sawWork = false;
+        idle = null; boundDelivery = false; sawWork = false; sharedImages = [];
         try { reply = await this.relay(src, userText, { onEvent }); break; }
         catch (e) {
           if (attempt < this.turnAttempts && !sawWork && !job.runAt) {
@@ -570,7 +575,8 @@ class CronAdapter {
       // that no conversation of theirs confirmed receiving, reaches them on the bell instead; every other
       // outcome clears that alert, because the job works again.
       if (owner !== null) {
-        const undelivered = !failed && origin !== undefined && !boundDelivery && trimmed !== '' && !isQuietReply(trimmed);
+        const undelivered = !failed && origin !== undefined && !boundDelivery
+          && ((trimmed !== '' && !isQuietReply(trimmed)) || sharedImages.length > 0);
         await this.alertOwner(job, owner, failed ? { kind: 'runFailed', params: { error: errorMessage } }
           : undelivered ? { kind: 'runUndelivered', params: {} }
             : null);
@@ -595,7 +601,7 @@ class CronAdapter {
       }
       // Echo the outcome to the notification channel (Discord) so it reaches the user proactively.
       // A job with nothing to say answers with a quiet marker (isQuietReply) and stays silent.
-      if (trimmed && !isQuietReply(trimmed)) {
+      if ((trimmed && !isQuietReply(trimmed)) || sharedImages.length > 0) {
         const footer = runtimeFooter(idle, FOOTER_FENCE);
         // `plain` jobs deliver the reply as-is (persona messages in a dedicated channel don't want
         // the "⏰ job name" banner); the footer subtext stays — it matches streamed replies.
@@ -604,7 +610,7 @@ class CronAdapter {
         // (Discord splits on line boundaries), so a long report — e.g. a 60-item debtor list —
         // arrives complete across several messages instead of being clipped mid-list.
         const body = `${header}${String(reply)}${footer ? `\n\n${footer}` : ''}`;
-        if (await this.deliverOrQueue(job, body)) {
+        if (await this.deliverOrQueue(job, body, sharedImages)) {
           this.journal.note(receipt.id, { delivered: true, deliveryTarget: job.notifyChannelId ?? null });
         }
       }
@@ -704,10 +710,10 @@ class CronAdapter {
    *  turn for). The pending record survives independently of the job: a one-shot's own row is gone by the
    *  time this runs (consumed before the turn, see the tick loop), so the record here is the only place
    *  left holding the result until it is actually delivered. */
-  async deliverOrQueue(job, body) {
+  async deliverOrQueue(job, body, images) {
     const entry = {
       id: newId(),
-      jobId: job.id, jobName: job.name, channelId: job.notifyChannelId, body, createdAt: new Date().toISOString(),
+      jobId: job.id, jobName: job.name, channelId: job.notifyChannelId, body, images, createdAt: new Date().toISOString(),
     };
     this.deliveryStore.add(entry);
     return this.attemptDelivery(entry);
@@ -721,7 +727,7 @@ class CronAdapter {
     const claimed = this.deliveryStore.claim(entry.id, this.deliveryOwner, Date.now());
     if (!claimed) return false; // another generation is delivering it right now
     try {
-      await this.deliver(claimed.body, claimed.channelId);
+      await this.deliver(claimed.body, claimed.channelId, claimed.images);
       this.deliveryStore.remove(claimed.id);
       return true;
     } catch (e) {
@@ -824,12 +830,36 @@ class JobStore {
  *  one-shot job's own record is already gone (consumed before it ran) by the time delivery is attempted,
  *  so the pending record here is the only surviving copy of that result until it lands. */
 class DeliveryStore {
-  constructor(file, logger) { this.file = file; this.log = logger; }
+  constructor(file, logger) {
+    this.file = file; this.log = logger;
+    this.migrateImages();
+  }
+  /** Add empty image lists to pre-image delivery records once, before any delivery attempt reads them. */
+  migrateImages() {
+    if (!existsSync(this.file)) return;
+    let parsed;
+    try { parsed = JSON.parse(readFileSync(this.file, 'utf8')); }
+    catch (error) {
+      this.log?.error?.(`cron: cannot migrate pending deliveries in ${this.file} — ${error?.message ?? error}`);
+      return; // preserve the unreadable file for repair
+    }
+    if (!Array.isArray(parsed)) return; // all() reports malformed state without replacing it
+    let changed = false;
+    for (const entry of parsed) {
+      if (isRecord(entry) && typeof entry.body === 'string' && entry.images === undefined) {
+        entry.images = [];
+        changed = true;
+      }
+    }
+    if (changed) this.save(parsed);
+  }
   all() {
     const parsed = readJsonSafe(this.file, [], (e) =>
       this.log?.error?.(`cron: corrupt pending-deliveries file ${this.file} — treating as empty: ${e?.message ?? e}`));
-    // A pending entry is only useful if it still carries the text to deliver.
-    return validEntries(parsed, (entry) => isRecord(entry) && typeof entry.body === 'string', (reason) =>
+    return validEntries(parsed, (entry) => isRecord(entry) && typeof entry.body === 'string'
+      && Array.isArray(entry.images) && entry.images.every((image) =>
+        image?.type === 'image' && typeof image.ref === 'string' && imageRefName(image.ref)
+        && (image.caption === undefined || typeof image.caption === 'string')), (reason) =>
       this.log?.error?.(`cron: skipping malformed pending delivery in ${this.file} — ${reason}`));
   }
   save(entries) {

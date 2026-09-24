@@ -8,7 +8,7 @@ Install **cronjob** from **Settings → Plugins → Available**, then grant it t
 
 | Field | Value |
 | --- | --- |
-| Version | 0.6.17 |
+| Version | 0.6.18 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | 5 |
 
