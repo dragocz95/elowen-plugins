@@ -100,7 +100,6 @@ function introUtilities(
   appearance: ChatbotAppearance,
   onQuickButton: (text: string) => void,
 ): Record<string, { events?: Record<string, (event: { target: EventTarget | null }) => void>; styles?: Record<string, Record<string, string>> }> {
-  const ramp = appearanceRamp(appearance);
   return {
     'cb-quick': {
       styles: { default: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', justifyContent: 'center' } },
@@ -116,25 +115,32 @@ function introUtilities(
           }
         },
       },
-      styles: {
-        default: {
-          border: `1px solid ${ramp.border}`,
-          background: ramp.raised,
-          color: ramp.foreground,
-          borderRadius: `${appearance.radius}px`,
-          padding: '6px 10px',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          font: 'inherit',
-          fontSize: '13px',
-          cursor: 'pointer',
-          textAlign: 'center',
-          transition: 'transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease',
-        },
-        ...buttonStyles(appearance),
-      },
+      styles: quickItemStyles(appearance),
     },
+  };
+}
+
+/** The one look of a quick button: the greeting's buttons get it through deep-chat's class utilities and
+ *  the agent's offer buttons through the stylesheet, so both render the same control. */
+function quickItemStyles(appearance: ChatbotAppearance): { default: Record<string, string>; hover: Record<string, string>; click: Record<string, string> } {
+  const ramp = appearanceRamp(appearance);
+  return {
+    default: {
+      border: `1px solid ${ramp.border}`,
+      background: ramp.raised,
+      color: ramp.foreground,
+      borderRadius: `${appearance.radius}px`,
+      padding: '6px 10px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      font: 'inherit',
+      fontSize: '13px',
+      cursor: 'pointer',
+      textAlign: 'center',
+      transition: 'transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease',
+    },
+    ...buttonStyles(appearance),
   };
 }
 
@@ -256,10 +262,28 @@ function chatConfig(input: {
       },
       loading: { message: { styles: { bubble: { backgroundColor: appearance.colors.botBubble, color: appearanceInk(appearance.colors.botBubble) } } } },
     },
-    // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
-    // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
-    // only the primary color source changes to the widget appearance's send color.
-    auxiliaryStyle: `
+    errorMessages: { displayServiceErrorMessages: false },
+    introMessage: {
+      html: introHtml({
+        greeting: appearance.intro ?? strings.intro,
+        appearance,
+        strings,
+      }),
+    },
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
+    avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
+    names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
+  };
+}
+
+/** The stylesheet the panel keeps INSIDE deep-chat's shadow root, which the panel's own stylesheet cannot
+ *  reach. It is not handed over as deep-chat's `auxiliaryStyle`: the library applies that once, on first
+ *  render, and ignores every later value, so a look that arrives after the panel is built (the widget always
+ *  starts from the default look) would keep the default's colours for offers, feedback and effects. Pulse
+ *  values match the host's web/app/styles/animations.css; only the primary colour comes from the look. */
+function lookStyle(appearance: ChatbotAppearance): string {
+  const ramp = appearanceRamp(appearance);
+  return `
 :host {
   --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton};
   --cb-attachment-surface: ${ramp.raised}; --cb-attachment-ink: ${ramp.foreground};
@@ -285,19 +309,7 @@ function chatConfig(input: {
 }
 ${chatEffectsCss(appearance)}
 #messages { box-sizing:border-box; padding-right:40px; }
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()} ${feedbackStyles()}`,
-    errorMessages: { displayServiceErrorMessages: false },
-    introMessage: {
-      html: introHtml({
-        greeting: appearance.intro ?? strings.intro,
-        appearance,
-        strings,
-      }),
-    },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: input.avatar === null ? undefined : { ai: { src: input.avatar } },
-    names: appearance.header.showMessageName ? { ai: { text: look.name === '' ? strings.title : look.name, position: 'start' }, user: { style: { display: 'none' } } } : undefined,
-  };
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles(quickItemStyles(appearance))} ${feedbackStyles()}`;
 }
 
 /** The panel's own stylesheet, generated from the appearance. The chrome deep-chat does not own — the
@@ -772,7 +784,7 @@ export class ChatPanel implements ChatView {
     if (index === null) return;
     if (active) this.disableEarlierOffers();
     this.attachments.set(index, { ...this.attachments.get(index), offer, offerActive: active });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
 
   showFeedback(turnId: string, selection: FeedbackSelection | null): void {
@@ -780,12 +792,17 @@ export class ChatPanel implements ChatView {
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
     this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
 
   private updateFeedback(turnId: string): void {
     const index = this.feedbackIndices.get(turnId);
-    if (index === undefined) return;
+    if (index !== undefined) this.renderFollowing(index);
+  }
+
+  /** Controls grow the answer bubble after its text has settled; a visitor reading the end of the
+   *  conversation keeps seeing its end, including the offer's buttons. */
+  private renderFollowing(index: number): void {
     const follow = this.ready && this.atLatest();
     this.renderAttachment(index);
     if (follow) requestAnimationFrame(() => this.scrollToLatest());
@@ -801,8 +818,9 @@ export class ChatPanel implements ChatView {
   }
 
   /** deep-chat renders text safely, but its updateMessage cannot append HTML to the last message.
-   *  Place our escaped, fixed controls beside the text bubble in that same native answer container.
-   *  This never measures or moves a library element and is replayed after a look/avatar redraw. */
+   *  Place our escaped, fixed controls inside the answer's own bubble, after its text, the way the greeting
+   *  carries its quick buttons. Attachments are drawn only after `done`, so no later text update rewrites
+   *  the bubble; a look/avatar redraw replays them. */
   private renderAttachment(index: number): void {
     if (!this.ready) return;
     const state = this.attachments.get(index);
@@ -813,28 +831,17 @@ export class ChatPanel implements ChatView {
       answer = Array.from(root?.querySelectorAll<HTMLElement>('.outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)') ?? []).at(-1) ?? null;
       answer?.setAttribute('data-cb-answer-index', String(index));
     }
-    const inner = answer?.querySelector<HTMLElement>('.inner-message-container');
-    if (!inner) return;
+    const bubble = answer?.querySelector<HTMLElement>('.inner-message-container .text-message');
+    if (!bubble) return;
     const markup = `${state.offer ? offerHtml(state.offer, this.offerOrigins, this.strings, state.offerActive === true) : ''}${state.turnId
       ? feedbackHtml({ turnId: state.turnId, selection: state.selection ?? null, commentOpen: state.commentOpen === true, strings: this.strings }) : ''}`;
-    let attachment = inner.querySelector<HTMLElement>('.cb-attachments');
+    let attachment = bubble.querySelector<HTMLElement>('.cb-attachments');
     if (!attachment) {
       attachment = document.createElement('div');
       attachment.className = 'cb-attachments';
-      inner.append(attachment);
+      bubble.append(attachment);
     }
     attachment.innerHTML = markup;
-    // These are our own generated controls, not a deep-chat element. The capsule lives on the
-    // bubble's edge; the offer and optional comment remain directly beneath that bubble.
-    const bubble = inner.querySelector<HTMLElement>('.text-message');
-    const votes = attachment.querySelector<HTMLElement>('.cb-feedback-votes');
-    if (bubble && votes) {
-      bubble.querySelector('.cb-feedback-votes')?.remove();
-      votes.dataset.cbFeedbackTurn = state.turnId;
-      votes.setAttribute('role', 'group');
-      votes.setAttribute('aria-label', this.strings.feedbackGroup);
-      bubble.append(votes);
-    }
   }
 
   private readonly attachmentClick = (event: Event): void => {
@@ -994,6 +1001,7 @@ export class ChatPanel implements ChatView {
     };
     chat.onComponentRender = () => {
       this.ready = true;
+      this.syncLookStyle();
       this.syncAnswerControl();
       chat.shadowRoot?.addEventListener('click', this.attachmentClick);
       for (const [index, message] of this.queued.splice(0, this.queued.length).entries()) {
@@ -1007,6 +1015,19 @@ export class ChatPanel implements ChatView {
       this.scrollToLatest();
     };
     return chat;
+  }
+
+  /** Write the current look's stylesheet into deep-chat's shadow root (see `lookStyle`). */
+  private syncLookStyle(): void {
+    const root = this.chat.shadowRoot;
+    if (!root) return;
+    let style = root.querySelector<HTMLStyleElement>('style[data-cb-look]');
+    if (!style) {
+      style = document.createElement('style');
+      style.setAttribute('data-cb-look', '');
+      root.append(style);
+    }
+    style.textContent = lookStyle(this.look.appearance);
   }
 
   /** Session begin/end signals, not a local submit, own whether stopping is possible. The custom stop
@@ -1039,6 +1060,7 @@ export class ChatPanel implements ChatView {
    *  element holds besides its (empty) message list is the visitor's half-written message. */
   private reconfigureChat(): void {
     Object.assign(this.chat, this.chatConfig());
+    this.syncLookStyle();
   }
 
   /** Replace the message element, carrying over whatever it was showing. The library rebuilds a chat's whole

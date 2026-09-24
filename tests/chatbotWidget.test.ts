@@ -1127,6 +1127,23 @@ describe('running control independent of local submission', () => {
 });
 
 describe('the look a panel is given', () => {
+  it('repaints offers and feedback when a look arrives after the chat has rendered', () => {
+    // The live widget always renders with the default look first and receives the chatbot's look later.
+    // deep-chat applies `auxiliaryStyle` only on first render, so what the visitor sees must come from the
+    // stylesheet the panel keeps in the chat's shadow root.
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const salon = { ...APPEARANCE_TEMPLATES.clean, colors: { ...APPEARANCE_TEMPLATES.clean.colors, sendButton: '#ad5462' } };
+    panel.applyAppearance({ name: 'Salon', appearance: salon });
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
+    const looks = chat.shadowRoot!.querySelectorAll('style[data-cb-look]');
+    expect(looks).toHaveLength(1);
+    expect(looks[0]!.textContent).toContain('--cb-feedback-accent: #ad5462');
+    expect(looks[0]!.textContent).not.toContain(`--cb-feedback-accent: ${DEFAULT_APPEARANCE.colors.sendButton}`);
+    panel.destroy();
+  });
+
   const panelWith = (look: ChatbotLook): ChatPanel => {
     const instance = new ChatPanel({ strings, look, onVisitorMessage: () => undefined, onStop: () => undefined });
     document.body.append(instance.host);
@@ -1559,6 +1576,9 @@ describe('offer messages in deep-chat', () => {
     let chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
     expect(chat.shadowRoot!.querySelectorAll('[data-cb-answer-index]')).toHaveLength(1);
     expect(chat.shadowRoot!.querySelector('.text-message .cb-feedback-votes')).not.toBeNull();
+    // The offer sits INSIDE the answer bubble, like the greeting's quick buttons; nothing is added beside it.
+    expect(chat.shadowRoot!.querySelector('.text-message .cb-offer')).not.toBeNull();
+    expect(chat.shadowRoot!.querySelector('.inner-message-container > .cb-attachments')).toBeNull();
     expect(chat.shadowRoot!.querySelector('.cb-offer button')?.hasAttribute('disabled')).toBe(false);
     panel.beginAnswer();
     expect(chat.shadowRoot!.querySelector('.cb-offer button')?.hasAttribute('disabled')).toBe(true);
@@ -1618,7 +1638,7 @@ describe('visitor feedback controls', () => {
     click('.cb-feedback-skip');
     expect(group().querySelector('textarea')).toBeNull();
     click('[data-cb-rating="down"]');
-    expect(group().querySelector('.cb-feedback-votes')?.classList.contains('cb-feedback-editing')).toBe(true);
+    expect(group().querySelector('.cb-feedback')?.classList.contains('cb-feedback-editing')).toBe(true);
     click('[data-cb-rating="up"]');
     await flush();
     group().querySelector('textarea')!.value = 'Useful detail';

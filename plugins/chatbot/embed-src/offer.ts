@@ -39,19 +39,20 @@ export function disableOffers(root: ShadowRoot | null): void {
   root?.querySelectorAll<HTMLButtonElement>('.cb-offer button:not(:disabled)').forEach((button) => { button.disabled = true; });
 }
 
-export function offerStyles(): string {
-  return `
-.outer-message-container:has(.cb-attachments) .inner-message-container { max-width:min(100%, 340px); }
-.cb-offer { display:grid; gap:8px; width:min(100%, 340px); box-sizing:border-box; margin-top:12px; }
-.cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; }
-.cb-offer .cb-quick-item {
-  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-height:32px; max-width:100%;
-  padding:5px 9px; border:1px solid var(--cb-attachment-border); border-radius:8px;
-  color:var(--cb-attachment-ink); background:var(--cb-attachment-surface);
-  font:inherit; font-size:12px; text-align:left; cursor:pointer;
+type ButtonLook = { default: Record<string, string>; hover: Record<string, string>; click: Record<string, string> };
+
+function declarations(style: Record<string, string>): string {
+  return Object.entries(style).map(([key, value]) => `${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}:${value};`).join(' ');
 }
-.cb-offer .cb-quick-item:hover { background:var(--cb-attachment-hover); }
-.cb-offer .cb-quick-item:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+
+/** `quickButton` is the greeting's quick-button look, so an offer inside an answer matches it exactly. */
+export function offerStyles(quickButton: ButtonLook): string {
+  return `
+.cb-offer { display:grid; gap:8px; box-sizing:border-box; margin-top:10px; }
+.cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+.cb-offer .cb-quick-item { ${declarations(quickButton.default)} box-sizing:border-box; max-width:100%; }
+.cb-offer .cb-quick-item:hover { ${declarations(quickButton.hover)} }
+.cb-offer .cb-quick-item:active { ${declarations(quickButton.click)} }
 .cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--cb-attachment-border); border-radius:10px; background:var(--cb-attachment-surface); }
 .cb-offer-card img { display:block; width:100%; max-height:130px; object-fit:cover; }
 .cb-offer-content { display:flex; flex-direction:column; gap:4px; padding:10px; min-width:0; overflow-wrap:anywhere; }
