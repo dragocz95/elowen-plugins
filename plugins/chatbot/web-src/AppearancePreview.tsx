@@ -34,8 +34,9 @@ export function AppearancePreview({ look, label }: {
     const instance = new ChatPanel({
       strings,
       look: initial.current,
-      // The panel draws the visitor's own message itself; there is no conversation here to send it to.
-      onVisitorMessage: () => undefined,
+      // The panel draws the visitor's own message itself; there is no conversation here to send it to, so
+      // the submit is closed at once rather than left waiting for an answer that never comes.
+      onVisitorMessage: () => instance.closeUnanswered(),
       onStop: () => undefined,
     });
     frameElement.appendChild(instance.host);

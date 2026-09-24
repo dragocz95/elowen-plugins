@@ -26,9 +26,20 @@ import { ensurePluginUiRuntime } from './ui/hostRuntime';
 vi.mock('deep-chat', () => {
   class StubChat extends HTMLElement {
     onComponentRender?: (ref: unknown) => void;
-    connectedCallback(): void { this.onComponentRender?.(this); }
+    connectedCallback(): void {
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+      this.onComponentRender?.(this);
+    }
     getMessages(): { role?: string; text?: string }[] { return this._messages; }
     addMessage(message: { role?: string; text?: string }): void { this._messages.push(message); }
+    /** Like the real element: the submit path draws the message and hands it to the configured transport. */
+    submitUserMessage(content: { text?: string }): void {
+      this.addMessage({ role: 'user', text: content.text });
+      const connect = (this as unknown as { connect?: { handler?(body: unknown, signals: unknown): void } }).connect;
+      connect?.handler?.({ messages: [{ role: 'user', text: content.text }] }, {
+        onOpen: () => undefined, onResponse: () => undefined, onClose: () => undefined, stopClicked: {},
+      });
+    }
     updateMessage(message: { text?: string }, index: number): void { this._messages[index] = { role: 'ai', ...message }; }
     disableSubmitButton(): void { /* renderer stub */ }
     focusInput(): void { /* no focus in jsdom */ }
@@ -246,7 +257,7 @@ describe('the appearance editor', () => {
     fireEvent.change(within(dialog).getByRole('combobox', { name: strings.appearanceTone! }), { target: { value: 'bell' } });
     const preview = previewPanel(dialog);
     expect(preview.chat.messageStyles.default.user.bubble.background).toContain('linear-gradient');
-    expect(preview.chat.auxiliaryStyle).toContain('cb-shine');
+    expect(preview.chat.shadowRoot!.querySelector('style[data-cb-look]')?.textContent).toContain('cb-shine');
     await waitFor(() => expect(saved.body?.appearance).toMatchObject({ overrides: {
       colors: { visitorBubbleEnd: '#345678' }, effects: { glass: false, glassBlur: 22, buttonHover: 'shine', messageEntrance: 'fade' },
       launcher: { teaser: 'Need a hand?' }, sound: { tone: 'bell' },

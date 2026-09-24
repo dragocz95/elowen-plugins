@@ -19979,19 +19979,16 @@ function disableOffers(root) {
     button.disabled = true;
   });
 }
-function offerStyles() {
-  return `
-.outer-message-container:has(.cb-attachments) .inner-message-container { max-width:min(100%, 340px); }
-.cb-offer { display:grid; gap:8px; width:min(100%, 340px); box-sizing:border-box; margin-top:12px; }
-.cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; }
-.cb-offer .cb-quick-item {
-  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-height:32px; max-width:100%;
-  padding:5px 9px; border:1px solid var(--cb-attachment-border); border-radius:8px;
-  color:var(--cb-attachment-ink); background:var(--cb-attachment-surface);
-  font:inherit; font-size:12px; text-align:left; cursor:pointer;
+function declarations(style) {
+  return Object.entries(style).map(([key, value]) => `${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}:${value};`).join(" ");
 }
-.cb-offer .cb-quick-item:hover { background:var(--cb-attachment-hover); }
-.cb-offer .cb-quick-item:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
+function offerStyles(quickButton) {
+  return `
+.cb-offer { display:grid; gap:8px; box-sizing:border-box; margin-top:10px; }
+.cb-offer-actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+.cb-offer .cb-quick-item { ${declarations(quickButton.default)} box-sizing:border-box; max-width:100%; }
+.cb-offer .cb-quick-item:hover { ${declarations(quickButton.hover)} }
+.cb-offer .cb-quick-item:active { ${declarations(quickButton.click)} }
 .cb-offer-card { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--cb-attachment-border); border-radius:10px; background:var(--cb-attachment-surface); }
 .cb-offer-card img { display:block; width:100%; max-height:130px; object-fit:cover; }
 .cb-offer-content { display:flex; flex-direction:column; gap:4px; padding:10px; min-width:0; overflow-wrap:anywhere; }
@@ -20024,10 +20021,9 @@ function feedbackHtml(input) {
 }
 function feedbackStyles() {
   return `
-.inner-message-container:has(.cb-attachments) { display:flex; flex-direction:column; align-items:flex-start; }
-.inner-message-container:has(.cb-attachments) .text-message { position:relative; overflow:visible; }
-.cb-attachments { box-sizing:border-box; width:min(100%,340px); color:var(--cb-attachment-ink); }
-.cb-attachments:has(.cb-feedback) { padding-bottom:4px; }
+.text-message:has(.cb-attachments) { position:relative; overflow:visible; }
+.cb-attachments { box-sizing:border-box; width:100%; }
+.cb-attachments:has(.cb-offer):has(.cb-feedback-votes) { padding-bottom:18px; }
 .cb-feedback-votes {
   position:absolute; bottom:-16px; right:-8px; z-index:1; display:flex; padding:1px; border:1px solid var(--cb-attachment-border);
   border-radius:999px; background:var(--cb-attachment-surface); box-shadow:0 2px 7px rgb(0 0 0 / .12);
@@ -20044,7 +20040,7 @@ function feedbackStyles() {
 .cb-feedback-thumb:hover, .cb-feedback-thumb:focus-visible { color:var(--cb-feedback-accent); background:var(--cb-attachment-hover); }
 .cb-feedback-thumb:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:1px; }
 .cb-feedback-thumb svg { width:14px; height:14px; }
-.cb-feedback-votes:not(.cb-feedback-editing):has([aria-pressed="true"]) .cb-feedback-thumb[aria-pressed="false"] { display:none; }
+.cb-feedback:not(.cb-feedback-editing) .cb-feedback-votes:has([aria-pressed="true"]) .cb-feedback-thumb[aria-pressed="false"] { display:none; }
 .cb-feedback-thumb[aria-pressed="true"] { color:var(--cb-feedback-accent); background:var(--cb-attachment-hover); }
 .cb-feedback-thumb[aria-pressed="true"] svg { fill:color-mix(in srgb, currentColor 18%, transparent); }
 .cb-feedback-comment { display:flex; align-items:flex-end; gap:5px; width:min(340px,100%); margin-top:6px; }
@@ -20075,7 +20071,6 @@ function introHtml(input) {
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
 }
 function introUtilities(appearance, onQuickButton) {
-  const ramp = appearanceRamp(appearance);
   return {
     "cb-quick": {
       styles: { default: { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px", justifyContent: "center" } }
@@ -20091,25 +20086,29 @@ function introUtilities(appearance, onQuickButton) {
           }
         }
       },
-      styles: {
-        default: {
-          border: `1px solid ${ramp.border}`,
-          background: ramp.raised,
-          color: ramp.foreground,
-          borderRadius: `${appearance.radius}px`,
-          padding: "6px 10px",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          font: "inherit",
-          fontSize: "13px",
-          cursor: "pointer",
-          textAlign: "center",
-          transition: "transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease"
-        },
-        ...buttonStyles(appearance)
-      }
+      styles: quickItemStyles(appearance)
     }
+  };
+}
+function quickItemStyles(appearance) {
+  const ramp = appearanceRamp(appearance);
+  return {
+    default: {
+      border: `1px solid ${ramp.border}`,
+      background: ramp.raised,
+      color: ramp.foreground,
+      borderRadius: `${appearance.radius}px`,
+      padding: "6px 10px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      font: "inherit",
+      fontSize: "13px",
+      cursor: "pointer",
+      textAlign: "center",
+      transition: "transform .2s ease, box-shadow .2s ease, filter .2s ease, background .2s ease"
+    },
+    ...buttonStyles(appearance)
   };
 }
 function chatConfig(input) {
@@ -20223,10 +20222,22 @@ function chatConfig(input) {
       },
       loading: { message: { styles: { bubble: { backgroundColor: appearance.colors.botBubble, color: appearanceInk(appearance.colors.botBubble) } } } }
     },
-    // Deep-chat renders inside its own shadow root, which our stylesheet cannot reach; this is the hook the
-    // library provides for exactly that. Pulse values match the host's web/app/styles/animations.css;
-    // only the primary color source changes to the widget appearance's send color.
-    auxiliaryStyle: `
+    errorMessages: { displayServiceErrorMessages: false },
+    introMessage: {
+      html: introHtml({
+        greeting: appearance.intro ?? strings.intro,
+        appearance,
+        strings
+      })
+    },
+    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
+    avatars: input.avatar === null ? void 0 : { ai: { src: input.avatar } },
+    names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" }, user: { style: { display: "none" } } } : void 0
+  };
+}
+function lookStyle(appearance) {
+  const ramp = appearanceRamp(appearance);
+  return `
 :host {
   --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton};
   --cb-attachment-surface: ${ramp.raised}; --cb-attachment-ink: ${ramp.foreground};
@@ -20252,19 +20263,7 @@ function chatConfig(input) {
 }
 ${chatEffectsCss(appearance)}
 #messages { box-sizing:border-box; padding-right:40px; }
-.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles()} ${feedbackStyles()}`,
-    errorMessages: { displayServiceErrorMessages: false },
-    introMessage: {
-      html: introHtml({
-        greeting: appearance.intro ?? strings.intro,
-        appearance,
-        strings
-      })
-    },
-    htmlClassUtilities: introUtilities(appearance, input.onQuickButton),
-    avatars: input.avatar === null ? void 0 : { ai: { src: input.avatar } },
-    names: appearance.header.showMessageName ? { ai: { text: look.name === "" ? strings.title : look.name, position: "start" }, user: { style: { display: "none" } } } : void 0
-  };
+.input-button { top: 50%; bottom: auto; margin-top: 0; margin-bottom: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; } .error-message-text { color: ${ramp.ember}; } .cb-quick-item svg { width: 14px; height: 14px; flex: 0 0 auto; } ${offerStyles(quickItemStyles(appearance))} ${feedbackStyles()}`;
 }
 function styleText(appearance) {
   const GUTTER_PX = appearance.launcher.offset;
@@ -20609,7 +20608,7 @@ var ChatPanel = class {
   }
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
   /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
-   *  server's projection, one a quick button sent, or one a site sends with `window.ElowenChatbot`.
+   *  server's projection, or one a site sends with `window.ElowenChatbot`.
    *
    *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
    *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
@@ -20662,6 +20661,13 @@ var ChatPanel = class {
   notice(text) {
     this.setStatus(text, false);
   }
+  /** Close a submit no conversation will answer — the administrator's preview has none. The typing indicator
+   *  goes away and a later look change redraws at once instead of waiting for an answer. */
+  closeUnanswered() {
+    this.signals?.onClose();
+    this.signals = null;
+    this.flushRedraw();
+  }
   error(text) {
     this.answerActive = false;
     this.syncAnswerControl();
@@ -20680,18 +20686,22 @@ var ChatPanel = class {
     if (index === null) return;
     if (active) this.disableEarlierOffers();
     this.attachments.set(index, { ...this.attachments.get(index), offer, offerActive: active });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
   showFeedback(turnId, selection) {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
     this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
-    this.renderAttachment(index);
+    this.renderFollowing(index);
   }
   updateFeedback(turnId) {
     const index = this.feedbackIndices.get(turnId);
-    if (index === void 0) return;
+    if (index !== void 0) this.renderFollowing(index);
+  }
+  /** Controls make the answer bubble taller after its text has settled; a visitor reading the end of the
+   *  conversation keeps seeing its end, including the offer's buttons. */
+  renderFollowing(index) {
     const follow = this.ready && this.atLatest();
     this.renderAttachment(index);
     if (follow) requestAnimationFrame(() => this.scrollToLatest());
@@ -20705,8 +20715,9 @@ var ChatPanel = class {
     disableOffers(this.chat.shadowRoot);
   }
   /** deep-chat renders text safely, but its updateMessage cannot append HTML to the last message.
-   *  Place our escaped, fixed controls beside the text bubble in that same native answer container.
-   *  This never measures or moves a library element and is replayed after a look/avatar redraw. */
+   *  Place our escaped, fixed controls inside the answer's own bubble, after its text, the way the greeting
+   *  carries its quick buttons. Attachments are drawn only after `done`, so no later text update rewrites
+   *  the bubble; a look/avatar redraw replays them. */
   renderAttachment(index) {
     if (!this.ready) return;
     const state = this.attachments.get(index);
@@ -20717,25 +20728,16 @@ var ChatPanel = class {
       answer = Array.from(root?.querySelectorAll(".outer-message-container.deep-chat-outer-container-role-ai:has(.text-message)") ?? []).at(-1) ?? null;
       answer?.setAttribute("data-cb-answer-index", String(index));
     }
-    const inner = answer?.querySelector(".inner-message-container");
-    if (!inner) return;
+    const bubble = answer?.querySelector(".inner-message-container .text-message");
+    if (!bubble) return;
     const markup = `${state.offer ? offerHtml(state.offer, this.offerOrigins, this.strings, state.offerActive === true) : ""}${state.turnId ? feedbackHtml({ turnId: state.turnId, selection: state.selection ?? null, commentOpen: state.commentOpen === true, strings: this.strings }) : ""}`;
-    let attachment = inner.querySelector(".cb-attachments");
+    let attachment = bubble.querySelector(".cb-attachments");
     if (!attachment) {
       attachment = document.createElement("div");
       attachment.className = "cb-attachments";
-      inner.append(attachment);
+      bubble.append(attachment);
     }
     attachment.innerHTML = markup;
-    const bubble = inner.querySelector(".text-message");
-    const votes = attachment.querySelector(".cb-feedback-votes");
-    if (bubble && votes) {
-      bubble.querySelector(".cb-feedback-votes")?.remove();
-      votes.dataset.cbFeedbackTurn = state.turnId;
-      votes.setAttribute("role", "group");
-      votes.setAttribute("aria-label", this.strings.feedbackGroup);
-      bubble.append(votes);
-    }
   }
   attachmentClick = (event) => {
     if (!(event.target instanceof Element)) return;
@@ -20888,6 +20890,7 @@ var ChatPanel = class {
     };
     chat.onComponentRender = () => {
       this.ready = true;
+      this.syncLookStyle();
       this.syncAnswerControl();
       chat.shadowRoot?.addEventListener("click", this.attachmentClick);
       for (const [index, message] of this.queued.splice(0, this.queued.length).entries()) {
@@ -20900,6 +20903,18 @@ var ChatPanel = class {
       this.scrollToLatest();
     };
     return chat;
+  }
+  /** Write the current look's stylesheet into deep-chat's shadow root (see `lookStyle`). */
+  syncLookStyle() {
+    const root = this.chat.shadowRoot;
+    if (!root) return;
+    let style = root.querySelector("style[data-cb-look]");
+    if (!style) {
+      style = document.createElement("style");
+      style.setAttribute("data-cb-look", "");
+      root.append(style);
+    }
+    style.textContent = lookStyle(this.look.appearance);
   }
   /** Session begin/end signals, not a local submit, own whether stopping is possible. The custom stop
    *  occupies the native send slot without reaching into deep-chat's private submit/validation state. */
@@ -20928,6 +20943,7 @@ var ChatPanel = class {
    *  element holds besides its (empty) message list is the visitor's half-written message. */
   reconfigureChat() {
     Object.assign(this.chat, this.chatConfig());
+    this.syncLookStyle();
   }
   /** Replace the message element, carrying over whatever it was showing. The library rebuilds a chat's whole
    *  message list whenever one of its properties is set, so this is the only way to change the look of a
@@ -20982,13 +20998,14 @@ var ChatPanel = class {
     const list = this.chat.shadowRoot?.querySelector("#messages");
     return this.scrollPending || !!list && list.clientHeight > 0 && list.scrollHeight - list.clientHeight - list.scrollTop <= 1;
   }
-  /** A quick button is the visitor's own message: it is drawn in the transcript and then handed to the
-   *  conversation exactly as a message typed into the panel is. Deep-chat hides the intro — and with it the
-   *  buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
+  /** A quick button is the visitor's own message, so it takes the panel's own submit: deep-chat draws it,
+   *  shows its typing indicator and hands it to `handleSubmit`, exactly as a typed message. Drawing it here
+   *  and calling the conversation directly would skip that indicator. Deep-chat hides the intro — and with
+   *  it the buttons — as soon as a message arrives, which is when a suggestion stops being useful. */
   sendQuick(text) {
+    if (this.answerActive) return;
     this.disableEarlierOffers();
-    this.appendVisitor(text);
-    this.onVisitorMessage(text);
+    this.chat.submitUserMessage({ text });
   }
   /** Rewrite the stylesheet and the headings the panel draws itself. Safe at any time: none of it belongs to
    *  the chat element, and none of it touches the conversation. */
@@ -21260,8 +21277,9 @@ function AppearancePreview({ look, label }) {
     const instance = new ChatPanel({
       strings,
       look: initial.current,
-      // The panel draws the visitor's own message itself; there is no conversation here to send it to.
-      onVisitorMessage: () => void 0,
+      // The panel draws the visitor's own message itself; there is no conversation here to send it to, so
+      // the submit is closed at once rather than left waiting for an answer that never comes.
+      onVisitorMessage: () => instance.closeUnanswered(),
       onStop: () => void 0
     });
     frameElement.appendChild(instance.host);
