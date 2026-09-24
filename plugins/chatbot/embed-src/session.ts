@@ -17,6 +17,8 @@ import {
   EVENTS_AFTER_QUERY,
   MESSAGE_MAX_BYTES,
   VISITOR_IMAGE_MAX_BYTES,
+  VISITOR_IMAGE_MIN_BYTES,
+  VISITOR_IMAGE_FORMATS,
   PUBLIC_PATHS,
   PUBLIC_SCHEMA_VERSION,
   VISITOR_CREDENTIAL_ERRORS,
@@ -66,6 +68,7 @@ export interface ChatView {
   restore(messages: RestoredMessage[]): void;
   showAttachment(turnId: string, attachment: SharedAttachment, load: () => Promise<Blob | null>): void;
   uploadProgress(loaded: number, total: number): void;
+  uploadFinished(): void;
   setAllowedOrigins(origins: string[]): void;
   showOffer(offer: Offer, active: boolean): void;
   /** Ask the visitor to confirm an irreversible action. Resolves true ONLY for a click the visitor
@@ -135,6 +138,9 @@ export class ChatSession {
   private allowedOrigins: string[] = [];
   private readonly offers = new Map<string, Offer>();
   private readonly pendingAttachments = new Map<string, SharedAttachment[]>();
+  private pendingSubmission: { clientTurnId: string; uploadId: string; text: string; page: { url: string; title: string } } | null = null;
+  private sharedActive = 0;
+  private readonly sharedWaiters: (() => void)[] = [];
 
   constructor(private readonly deps: SessionDeps) {
     this.strings = deps.strings;
@@ -163,6 +169,7 @@ export class ChatSession {
     const conversation = await this.getConversation();
     if (!conversation) { this.deps.view.error(this.strings.errorUnavailable); return; }
     const messages: RestoredMessage[] = [];
+    const answered: ConversationTurn[] = [];
     for (const [index, turn] of conversation.turns.entries()) {
       if (typeof turn.message !== 'string') continue;
       messages.push({ role: 'user', text: turn.message, ...(turn.uploadName ? { uploadName: turn.uploadName } : {}) });
@@ -172,6 +179,7 @@ export class ChatSession {
       } else {
         if (typeof turn.reply === 'string' && (turn.reply !== '' || turn.attachments.length > 0)) {
           const offer = readOffer(turn.offer, this.allowedOrigins);
+          answered.push(turn);
           messages.push({ role: 'ai', text: turn.reply, turnId: turn.turnId, attachments: turn.attachments,
             feedback: readFeedback(turn.feedback), ...(offer ? { offer, offerActive: index === conversation.turns.length - 1 && conversation.activeTurnId === null } : {}) });
         }
@@ -179,10 +187,8 @@ export class ChatSession {
       }
     }
     if (messages.length > 0) this.deps.view.restore(messages);
-    for (const turn of conversation.turns) {
-      if (turn.turnId !== conversation.activeTurnId) for (const attachment of turn.attachments) {
-        this.deps.view.showAttachment(turn.turnId, attachment, () => this.loadShared(turn.turnId, attachment));
-      }
+    for (const turn of answered) for (const attachment of turn.attachments) {
+      this.deps.view.showAttachment(turn.turnId, attachment, () => this.loadShared(turn.turnId, attachment));
     }
     if (conversation.activeTurnId !== null) {
       // A turn was still running when the visitor reloaded: its answer is in the durable log, and the feed
@@ -248,13 +254,13 @@ export class ChatSession {
   async send(text: string, image: File | null = null): Promise<void> {
     if (this.destroyed) return;
     const message = text.trim();
-    if (message === '' && image === null) return;
-    if (byteLength(message) > MESSAGE_MAX_BYTES) {
+    if (message === '' && image === null && !this.pendingSubmission) return;
+    if (!this.pendingSubmission && byteLength(message) > MESSAGE_MAX_BYTES) {
       this.deps.view.error(this.strings.errorTooLong);
       return;
     }
-    if (image && (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(image.type)
-      || image.size < 12 || image.size > VISITOR_IMAGE_MAX_BYTES)) {
+    if (!this.pendingSubmission && image && (!VISITOR_IMAGE_FORMATS.some((format) => format.mime === image.type)
+      || image.size < VISITOR_IMAGE_MIN_BYTES || image.size > VISITOR_IMAGE_MAX_BYTES)) {
       this.deps.view.error(this.strings.errorImage);
       return;
     }
@@ -268,11 +274,12 @@ export class ChatSession {
       return;
     }
 
-    const clientTurnId = newClientTurnId();
-    let uploadId: string | null = null;
-    if (image) {
+    const clientTurnId = this.pendingSubmission?.clientTurnId ?? newClientTurnId();
+    let uploadId: string | null = this.pendingSubmission?.uploadId ?? null;
+    if (!this.pendingSubmission && image) {
       const params = new URLSearchParams({ clientTurnId, name: image.name, size: String(image.size) });
-      const url = `${this.deps.baseUrl}/${PUBLIC_PATHS.uploads}?${params}`;
+      const path = `${PUBLIC_PATHS.uploads}?${params}`;
+      const url = `${this.deps.baseUrl}/${path}`;
       this.deps.view.uploadProgress(0, image.size);
       // Request streaming is not supported by every mobile browser. Probe locally before sending; a failed
       // upload must never be retried with a different body after the server may already have saved it.
@@ -281,36 +288,39 @@ export class ChatSession {
         new Request(url, { method: 'POST', body: new ReadableStream(), duplex: 'half' } as RequestInit & { duplex: 'half' });
         streaming = true;
       } catch { /* This browser uploads the same File as a Blob. */ }
-      let loaded = 0;
-      const body = streaming ? image.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform: (chunk, controller) => {
-          loaded += chunk.byteLength;
-          this.deps.view.uploadProgress(loaded, image.size);
-          controller.enqueue(chunk);
-        },
-      })) : image;
-      try {
-        const response = await this.deps.fetch(url, {
-          method: 'POST', body, ...(streaming ? { duplex: 'half' } : {}), credentials: 'omit', mode: 'cors',
-          headers: { authorization: `${VISITOR_AUTHORIZATION_SCHEME} ${token}`, accept: 'application/json', 'content-type': 'application/octet-stream' },
-        } as RequestInit & { duplex?: 'half' });
-        if (!response.ok) { this.deps.view.error(this.strings.errorImageUpload); return; }
-        const result = await readJson(response);
-        if (typeof result?.uploadId !== 'string') { this.deps.view.error(this.strings.errorImageUpload); return; }
-        this.deps.view.uploadProgress(image.size, image.size);
-        uploadId = result.uploadId;
-      } catch {
-        this.deps.view.error(this.strings.errorImageUpload);
-        return;
-      }
+      const submitUpload = () => {
+        let loaded = 0;
+        const body = streaming ? image.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+          transform: (chunk, controller) => {
+            loaded += chunk.byteLength;
+            this.deps.view.uploadProgress(loaded, image.size);
+            controller.enqueue(chunk);
+          },
+        })) : image;
+        return this.request(this.token, 'POST', path, null, undefined, false, 'application/json',
+          { body, contentType: 'application/octet-stream', ...(streaming ? { duplex: 'half' as const } : {}) });
+      };
+      let response = await submitUpload();
+      if (await invalidCredential(response) && await this.refreshToken() === 'rotated') response = await submitUpload();
+      if (!response?.ok) { this.deps.view.error(this.strings.errorImageUpload); return; }
+      const result = await readJson(response);
+      if (typeof result?.uploadId !== 'string') { this.deps.view.error(this.strings.errorImageUpload); return; }
+      this.deps.view.uploadProgress(image.size, image.size);
+      this.deps.view.uploadFinished();
+      uploadId = result.uploadId;
     }
 
     // Only address and title travel beside the visitor's message. The receipt, not a Project path, binds the image.
-    const reply = await this.request(token, 'POST', PUBLIC_PATHS.turns, turnRequestBody(clientTurnId, message, this.deps.page.metadata(), uploadId));
+    const submission = this.pendingSubmission ?? (uploadId
+      ? { clientTurnId, uploadId, text: message, page: this.deps.page.metadata() } : null);
+    const reply = await this.request(this.token ?? token, 'POST', PUBLIC_PATHS.turns,
+      turnRequestBody(clientTurnId, submission?.text ?? message, submission?.page ?? this.deps.page.metadata(), uploadId));
     if (!reply || reply.status !== 202) {
+      this.pendingSubmission = uploadId && (!reply || reply.status >= 500) ? submission : null;
       await this.handleSendFailure(reply);
       return;
     }
+    this.pendingSubmission = null;
     const body = await readJson(reply);
     const turnId = typeof body?.turnId === 'string' ? body.turnId : null;
     if (!turnId) {
@@ -334,6 +344,7 @@ export class ChatSession {
   destroy(): void {
     this.destroyed = true;
     this.pendingAttachments.clear();
+    this.pendingSubmission = null;
     this.aborter?.abort();
     this.aborter = null;
   }
@@ -719,14 +730,21 @@ export class ChatSession {
 
   /** Shared bytes never become a page URL: fetch with the visitor credential, then hand the Blob to the view. */
   private async loadShared(turnId: string, attachment: SharedAttachment): Promise<Blob | null> {
-    const path = PUBLIC_PATHS.file(turnId, attachment.kind, attachment.storedName);
-    let response = await this.request(this.token, 'GET', path, null, undefined, false,
-      attachment.kind === 'image' ? 'image/*' : 'application/octet-stream');
-    if (await invalidCredential(response) && await this.refreshToken() === 'rotated') {
-      response = await this.request(this.token, 'GET', path, null, undefined, false, 'application/octet-stream');
+    if (this.sharedActive >= 3) await new Promise<void>((resolve) => { this.sharedWaiters.push(resolve); });
+    this.sharedActive += 1;
+    try {
+      const path = PUBLIC_PATHS.file(turnId, attachment.kind, attachment.storedName);
+      const accept = attachment.kind === 'image' ? 'image/*' : 'application/octet-stream';
+      let response = await this.request(this.token, 'GET', path, null, undefined, false, accept);
+      if (await invalidCredential(response) && await this.refreshToken() === 'rotated') {
+        response = await this.request(this.token, 'GET', path, null, undefined, false, accept);
+      }
+      if (!response?.ok) return null;
+      try { return await response.blob(); } catch { return null; }
+    } finally {
+      this.sharedActive -= 1;
+      this.sharedWaiters.shift()?.();
     }
-    if (!response?.ok) return null;
-    try { return await response.blob(); } catch { return null; }
   }
 
   // ── requests ──────────────────────────────────────────────────────────────────────────────────────
@@ -742,9 +760,11 @@ export class ChatSession {
     signal?: AbortSignal,
     keepalive = false,
     accept = 'application/json',
+    raw?: { body: BodyInit; contentType: string; duplex?: 'half' },
   ): Promise<Response | null> {
     const headers: Record<string, string> = { accept };
     if (body !== null) headers['content-type'] = 'application/json';
+    if (raw) headers['content-type'] = raw.contentType;
     if (token !== null) headers.authorization = `${VISITOR_AUTHORIZATION_SCHEME} ${token}`;
     try {
       return await this.deps.fetch(`${this.deps.baseUrl}/${path}`, {
@@ -755,6 +775,7 @@ export class ChatSession {
         credentials: 'omit',
         mode: 'cors',
         ...(body === null ? {} : { body: JSON.stringify(body) }),
+        ...(raw ? { body: raw.body, ...(raw.duplex ? { duplex: raw.duplex } : {}) } : {}),
         ...(signal === undefined ? {} : { signal }),
         ...(keepalive ? { keepalive: true } : {}),
       });

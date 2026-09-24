@@ -240,6 +240,8 @@ try {
     console.log(JSON.stringify({width,pickerGeometry}));
     const picker = await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button:has(#upload-images-icon)'));
     assert(picker.asElement(), 'Image picker button is absent');
+    assert.deepEqual(await picker.asElement().evaluate(el => ({role:el.getAttribute('role'),tabindex:el.getAttribute('tabindex'),label:el.getAttribute('aria-label')})),
+      {role:'button',tabindex:'0',label:'Přiložit obrázek'}, 'The picker needs an accessible name');
     const choosing = page.waitForFileChooser();
     await picker.asElement().click();
     await (await choosing).accept([imagePath]);
@@ -318,6 +320,21 @@ try {
     assert(lightbox.close.width>=44 && lightbox.close.height>=44 && lightbox.close.top>=0, 'The close control needs a 44px target');
     assert.equal(lightbox.focused,'cb-lightbox-close');
     await page.screenshot({path:'/tmp/chatbot-lightbox-'+width+'.png'});
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.activeElement?.className),'cb-lightbox-close',
+      'Tab escaped the modal image viewer');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    await page.keyboard.up('Shift');
+    assert.equal(await page.evaluate(() => panel.host.shadowRoot.activeElement?.className),'cb-lightbox-close',
+      'Shift+Tab escaped the modal image viewer');
+    await page.evaluate(() => panel.close());
+    assert.deepEqual(await page.evaluate(() => {
+      const viewer=panel.host.shadowRoot.querySelector('.cb-lightbox');
+      return {hidden:viewer.hidden,source:viewer.querySelector('img').hasAttribute('src')};
+    }),{hidden:true,source:false},'Closing chat must dismiss the viewer');
+    await page.evaluate(() => panel.open());
+    await thumbnailButton.asElement().click();
     await page.mouse.click(lightbox.box.left+8, lightbox.box.bottom-8);
     assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('.cb-lightbox').hidden), true,
       'A click beside the image must close it');

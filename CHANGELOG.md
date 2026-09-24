@@ -4,6 +4,9 @@
 
 - Open a shared image in a frameless in-page viewer that closes on a click beside the image, the close control or Escape, instead of navigating away from the customer page.
 - Centre the image-attachment icon inside its touch target.
+- Reserve visitor image uploads before reading bytes, reject duplicate submissions without storing another file, and keep successful uploads available for retry after a temporary turn failure. Migration 13 upgrades existing receipt rows in place and is required for an installed chatbot plugin.
+- Restore only answered attachments, bound concurrent downloads, show failed attachments with a retry action, and keep the image viewer accessible and inside the open chat lifecycle.
+- Share image limits and accepted formats across the picker and upload validation; report upload progress at useful milestones.
 
 ## chatbot 0.3.10 - 2026-09-24
 

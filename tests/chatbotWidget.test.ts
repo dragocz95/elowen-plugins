@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MESSAGE_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ELEMENTS,
+  VISITOR_IMAGE_FORMATS,
 } from '../plugins/chatbot/src/publicContract.js';
 import {
   actionDecisionBody,
@@ -153,6 +154,7 @@ function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): Vi
     showFeedback: () => undefined,
     showAttachment: () => undefined,
     uploadProgress: () => undefined,
+    uploadFinished: () => undefined,
     confirm: (request) => {
       log.confirmRequests.push(request.title);
       return typeof confirmAnswer === 'function' ? confirmAnswer() : Promise.resolve(confirmAnswer);
@@ -540,6 +542,71 @@ describe('one visitor message', () => {
     expect(view.answers).toEqual(['Vidím obrázek.']);
   });
 
+  it('retries an admitted upload with the identical submission after a failed turn POST', async () => {
+    const view = makeView();
+    const image = new File([new Uint8Array(12)], 'photo.png', { type: 'image/png' });
+    Object.defineProperty(image, 'stream', { value: () => new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(12)); controller.close(); },
+    }) });
+    const harness = makeSession({ view, page: makePage(), responses: ({ url, attempt }) => {
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (url.includes('/uploads?')) return jsonResponse(201, { uploadId: 'receipt-id' });
+      if (url.endsWith('/turns')) {
+        if (attempt === 0) throw new Error('network dropped');
+        return jsonResponse(202, { turnId: 'T1' });
+      }
+      return new Response(streamOf([frame('done', { text: 'Done' }, 1)]), { status: 200 });
+    } });
+    await harness.session.send('original', image);
+    await harness.session.send('edited');
+    expect(harness.requests.filter((request) => request.url.includes('/uploads?'))).toHaveLength(1);
+    const turns = harness.requests.filter((request) => request.url.endsWith('/turns'));
+    expect(turns).toHaveLength(2);
+    expect(turns[1]!.body).toEqual(turns[0]!.body);
+    expect(view.answers.at(-1)).toBe('Done');
+  });
+
+  it('refreshes an expired upload token and retries the same bytes and turn id', async () => {
+    const view = makeView();
+    const image = new File([new Uint8Array(12)], 'photo.png', { type: 'image/png' });
+    Object.defineProperty(image, 'stream', { value: () => new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(12)); controller.close(); },
+    }) });
+    const harness = makeSession({ view, page: makePage(), responses: ({ url, attempt }) => {
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (url.includes('/uploads?')) return attempt === 0
+        ? jsonResponse(401, { error: 'invalid_token' }) : jsonResponse(201, { uploadId: 'receipt-id' });
+      if (url.endsWith('/visitors/refresh')) return jsonResponse(200, { token: 'token-2' });
+      if (url.endsWith('/turns')) return jsonResponse(202, { turnId: 'T' });
+      return new Response(streamOf([frame('done', { text: 'Done' }, 1)]), { status: 200 });
+    } });
+    await harness.session.send('photo', image);
+    const uploads = harness.requests.filter((request) => request.url.includes('/uploads?'));
+    expect(uploads).toHaveLength(2);
+    expect(uploads[1]!.url).toBe(uploads[0]!.url);
+    expect(uploads[1]!.headers.authorization).toBe('ChatbotVisitor token-2');
+    expect(harness.requests.filter((request) => request.url.endsWith('/turns'))).toHaveLength(1);
+  });
+
+  it('refuses unsupported files locally and never admits a failed upload', async () => {
+    const view = makeView();
+    const harness = makeSession({ view, page: makePage(), responses: ({ url }) => {
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (url.includes('/uploads?')) return jsonResponse(413, { error: 'invalid_image' });
+      throw new Error('unexpected request');
+    } });
+    await harness.session.send('', new File(['plain text data'], 'text.txt', { type: 'text/plain' }));
+    expect(harness.requests).toEqual([]);
+    expect(view.errors.at(-1)).toContain('10 MB');
+    const image = new File([new Uint8Array(12)], 'photo.png', { type: 'image/png' });
+    Object.defineProperty(image, 'stream', { value: () => new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(12)); controller.close(); },
+    }) });
+    await harness.session.send('', image);
+    expect(view.errors.at(-1)).toBe(strings.errorImageUpload);
+    expect(harness.requests.some((request) => request.url.endsWith('/turns'))).toBe(false);
+  });
+
   it('waits for the terminal frame before loading a live shared file', async () => {
     const view = makeView();
     const shown: string[] = [];
@@ -571,6 +638,58 @@ describe('one visitor message', () => {
     await harness.session.send('x'.repeat(MESSAGE_MAX_BYTES + 1));
     expect(view.errors).toEqual([strings.errorTooLong]);
     expect(harness.requests).toEqual([]);
+  });
+
+  it('does not fetch an attachment for a restored turn without an answer', async () => {
+    const view = makeView();
+    const file = { kind: 'file', storedName: `${'a'.repeat(64)}.bin`, name: 'file.pdf', size: 4 };
+    const shown: string[] = [];
+    view.view.showAttachment = (id) => { shown.push(id); };
+    const harness = makeSession({ view, page: makePage(), storage: {
+      getItem: (key) => key.endsWith('.handoff') ? null : 'token-1', setItem: () => undefined, removeItem: () => undefined,
+    }, responses: ({ url }) => {
+      if (url.endsWith('/conversation')) return jsonResponse(200, { activeTurnId: null, turns: [
+        { turnId: 'failed', message: 'failed', reply: null, attachments: [file], lastSeq: 1, pendingActions: [] },
+        { turnId: 'answered', message: 'answered', reply: 'answer', attachments: [file], lastSeq: 1, pendingActions: [] },
+      ] });
+      return jsonResponse(200, {});
+    } });
+    await harness.session.start();
+    expect(shown).toEqual(['answered']);
+  });
+
+  it('bounds restored attachment downloads to three in flight', async () => {
+    const view = makeView();
+    const file = { kind: 'file', storedName: `${'a'.repeat(64)}.bin`, name: 'file.pdf', size: 4 };
+    let active = 0;
+    let maximum = 0;
+    const releases: (() => void)[] = [];
+    const harness = makeSession({ view, page: makePage(), storage: {
+      getItem: (key) => key.endsWith('.handoff') ? null : 'token-1',
+      setItem: () => undefined, removeItem: () => undefined,
+    }, responses: ({ url }) => {
+      if (url.endsWith('/conversation')) return jsonResponse(200, { activeTurnId: null,
+        turns: Array.from({ length: 12 }, (_, index) => ({
+          turnId: String(index), message: 'request', reply: 'answer', attachments: [file], lastSeq: 1, pendingActions: [],
+        })) });
+      if (url.includes('/files/')) {
+        active++;
+        maximum = Math.max(maximum, active);
+        return new Promise<Response>((resolve) => {
+          releases.push(() => { active--; resolve(new Response(new Blob(['test']), { status: 200 })); });
+        });
+      }
+      throw new Error('unexpected request');
+    } });
+    view.view.showAttachment = (_id, _file, load) => { void load(); };
+    await harness.session.start();
+    await flush();
+    expect(maximum).toBeLessThanOrEqual(3);
+    while (releases.length) {
+      releases.splice(0).forEach((release) => release());
+      await flush();
+    }
+    expect(harness.requests.filter((request) => request.url.includes('/files/'))).toHaveLength(12);
   });
 
   it('says nothing to the server when the visitor never wrote', async () => {
@@ -1718,6 +1837,32 @@ describe('shared attachments in deep-chat', () => {
       expect(revoked).toEqual(['blob:https://example.test/shared']);
     } finally { vi.unstubAllGlobals(); }
   });
+  it('hides the viewer when the panel closes and restores focus after a redraw', async () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const file = { kind: 'image' as const, storedName: `${'b'.repeat(64)}.png` };
+    const focus = vi.fn();
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & { focusInput(): void };
+    chat.focusInput = focus;
+    panel.restore([{ role: 'ai', text: 'Answer', turnId: 'T', attachments: [file] }]);
+    panel.showAttachment('T', file, async () => new Blob([new Uint8Array(12)]));
+    await flush();
+    panel.open();
+    const root = panel.host.shadowRoot!;
+    const box = root.querySelector<HTMLElement>('.cb-lightbox')!;
+    chat.shadowRoot!.querySelector<HTMLButtonElement>('.cb-shared-image button')!.click();
+    panel.close();
+    expect(box.hidden).toBe(true);
+    expect(box.querySelector('img')?.hasAttribute('src')).toBe(false);
+    panel.open();
+    chat.shadowRoot!.querySelector<HTMLButtonElement>('.cb-shared-image button')!.click();
+    panel.showAttachment('T', file, async () => null);
+    box.querySelector<HTMLButtonElement>('.cb-lightbox-close')!.click();
+    expect(focus).toHaveBeenCalledTimes(3);
+    panel.destroy();
+  });
+
   it('keeps a file-only restored answer and deduplicates a replayed attachment', async () => {
     const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
       onVisitorMessage: () => undefined, onStop: () => undefined });
@@ -1732,11 +1877,112 @@ describe('shared attachments in deep-chat', () => {
     const chat = panel.host.shadowRoot!.querySelector('deep-chat')!;
     expect(chat.shadowRoot!.querySelector('.cb-upload-name')?.textContent).toBe('photo.png');
     expect(chat.shadowRoot!.querySelectorAll('.cb-shared-file')).toHaveLength(1);
-    expect(chat.shadowRoot!.querySelector('.cb-shared-file')?.textContent).toBe('report.pdf');
-    expect(chat.shadowRoot!.querySelector('.cb-shared-file-chip .cb-shared-file-name')?.textContent).toBe('report.pdf');
-    expect(chat.shadowRoot!.querySelectorAll('.cb-shared-file-chip svg')).toHaveLength(2);
+    expect(chat.shadowRoot!.querySelector('.cb-shared-file')?.textContent).toBe(strings.errorAttachment);
+    expect(chat.shadowRoot!.querySelector('.cb-shared-file-chip')?.tagName).toBe('BUTTON');
     panel.destroy();
   });
+  it('clears the completed upload status before the answer arrives', () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    panel.beginAnswer();
+    panel.uploadProgress(0, 12);
+    panel.uploadProgress(12, 12);
+    const status = panel.host.shadowRoot!.querySelector<HTMLElement>('.status')!;
+    expect(status.hidden).toBe(false);
+    panel.uploadFinished();
+    expect(status.hidden).toBe(true);
+    panel.destroy();
+  });
+
+  it('limits upload announcements to quarter milestones', () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const status = panel.host.shadowRoot!.querySelector<HTMLElement>('.status')!;
+    const texts: string[] = [];
+    for (let i = 0; i <= 160; i += 1) {
+      panel.uploadProgress(i, 160);
+      if (status.textContent !== texts.at(-1)) texts.push(status.textContent ?? '');
+    }
+    expect(texts).toHaveLength(5);
+    panel.destroy();
+  });
+
+  it('offers precisely the formats that upload validation accepts', async () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const chat = panel.host.shadowRoot!.querySelector('deep-chat') as HTMLElement & { images?: {
+      files?: { acceptedFormats?: string };
+    } };
+    expect(chat.images?.files?.acceptedFormats).toBe(
+      VISITOR_IMAGE_FORMATS.flatMap((format) => [...format.extensions, format.mime]).join(','));
+    panel.destroy();
+
+    const view = makeView();
+    const harness = makeSession({ view, page: makePage(), responses: ({ url }) => {
+      if (url.endsWith('/visitors')) return jsonResponse(200, { token: 'token-1' });
+      if (url.includes('/uploads?')) return jsonResponse(413, { error: 'invalid_image' });
+      throw new Error('unexpected request');
+    } });
+    for (const format of VISITOR_IMAGE_FORMATS) {
+      const image = new File([new Uint8Array(12)], `image${format.extensions[0]}`, { type: format.mime });
+      Object.defineProperty(image, 'stream', { value: () => new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new Uint8Array(12)); controller.close(); },
+      }) });
+      await harness.session.send('', image);
+    }
+    expect(harness.requests.filter((request) => request.url.includes('/uploads?'))).toHaveLength(VISITOR_IMAGE_FORMATS.length);
+  });
+
+  it('marks a pending file and retries a failed image on click', async () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const image = { kind: 'image' as const, storedName: `${'a'.repeat(64)}.png` };
+    const file = { kind: 'file' as const, storedName: `${'b'.repeat(64)}.bin`, name: 'file.pdf', size: 4 };
+    panel.restore([{ role: 'ai', text: 'answer', turnId: 'T', attachments: [image, file] }]);
+    let release!: (value: Blob | null) => void;
+    panel.showAttachment('T', file, () => new Promise((resolve) => { release = resolve; }));
+    const root = panel.host.shadowRoot!.querySelector('deep-chat')!.shadowRoot!;
+    const pending = root.querySelector('.cb-shared-file-chip')!;
+    expect(pending.tagName).toBe('SPAN');
+    expect(pending.getAttribute('aria-label')).toBe(strings.attachmentLoading);
+    expect(pending.classList.contains('cb-shared-file-chip-pending')).toBe(true);
+    let calls = 0;
+    panel.showAttachment('T', image, async () => {
+      calls++;
+      return calls === 1 ? null : new Blob([new Uint8Array(12)], { type: 'image/png' });
+    });
+    await flush();
+    expect(root.querySelector('.cb-shared-image')?.textContent).toBe(strings.errorAttachment);
+    root.querySelector<HTMLButtonElement>('.cb-shared-image button')!.click();
+    await flush();
+    expect(calls).toBe(2);
+    expect(root.querySelector('.cb-shared-image img')).not.toBeNull();
+    release(null);
+    panel.destroy();
+  });
+
+  it('keeps failed attachment state and avoids fetching orphaned attachments', async () => {
+    const panel = new ChatPanel({ strings, look: { name: 'Advisor', appearance: DEFAULT_APPEARANCE },
+      onVisitorMessage: () => undefined, onStop: () => undefined });
+    document.body.append(panel.host);
+    const file = { kind: 'image' as const, storedName: `${'b'.repeat(64)}.png` };
+    const orphan = vi.fn(async () => null);
+    panel.showAttachment('orphan', file, orphan);
+    panel.restore([{ role: 'ai', text: 'Answer', turnId: 'T', attachments: [file] }]);
+    panel.showAttachment('T', file, async () => null);
+    await flush();
+    expect(orphan).not.toHaveBeenCalled();
+    const root = panel.host.shadowRoot!.querySelector('deep-chat')!.shadowRoot!;
+    expect(root.querySelector('.cb-shared-image')?.textContent).toBe(strings.errorAttachment);
+    panel.showAttachment('T', file, async () => null);
+    expect(root.querySelector('.cb-shared-image')?.textContent).toBe(strings.errorAttachment);
+    panel.destroy();
+  });
+
   it('uses the visitor locale for the picker and image action, never an agent caption', async () => {
     for (const locale of ['cs', 'sk', 'en'] as const) {
       const translated = widgetStrings(locale);
@@ -1754,6 +2000,7 @@ describe('shared attachments in deep-chat', () => {
       const root = chat.shadowRoot!;
       expect(root.querySelector('.cb-shared-image button')?.getAttribute('aria-label')).toBe(translated.attachmentImage);
       expect(panel.host.shadowRoot!.querySelector('.cb-lightbox-close')?.getAttribute('aria-label')).toBe(translated.imageClose);
+      expect(panel.host.shadowRoot!.querySelector('.cb-lightbox')?.getAttribute('aria-label')).toBe(translated.imageViewer);
       expect(root.querySelector('.cb-shared-image')?.textContent).not.toContain('Preview');
       panel.destroy();
     }

@@ -32,7 +32,7 @@ import type { ChatView, RestoredMessage, SharedAttachment } from './session.js';
 import { allowedOfferUrl, type Offer } from '../src/offerContract.js';
 import { escapeHtml, offerHtml, offerStyles, disableOffers } from './offer.js';
 import { feedbackHtml, feedbackStyles } from './feedback.js';
-import { FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, type FeedbackRating, type FeedbackSelection } from '../src/publicContract.js';
+import { FEEDBACK_COMMENT_MAX_CHARS, FEEDBACK_RATINGS, VISITOR_IMAGE_FORMATS, type FeedbackRating, type FeedbackSelection } from '../src/publicContract.js';
 import { fillTemplate, type WidgetStrings } from './strings.js';
 
 /** How much vertical room the panel leaves for the launcher and for a browser's own chrome. The visitor's
@@ -40,6 +40,10 @@ import { fillTemplate, type WidgetStrings } from './strings.js';
  *  clamp below is the one place that happens. */
 const LAUNCHER_GAP_PX = 12;
 const SHARED_FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h9l5 5v15H5z M14 2v5h5 M8 12h8 M8 16h8"/></svg>';
+function attachmentKey(turnId: string, file: SharedAttachment): string {
+  return `${turnId}:${file.kind}:${file.storedName}`;
+}
+
 const SHARED_DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12 m-4-4 4 4 4-4 M5 18v3h14v-3"/></svg>';
 
 export function appearanceViewportInset(appearance: ChatbotAppearance): { width: number; height: number } {
@@ -200,7 +204,7 @@ function chatConfig(input: {
     } } },
     hiddenMessages: { smoothScroll: true, clickScroll: 'last', styles: { default: { backgroundColor: ramp.raised, color: ramp.foreground, border: `1px solid ${ramp.border}` } } },
     images: {
-      files: { maxNumberOfFiles: 1, acceptedFormats: '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp' },
+      files: { maxNumberOfFiles: 1, acceptedFormats: VISITOR_IMAGE_FORMATS.flatMap((format) => [...format.extensions, format.mime]).join(',') },
       button: { position: 'inside-start', tooltip: { text: strings.attachImage } },
     },
     textInput: {
@@ -301,6 +305,8 @@ function lookStyle(appearance: ChatbotAppearance): string {
 .cb-shared-file a:focus-visible, .cb-shared-image button:focus-visible { outline:2px solid var(--cb-feedback-accent); outline-offset:2px; }
 .cb-shared-file-chip { display:flex; width:min(100%,280px); min-height:44px; padding:8px 10px; text-decoration:none; }
 .cb-shared-file-chip svg { width:18px; height:18px; flex:0 0 auto; }
+.cb-shared-file-chip-pending { opacity:.55; }
+.cb-shared-file-retry { border:1px solid var(--cb-feedback-accent); border-radius:8px; padding:8px 10px; background:transparent; color:inherit; cursor:pointer; }
 .cb-shared-file-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .input-button:has(#upload-images-icon) { box-sizing:border-box; min-width:44px; min-height:44px; padding:10px; touch-action:manipulation; }
 /* deep-chat offsets this icon absolutely for its own 23px button; in the 44px target the flex box centres it. */
@@ -519,6 +525,7 @@ export class ChatPanel implements ChatView {
   private readonly teaser: HTMLElement;
   private readonly lightbox: HTMLElement;
   private readonly lightboxImage: HTMLImageElement;
+  private readonly lightboxClose: HTMLButtonElement;
   private lightboxReturn: HTMLElement | null = null;
   private readonly badge: HTMLElement;
   private readonly mute: HTMLButtonElement;
@@ -551,10 +558,9 @@ export class ChatPanel implements ChatView {
   private offerOrigins: string[] = [];
   /** One attachment record per answer, regardless of whether it is streamed or restored. */
   private readonly attachments = new Map<number, { offer?: Offer; offerActive?: boolean; turnId?: string; selection?: FeedbackSelection | null; commentOpen?: boolean; files?: SharedAttachment[] }>();
-  private readonly pendingFiles = new Map<string, SharedAttachment[]>();
   private readonly uploadNames = new Map<number, string>();
-  private readonly fileUrls = new Map<string, string>();
-  private readonly loadingFiles = new Set<string>();
+  private readonly fileStates = new Map<string, { status: 'loading' | 'failed' | 'ready'; turnId: string; load: () => Promise<Blob | null>; url?: string }>();
+  private uploadMilestone = -1;
   private latestAnswerIndex: number | null = null;
   private readonly feedbackIndices = new Map<string, number>();
   private readonly feedbackBusy = new Set<string>();
@@ -698,15 +704,15 @@ export class ChatPanel implements ChatView {
     this.lightbox.hidden = true;
     this.lightbox.setAttribute('role', 'dialog');
     this.lightbox.setAttribute('aria-modal', 'true');
-    this.lightbox.setAttribute('aria-label', this.strings.attachmentImage);
+    this.lightbox.setAttribute('aria-label', this.strings.imageViewer);
     this.lightboxImage = document.createElement('img');
     this.lightboxImage.alt = '';
-    const closeImage = document.createElement('button');
-    closeImage.type = 'button';
-    closeImage.className = 'cb-lightbox-close';
-    closeImage.textContent = '×';
-    closeImage.setAttribute('aria-label', this.strings.imageClose);
-    this.lightbox.append(this.lightboxImage, closeImage);
+    this.lightboxClose = document.createElement('button');
+    this.lightboxClose.type = 'button';
+    this.lightboxClose.className = 'cb-lightbox-close';
+    this.lightboxClose.textContent = '×';
+    this.lightboxClose.setAttribute('aria-label', this.strings.imageClose);
+    this.lightbox.append(this.lightboxImage, this.lightboxClose);
     this.lightbox.addEventListener('click', (event) => { if (event.target !== this.lightboxImage) this.closeImage(); });
     root.append(this.panel, this.teaser, this.launcher, this.lightbox);
     shadow.append(this.style, root);
@@ -731,9 +737,13 @@ export class ChatPanel implements ChatView {
       this.messages.addEventListener(event, () => this.cancelDrawScroll(), { passive: true });
     }
     this.host.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key !== 'Escape') return;
-      if (!this.lightbox.hidden) this.closeImage();
-      else if (!this.panel.hidden) this.toggle(false);
+      if (!this.lightbox.hidden && (event as KeyboardEvent).key === 'Tab') {
+        event.preventDefault();
+        this.lightboxClose.focus();
+      } else if ((event as KeyboardEvent).key === 'Escape') {
+        if (!this.lightbox.hidden) this.closeImage();
+        else if (!this.panel.hidden) this.toggle(false);
+      }
     });
   }
 
@@ -741,14 +751,20 @@ export class ChatPanel implements ChatView {
     this.lightboxImage.src = url;
     this.lightbox.hidden = false;
     this.lightboxReturn = from;
-    this.lightbox.querySelector<HTMLButtonElement>('.cb-lightbox-close')!.focus();
+    this.lightboxClose.focus();
+  }
+
+  private hideImage(): void {
+    this.lightbox.hidden = true;
+    this.lightboxImage.removeAttribute('src');
+    this.lightboxReturn = null;
   }
 
   private closeImage(): void {
-    this.lightbox.hidden = true;
-    this.lightboxImage.removeAttribute('src');
-    this.lightboxReturn?.focus();
-    this.lightboxReturn = null;
+    const target = this.lightboxReturn;
+    this.hideImage();
+    if (target?.isConnected) target.focus();
+    else this.chat.focusInput();
   }
 
   open(): void {
@@ -806,6 +822,7 @@ export class ChatPanel implements ChatView {
     this.answer = '';
     this.answerIndex = null;
     this.clearStatus();
+    this.uploadMilestone = -1;
     this.answerActive = true;
     this.syncAnswerControl();
     this.signals?.onOpen();
@@ -873,30 +890,50 @@ export class ChatPanel implements ChatView {
   }
 
   uploadProgress(loaded: number, total: number): void {
-    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(Math.min(100, Math.round(100 * loaded / total))) }));
+    const milestone = Math.min(100, Math.floor(4 * loaded / total) * 25);
+    if (milestone === this.uploadMilestone) return;
+    this.uploadMilestone = milestone;
+    this.notice(fillTemplate(this.strings.uploadProgress, { percent: String(milestone) }));
+  }
+
+  uploadFinished(): void {
+    this.clearStatus();
   }
 
   showAttachment(turnId: string, attachment: SharedAttachment, load: () => Promise<Blob | null>): void {
-    const key = `${turnId}:${attachment.kind}:${attachment.storedName}`;
     const index = this.feedbackIndices.get(turnId);
-    const list = index === undefined ? this.pendingFiles.get(turnId) ?? [] : this.attachments.get(index)?.files ?? [];
+    if (index === undefined) return;
+    const list = this.attachments.get(index)?.files ?? [];
     if (!list.some((item) => item.kind === attachment.kind && item.storedName === attachment.storedName)) list.push(attachment);
-    if (index === undefined) this.pendingFiles.set(turnId, list);
-    else {
-      this.attachments.set(index, { ...this.attachments.get(index), files: list });
-      this.renderFollowing(index);
-    }
-    if (this.fileUrls.has(key) || this.loadingFiles.has(key)) return;
-    this.loadingFiles.add(key);
-    void Promise.resolve().then(load).then((blob) => {
+    this.attachments.set(index, { ...this.attachments.get(index), files: list });
+    this.renderFollowing(index);
+    const key = attachmentKey(turnId, attachment);
+    if (this.fileStates.has(key)) return;
+    this.fileStates.set(key, { status: 'loading', turnId, load });
+    this.loadAttachment(key);
+  }
+
+  private loadAttachment(key: string): void {
+    const state = this.fileStates.get(key);
+    if (!state || state.status === 'ready') return;
+    const { turnId } = state;
+    state.status = 'loading';
+    const index = this.feedbackIndices.get(turnId);
+    if (index !== undefined) this.renderFollowing(index);
+    void Promise.resolve().then(state.load).then((blob) => {
       if (this.destroyed) return;
-      if (!blob) { this.notice(this.strings.errorAttachment); return; }
-      const url = URL.createObjectURL(blob);
-      this.fileUrls.set(key, url);
+      if (blob) {
+        state.status = 'ready';
+        state.url = URL.createObjectURL(blob);
+      } else state.status = 'failed';
       const target = this.feedbackIndices.get(turnId);
       if (target !== undefined) this.renderFollowing(target);
-    }).catch(() => { if (!this.destroyed) this.notice(this.strings.errorAttachment); })
-      .finally(() => this.loadingFiles.delete(key));
+    }).catch(() => {
+      if (this.destroyed) return;
+      state.status = 'failed';
+      const target = this.feedbackIndices.get(turnId);
+      if (target !== undefined) this.renderFollowing(target);
+    });
   }
 
   setAllowedOrigins(origins: string[]): void {
@@ -916,9 +953,7 @@ export class ChatPanel implements ChatView {
     const index = this.latestAnswerIndex;
     if (index === null) return;
     this.feedbackIndices.set(turnId, index);
-    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false,
-      files: this.pendingFiles.get(turnId) ?? this.attachments.get(index)?.files });
-    this.pendingFiles.delete(turnId);
+    this.attachments.set(index, { ...this.attachments.get(index), turnId, selection, commentOpen: false });
     this.renderFollowing(index);
   }
 
@@ -970,8 +1005,9 @@ export class ChatPanel implements ChatView {
     }
     attachment.innerHTML = markup;
     for (const file of state.files ?? []) {
-      const key = `${state.turnId}:${file.kind}:${file.storedName}`;
-      const url = this.fileUrls.get(key);
+      const key = attachmentKey(state.turnId!, file);
+      const fileState = this.fileStates.get(key);
+      const url = fileState?.status === 'ready' ? fileState.url : undefined;
       const item = document.createElement('div');
       item.className = `cb-shared-file cb-shared-${file.kind}`;
       if (file.kind === 'image') {
@@ -985,11 +1021,27 @@ export class ChatPanel implements ChatView {
           img.alt = '';
           open.append(img);
           item.append(open);
+        } else if (fileState?.status === 'failed') {
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'cb-shared-file-retry';
+          retry.dataset.cbRetry = key;
+          retry.textContent = this.strings.errorAttachment;
+          item.append(retry);
         } else item.textContent = this.strings.attachmentLoading;
       } else {
         const name = file.name || this.strings.attachmentDownload;
-        const chip = document.createElement(url ? 'a' : 'span');
-        chip.className = 'cb-shared-file-chip';
+        const chip = document.createElement(url ? 'a' : fileState?.status === 'failed' ? 'button' : 'span');
+        chip.className = `cb-shared-file-chip${url ? '' : ' cb-shared-file-chip-pending'}`;
+        if (fileState?.status === 'failed') {
+          chip.textContent = this.strings.errorAttachment;
+          (chip as HTMLButtonElement).type = 'button';
+          (chip as HTMLButtonElement).dataset.cbRetry = key;
+          item.append(chip);
+          attachment.append(item);
+          continue;
+        }
+        if (!url) chip.setAttribute('aria-label', this.strings.attachmentLoading);
         if (url && chip instanceof HTMLAnchorElement) {
           chip.href = url;
           chip.download = name;
@@ -1041,6 +1093,8 @@ export class ChatPanel implements ChatView {
       void this.sendFeedbackComment(turnId, group.querySelector('textarea')?.value ?? '');
     } else if (turnId && button.classList.contains('cb-feedback-skip')) {
       this.skipFeedbackComment(turnId);
+    } else if (button.dataset.cbRetry) {
+      this.loadAttachment(button.dataset.cbRetry);
     } else if (button.hasAttribute('data-cb-image')) {
       this.openImage(button.getAttribute('data-cb-image') ?? '', button);
     } else if (button.hasAttribute('data-cb-url')) {
@@ -1154,8 +1208,8 @@ export class ChatPanel implements ChatView {
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.resetUnread();
     this.releaseAvatarObjectUrl();
-    for (const url of this.fileUrls.values()) URL.revokeObjectURL(url);
-    this.fileUrls.clear();
+    for (const state of this.fileStates.values()) if (state.url) URL.revokeObjectURL(state.url);
+    this.fileStates.clear();
     this.pendingConfirmation?.(false);
     this.pendingConfirmation = null;
     this.layoutObserver.disconnect();
@@ -1225,6 +1279,9 @@ export class ChatPanel implements ChatView {
    *  occupies the native send slot without reaching into deep-chat's private submit/validation state. */
   private syncAnswerControl(): void {
     this.chat.toggleAttribute('data-answer-active', this.answerActive);
+    const picker = this.chat.shadowRoot?.querySelector<HTMLElement>('.input-button:has(#upload-images-icon)');
+    picker?.setAttribute('aria-label', this.strings.attachImage);
+    picker?.setAttribute('title', this.strings.attachImage);
     const stop = this.chat.shadowRoot?.querySelector<HTMLElement>('.input-button:has([data-cb-stop-icon])');
     stop?.setAttribute('aria-label', this.strings.stop);
     stop?.setAttribute('title', this.strings.stop);
@@ -1551,6 +1608,7 @@ export class ChatPanel implements ChatView {
   }
 
   private toggle(open: boolean): void {
+    if (!open) this.hideImage();
     this.panel.hidden = !open;
     this.launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!open) return;
