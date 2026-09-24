@@ -12,7 +12,7 @@ import type { ChatbotStores } from './coreSeams.js';
 import { PUBLIC_MOUNT, WIDGET_ASSET_NAME } from './publicContract.js';
 import { PAGE_ACTION_TOOL_NAME } from './actionsTool.js';
 import { OFFER_TOOL_NAME } from './offerTool.js';
-import { CHATBOT_CONVERSATION_SORTS } from './adminContract.js';
+import { CHATBOT_CONVERSATION_SORTS, DAY_MS, STATS_MAX_DAYS } from './adminContract.js';
 import type {
   ChatbotBotView,
   ChatbotConversationSort,
@@ -89,7 +89,6 @@ const VISITORS_LIMIT = 500;
 /** How far back a statistics read may reach, and the window it uses when a caller names none. Bounded so a
  *  request can never ask the daemon to walk the whole history of an account for a chart nobody can read. */
 const STATS_DEFAULT_DAYS = 30;
-const STATS_MAX_DAYS = 366;
 
 /** One UTC day, or null when the caller's value is not a date at all. The stats route takes days, not
  *  timestamps, because every counter below is keyed by the UTC day the plugin already groups by. */
@@ -441,10 +440,10 @@ export function createAdminApi(deps: AdminApiDeps) {
       const requestedTo = readDay(query.to);
       const toDay = requestedTo ?? today;
       const requestedFrom = readDay(query.from);
-      const fromDay = requestedFrom ?? utcDay(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * 86_400_000);
+      const fromDay = requestedFrom ?? utcDay(Date.parse(`${toDay}T00:00:00.000Z`) - (STATS_DEFAULT_DAYS - 1) * DAY_MS);
       // A window the caller got backwards is a mistake to report, not a range to silently swap.
       if (fromDay > toDay) return { status: 400, body: { error: 'invalid_request', detail: '"from" must not be after "to"' } };
-      const spanDays = Math.round((Date.parse(`${toDay}T00:00:00.000Z`) - Date.parse(`${fromDay}T00:00:00.000Z`)) / 86_400_000) + 1;
+      const spanDays = Math.round((Date.parse(`${toDay}T00:00:00.000Z`) - Date.parse(`${fromDay}T00:00:00.000Z`)) / DAY_MS) + 1;
       if (spanDays > STATS_MAX_DAYS) return { status: 400, body: { error: 'invalid_request', detail: `the window may span at most ${STATS_MAX_DAYS} days` } };
 
       const waits = store.queueWaitsMs({ chatbotUserId, fromDay, toDay });
@@ -458,7 +457,7 @@ export function createAdminApi(deps: AdminApiDeps) {
           to: toDay,
           days: store.dailyTurns({ chatbotUserId, fromDay, toDay }),
           spend: Array.from({ length: spanDays }, (_, index) => {
-            const day = utcDay(Date.parse(`${fromDay}T00:00:00.000Z`) + index * 86_400_000);
+            const day = utcDay(Date.parse(`${fromDay}T00:00:00.000Z`) + index * DAY_MS);
             return { day, usage: store.usageFor(chatbotUserId, day) };
           }),
           totals: store.turnTotals({ chatbotUserId, fromDay, toDay }),

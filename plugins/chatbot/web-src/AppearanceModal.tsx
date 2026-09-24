@@ -1,4 +1,4 @@
-/** Edits a linked template and explicit overrides. The chatbot's name stays in its own column. */
+/** Edits a chatbot's name, linked appearance template and explicit overrides. */
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { MousePointerClick, Palette, Plus, RotateCcw, Ruler, Trash2, Type, UserRound, Send, Volume2, Sparkles } from 'lucide-react';
 import {
@@ -6,7 +6,8 @@ import {
   APPEARANCE_INTRO_MAX_CHARS, APPEARANCE_AVATAR_URL_MAX_CHARS, APPEARANCE_SUBTITLE_MAX_CHARS,
   APPEARANCE_PLACEHOLDER_MAX_CHARS, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS,
   APPEARANCE_QUICK_BUTTONS_MAX, APPEARANCE_QUICK_BUTTON_MAX_CHARS, APPEARANCE_TEASER_MAX_CHARS,
-  APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, appearanceRamp,
+  APPEARANCE_FONT_STACKS, APPEARANCE_SHADOWS, APPEARANCE_MODES, PANEL_POSITIONS,
+  SEND_SHAPES, BUTTON_HOVERS, MESSAGE_ENTRANCES, LAUNCHER_NUDGES, SOUND_TONES, appearanceRamp,
   appearanceIcon, appearanceInk, isAppearanceOverridden, parseAppearanceSelection,
   resetAppearanceOverride, resolveAppearance, selectAppearanceTemplate, setAppearanceOverride,
   type AppearanceIconId, type AppearanceOverridePath, type AppearanceTemplateId, type StoredAppearance,
@@ -155,7 +156,7 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]">
             <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1">
               {section(s.appearanceColorsLabel, <Palette size={18} />, <>
-                {select('mode', s.appearanceModeLabel, appearance.mode, [{ value: 'light', label: s.appearanceModeLight }, { value: 'dark', label: s.appearanceModeDark }])}
+                {select('mode', s.appearanceModeLabel, appearance.mode, APPEARANCE_MODES.map(value => ({ value, label: value === 'light' ? s.appearanceModeLight : s.appearanceModeDark })))}
                 <div className="grid grid-cols-2 gap-4">{color('panel', s.appearanceColorPanel)}{color('visitorBubble', s.appearanceColorVisitor)}{color('botBubble', s.appearanceColorBot)}</div>
                 {gradientEnd('visitorBubbleEnd', s.appearanceGradientVisitor, appearance.colors.visitorBubble)}
                 {gradientEnd('headerEnd', s.appearanceGradientHeader, appearance.colors.header ?? appearanceRamp(appearance).header)}
@@ -167,14 +168,14 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
               {section(s.appearanceEffectsGroup, <Sparkles size={18} />, <>
                 {toggle('effects.glass', s.appearanceGlass, appearance.effects.glass)}
                 {appearance.effects.glass ? <>{metric('effects.glassBlur', 'glassBlur', s.appearanceGlassBlur, appearance.effects.glassBlur, 'px')}{metric('effects.glassOpacity', 'glassOpacity', s.appearanceGlassOpacity, appearance.effects.glassOpacity, '%')}</> : null}
-                {select('effects.buttonHover', s.appearanceHover, appearance.effects.buttonHover, ['lift', 'fill', 'shine', 'glow'].map(value => ({ value, label: s[`appearanceHover_${value}`] })))}
+                {select('effects.buttonHover', s.appearanceHover, appearance.effects.buttonHover, BUTTON_HOVERS.map(value => ({ value, label: s[`appearanceHover_${value}`] })))}
                 {metric('effects.buttonIntensity', 'buttonIntensity', s.appearanceIntensity, appearance.effects.buttonIntensity, '%')}
-                {select('effects.messageEntrance', s.appearanceEntrance, appearance.effects.messageEntrance, ['none', 'fade', 'slide'].map(value => ({ value, label: s[`appearanceEntrance_${value}`] })))}
+                {select('effects.messageEntrance', s.appearanceEntrance, appearance.effects.messageEntrance, MESSAGE_ENTRANCES.map(value => ({ value, label: s[`appearanceEntrance_${value}`] })))}
               </>)}
               {section(s.appearanceSendGroup, <Send size={18} />, <>
                 <div className="grid grid-cols-2 gap-4">{color('sendButton', s.appearanceColorSend)}{color('sendIcon', s.appearanceColorSendIcon)}</div>
                 {iconPicker('send.icon', s.appearanceSendIcon, appearance.send.icon)}
-                {select('send.shape', s.appearanceSendShape, appearance.send.shape, [{ value: 'circle', label: s.appearanceShapeCircle }, { value: 'rounded-square', label: s.appearanceShapeSquare }])}
+                {select('send.shape', s.appearanceSendShape, appearance.send.shape, SEND_SHAPES.map(value => ({ value, label: value === 'circle' ? s.appearanceShapeCircle : s.appearanceShapeSquare })))}
               </>)}
               {section(s.appearanceLauncherGroup, <MousePointerClick size={18} />, <>
                 {color('launcher', s.appearanceColorLauncher)}
@@ -184,19 +185,16 @@ export function AppearanceModal({ bot, onClose, onChanged }: {
                 {textField('launcher.label', s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS)}
                 {textField('launcher.teaser', s.appearanceTeaser, appearance.launcher.teaser, APPEARANCE_TEASER_MAX_CHARS)}
                 {appearance.launcher.teaser !== '' ? metric('launcher.teaserDelay', 'teaserDelay', s.appearanceTeaserDelay, appearance.launcher.teaserDelay, 's') : null}
-                {select('launcher.nudge', s.appearanceNudge, appearance.launcher.nudge, ['none', 'bounce', 'wiggle'].map(value => ({ value, label: s[`appearanceNudge_${value}`] })))}
+                {select('launcher.nudge', s.appearanceNudge, appearance.launcher.nudge, LAUNCHER_NUDGES.map(value => ({ value, label: s[`appearanceNudge_${value}`] })))}
                 {appearance.launcher.nudge !== 'none' ? metric('launcher.nudgeDelay', 'nudgeDelay', s.appearanceNudgeDelay, appearance.launcher.nudgeDelay, 's') : null}
                 {toggle('launcher.ring', s.appearanceRing, appearance.launcher.ring)}
                 {toggle('launcher.unreadBadge', s.appearanceUnreadBadge, appearance.launcher.unreadBadge)}
-                {select('position', s.appearancePositionLabel, appearance.position, [
-                  { value: 'bottom-right', label: s.appearancePositionBottomRight }, { value: 'bottom-left', label: s.appearancePositionBottomLeft },
-                  { value: 'top-right', label: s.appearancePositionTopRight }, { value: 'top-left', label: s.appearancePositionTopLeft },
-                ])}
+                {select('position', s.appearancePositionLabel, appearance.position, PANEL_POSITIONS.map(value => ({ value, label: s[`appearancePosition${value === 'bottom-right' ? 'BottomRight' : value === 'bottom-left' ? 'BottomLeft' : value === 'top-right' ? 'TopRight' : 'TopLeft'}`] })))}
                 {scalar('launcher.size', 'launcherSize', s.appearanceLauncherSize, appearance.launcher.size)}
                 {scalar('launcher.offset', 'launcherOffset', s.appearanceLauncherOffset, appearance.launcher.offset)}
               </>)}
               {section(s.appearanceSoundGroup, <Volume2 size={18} />, <>
-                {select('sound.tone', s.appearanceTone, appearance.sound.tone, ['none', 'drop', 'chime', 'pop', 'bell'].map(value => ({ value, label: s[`appearanceTone_${value}`] })))}
+                {select('sound.tone', s.appearanceTone, appearance.sound.tone, SOUND_TONES.map(value => ({ value, label: s[`appearanceTone_${value}`] })))}
                 <div className="text-sm"><C.Button variant="outline" size="sm" disabled={pending || appearance.sound.tone === 'none'} onClick={() => { void unlockSound().then(() => playTone(appearance.sound.tone, appearance.sound.volume)); }}>{s.appearancePlay}</C.Button></div>
                 {metric('sound.volume', 'soundVolume', s.appearanceVolume, appearance.sound.volume, '%')}
               </>)}

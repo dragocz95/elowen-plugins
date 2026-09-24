@@ -23,7 +23,7 @@ import { detectLocale, widgetStrings } from './strings.js';
 
 /** The one name the widget adds to the page's global scope. */
 export interface ElowenChatbotApi {
-  /** The protocol version of the served bundle: `v1` today. */
+  /** The protocol version of the served bundle: `v2` today. */
   version: number;
   open(): void;
   close(): void;
@@ -180,8 +180,8 @@ export function mount(): ElowenChatbotApi | null {
     publicId: options.publicId,
     storage: safeStorage('localStorage'),
     look: { name: '', appearance: DEFAULT_APPEARANCE },
-    // The panel already showed the visitor's message; the conversation is told that it did.
-    onVisitorMessage: (text) => void session?.send(text, { shown: true }),
+    // deep-chat draws the submitted message before this callback runs.
+    onVisitorMessage: (text) => void session?.send(text),
     onStop: () => session?.stopWatching(),
     onFeedback: (turnId, rating, comment) => session!.sendFeedback(turnId, rating, comment),
     onOpen: () => {

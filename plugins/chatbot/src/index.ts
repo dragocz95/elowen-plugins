@@ -183,9 +183,6 @@ export function register(published: PluginContext): void {
     const closed = store.closeOrphanedTurns(now().toISOString(), 'server_restarted');
     for (const turnId of closed) broker.publish(turnId);
     if (closed.length > 0) warn(`chatbot: ${closed.length} interrupted turn(s) were closed as server_restarted`);
-    // Every turn is closed above, so nothing of this process is in flight any more: the counts are stale by
-    // definition, and a counter whose only writer is a `finally` would otherwise stay inflated for good.
-    store.resetInFlight(now().toISOString());
     disableUnusableBots('the daemon restarted');
   });
 

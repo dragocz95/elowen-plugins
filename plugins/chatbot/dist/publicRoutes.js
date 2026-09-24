@@ -160,7 +160,7 @@ export function createPublicRoute(deps) {
             allowedOrigins: store.originsOf(admitted.bot.chatbot_user_id),
         }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
     };
-    /** `POST v1/visitors`: hand out a token for a website origin the chatbot allows. */
+    /** `POST v2/visitors`: hand out a token for a website origin the chatbot allows. */
     const handleTokenIssuance = async (req, origin) => {
         const admitted = await publicBotRequest(req, origin);
         if ('reply' in admitted)
@@ -174,7 +174,7 @@ export function createPublicRoute(deps) {
             bot: { publicId: admitted.bot.public_id, displayName: admitted.bot.display_name },
         }, { ...corsHeaders(origin), 'cache-control': 'no-store' });
     };
-    /** `POST v1/visitors/refresh`: rotate a live token for the SAME visitor, so a widget can keep one
+    /** `POST v2/visitors/refresh`: rotate a live token for the SAME visitor, so a widget can keep one
      *  conversation going past a token's lifetime without ever choosing its own identity. */
     const handleRefresh = async (req, origin) => {
         const admitted = presentedToken(req);
@@ -194,7 +194,7 @@ export function createPublicRoute(deps) {
             expiresAt: issued.expiresAt,
         }, corsHeaders(origin));
     };
-    /** `POST v1/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
+    /** `POST v2/turns`: admit one visitor message. The answer is a receipt, never a reply — the turn runs on
      *  the owner side of the relay, so a client that disconnects has stopped watching, not stopped work.
      *
      *  Everything that decides whether this message may be served happens in `store.admitTurn`, in the order the
@@ -301,7 +301,7 @@ export function createPublicRoute(deps) {
             'cache-control': AVATAR_CACHE_CONTROL,
         });
     };
-    /** `GET v1/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
+    /** `GET v2/conversation`: what this visitor's widget needs after a reload or a lost connection — its own
      *  recent turns, each one's public status and the answer it finished with. It is deliberately NOT a
      *  transcript read: the plugin serves the projection it published, never core's conversation. */
     const handleConversation = (req, origin) => {
@@ -396,7 +396,7 @@ export function createPublicRoute(deps) {
         return reply(200, { schemaVersion: PUBLIC_SCHEMA_VERSION, rating: saved.rating, comment: saved.comment,
             updatedAt: saved.updated_at }, corsHeaders(origin));
     };
-    /** `GET v1/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
+    /** `GET v2/turns/:turnId/events`: one turn's public log as NDJSON over `fetch`. The built-in SSE helper is
      *  documented for AUTHENTICATED plugin API only and this endpoint is public, so the stream is one this
      *  plugin owns; `after` replays exactly what a reconnecting widget has not rendered yet. */
     const handleTurnEvents = (req, origin, turnId) => {
@@ -431,7 +431,7 @@ export function createPublicRoute(deps) {
             'cache-control': 'no-store',
         });
     };
-    /** `POST v1/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
+    /** `POST v2/turns/:turnId/actions/:actionId/result` and `…/confirmation`: the two things a widget reports
      *  about a page action.
      *
      *  Both carry the visitor's own token and the origin allowlist gate, both must name THIS visitor's turn —
@@ -484,7 +484,7 @@ export function createPublicRoute(deps) {
         if (requested !== '' && requested !== 'GET' && requested !== 'POST')
             return reply(403, { error: 'origin_not_allowed' });
         const served = store.listBots()
-            .some((bot) => bot.status === 'enabled' && store.originsOf(bot.chatbot_user_id).includes(origin));
+            .some((bot) => bot.status === 'enabled' && checkAllowedOrigin(origin, store.originsOf(bot.chatbot_user_id)).ok);
         return served ? reply(204, undefined, corsHeaders(origin)) : reply(403, { error: 'origin_not_allowed' });
     };
     /** A navigation ticket contains no conversation token. It is single-use, expires quickly, and can only

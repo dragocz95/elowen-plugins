@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { knownCost } from '../src/budget';
+import { knownCost, utcDay } from '../src/budget';
+import { DAY_MS, STATS_MAX_DAYS } from '../src/adminContract';
 import { Activity } from 'lucide-react';
 import { apiJson, chatbotApi, runtime, type DateRange, type PageFilterField } from './runtime';
 import { BotPicker } from './BotPicker';
@@ -7,8 +8,6 @@ import { useChatbots } from './useChatbots';
 import { formatDay, integer, money } from './format';
 import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
-const STATS_MAX_DAYS = 366;
-const DAY_MS = 86_400_000;
 const SERIES_COLOURS = {
   turns: 'var(--color-chart-1)',
   done: 'var(--color-chart-2)',
@@ -20,7 +19,6 @@ const dayStart = (timestamp: number): number => {
   const date = new Date(timestamp);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 };
-const dayKey = (timestamp: number): string => new Date(timestamp).toISOString().slice(0, 10);
 
 export function statsWindow(range: DateRange, now: number, bounds: { fromMs: number; toMs: number }): {
   from: string;
@@ -33,7 +31,7 @@ export function statsWindow(range: DateRange, now: number, bounds: { fromMs: num
   const earliest = toMs - (STATS_MAX_DAYS - 1) * DAY_MS;
   const requestedFrom = Number.isFinite(bounds.fromMs) ? dayStart(bounds.fromMs) : earliest;
   const fromMs = Math.min(toMs, Math.max(requestedFrom, earliest));
-  return { from: dayKey(fromMs), to: dayKey(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
+  return { from: utcDay(fromMs), to: utcDay(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
 }
 
 export function chartPoints(days: readonly ChatbotStatsDayView[], spend: ChatbotStatsAnswer['spend'], from: string, to: string): {
@@ -48,7 +46,7 @@ export function chartPoints(days: readonly ChatbotStatsDayView[], spend: Chatbot
   const points: { label: string; turns: number; done: number; errors: number; cost: number | null }[] = [];
   const end = Date.parse(`${to}T00:00:00.000Z`);
   for (let at = Date.parse(`${from}T00:00:00.000Z`); at <= end; at += DAY_MS) {
-    const day = dayKey(at);
+    const day = utcDay(at);
     const row = byDay.get(day);
     points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0, cost: costs.get(day) ?? null });
   }

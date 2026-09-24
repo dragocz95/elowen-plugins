@@ -1,6 +1,7 @@
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { ACTION_KINDS } from './publicContract.js';
+import { ACTION_VALUE_MAX_CHARS } from './actions.js';
 import { findVisitorTurn } from './visitorTurn.js';
 import { CHATBOT_PLATFORM } from './adapter.js';
 /** The tool a turn calls to do something on the visitor's own page.
@@ -69,7 +70,7 @@ export function registerPageActionTool(deps) {
                 description: 'The "id" of one target in that snapshot, e.g. "e3". Omit for snapshot, navigate and scroll.',
             })),
             value: Type.Optional(Type.String({
-                maxLength: 512,
+                maxLength: ACTION_VALUE_MAX_CHARS,
                 description: 'The text to write for fill, the option to choose for select, an absolute URL for navigate, or "up"/"down" for scroll. Omitted for read, focus, click and request_submit.',
             })),
         }),

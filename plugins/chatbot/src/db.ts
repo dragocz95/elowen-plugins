@@ -93,9 +93,9 @@ const MIGRATIONS = [
         -- it: an action a page performed is then always an action this plugin can explain, and a page that
         -- never answered is a row that expired rather than a gap.
         --
-        -- No FOREIGN KEY is declared, here or above: the plugin deletes its own rows explicitly (see
-        -- deleteBot) and the host's handle does not turn foreign-key enforcement on, so a declaration would
-        -- be a comment pretending to be a constraint.
+        -- No FOREIGN KEY is declared here: turn ownership is deleted explicitly by the plugin.
+        -- The handoff table added later references these action rows; both deletion paths explicitly
+        -- remove handoffs before actions.
         CREATE TABLE IF NOT EXISTS p_chatbot_actions (
           id TEXT PRIMARY KEY,
           turn_id TEXT NOT NULL,
@@ -302,6 +302,18 @@ const MIGRATIONS = [
       CREATE INDEX p_chatbot_feedback_register ON p_chatbot_feedback (chatbot_user_id, rating, updated_at DESC);`);
     },
   },
+  {
+    /** Step 11: remove unused and duplicated columns without disturbing live rows. */
+    version: 11,
+    up(db: { exec(sql: string): void }): void {
+      db.exec(`
+        ALTER TABLE p_chatbot_actions DROP COLUMN snapshot_id;
+        ALTER TABLE p_chatbot_actions DROP COLUMN target_id;
+        ALTER TABLE p_chatbot_bots DROP COLUMN customer_user_id;
+        ALTER TABLE p_chatbot_budget_days DROP COLUMN in_flight;
+      `);
+    },
+  },
 ];
 
 /** The message as the widget composed it before step 8: an optional label, the visitor's words, and a
@@ -348,7 +360,6 @@ export interface BotLimitColumns {
 export interface BotRow extends BotLimitColumns {
   chatbot_user_id: number;
   public_id: string;
-  customer_user_id: number | null;
   display_name: string;
   status: 'draft' | 'enabled' | 'disabled';
   may_submit_forms: number;
@@ -423,9 +434,7 @@ type ActionStatus = 'pending' | 'confirmation_required' | 'confirmed' | 'done' |
 export interface ActionRow {
   id: string;
   turn_id: string;
-  snapshot_id: string;
   action: string;
-  target_id: string | null;
   request_json: string;
   status: ActionStatus;
   requires_confirmation: number;
@@ -451,7 +460,6 @@ export interface BudgetDayRow {
   chatbot_user_id: number;
   day: string;
   admitted_turns: number;
-  in_flight: number;
   updated_at: string;
 }
 

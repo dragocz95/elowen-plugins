@@ -337,7 +337,6 @@ describe('the lifecycle of one action', () => {
     const pending = ask(host, turn, { kind: 'fill', targetId: 'e0', value: 'Jan' });
     const row = latestAction(host, turn.turn_id)!;
     expect(row.status).toBe('pending');
-    expect(row.snapshot_id).toBe(SNAPSHOT);
     expect(actionRequestPayload(row)).toEqual({ kind: 'fill', targetId: 'e0', value: 'Jan' });
 
     // The frame is the one the SHIPPED widget accepts: the same reader the served bundle carries is what

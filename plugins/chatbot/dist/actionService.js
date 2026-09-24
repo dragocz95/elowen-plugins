@@ -5,6 +5,7 @@ import { readBotLimits } from './limits.js';
 import { actionRequestPayload, actionResultPayload } from './store.js';
 import { hashToken, sameHash } from './token.js';
 import { readPageUrl } from './validation.js';
+import { checkAllowedOrigin } from './origin.js';
 /** How long one action may wait for the visitor's page before it is closed as unanswered.
  *
  *  There is one number, not one per kind. A page performs an ordinary action at once, so the wait is only
@@ -60,7 +61,7 @@ export class PageActionService {
             warn(`chatbot: turn ${input.turn.turn_id} was asked for a page action but its chatbot has no usable limit configuration`);
             return this.refuse(input, 'action_not_allowed');
         }
-        if (!bot || !store.originsOf(input.chatbotUserId).includes(page.origin)) {
+        if (!bot || !checkAllowedOrigin(page.origin, store.originsOf(input.chatbotUserId)).ok) {
             return this.refuse(input, 'action_not_allowed');
         }
         if (kind === 'request_submit' && bot.may_submit_forms !== 1) {
@@ -70,7 +71,7 @@ export class PageActionService {
             try {
                 const url = new URL(input.request.value ?? '');
                 if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password
-                    || !store.originsOf(input.chatbotUserId).includes(url.origin))
+                    || !checkAllowedOrigin(url.origin, store.originsOf(input.chatbotUserId)).ok)
                     return this.refuse(input, 'navigation_not_allowed');
             }
             catch {
@@ -101,7 +102,7 @@ export class PageActionService {
         if (input.outcome === 'done' && row.action === 'snapshot') {
             const parsed = readRecordedPageState(input.detail ?? '');
             if (!parsed.ok || parsed.value.origin !== input.origin
-                || !this.deps.store.originsOf(input.turn.chatbot_user_id).includes(parsed.value.origin))
+                || !checkAllowedOrigin(parsed.value.origin, this.deps.store.originsOf(input.turn.chatbot_user_id)).ok)
                 return { ok: false, reason: 'invalid_result' };
         }
         // A denial is the page refusing what the plugin approved. It is recorded as the failure it is, and the
@@ -167,7 +168,7 @@ export class PageActionService {
     async dispatch(input, page, action) {
         const { store, broker, info } = this.deps;
         const actionId = randomUUID();
-        // The nonce is minted for EVERY action, not only for a submission: the v1 frame carries it always, and a
+        // The nonce is minted for EVERY action, not only for a submission: the v2 frame carries it always, and a
         // frame without it is one a widget drops rather than guesses about. Only a `request_submit` ever checks
         // it, which is where it is consumed.
         const nonce = randomBytes(16).toString('hex');
@@ -175,7 +176,6 @@ export class PageActionService {
         const row = store.createAction({
             actionId,
             turnId: input.turn.turn_id,
-            snapshotId: page.snapshotId,
             kind: action.kind,
             targetId: action.targetId,
             value: action.value,

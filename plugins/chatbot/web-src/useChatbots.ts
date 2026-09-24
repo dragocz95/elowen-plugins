@@ -3,9 +3,9 @@ import type { ChatbotBotView, ChatbotsAnswer } from './types';
 
 /** THE REGISTER, read once for all five sections.
  *
- *  Each section is mounted on its own by the host — they are four addresses in Settings → Plugins, not
- *  four panels of one component this bundle owns — so a register loaded inside a section would be loaded
- *  three or four times over and each copy would answer differently the moment a chatbot is saved.
+ *  Each section is mounted on its own by the host — they are five addresses inside one deck, not
+ *  five separate registers — so a register loaded inside a section would be loaded
+ *  five times over and each copy would answer differently the moment a chatbot is saved.
  *
  *  This reads it through the HOST's react-query client, which every section reaches through the same
  *  runtime. One key, one request, one answer; a section that saves a chatbot writes it into that answer

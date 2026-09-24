@@ -2,6 +2,7 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import type { ActionAnswer, ActionRequestRefusal, PageActionService } from './actionService.js';
 import { ACTION_KINDS } from './publicContract.js';
+import { ACTION_VALUE_MAX_CHARS } from './actions.js';
 import type { ChatbotContext } from './coreSeams.js';
 import type { ChatbotStore } from './store.js';
 import type { TurnRow } from './db.js';
@@ -89,7 +90,7 @@ export function registerPageActionTool(deps: PageActionToolDeps): void {
         description: 'The "id" of one target in that snapshot, e.g. "e3". Omit for snapshot, navigate and scroll.',
       })),
       value: Type.Optional(Type.String({
-        maxLength: 512,
+        maxLength: ACTION_VALUE_MAX_CHARS,
         description: 'The text to write for fill, the option to choose for select, an absolute URL for navigate, or "up"/"down" for scroll. Omitted for read, focus, click and request_submit.',
       })),
     }),

@@ -1,4 +1,4 @@
-import type { PluginContext, PluginHttpRequest, PluginHttpResponse, PluginHostStores, PluginUserView, SessionSource, PluginToolRegistrationOptions } from 'elowen/plugin-api';
+import type { PluginContext, PluginHttpRequest, PluginHttpResponse, PluginHostStores, SessionSource, PluginToolRegistrationOptions } from 'elowen/plugin-api';
 
 /** The host contracts this plugin consumes that the published `elowen` package does not type yet.
  *
@@ -21,13 +21,6 @@ export interface ChatbotClientOrigin {
  *  `origin` is absent on daemons older than that seam, so every reader validates its shape instead of
  *  trusting the type (see `readRequestOrigin` in `./origin.js`). */
 export type ChatbotHookRequest = Omit<PluginHttpRequest, 'origin'> & { origin?: ChatbotClientOrigin };
-
-/** What this plugin answers a public hook with. The published contract may carry a stream body; the
- *  restatement names that shape explicitly, so the streamed turn-events answer is typed instead of cast. */
-export type ChatbotPublicResponse = Omit<PluginHttpResponse, 'headers' | 'body'> & {
-  headers?: Record<string, string | string[]>;
-  body?: string | Uint8Array | ReadableStream<Uint8Array> | object;
-};
 
 /** A visitor turn's session source. `access.denyTools` is the core seam a relay caller uses to NARROW the
  *  acting account's tool policy for one turn; the published package does not carry the field yet. */
@@ -79,32 +72,7 @@ export interface ChatbotRelayControl {
   relay: ChatbotRelay;
 }
 
-/** The account projection is the host contract. The manifest's core floor guarantees `type`; keeping a
- * second, optional restatement here would let the registry compile against a shape the runtime forbids. */
-export type ChatbotAccountView = PluginUserView & { type: 'human' | 'chatbot' };
-
-/** What a spawn would really run for one account, as CORE composes it: the exec that answers, and which of
- *  the three places that answer came from. `preference` is the account's own stored chat pick, `instance` is
- *  the instance default it fell back to, and `allowed` is a model this account's allow-list forced it onto
- *  because the default is not permitted to it.
- *
- *  `usersRead.effectiveChatExec` is newer than the release this package pins, so it is restated here — the
- *  local declaration of a host contract this module's header describes, and never a second protocol. It is
- *  the answer a SPAWN applies, which is why this plugin reads it instead of composing a model of its own. */
-export interface ChatbotEffectiveChatExec {
-  exec: string;
-  source: 'preference' | 'instance' | 'allowed';
-}
-
-export interface ChatbotStores extends Omit<PluginHostStores, 'projects' | 'usersRead'>, ChatbotProjectStores {
-  usersRead: Omit<PluginHostStores['usersRead'], 'list'> & {
-    list(): ChatbotAccountView[];
-    /** Which model this account's turns resolve to RIGHT NOW, and where that answer came from. Null for an
-     *  account core does not know and for an instance with no provider configured; it THROWS when the account
-     *  may run no configured model at all, so a caller that must still answer reads it through a guard. */
-    effectiveChatExec(userId: number): ChatbotEffectiveChatExec | null;
-  };
-}
+export interface ChatbotStores extends Omit<PluginHostStores, 'projects'>, ChatbotProjectStores {}
 
 /** The host surface this plugin uses, narrowed to what it calls. Every member exists on a core whose
  *  `requiresCore` this manifest declares; the restatement is about TYPE availability, not capability. */
@@ -113,7 +81,7 @@ export type ChatbotContext = Omit<PluginContext, 'host' | 'registerHttpRoute' | 
   host: Omit<PluginContext['host'], 'stores'> & { stores(): ChatbotStores };
   registerHttpRoute(route: {
     path: string;
-    handler(req: ChatbotHookRequest): Promise<ChatbotPublicResponse>;
+    handler(req: ChatbotHookRequest): Promise<PluginHttpResponse>;
   }): void;
   registerPlatform(adapter: {
     name: string;

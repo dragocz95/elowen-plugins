@@ -1,5 +1,10 @@
 import { appearanceInk, appearanceRamp, appearanceShade, type ChatbotAppearance } from '../src/appearanceContract.js';
 
+/** A chrome button's hover follows the configured mode in both the panel and deep-chat. */
+export function hoverShade(appearance: ChatbotAppearance, color: string): string {
+  return appearanceShade(color, appearance.mode === 'dark' ? 'lighter' : 'darker');
+}
+
 export function gradient(start: string, end: string | null): string {
   return end === null ? start : `linear-gradient(135deg, ${start}, ${end})`;
 }

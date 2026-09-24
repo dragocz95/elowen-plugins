@@ -47,7 +47,7 @@ describe('visitor feedback', () => {
     const read = await host.handler(publicRequest({ method: 'GET', path: 'conversation', headers: headers(token) }));
     expect((read.body as { turns: { feedback: unknown }[] }).turns[0]!.feedback).toEqual({ rating: 'up', comment: null });
     expect(host.store.feedbackOf([turnId]).size).toBe(1);
-    const conversation = host.store.conversationOf(12, visitorId)!;
+    const conversation = host.store.erasableConversations({ chatbotUserId: 12, limit: 10 }).find((row) => row.visitor_id === visitorId)!;
     host.store.deleteConversation(conversation);
     expect(host.store.feedbackOf([turnId]).size).toBe(0);
   });

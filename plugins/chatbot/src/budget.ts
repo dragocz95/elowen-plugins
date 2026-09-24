@@ -49,8 +49,13 @@ export function knownCost(usage: OriginUsage | null): number | null {
  *  (`0.0015 * 1_000_000 === 1500.0000000000002`), and truncating or comparing the float directly would refuse
  *  a turn that is exactly at its ceiling. Rounding to the nearest micro-USD is the one conversion both sides
  *  of the comparison agree on. */
+const MICRO_USD_PER_USD = 1_000_000;
 export function microUsd(costUsd: number): number {
-  return Math.round(costUsd * 1_000_000);
+  return Math.round(costUsd * MICRO_USD_PER_USD);
+}
+
+export function usdFromMicro(micro: number): number {
+  return micro / MICRO_USD_PER_USD;
 }
 
 /** Whether one more turn may be admitted today.

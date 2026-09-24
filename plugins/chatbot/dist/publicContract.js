@@ -42,6 +42,9 @@ export const PAGE_TEXT_MAX_CHARS = 120;
 /** Every frame type a turn's public stream may carry. `ping` is never stored and only says the stream is
  *  alive; `action` is the server asking the page to do something it has already approved. A client that
  *  meets a type it does not know ignores it rather than guessing. */
+export const ACTION_NONCE_MIN_CHARS = 8;
+export const ACTION_NONCE_MAX_CHARS = 128;
+export const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'ping'];
 /** What a visitor's widget may be asked to do inside the page. The allowlist lives on the SERVER: a frame
  *  naming anything else is a fact about a broken or hostile sender and is refused, never executed. */

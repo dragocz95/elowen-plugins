@@ -68,7 +68,7 @@ export type ActionDecision = { ok: true; action: ApprovedAction } | { ok: false;
 /** How much text a `fill` or `select` may carry into a page. Larger than anything the snapshot reports,
  *  because writing a value is a different act from describing one, and still bounded so one action
  *  cannot paste a document into a field. */
-const ACTION_VALUE_MAX_CHARS = 512;
+export const ACTION_VALUE_MAX_CHARS = 512;
 
 /** Kinds that target one element. `scroll` without a target scrolls the page itself. */
 const TARGET_REQUIRED: Record<ActionKind, boolean> = {

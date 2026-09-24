@@ -4,15 +4,10 @@ import type { TurnEventBroker } from './broker.js';
 import type { BotRow, TurnRow } from './db.js';
 import { readBotLimits } from './limits.js';
 import type { ChatbotStore } from './store.js';
+import type { StoredFrameType } from './publicContract.js';
 
-/** The public event log a website reads. Only these names ever reach a browser, and every one of them is
- *  built from the fields this plugin chose to keep — never from a raw host event. */
-const PUBLIC_EVENTS = ['accepted', 'text_delta', 'done', 'error', 'offer'] as const;
-export type PublicEventType = (typeof PUBLIC_EVENTS)[number];
-
-/** Stable public error codes. A visitor learns one of these and nothing about the daemon's internals. */
-const PUBLIC_ERROR_CODES = ['turn_failed', 'relay_no_reply', 'server_restarted', 'queue_timeout'] as const;
-export type PublicErrorCode = (typeof PUBLIC_ERROR_CODES)[number];
+/** Errors this queue emits; boot reconciliation owns the separate server_restarted code. */
+type QueueErrorCode = 'turn_failed' | 'relay_no_reply' | 'queue_timeout';
 
 /** How many turns one pump pass will close when a chatbot cannot run any at all. A bound, not a policy: the
  *  loop it guards is one that always shrinks the queue, and this only stops it if that ever stops being true. */
@@ -164,13 +159,13 @@ export class ChatbotTurnQueue {
   /** Write one public event and THEN announce it. The order is the invariant: a subscriber that wakes up
    *  reads the log, so an event nobody can read must never be announced, and an event that was announced is
    *  always already there for the client that reconnects later. */
-  private record(turnId: string, type: PublicEventType, data: Record<string, unknown>): void {
+  private record(turnId: string, type: StoredFrameType, data: Record<string, unknown>): void {
     this.deps.store.appendEvent(turnId, type, data, this.deps.now());
     this.deps.broker.publish(turnId);
   }
 
   /** Fail a turn with one of the stable public codes and nothing else. */
-  private fail(turnId: string, code: PublicErrorCode, sessionId: string | null): void {
+  private fail(turnId: string, code: QueueErrorCode, sessionId: string | null): void {
     this.record(turnId, 'error', { code });
     this.deps.store.finishTurn({ turnId, status: 'error', coreSessionId: sessionId, errorCode: code, now: this.deps.now() });
   }

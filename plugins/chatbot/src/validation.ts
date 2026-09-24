@@ -1,13 +1,14 @@
 import { Type } from 'typebox';
-import { Value } from 'typebox/value';
-import { OFFER_LIMITS, allowedOfferUrl, readOffer, type Offer } from './offerContract.js';
-import { checkAllowedOrigin } from './origin.js';
+import { OFFER_LIMITS, readOffer, type Offer } from './offerContract.js';
 import { DISPLAY_NAME_MAX_CHARS } from './adminContract.js';
 import { parseAppearanceSelection, type StoredAppearance } from './appearanceContract.js';
 import { isWildcardOrigin, normalizeOrigin } from './origin.js';
 import { LIMIT_FIELDS, isUsableLimit, specOf, type LimitValues } from './limits.js';
 import {
   ACTION_DECISIONS,
+  ACTION_NONCE_MIN_CHARS,
+  ACTION_NONCE_MAX_CHARS,
+  CANONICAL_UUID_PATTERN,
   ACTION_OUTCOMES,
   MESSAGE_MAX_BYTES,
   FEEDBACK_COMMENT_MAX_CHARS,
@@ -48,28 +49,9 @@ export const OFFER_SCHEMA = Type.Object({
 }, { additionalProperties: false });
 
 export function validateOffer(input: unknown, origins: readonly string[]): Validated<Offer> {
-  if (!Value.Check(OFFER_SCHEMA, input)) {
-    const issue = Value.Errors(OFFER_SCHEMA, input)[0];
-    return { ok: false, error: `Offer is invalid: ${issue?.message ?? 'invalid value'}.` };
-  }
-  const offer = input as Offer;
-  if (!(offer.choices?.length || offer.links?.length || offer.cards?.length)) {
-    return { ok: false, error: 'Offer needs at least one choice, link, or card.' };
-  }
-  for (const [kind, url] of [
-    ...(offer.links ?? []).map((link) => ['link', link.url]),
-    ...(offer.cards ?? []).flatMap((card) => [
-      ...(card.imageUrl ? [['image', card.imageUrl]] : []),
-      ...(card.action && 'url' in card.action ? [['card action', card.action.url]] : []),
-    ]),
-  ]) {
-    if (url === undefined || !allowedOfferUrl(url, origins) || !checkAllowedOrigin(new URL(url).origin, origins).ok) {
-      return { ok: false, error: `Refused ${kind}: URL must be on this chatbot's allowed origins (HTTPS, or allowed HTTP).` };
-    }
-  }
-  const normalized = readOffer(offer, origins);
-  if (!normalized) return { ok: false, error: 'Offer labels and text must not be blank, and all fields must be valid.' };
-  return { ok: true, value: normalized };
+  const offer = readOffer(input, origins);
+  if (!offer) return { ok: false, error: 'Offer labels and text must not be blank, and all fields must be valid.' };
+  return { ok: true, value: offer };
 }
 
 /** A visitor message is bounded by BYTES, not characters: the bound is what the hook will accept, and a
@@ -82,10 +64,8 @@ const ORIGINS_MAX = 20;
  *  answering the question it was asked. */
 const RESULT_DETAIL_MAX_CHARS = 200;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 export function isCanonicalUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
+  return CANONICAL_UUID_PATTERN.test(value);
 }
 
 const utf8Length = (value: string): number => Buffer.byteLength(value, 'utf8');
@@ -264,9 +244,9 @@ export function validateActionDecision(body: unknown): Validated<{ decision: Act
   if (!(ACTION_DECISIONS as readonly string[]).includes(decision.value)) {
     return { ok: false, error: 'that is not an answer to a confirmation' };
   }
-  const nonce = readString(outer.value, 'nonce', 128);
+  const nonce = readString(outer.value, 'nonce', ACTION_NONCE_MAX_CHARS);
   if (!nonce.ok) return nonce;
-  if (nonce.value.length < 8) return { ok: false, error: '"nonce" is too short to be one this server issued' };
+  if (nonce.value.length < ACTION_NONCE_MIN_CHARS) return { ok: false, error: '"nonce" is too short to be one this server issued' };
   return { ok: true, value: { decision: decision.value as ActionDecision, nonce: nonce.value } };
 }
 

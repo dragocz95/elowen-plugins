@@ -14,7 +14,7 @@
 
 import { clickElement, inputTextElement, scrollIntoViewIfNeeded, scrollVertically, selectOptionElement } from '@page-agent/page-controller';
 import type { ApprovedAction } from '../src/actions.js';
-import type { PageFailureDetail } from '../src/publicContract.js';
+import { PAGE_FIELD_VALUE_MAX_CHARS, type PageFailureDetail } from '../src/publicContract.js';
 import { isSensitiveField, wouldSubmit, type PageTargetHandle } from './pageSnapshot.js';
 
 /** What a browser applied. `detail` is a stable code the plugin knows, or the value a `read` asked for. */
@@ -89,9 +89,9 @@ function readValueOf(element: HTMLElement): string {
     return element.checked ? 'true' : 'false';
   }
   if (element instanceof HTMLSelectElement) {
-    return (element.selectedOptions[0]?.textContent ?? '').trim().slice(0, 200);
+    return (element.selectedOptions[0]?.textContent ?? '').trim().slice(0, PAGE_FIELD_VALUE_MAX_CHARS);
   }
-  return typeof control.value === 'string' ? control.value.slice(0, 200) : '';
+  return typeof control.value === 'string' ? control.value.slice(0, PAGE_FIELD_VALUE_MAX_CHARS) : '';
 }
 
 /** Send a form, and only ever after the visitor confirmed it.

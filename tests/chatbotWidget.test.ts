@@ -142,7 +142,6 @@ function makeView(confirmAnswer: boolean | (() => Promise<boolean>) = false): Vi
     view: undefined as unknown as ChatView,
   };
   log.view = {
-    appendVisitor: () => undefined,
     beginAnswer: () => { log.answers.push(''); },
     streamAnswer: (text) => { log.answers[log.answers.length - 1] = (log.answers[log.answers.length - 1] ?? '') + text; },
     finishAnswer: (text) => { log.answers[log.answers.length - 1] = text; },
@@ -1086,7 +1085,6 @@ describe('the confirmation a visitor answers', () => {
       onStop: () => undefined,
     });
     if (mounted) document.body.append(instance.host);
-    instance.appendVisitor('Postup');
     instance.beginAnswer();
     instance.streamAnswer('První část. ');
     instance.streamAnswer('Druhá část.');
@@ -1094,12 +1092,11 @@ describe('the confirmation a visitor answers', () => {
     instance.finishAnswer('První část. Druhá část. Hotovo.');
     const chat = instance.host.shadowRoot!.querySelector('deep-chat') as unknown as { getMessages(): unknown[] };
     expect(chat.getMessages()).toEqual([
-      { role: 'user', text: 'Postup' },
       { role: 'ai', text: 'První část. Druhá část. Hotovo.' },
     ]);
     instance.beginAnswer();
     instance.finishAnswer('Další odpověď.');
-    expect(chat.getMessages()).toHaveLength(3);
+    expect(chat.getMessages()).toHaveLength(2);
     instance.destroy();
   });
 

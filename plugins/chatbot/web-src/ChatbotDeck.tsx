@@ -5,7 +5,7 @@ import { matchingBots, normalizeQuery } from './search';
 import { useChatbots } from './useChatbots';
 
 /** THE CHATBOTS MODAL: one entry in the primary navigation, opened in the host's own reading overlay,
- *  with four sections switching inside it.
+ *  with five sections switching inside it.
  *
  *  The frame is the host's `SectionDeck` — the same one Settings and Account wear — so there is no
  *  navigation, column or strip written here: this file only says WHICH sections exist, which one the
@@ -16,7 +16,7 @@ import { useChatbots } from './useChatbots';
  *
  *  Every route registers THIS component, so a section change replaces the content pane and leaves the
  *  frame — and the column's scroll position — exactly where it was. That is also why what the reader asked
- *  the column stays here rather than in a section: the deck outlives all four of them. */
+ *  the column stays here rather than in a section: the deck outlives all five of them. */
 export function ChatbotDeck({ plugin, rest }: { plugin: string; rest: string[] }) {
   const { components: C, hooks, navigate } = runtime();
   const s = hooks.usePluginStrings('chatbot');
@@ -28,7 +28,7 @@ export function ChatbotDeck({ plugin, rest }: { plugin: string; rest: string[] }
 
   const active = sectionForRoute(rest.join('/'));
   const needle = normalizeQuery(query);
-  // With nothing typed the column offers no matches: the four sections ARE the whole list, and a field
+  // With nothing typed the column offers no matches: the five sections ARE the whole list, and a field
   // that answered "every chatbot" with a register-long column would be drawing the register twice.
   const found = needle === '' ? [] : matchingBots(register.bots, query);
   // One chatbot as its own way in: the register, with that chatbot's drawer open.
@@ -37,7 +37,7 @@ export function ChatbotDeck({ plugin, rest }: { plugin: string; rest: string[] }
     navigate(sectionHref(plugin, CHATBOT_SECTIONS[0]!.route));
   };
 
-  // One group, so the column carries no caption: these four are peers, and a caption over a single group
+  // One group, so the column carries no caption: these five are peers, and a caption over a single group
   // names a distinction that is not there.
   const groups: DeckNavGroup[] = [{
     id: 'chatbot',
@@ -82,7 +82,7 @@ export function ChatbotDeck({ plugin, rest }: { plugin: string; rest: string[] }
           layout={layout}
           testId="chatbot-navigation"
           // The host's own filter over what it was handed: the same field Settings' column carries, one
-          // lookup over the four sections and the register behind it.
+          // lookup over the five sections and the register behind it.
           search={{ value: query, onChange: setQuery, label: s.sectionsSearch }}
           emptyLabel={s.sectionsNoMatches}
           className={className}

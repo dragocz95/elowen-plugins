@@ -90,9 +90,9 @@ const MIGRATIONS = [
         -- it: an action a page performed is then always an action this plugin can explain, and a page that
         -- never answered is a row that expired rather than a gap.
         --
-        -- No FOREIGN KEY is declared, here or above: the plugin deletes its own rows explicitly (see
-        -- deleteBot) and the host's handle does not turn foreign-key enforcement on, so a declaration would
-        -- be a comment pretending to be a constraint.
+        -- No FOREIGN KEY is declared here: turn ownership is deleted explicitly by the plugin.
+        -- The handoff table added later references these action rows; both deletion paths explicitly
+        -- remove handoffs before actions.
         CREATE TABLE IF NOT EXISTS p_chatbot_actions (
           id TEXT PRIMARY KEY,
           turn_id TEXT NOT NULL,
@@ -298,6 +298,18 @@ const MIGRATIONS = [
         updated_at TEXT NOT NULL
       );
       CREATE INDEX p_chatbot_feedback_register ON p_chatbot_feedback (chatbot_user_id, rating, updated_at DESC);`);
+        },
+    },
+    {
+        /** Step 11: remove unused and duplicated columns without disturbing live rows. */
+        version: 11,
+        up(db) {
+            db.exec(`
+        ALTER TABLE p_chatbot_actions DROP COLUMN snapshot_id;
+        ALTER TABLE p_chatbot_actions DROP COLUMN target_id;
+        ALTER TABLE p_chatbot_bots DROP COLUMN customer_user_id;
+        ALTER TABLE p_chatbot_budget_days DROP COLUMN in_flight;
+      `);
         },
     },
 ];

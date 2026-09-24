@@ -11,6 +11,9 @@ import type { DailyBudget, OriginUsage } from './budget.js';
 import type { StoredAppearance } from './appearanceContract.js';
 
 export const DISPLAY_NAME_MAX_CHARS = 80;
+export const STATS_MAX_DAYS = 366;
+export const DAY_MS = 86_400_000;
+export const TABLE_MOBILE_HIDDEN = '@max-[40rem]:hidden';
 
 /** The account a chatbot runs as, as the host reports it right now. A missing kind means a host whose user
  *  contract does not carry one, which is NOT the same as a chatbot. Private to this contract: it is the

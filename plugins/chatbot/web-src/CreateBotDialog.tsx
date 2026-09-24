@@ -18,9 +18,6 @@ interface Failure {
   chatbotUserId: number | null;
 }
 
-/** Which step the next attempt resumes from: the failed one, with everything before it already done. */
-const NEXT_STEP: Record<Step, Step> = { account: 'account', project: 'project', grants: 'grants', register: 'register' };
-
 /** The account row as core's own list answers it, narrowed to the two grants this dialog adds to. */
 interface AccountRow {
   id: number;
@@ -77,7 +74,7 @@ export function CreateBotDialog({ plugin, requiredTools, projects, candidates, o
     setPending(true);
     setFailure(null);
     let chatbotUserId = failure?.chatbotUserId ?? null;
-    let step: Step = failure === null ? 'account' : NEXT_STEP[failure.step];
+    let step: Step = failure === null ? 'account' : failure.step;
 
     if (mode === 'existing' && chatbotUserId === null) {
       chatbotUserId = Number(accountId);

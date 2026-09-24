@@ -83,9 +83,6 @@ var chatbotApi = {
   visitors: (chatbotUserId) => `/plugins/chatbot/api/visitors?chatbotUserId=${chatbotUserId}`,
   eraseConversations: (chatbotUserId) => `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
-  /** The account's effective tool access, read from the host's own users panel route: the plugin reports
-   *  what the account can reach rather than keeping an opinion of its own about it. */
-  accountTools: (userId) => `/users/${userId}/tools`,
   /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
    *  and the only way to a setting that belongs to the account rather than to the chatbot. */
   impersonate: () => "/auth/impersonate"
@@ -756,6 +753,23 @@ function OriginsField({ origins, insecure, disabled, onChange }) {
 
 // plugins/chatbot/web-src/LimitsModal.tsx
 var import_react4 = __toESM(require_react(), 1);
+
+// plugins/chatbot/src/budget.ts
+function knownCost(usage) {
+  if (usage === null) return null;
+  if (usage.costedTurns < usage.turns) return null;
+  if (usage.costUsd === null) return usage.turns === 0 ? 0 : null;
+  return usage.costUsd;
+}
+var MICRO_USD_PER_USD = 1e6;
+function usdFromMicro(micro) {
+  return micro / MICRO_USD_PER_USD;
+}
+function utcDay(nowMs) {
+  return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+// plugins/chatbot/web-src/LimitsModal.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 function limitDraftOf(limits) {
   const draft = {};
@@ -794,7 +808,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
   const { locale, t } = hooks.useTranslation();
   const [advanced, setAdvanced] = (0, import_react4.useState)(false);
   const valueText = (field, value) => {
-    if (field === "dailyCostMicrousd") return money(value / 1e6, locale);
+    if (field === "dailyCostMicrousd") return money(usdFromMicro(value), locale);
     const unit = s[`limitUnit_${field}`];
     return unit ? `${integer(value, locale)} ${unit}` : integer(value, locale);
   };
@@ -858,14 +872,6 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
   );
 }
 
-// plugins/chatbot/src/budget.ts
-function knownCost(usage) {
-  if (usage === null) return null;
-  if (usage.costedTurns < usage.turns) return null;
-  if (usage.costUsd === null) return usage.turns === 0 ? 0 : null;
-  return usage.costUsd;
-}
-
 // plugins/chatbot/web-src/BudgetUsage.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function BudgetUsage({ bot }) {
@@ -875,7 +881,7 @@ function BudgetUsage({ bot }) {
   const { budget, limits } = bot;
   const { verdict } = budget;
   const cost = knownCost(budget.usage);
-  const costLimit = limits.dailyCostMicrousd === null ? null : limits.dailyCostMicrousd / 1e6;
+  const costLimit = limits.dailyCostMicrousd === null ? null : usdFromMicro(limits.dailyCostMicrousd);
   const status = verdict.ok ? s.budgetAvailable : verdict.reason === "limits_missing" ? s.budgetMissing : verdict.reason === "budget_unverifiable" ? s.budgetUnknown : verdict.ceiling === "turns" ? s.budgetTurnsExhausted : s.budgetCostExhausted;
   const entries = [
     { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value) => money(value, locale) },
@@ -917,6 +923,10 @@ var APPEARANCE_TEMPLATE_IDS = ["elowen", "clean", "mono", "warm", "indigo"];
 var APPEARANCE_MODES = ["light", "dark"];
 var PANEL_POSITIONS = ["bottom-right", "bottom-left", "top-right", "top-left"];
 var SEND_SHAPES = ["circle", "rounded-square"];
+var BUTTON_HOVERS = ["lift", "fill", "shine", "glow"];
+var MESSAGE_ENTRANCES = ["none", "fade", "slide"];
+var LAUNCHER_NUDGES = ["none", "bounce", "wiggle"];
+var SOUND_TONES = ["none", "drop", "chime", "pop", "bell"];
 var APPEARANCE_ICONS = [
   { id: "arrow", path: "M5 12h14 M13 6l6 6-6 6" },
   { id: "paper-plane", path: "M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7Z" },
@@ -1377,7 +1387,7 @@ function parseLauncher(input, partial) {
     result[key] = object2.value[key];
   }
   if ("nudge" in object2.value) {
-    const nudge = readEnum(object2.value.nudge, ["none", "bounce", "wiggle"], "launcher.nudge");
+    const nudge = readEnum(object2.value.nudge, LAUNCHER_NUDGES, "launcher.nudge");
     if (!nudge.ok) return nudge;
     result.nudge = nudge.value;
   }
@@ -1402,12 +1412,12 @@ function parseEffects(input, partial) {
     result[key] = object2.value[key];
   }
   if ("buttonHover" in object2.value) {
-    const value = readEnum(object2.value.buttonHover, ["lift", "fill", "shine", "glow"], "effects.buttonHover");
+    const value = readEnum(object2.value.buttonHover, BUTTON_HOVERS, "effects.buttonHover");
     if (!value.ok) return value;
     result.buttonHover = value.value;
   }
   if ("messageEntrance" in object2.value) {
-    const value = readEnum(object2.value.messageEntrance, ["none", "fade", "slide"], "effects.messageEntrance");
+    const value = readEnum(object2.value.messageEntrance, MESSAGE_ENTRANCES, "effects.messageEntrance");
     if (!value.ok) return value;
     result.messageEntrance = value.value;
   }
@@ -1422,7 +1432,7 @@ function parseSound(input, partial) {
   }
   const result = {};
   if ("tone" in object2.value) {
-    const value = readEnum(object2.value.tone, ["none", "drop", "chime", "pop", "bell"], "sound.tone");
+    const value = readEnum(object2.value.tone, SOUND_TONES, "sound.tone");
     if (!value.ok) return value;
     result.tone = value.value;
   }
@@ -1578,6 +1588,9 @@ function parseAppearanceSelection(input) {
 
 // plugins/chatbot/src/adminContract.ts
 var DISPLAY_NAME_MAX_CHARS = 80;
+var STATS_MAX_DAYS = 366;
+var DAY_MS = 864e5;
+var TABLE_MOBILE_HIDDEN = "@max-[40rem]:hidden";
 
 // plugins/chatbot/web-src/AppearancePreview.tsx
 var import_react5 = __toESM(require_react(), 1);
@@ -19837,6 +19850,9 @@ O([P("object")], k.prototype, "_insertKeyViewStyles");
 customElements.define("deep-chat", k);
 
 // plugins/chatbot/embed-src/effects.ts
+function hoverShade(appearance, color) {
+  return appearanceShade(color, appearance.mode === "dark" ? "lighter" : "darker");
+}
 function gradient(start, end) {
   return end === null ? start : `linear-gradient(135deg, ${start}, ${end})`;
 }
@@ -19960,11 +19976,11 @@ function escapeHtml(value) {
 }
 function offerHtml(offer, origins, strings, active = true) {
   const disabled = active ? "" : " disabled";
-  const choice = (offer.choices ?? []).map(({ label, reply }) => `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(reply ?? label)}"${disabled}>${escapeHtml(label)}</button>`).join("");
-  const link = (label, url) => allowedOfferUrl(url, origins) ? `<button type="button" class="cb-quick-item cb-offer-link" data-cb-url="${escapeHtml(url)}"${disabled}>${escapeHtml(label)}</button>` : "";
+  const choice = (offer.choices ?? []).map(({ label, reply }) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(reply ?? label)}"${disabled}>${escapeHtml(label)}</button>`).join("");
+  const link = (label, url) => allowedOfferUrl(url, origins) ? `<button type="button" class="cb-quick-item" data-cb-url="${escapeHtml(url)}"${disabled}>${escapeHtml(label)}</button>` : "";
   const links = (offer.links ?? []).map(({ label, url }) => link(label, url)).join("");
   const cards = (offer.cards ?? []).map((card) => {
-    const action = card.action ? "reply" in card.action ? `<button type="button" class="cb-quick-item cb-offer-button" data-cb-text="${escapeHtml(card.action.reply)}"${disabled}>${escapeHtml(card.action.label)}</button>` : link(card.action.label, card.action.url) : "";
+    const action = card.action ? "reply" in card.action ? `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(card.action.reply)}"${disabled}>${escapeHtml(card.action.label)}</button>` : link(card.action.label, card.action.url) : "";
     return `<article class="cb-offer-card">${card.imageUrl && allowedOfferUrl(card.imageUrl, origins) ? `<img src="${escapeHtml(card.imageUrl)}" alt="" loading="lazy">` : ""}
       <div class="cb-offer-content"><strong>${escapeHtml(card.title)}</strong>
       ${card.subtitle ? `<span>${escapeHtml(card.subtitle)}</span>` : ""}
@@ -20067,7 +20083,7 @@ function appearanceViewportInset(appearance) {
 }
 function introHtml(input) {
   const { greeting, appearance, strings } = input;
-  const text = `<div class="cb-intro-text">${escapeHtml(greeting)}</div>`;
+  const text = `<div>${escapeHtml(greeting)}</div>`;
   if (appearance.quickButtons.length === 0) return text;
   const buttons = appearance.quickButtons.map((button) => `<button type="button" class="cb-quick-item" data-cb-text="${escapeHtml(button.text)}">${button.icon === null ? "" : appearanceIconSvg(button.icon)}<span>${escapeHtml(button.text)}</span></button>`).join("");
   return `${text}<div class="cb-quick" role="group" aria-label="${escapeHtml(strings.quickButtons)}">${buttons}</div>`;
@@ -20083,7 +20099,6 @@ function introUtilities(appearance, onQuickButton) {
           const target = event.target instanceof Element ? event.target.closest("[data-cb-text]") : null;
           const text = target?.getAttribute("data-cb-text") ?? "";
           if (text !== "" && target instanceof HTMLButtonElement && !target.disabled) {
-            disableOffers(target.getRootNode());
             onQuickButton(text);
           }
         }
@@ -20118,7 +20133,7 @@ function chatConfig(input) {
   const appearance = look.appearance;
   const ramp = appearanceRamp(appearance);
   const sendRadius = appearance.send.shape === "circle" ? "50%" : "8px";
-  const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
+  const sendHover = hoverShade(appearance, appearance.colors.sendButton);
   const sendContainer = {
     default: { backgroundColor: appearance.colors.sendButton, color: appearance.colors.sendIcon, borderRadius: sendRadius },
     hover: { backgroundColor: sendHover, color: appearance.colors.sendIcon, borderRadius: sendRadius },
@@ -20242,7 +20257,7 @@ function lookStyle(appearance) {
   return `
 :host {
   --cb-stop-color: ${appearance.colors.sendButton}; --cb-feedback-accent: ${appearance.colors.sendButton};
-  --cb-attachment-surface: ${ramp.raised}; --cb-attachment-ink: ${ramp.foreground};
+  --cb-attachment-surface: ${ramp.raised};
   --cb-attachment-border: ${ramp.border}; --cb-attachment-hover: ${ramp.field};
 }
 :host(:not([data-answer-active])) .input-button:has([data-cb-stop-icon]),
@@ -20270,11 +20285,11 @@ ${chatEffectsCss(appearance)}
 function styleText(appearance) {
   const GUTTER_PX = appearance.launcher.offset;
   const inset = appearanceViewportInset(appearance);
-  const launcherHover = appearanceShade(appearance.colors.launcher, appearance.mode === "dark" ? "lighter" : "darker");
+  const launcherHover = hoverShade(appearance, appearance.colors.launcher);
   const ramp = appearanceRamp(appearance);
   const headerInk = gradientInk(ramp.header, appearance.colors.headerEnd);
   const sendInk = appearanceInk(appearance.colors.sendButton);
-  const sendHover = appearanceShade(appearance.colors.sendButton, appearance.mode === "dark" ? "lighter" : "darker");
+  const sendHover = hoverShade(appearance, appearance.colors.sendButton);
   const corner = {
     "bottom-right": `right: ${GUTTER_PX}px; bottom: ${GUTTER_PX}px;`,
     "bottom-left": `left: ${GUTTER_PX}px; bottom: ${GUTTER_PX}px;`,
@@ -20602,23 +20617,9 @@ var ChatPanel = class {
   previewEffects() {
     if (this.key !== null) return;
     this.teaser.hidden = this.look.appearance.launcher.teaser === "";
-    this.launcher.classList.remove("launcher-nudge-bounce", "launcher-nudge-wiggle");
-    if (this.look.appearance.launcher.nudge !== "none" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      void this.launcher.offsetWidth;
-      this.launcher.classList.add(`launcher-nudge-${this.look.appearance.launcher.nudge}`);
-    }
+    this.applyNudge(this.look.appearance.launcher.nudge !== "none" && !matchMedia("(prefers-reduced-motion: reduce)").matches ? this.look.appearance.launcher.nudge : "none");
   }
   // ── the view contract the conversation uses ────────────────────────────────────────────────────────
-  /** Show a message the visitor sent on a path that is not the panel's own submit — one restored from the
-   *  server's projection, or one a site sends with `window.ElowenChatbot`.
-   *
-   *  Deliberately NOT deep-chat's `submitUserMessage`: that one goes through the submit path, which is what
-   *  ASKS for a turn. A restored message rendered with it would become a second turn of its own — the same
-   *  words asked of the model again, on every reload — and a message shown on the visitor's behalf would
-   *  loop straight back into this widget. `addMessage` only draws it. */
-  appendVisitor(text) {
-    this.draw({ role: "user", text });
-  }
   beginAnswer() {
     this.disableEarlierOffers();
     this.latestAnswerIndex = null;
@@ -21158,6 +21159,12 @@ var ChatPanel = class {
     this.teaserTimer = null;
     this.nudgeTimer = null;
   }
+  applyNudge(kind) {
+    this.launcher.classList.remove("launcher-nudge-bounce", "launcher-nudge-wiggle");
+    if (kind === "none") return;
+    void this.launcher.offsetWidth;
+    this.launcher.classList.add(`launcher-nudge-${kind}`);
+  }
   scheduleAttention() {
     this.clearAttentionTimers();
     const { launcher } = this.look.appearance;
@@ -21171,9 +21178,7 @@ var ChatPanel = class {
     if (launcher.nudge === "none" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const nudge = () => {
       if (this.isOpen() || this.openedEver || this.destroyed) return;
-      this.launcher.classList.remove("launcher-nudge-bounce", "launcher-nudge-wiggle");
-      void this.launcher.offsetWidth;
-      this.launcher.classList.add(`launcher-nudge-${launcher.nudge}`);
+      this.applyNudge(launcher.nudge);
       this.nudgeCount++;
       if (this.nudgeCount < 2) this.nudgeTimer = setTimeout(nudge, launcher.nudgeDelay * 1e3);
     };
@@ -21476,7 +21481,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
         /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]", children: [
           /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "order-2 flex min-w-0 flex-col gap-5 lg:order-1", children: [
             section(s.appearanceColorsLabel, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Palette, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-              select("mode", s.appearanceModeLabel, appearance.mode, [{ value: "light", label: s.appearanceModeLight }, { value: "dark", label: s.appearanceModeDark }]),
+              select("mode", s.appearanceModeLabel, appearance.mode, APPEARANCE_MODES.map((value) => ({ value, label: value === "light" ? s.appearanceModeLight : s.appearanceModeDark }))),
               /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid grid-cols-2 gap-4", children: [
                 color("panel", s.appearanceColorPanel),
                 color("visitorBubble", s.appearanceColorVisitor),
@@ -21495,9 +21500,9 @@ function AppearanceModal({ bot, onClose, onChanged }) {
                 metric("effects.glassBlur", "glassBlur", s.appearanceGlassBlur, appearance.effects.glassBlur, "px"),
                 metric("effects.glassOpacity", "glassOpacity", s.appearanceGlassOpacity, appearance.effects.glassOpacity, "%")
               ] }) : null,
-              select("effects.buttonHover", s.appearanceHover, appearance.effects.buttonHover, ["lift", "fill", "shine", "glow"].map((value) => ({ value, label: s[`appearanceHover_${value}`] }))),
+              select("effects.buttonHover", s.appearanceHover, appearance.effects.buttonHover, BUTTON_HOVERS.map((value) => ({ value, label: s[`appearanceHover_${value}`] }))),
               metric("effects.buttonIntensity", "buttonIntensity", s.appearanceIntensity, appearance.effects.buttonIntensity, "%"),
-              select("effects.messageEntrance", s.appearanceEntrance, appearance.effects.messageEntrance, ["none", "fade", "slide"].map((value) => ({ value, label: s[`appearanceEntrance_${value}`] })))
+              select("effects.messageEntrance", s.appearanceEntrance, appearance.effects.messageEntrance, MESSAGE_ENTRANCES.map((value) => ({ value, label: s[`appearanceEntrance_${value}`] })))
             ] })),
             section(s.appearanceSendGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Send, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "grid grid-cols-2 gap-4", children: [
@@ -21505,7 +21510,7 @@ function AppearanceModal({ bot, onClose, onChanged }) {
                 color("sendIcon", s.appearanceColorSendIcon)
               ] }),
               iconPicker("send.icon", s.appearanceSendIcon, appearance.send.icon),
-              select("send.shape", s.appearanceSendShape, appearance.send.shape, [{ value: "circle", label: s.appearanceShapeCircle }, { value: "rounded-square", label: s.appearanceShapeSquare }])
+              select("send.shape", s.appearanceSendShape, appearance.send.shape, SEND_SHAPES.map((value) => ({ value, label: value === "circle" ? s.appearanceShapeCircle : s.appearanceShapeSquare })))
             ] })),
             section(s.appearanceLauncherGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(MousePointerClick, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
               color("launcher", s.appearanceColorLauncher),
@@ -21515,21 +21520,16 @@ function AppearanceModal({ bot, onClose, onChanged }) {
               textField("launcher.label", s.appearanceLauncherLabel, appearance.launcher.label, APPEARANCE_LAUNCHER_LABEL_MAX_CHARS),
               textField("launcher.teaser", s.appearanceTeaser, appearance.launcher.teaser, APPEARANCE_TEASER_MAX_CHARS),
               appearance.launcher.teaser !== "" ? metric("launcher.teaserDelay", "teaserDelay", s.appearanceTeaserDelay, appearance.launcher.teaserDelay, "s") : null,
-              select("launcher.nudge", s.appearanceNudge, appearance.launcher.nudge, ["none", "bounce", "wiggle"].map((value) => ({ value, label: s[`appearanceNudge_${value}`] }))),
+              select("launcher.nudge", s.appearanceNudge, appearance.launcher.nudge, LAUNCHER_NUDGES.map((value) => ({ value, label: s[`appearanceNudge_${value}`] }))),
               appearance.launcher.nudge !== "none" ? metric("launcher.nudgeDelay", "nudgeDelay", s.appearanceNudgeDelay, appearance.launcher.nudgeDelay, "s") : null,
               toggle("launcher.ring", s.appearanceRing, appearance.launcher.ring),
               toggle("launcher.unreadBadge", s.appearanceUnreadBadge, appearance.launcher.unreadBadge),
-              select("position", s.appearancePositionLabel, appearance.position, [
-                { value: "bottom-right", label: s.appearancePositionBottomRight },
-                { value: "bottom-left", label: s.appearancePositionBottomLeft },
-                { value: "top-right", label: s.appearancePositionTopRight },
-                { value: "top-left", label: s.appearancePositionTopLeft }
-              ]),
+              select("position", s.appearancePositionLabel, appearance.position, PANEL_POSITIONS.map((value) => ({ value, label: s[`appearancePosition${value === "bottom-right" ? "BottomRight" : value === "bottom-left" ? "BottomLeft" : value === "top-right" ? "TopRight" : "TopLeft"}`] }))),
               scalar("launcher.size", "launcherSize", s.appearanceLauncherSize, appearance.launcher.size),
               scalar("launcher.offset", "launcherOffset", s.appearanceLauncherOffset, appearance.launcher.offset)
             ] })),
             section(s.appearanceSoundGroup, /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Volume2, { size: 18 }), /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-              select("sound.tone", s.appearanceTone, appearance.sound.tone, ["none", "drop", "chime", "pop", "bell"].map((value) => ({ value, label: s[`appearanceTone_${value}`] }))),
+              select("sound.tone", s.appearanceTone, appearance.sound.tone, SOUND_TONES.map((value) => ({ value, label: s[`appearanceTone_${value}`] }))),
               /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "text-sm", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(C.Button, { variant: "outline", size: "sm", disabled: pending || appearance.sound.tone === "none", onClick: () => {
                 void unlockSound().then(() => playTone(appearance.sound.tone, appearance.sound.volume));
               }, children: s.appearancePlay }) }),
@@ -21839,7 +21839,6 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
 // plugins/chatbot/web-src/CreateBotDialog.tsx
 var import_react8 = __toESM(require_react(), 1);
 var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
-var NEXT_STEP = { account: "account", project: "project", grants: "grants", register: "register" };
 function CreateBotDialog({ plugin, requiredTools, projects, candidates, onClose, onCreated }) {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
@@ -21869,7 +21868,7 @@ function CreateBotDialog({ plugin, requiredTools, projects, candidates, onClose,
     setPending(true);
     setFailure(null);
     let chatbotUserId = failure?.chatbotUserId ?? null;
-    let step = failure === null ? "account" : NEXT_STEP[failure.step];
+    let step = failure === null ? "account" : failure.step;
     if (mode === "existing" && chatbotUserId === null) {
       chatbotUserId = Number(accountId);
       step = "project";
@@ -22127,7 +22126,7 @@ var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE = 25;
 var COLUMNS = "minmax(0,1.5fr) 9rem 8.5rem 4.5rem 7rem 1.25rem";
 var MOBILE_COLUMNS = "minmax(0,1fr) 2rem 5.5rem 1rem";
-var PHONE_HIDDEN = "@max-[40rem]:hidden";
+var PHONE_HIDDEN = TABLE_MOBILE_HIDDEN;
 var FIRST_DIRECTION = {
   title: "asc",
   ip: "asc",
@@ -22350,7 +22349,7 @@ var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var PAGE_SIZE2 = 25;
 var COLUMNS2 = "8rem 4rem minmax(0,1.7fr) minmax(0,1fr) 8rem 1.25rem";
 var MOBILE_COLUMNS2 = "3rem minmax(0,1fr) 1rem";
-var HIDE_MOBILE = "@max-[40rem]:hidden";
+var HIDE_MOBILE = TABLE_MOBILE_HIDDEN;
 function FeedbackSection() {
   const { components: C, hooks, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
@@ -22386,7 +22385,7 @@ function FeedbackSection() {
   if (register.isLoading || register.bots.length === 0) {
     return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.SettingsGroup, { ...heading, children: register.isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.pickerNoBots, description: s.pickerNoBotsDescription, icon: MessageSquareHeart }) });
   }
-  const body = loadError ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: loadError, onRetry: () => setRefresh((current) => current + 1) }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : answer.totals.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.feedbackEmpty, description: s.feedbackEmptyHint, icon: MessageSquareHeart }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "settings-group__panel flex min-w-0 flex-col gap-3", children: [
+  const body = loadError ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.ErrorState, { message: loadError, onRetry: () => setRefresh((current) => current + 1) }) : answer === null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.LoadingState, { variant: "list" }) : answer.totals.total === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(C.EmptyState, { title: s.feedbackEmpty, description: s.feedbackEmptyHint, icon: MessageSquareHeart }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex min-w-0 flex-col gap-3", children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "flex flex-wrap gap-2", children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(C.Badge, { tone: "success", children: [
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ThumbsUp, { size: 14, "aria-hidden": "true" }),
@@ -22479,8 +22478,6 @@ function FeedbackSection() {
 // plugins/chatbot/web-src/StatsView.tsx
 var import_react12 = __toESM(require_react(), 1);
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
-var STATS_MAX_DAYS = 366;
-var DAY_MS = 864e5;
 var SERIES_COLOURS = {
   turns: "var(--color-chart-1)",
   done: "var(--color-chart-2)",
@@ -22491,14 +22488,13 @@ var dayStart = (timestamp) => {
   const date = new Date(timestamp);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 };
-var dayKey = (timestamp) => new Date(timestamp).toISOString().slice(0, 10);
 function statsWindow(range, now, bounds) {
   const today = dayStart(now);
   const toMs = Math.min(Number.isFinite(bounds.toMs) ? dayStart(bounds.toMs) : today, today);
   const earliest = toMs - (STATS_MAX_DAYS - 1) * DAY_MS;
   const requestedFrom = Number.isFinite(bounds.fromMs) ? dayStart(bounds.fromMs) : earliest;
   const fromMs = Math.min(toMs, Math.max(requestedFrom, earliest));
-  return { from: dayKey(fromMs), to: dayKey(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
+  return { from: utcDay(fromMs), to: utcDay(toMs), fromMs, toMs: toMs + DAY_MS - 1 };
 }
 function chartPoints(days, spend, from, to2) {
   const byDay = new Map(days.map((day) => [day.day, day]));
@@ -22506,7 +22502,7 @@ function chartPoints(days, spend, from, to2) {
   const points = [];
   const end = Date.parse(`${to2}T00:00:00.000Z`);
   for (let at2 = Date.parse(`${from}T00:00:00.000Z`); at2 <= end; at2 += DAY_MS) {
-    const day = dayKey(at2);
+    const day = utcDay(at2);
     const row = byDay.get(day);
     points.push({ label: day, turns: row?.turns ?? 0, done: row?.done ?? 0, errors: row?.errors ?? 0, cost: costs.get(day) ?? null });
   }

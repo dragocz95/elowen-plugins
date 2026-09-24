@@ -1,11 +1,12 @@
-import type { ChatbotAccountView, ChatbotProjectView, ChatbotStores } from './coreSeams.js';
+import type { PluginUserView } from 'elowen/plugin-api';
+import type { ChatbotProjectView, ChatbotStores } from './coreSeams.js';
 
 /** The single rule that decides whether a chatbot account may run a turn, applied on BOTH sides: before
  *  the public hook admits a visitor and before an administrator enables the chatbot. Two implementations
  *  would drift, and the one that drifted would be the one guarding the public endpoint. */
 
 export interface AccountFacts {
-  account: ChatbotAccountView | null;
+  account: PluginUserView | null;
   /** Active managed Projects the account can use, from the host's own tenancy decision. */
   projects: ChatbotProjectView[];
 }

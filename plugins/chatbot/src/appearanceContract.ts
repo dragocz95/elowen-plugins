@@ -5,14 +5,19 @@ export const APPEARANCE_SCHEMA_VERSION = 2;
 export const APPEARANCE_TEMPLATE_IDS = ['elowen', 'clean', 'mono', 'warm', 'indigo'] as const;
 export type AppearanceTemplateId = (typeof APPEARANCE_TEMPLATE_IDS)[number];
 
-const APPEARANCE_MODES = ['light', 'dark'] as const;
+export const APPEARANCE_MODES = ['light', 'dark'] as const;
 type AppearanceMode = (typeof APPEARANCE_MODES)[number];
 
-const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
+export const PANEL_POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
 type PanelPosition = (typeof PANEL_POSITIONS)[number];
 
-const SEND_SHAPES = ['circle', 'rounded-square'] as const;
+export const SEND_SHAPES = ['circle', 'rounded-square'] as const;
 type SendShape = (typeof SEND_SHAPES)[number];
+
+export const BUTTON_HOVERS = ['lift', 'fill', 'shine', 'glow'] as const;
+export const MESSAGE_ENTRANCES = ['none', 'fade', 'slide'] as const;
+export const LAUNCHER_NUDGES = ['none', 'bounce', 'wiggle'] as const;
+export const SOUND_TONES = ['none', 'drop', 'chime', 'pop', 'bell'] as const;
 
 export type AppearanceFontFamily = keyof typeof APPEARANCE_FONT_STACKS;
 
@@ -664,7 +669,7 @@ function parseLauncher(input: unknown, partial: boolean): Parse<Partial<Launcher
     result[key] = object.value[key] as number;
   }
   if ('nudge' in object.value) {
-    const nudge = readEnum(object.value.nudge, ['none', 'bounce', 'wiggle'] as const, 'launcher.nudge');
+    const nudge = readEnum(object.value.nudge, LAUNCHER_NUDGES, 'launcher.nudge');
     if (!nudge.ok) return nudge;
     result.nudge = nudge.value;
   }
@@ -687,12 +692,12 @@ function parseEffects(input: unknown, partial: boolean): Parse<Partial<EffectsAp
     result[key] = object.value[key] as number;
   }
   if ('buttonHover' in object.value) {
-    const value = readEnum(object.value.buttonHover, ['lift', 'fill', 'shine', 'glow'] as const, 'effects.buttonHover');
+    const value = readEnum(object.value.buttonHover, BUTTON_HOVERS, 'effects.buttonHover');
     if (!value.ok) return value;
     result.buttonHover = value.value;
   }
   if ('messageEntrance' in object.value) {
-    const value = readEnum(object.value.messageEntrance, ['none', 'fade', 'slide'] as const, 'effects.messageEntrance');
+    const value = readEnum(object.value.messageEntrance, MESSAGE_ENTRANCES, 'effects.messageEntrance');
     if (!value.ok) return value;
     result.messageEntrance = value.value;
   }
@@ -705,7 +710,7 @@ function parseSound(input: unknown, partial: boolean): Parse<Partial<SoundAppear
   if (!partial) { const present = requiredKeys(object.value, SOUND_KEYS, 'appearance.sound'); if (!present.ok) return present; }
   const result: Partial<SoundAppearance> = {};
   if ('tone' in object.value) {
-    const value = readEnum(object.value.tone, ['none', 'drop', 'chime', 'pop', 'bell'] as const, 'sound.tone');
+    const value = readEnum(object.value.tone, SOUND_TONES, 'sound.tone');
     if (!value.ok) return value;
     result.tone = value.value;
   }

@@ -90,8 +90,8 @@ function conversation(input: { visitorId?: string; daysAgo: number; sessionId?: 
   if (input.activeTurn !== true) {
     host.store.finishTurn({ turnId, status: 'done', coreSessionId: null, errorCode: null, now: new Date(NOW_MS - input.daysAgo * 86_400_000).toISOString() });
   }
-  host.db.prepare(`INSERT INTO p_chatbot_actions (id, turn_id, snapshot_id, action, request_json, status, requires_confirmation, created_at, expires_at)
-                   VALUES (?, ?, 's0123456789abcdef', 'read', '{"schemaVersion":1,"kind":"read","targetId":"e0","value":null}', 'done', 0, ?, ?)`)
+  host.db.prepare(`INSERT INTO p_chatbot_actions (id, turn_id, action, request_json, status, requires_confirmation, created_at, expires_at)
+                   VALUES (?, ?, 'read', '{"schemaVersion":1,"kind":"read","targetId":"e0","value":null}', 'done', 0, ?, ?)`)
     .run(randomUUID(), turnId, new Date(NOW_MS).toISOString(), new Date(NOW_MS + 60_000).toISOString());
   return turnId;
 }
@@ -295,7 +295,7 @@ describe('the conversation clock', () => {
     const turnId = (accepted.body as { turnId: string }).turnId;
     await settledTurn(host, turnId);
 
-    const conversation = host.store.conversationOf(12, issued.body.visitorId as string)!;
+    const conversation = host.store.erasableConversations({ chatbotUserId: 12, limit: 10 }).find((row) => row.visitor_id === issued.body.visitorId)!;
     // The session id is the one the RELAY reported, never one this plugin derived: it is what the cleaner
     // hands core, so a mistaken id here would delete somebody else's conversation or none at all.
     expect(conversation.session_id).toBe('brain-ch-chatbot-session');
@@ -316,16 +316,16 @@ describe('the conversation clock', () => {
     const first = await submit(UUID, { value: '203.0.113.9', kind: 'ip', trusted: true });
     await settledTurn(host, (first.body as { turnId: string }).turnId);
     // The turn finishing re-stamps the conversation, and must not forget the address it was admitted from.
-    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('203.0.113.9');
+    expect(host.store.erasableConversations({ chatbotUserId: 12, limit: 10 }).find((row) => row.visitor_id === visitorId)!.last_ip).toBe('203.0.113.9');
 
     // A value the host does not vouch for is refused before anything is written, so it can never be stored.
     expect(await submit(randomUUID(), { value: '192.0.2.66', kind: 'ip', trusted: false })).toMatchObject({ status: 403 });
-    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('203.0.113.9');
+    expect(host.store.erasableConversations({ chatbotUserId: 12, limit: 10 }).find((row) => row.visitor_id === visitorId)!.last_ip).toBe('203.0.113.9');
 
     // The visitor moved networks: the next admitted message replaces the address rather than adding one.
     const second = await submit(randomUUID(), { value: '198.51.100.20', kind: 'ip', trusted: true });
     await settledTurn(host, (second.body as { turnId: string }).turnId);
-    expect(host.store.conversationOf(12, visitorId)!.last_ip).toBe('198.51.100.20');
+    expect(host.store.erasableConversations({ chatbotUserId: 12, limit: 10 }).find((row) => row.visitor_id === visitorId)!.last_ip).toBe('198.51.100.20');
   });
 });
 
@@ -353,7 +353,7 @@ describe('the plugin holds nothing after a visitor is gone', () => {
     expect(host.store.visitor(VISITOR)).toBeNull();
   });
 
-  it('clears the in-flight counts an interrupted process left behind', () => {
+  it('closes interrupted turns without losing admitted-turn counts', () => {
     conversation({ daysAgo: 0 });
     host.store.admitTurn({
       turnId: randomUUID(),
@@ -366,13 +366,9 @@ describe('the plugin holds nothing after a visitor is gone', () => {
       now: new Date(NOW_MS).toISOString(),
       nowMs: NOW_MS,
     });
-    expect(host.store.budgetDay(12, DAY).in_flight).toBe(1);
-
-    // What the boot reconcile does: the turns are closed as interrupted, and a counter whose only writer is a
-    // `finally` would otherwise stay inflated for good.
-    host.store.closeOrphanedTurns(new Date(NOW_MS).toISOString(), 'server_restarted');
-    expect(host.store.resetInFlight(new Date(NOW_MS).toISOString())).toBe(1);
-    expect(host.store.budgetDay(12, DAY)).toMatchObject({ in_flight: 0, admitted_turns: 1 });
+    const closed = host.store.closeOrphanedTurns(new Date(NOW_MS).toISOString(), 'server_restarted');
+    expect(closed).toHaveLength(1);
+    expect(host.store.budgetDay(12, DAY).admitted_turns).toBe(1);
   });
 });
 
