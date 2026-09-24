@@ -879,15 +879,15 @@ function BudgetUsage({ bot }) {
     { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value) => money(value, locale) },
     { label: s.limit_dailyTurnLimit, value: budget.admittedTurns, limit: limits.dailyTurnLimit, format: (value) => integer(value, locale) }
   ];
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", "aria-label": s.budgetTitle, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap items-center gap-2 text-xs", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-muted-foreground", children: s.budgetDay.replace("{day}", formatDay(budget.day, locale)) }),
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", "aria-label": s.budgetTitle, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 items-center justify-between gap-3 text-xs", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-muted-foreground", children: s.budgetDay.replace("{day}", formatDay(budget.day, locale)) }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Badge, { tone: verdict.ok ? "muted" : "warning", children: status })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2", children: entries.map(({ label, value, limit, format }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-1", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex flex-wrap justify-between gap-x-2 text-xs", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "text-muted-foreground", children: label }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "font-mono tabular-nums", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "grid min-w-0 grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2", children: entries.map(({ label, value, limit, format }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-2", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 items-baseline justify-between gap-3 text-xs", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "min-w-0 truncate text-muted-foreground", children: label }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground", children: [
           value === null ? s.budgetValueUnknown : format(value),
           " / ",
           limit === null ? s.budgetNoCeiling : format(limit)

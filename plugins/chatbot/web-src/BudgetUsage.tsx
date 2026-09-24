@@ -21,17 +21,18 @@ export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
     { label: s.limit_dailyTurnLimit, value: budget.admittedTurns, limit: limits.dailyTurnLimit, format: (value: number) => integer(value, locale) },
   ];
   return (
-    <div className="flex min-w-0 flex-col gap-2" aria-label={s.budgetTitle}>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">{s.budgetDay.replace('{day}', formatDay(budget.day, locale))}</span>
+    <div className="flex min-w-0 flex-col gap-4" aria-label={s.budgetTitle}>
+      <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
+        <span className="min-w-0 truncate text-muted-foreground">{s.budgetDay.replace('{day}', formatDay(budget.day, locale))}</span>
         <C.Badge tone={verdict.ok ? 'muted' : 'warning'}>{status}</C.Badge>
       </div>
-      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
         {entries.map(({ label, value, limit, format }) => (
-          <div key={label} className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap justify-between gap-x-2 text-xs">
-              <span className="text-muted-foreground">{label}</span>
-              <span className="font-mono tabular-nums">
+          <div key={label} className="flex min-w-0 flex-col gap-2">
+            {/* Label and reading share one baseline and never wrap, so both meters' bars start at the same height. */}
+            <div className="flex min-w-0 items-baseline justify-between gap-3 text-xs">
+              <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+              <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">
                 {value === null ? s.budgetValueUnknown : format(value)} / {limit === null ? s.budgetNoCeiling : format(limit)}
               </span>
             </div>

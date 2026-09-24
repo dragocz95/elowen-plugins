@@ -167,6 +167,9 @@
   .flex-wrap {
     flex-wrap: wrap;
   }
+  .items-baseline {
+    align-items: baseline;
+  }
   .items-center {
     align-items: center;
   }
@@ -209,8 +212,11 @@
   .gap-6 {
     gap: calc(var(--spacing, 0.25rem) * 6);
   }
-  .gap-x-2 {
-    column-gap: calc(var(--spacing, 0.25rem) * 2);
+  .gap-x-6 {
+    column-gap: calc(var(--spacing, 0.25rem) * 6);
+  }
+  .gap-y-4 {
+    row-gap: calc(var(--spacing, 0.25rem) * 4);
   }
   :where(.divide-y > :not(:last-child)) {
     --tw-divide-y-reverse: 0;
@@ -332,6 +338,9 @@
   }
   .break-all {
     word-break: break-all;
+  }
+  .whitespace-nowrap {
+    white-space: nowrap;
   }
   .text-destructive {
     color: var(--color-destructive, #e94d42);
