@@ -91,17 +91,19 @@ describe('discord destination and list config compatibility', () => {
     expect(discordDestinationId('1544035768526307389#draft')).toBe('1544035768526307389#draft');
 
     const reply = vi.fn(async () => undefined);
-    await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply }, 'hello');
+    // A text-only push resolves no image events; the adapter still owns the resolver.
+    const resolveImageFiles = () => [];
+    await DiscordAdapter.prototype.notify.call({ cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles }, 'hello');
     expect(reply).toHaveBeenCalledWith('999', 'hello');
     reply.mockClear();
     await DiscordAdapter.prototype.notify.call(
-      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles },
       'hello', 'destination:discord:123',
     );
     expect(reply).toHaveBeenCalledWith('123', 'hello');
     reply.mockClear();
     await DiscordAdapter.prototype.notify.call(
-      { cfg: { notifyChannelId: 'destination:discord:999' }, reply },
+      { cfg: { notifyChannelId: 'destination:discord:999' }, reply, resolveImageFiles },
       'hello', '1544035768526307389#0',
     );
     expect(reply).toHaveBeenCalledWith('1544035768526307389', 'hello');
