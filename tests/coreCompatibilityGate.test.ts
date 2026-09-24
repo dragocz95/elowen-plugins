@@ -90,19 +90,24 @@ describe('requiresCore gate against the built candidate', () => {
     expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_ENVIRONMENTS), `${name} would install on ${BASELINE_WITHOUT_ENVIRONMENTS}`).toBe(true);
   });
 
-  const nextCoreConsumers = ['chatbot', 'cronjob', 'editor', 'github', 'image-edit', 'image-gen', 'lsp', 'msteams', 'sites', 'stats', 'todo'];
+  // chatbot needs 0.28.54 for the conversation-files seam and streamed hook bodies; the rest need the
+  // wave-two contracts of 0.28.53.
+  const nextCoreFloors: Record<string, string> = {
+    chatbot: '0.28.54', cronjob: '0.28.53', editor: '0.28.53', github: '0.28.53', 'image-edit': '0.28.53',
+    'image-gen': '0.28.53', lsp: '0.28.53', msteams: '0.28.53', sites: '0.28.53', stats: '0.28.53', todo: '0.28.53',
+  };
 
-  it.each(nextCoreConsumers)('%s declares the next core floor', (name) => {
-    expect(manifestOf(name).requiresCore).toBe('0.28.53');
+  it.each(Object.keys(nextCoreFloors))('%s declares its next core floor', (name) => {
+    expect(manifestOf(name).requiresCore).toBe(nextCoreFloors[name]);
   });
 
   it.each(names)('%s is admitted only by a capable candidate', (name) => {
     const manifest = manifestOf(name);
     // The marketplace must reject a new-API bundle from a core that cannot supply it.
     const refused = Boolean(manifest.requiresCore) && isNewer(manifest.requiresCore!, candidateVersion);
-    const needsNextCore = nextCoreConsumers.includes(name);
+    const floor = nextCoreFloors[name];
     expect(refused, `${name} needs ${manifest.requiresCore} but the candidate is ${candidateVersion}`)
-      .toBe(needsNextCore && isNewer('0.28.53', candidateVersion));
+      .toBe(floor !== undefined && isNewer(floor, candidateVersion));
   });
 
   it('is running against the candidate rather than a pinned release', () => {
