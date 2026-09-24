@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.4 - 2026-09-24
+
+- ChatbotOffer and ChatbotPageAction are advertised only in chatbot visitor sessions. Other conversations no longer receive visitor-only tools in their model tool lists or cached prompts. Requires core 0.28.53 for platform-scoped tool registration.
+
 ## chatbot 0.2.0 - 2026-09-23
 
 - A visitor's message is now stored, relayed and shown exactly as the visitor wrote it. The page's address and title travel beside it in their own field and reach the model as unverified page data after the message, so conversations no longer show the "Visitor message:" label and the page JSON. Stored conversations are migrated once, and page actions read the page from the stored turn. A widget tab left open across the upgrade must be reloaded before its next message is accepted.

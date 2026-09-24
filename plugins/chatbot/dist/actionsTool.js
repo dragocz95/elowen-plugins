@@ -2,6 +2,7 @@ import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { ACTION_KINDS } from './publicContract.js';
 import { findVisitorTurn } from './visitorTurn.js';
+import { CHATBOT_PLATFORM } from './adapter.js';
 /** The tool a turn calls to do something on the visitor's own page.
  *
  *  There is exactly ONE way in, and it is not negotiable: the tool runs inside a live chatbot visitor turn,
@@ -87,7 +88,7 @@ export function registerPageActionTool(deps) {
             });
             return text(sentenceFor(answer), detailsOf(answer));
         },
-    }));
+    }), { platform: CHATBOT_PLATFORM });
 }
 /** What the model reads. One sentence per outcome, and never a word about anything the tool was not asked
  *  about: a refusal says which of the plugin's own rules answered, and nothing about what else is on the
