@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.8 - 2026-09-24
+
+- Draw the launcher teaser as a speech bubble that points at the launcher and grows out of it, and let a click on the invitation open the chat.
+
 ## chatbot 0.3.7 - 2026-09-24
 
 - Wait for navigation handoff redemption before restoring a visitor conversation, even when avatar loading starts redemption first. The widget no longer reads a revoked token, replays the navigation action as pending or draws the resumed answer twice.
