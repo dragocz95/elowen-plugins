@@ -51,7 +51,7 @@ async function loadEveryRegistryPlugin() {
   // empty rather than green, which is the failure mode we want.
   const db = openDb(':memory:');
   db.prepare("INSERT INTO projects (id,slug,path) VALUES (1,'elowen','/o')").run();
-  const chatbotStores = createChatbotHost({ accounts: [] }).stores;
+  const chatbotHost = createChatbotHost({ accounts: [] });
   return loadPlugins({
     dirs: [pluginDir], enabled: names, logger: log, config: CONFIG,
     pluginDb: (plugin: string) => makePluginDb(db, plugin, { canMigrate: true }),
@@ -59,7 +59,9 @@ async function loadEveryRegistryPlugin() {
     resolveProvider: () => ({ apiKey: 'k', baseUrl: 'https://api.example.invalid/v1' }),
     // image-edit captures this enforcing transport at registration; the suite proves registration only,
     // and the throwing request method makes an accidental network call fail immediately.
-    host: { publicHttp: PUBLIC_HTTP, stores: chatbotStores },
+    // The chatbot plugin reads its conversation-files seam at registration (a `reads` capability since
+    // 0.3.9), so the harness hands it the in-memory fake from the chatbot fixture — never disk or network.
+    host: { publicHttp: PUBLIC_HTTP, stores: chatbotHost.stores, conversationFiles: chatbotHost.files },
   });
 }
 
