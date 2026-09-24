@@ -1,6 +1,7 @@
 // Source-only browser regression: no repository bundles or production services are changed.
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -48,13 +49,17 @@ const server = createServer((req, res) => {
       import { DEFAULT_APPEARANCE } from '${appearanceModule}';
       import { widgetStrings } from '${stringsModule}';
       const messages = JSON.parse(localStorage.getItem('transcript') || '[]');
-      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(){panel.beginAnswer();window.submissions=(window.submissions||0)+1;},onStop(){window.stops=(window.stops||0)+1;}});
+      window.panel = new ChatPanel({look:{name:'Poradce',appearance:DEFAULT_APPEARANCE},strings:widgetStrings('cs'),onVisitorMessage(text,image){window.latestSubmission={text,name:image?.name||null};panel.beginAnswer();window.submissions=(window.submissions||0)+1;},onStop(){window.stops=(window.stops||0)+1;}});
       document.body.append(panel.host);
       panel.restore(messages);
       window.ready = true;
     </script>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+const fixtureDirectory = mkdtempSync(resolve(tmpdir(), 'chatbot-attachment-e2e-'));
+const imagePath = resolve(fixtureDirectory, 'visitor.png');
+writeFileSync(imagePath, imageBytes);
 const browser = await puppeteer.launch({ executablePath: process.env.E2E_BROWSER_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of [1440, 320]) {
@@ -203,9 +208,53 @@ try {
     assert.equal(await page.evaluate(() => window.stops),1);
     assert.equal(await page.evaluate(() => panel.host.shadowRoot.querySelector('deep-chat').hasAttribute('data-answer-active')),false);
     assert.deepEqual(errors,[]);
+    if (width === 320) {
+      await page.setViewport({ width, height: 900, hasTouch: true });
+      await page.reload();
+      await page.waitForFunction(() => window.ready);
+      await page.evaluate(() => panel.open());
+    }
+    const picker = await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button:has(#upload-images-icon)'));
+    assert(picker.asElement(), 'Image picker button is absent');
+    const choosing = page.waitForFileChooser();
+    await picker.asElement().click();
+    await (await choosing).accept([imagePath]);
+    await page.waitForFunction(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button.inside-end:not(.custom-button):not(.disabled-button)'));
+    const send = await page.evaluateHandle(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelector('.input-button.inside-end:not(.custom-button):not(.disabled-button)'));
+    await send.asElement().click();
+    await page.waitForFunction(() => window.latestSubmission?.name === 'visitor.png');
+    assert.deepEqual(await page.evaluate(() => window.latestSubmission), {text:'',name:'visitor.png'}, 'Image-only turn after chat history reused earlier text');
+    console.log(JSON.stringify({width,imageOnly:await page.evaluate(() => window.latestSubmission)}));
+    const attachmentState = await page.evaluate(async png => {
+      await panel.finishAnswer('Zde jsou soubory.');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      panel.showFeedback('shared-turn', null);
+      panel.showAttachment('shared-turn', {kind:'image',storedName:'a'.repeat(64)+'.png',caption:'Náhled'},
+        async () => new Blob([new Uint8Array(png)], {type:'image/png'}));
+      panel.showAttachment('shared-turn', {kind:'file',storedName:'b'.repeat(64)+'.bin',name:'document.pdf',size:4},
+        async () => new Blob(['test'], {type:'application/octet-stream'}));
+      return true;
+    }, [...imageBytes]);
+    assert(attachmentState);
+    await page.waitForFunction(() => panel.host.shadowRoot.querySelector('deep-chat').shadowRoot.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2, {timeout:5000});
+    const shared=await page.evaluate(() => {
+      const root=panel.host.shadowRoot.querySelector('deep-chat').shadowRoot;
+      const items=[...root.querySelectorAll('.cb-shared-file')];
+      return {names:items.map(item=>item.textContent.trim()),links:items.map(item=>item.querySelector('a')?.getAttribute('href').startsWith('blob:')),
+        viewportWidth:innerWidth,bodyWidth:document.documentElement.scrollWidth};
+    });
+    assert.equal(shared.names.length,2);
+    assert(shared.names.some(name=>name.includes('document.pdf')));
+    assert(shared.links.every(Boolean));
+    assert(shared.bodyWidth<=shared.viewportWidth, 'Attachment widens the page');
+    await page.screenshot({path:'/tmp/chatbot-attachments-'+width+'.png'});
+    console.log(JSON.stringify({width,shared,errors}));
+    assert.deepEqual(errors,[]);
     await page.close();
   }
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
+  unlinkSync(imagePath);
+  rmdirSync(fixtureDirectory);
 }

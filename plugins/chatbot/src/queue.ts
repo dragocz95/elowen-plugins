@@ -5,6 +5,8 @@ import type { BotRow, TurnRow } from './db.js';
 import { readBotLimits } from './limits.js';
 import type { ChatbotStore } from './store.js';
 import type { StoredFrameType } from './publicContract.js';
+import type { ChatbotConversationFiles } from './coreSeams.js';
+import { publicAttachment } from './visitorImages.js';
 
 /** Errors this queue emits; boot reconciliation owns the separate server_restarted code. */
 type QueueErrorCode = 'turn_failed' | 'relay_no_reply' | 'queue_timeout';
@@ -16,6 +18,7 @@ const UNRUNNABLE_DRAIN_LIMIT = 100;
 export interface QueueDeps {
   store: ChatbotStore;
   adapter: ChatbotAdapter;
+  files?: ChatbotConversationFiles;
   /** Told, never handed the event, AFTER the append committed: a subscriber reads the durable log itself. */
   broker: TurnEventBroker;
   /** Injected so the durable log and the internal warning can be observed in a test without a daemon. */
@@ -188,15 +191,30 @@ export class ChatbotTurnQueue {
         return;
       }
 
+      const upload = store.uploadForTurn(turnId);
+      let image: { bytes: Buffer; mimeType: string } | null = null;
+      if (upload) {
+        if (!this.deps.files) { this.fail(turnId, 'turn_failed', null); return; }
+        try {
+          image = await this.deps.files.readProjectImage({ botUserId: turn.chatbot_user_id, receipt: upload.receipt });
+        } catch (error) {
+          warn(`chatbot turn ${turnId} could not read its image: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (!image) { this.fail(turnId, 'turn_failed', null); return; }
+      }
       this.record(turnId, 'accepted', {});
 
       const source = visitorSource({
         chatbotUserId: turn.chatbot_user_id,
         visitorId: turn.visitor_id,
         displayName: bot.display_name,
+        ...(image ? { images: [{ data: image.bytes.toString('base64'), mimeType: image.mimeType }] } : {}),
       });
 
       let sessionId: string | null = null;
+      let imageCount = 0;
+      let fileCount = 0;
+      let attachmentCount = 0;
       let streamedAnswer = '';
       // Whether what the relay delivered last was more of the CURRENT step's own text. One step writes its
       // text as a run of deltas; anything else ends that run, so the next delta is the first piece of the
@@ -204,11 +222,26 @@ export class ChatbotTurnQueue {
       // `pieceAtSeam`).
       let stepTextOpen = false;
       try {
-        const reply = await relay(source, turn.message, {
+        const message = upload
+          ? `${turn.message || 'The visitor sent an image without accompanying text.'}\n\n[Untrusted visitor attachment: ${JSON.stringify(upload.receipt.path)}]`
+          : turn.message;
+        const reply = await relay(source, message, {
           onEvent: (event) => {
             const fields = relayEventFields(event);
             if (fields.type === 'session') {
-              if (fields.sessionId) sessionId = fields.sessionId;
+              if (fields.sessionId) {
+                sessionId = fields.sessionId;
+                store.setCoreSessionId(turnId, fields.sessionId);
+              }
+              stepTextOpen = false;
+              return;
+            }
+            const attachment = publicAttachment(event);
+            if (attachment && (attachment.kind === 'image' ? imageCount < 4 : fileCount < 4)) {
+              if (attachment.kind === 'image') imageCount += 1;
+              else fileCount += 1;
+              attachmentCount += 1;
+              this.record(turnId, 'attachment', { ...attachment });
               stepTextOpen = false;
               return;
             }
@@ -228,7 +261,7 @@ export class ChatbotTurnQueue {
 
         // `undefined` is not an empty answer: the seam documents it as a deliberate silence or a refused
         // path, and reporting it as success would show a visitor a blank reply. It is an error here.
-        if (reply === undefined) {
+        if (reply === undefined && attachmentCount === 0) {
           warn(`chatbot turn ${turnId} produced no reply; the relay resolved without one`);
           this.fail(turnId, 'relay_no_reply', sessionId);
           return;
@@ -237,7 +270,7 @@ export class ChatbotTurnQueue {
         // Core returns only the last assistant message of a multi-step turn. The terminal frame must
         // instead reconcile to every public text delta we recorded, including text before page actions.
         // A relay without text events still has its returned answer; an undefined reply remains a refusal.
-        this.record(turnId, 'done', { text: streamedAnswer || reply });
+        this.record(turnId, 'done', { text: streamedAnswer || reply || '' });
         store.finishTurn({ turnId, status: 'done', coreSessionId: sessionId, errorCode: null, now: this.deps.now() });
       } catch (error) {
         // The internal detail stays in the daemon log; the visitor gets a stable code.

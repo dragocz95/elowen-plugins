@@ -20,7 +20,7 @@ describe('migration 11 removes unused columns', () => {
       VALUES ('a1', 't1', 's1', 'click', 'e1', '{"schemaVersion":1,"kind":"click","targetId":"e1","value":null}', 'done', 0, '2026-09-24', '2026-09-25')`).run();
 
     migrate(db);
-    expect(db.appliedVersion()).toBe(11);
+    expect(db.appliedVersion()).toBe(12);
     expect(db.prepare('SELECT chatbot_user_id, display_name FROM p_chatbot_bots').all())
       .toEqual([{ chatbot_user_id: 12, display_name: 'Example' }]);
     expect(db.prepare('SELECT chatbot_user_id, day, admitted_turns FROM p_chatbot_budget_days').all())

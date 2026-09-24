@@ -44,8 +44,10 @@
 // installed instance actually serves, and `npm run check:dist` is what keeps it matching its source.
 
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { openDb } from 'elowen/dist/store/db.js';
@@ -186,8 +188,37 @@ const warn = (message) => { hook.warnings.push(message); console.warn(`  [plugin
 const broker = new TurnEventBroker(warn);
 const adapter = new ChatbotAdapter(warn);
 const now = () => new Date();
+const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+const fixtureDirectory = mkdtempSync(resolve(tmpdir(), 'chatbot-route-e2e-'));
+const imagePath = resolve(fixtureDirectory, 'visitor.png');
+writeFileSync(imagePath, imageBytes);
+const sharedImageName = `${'a'.repeat(64)}.png`;
+const sharedFileName = `${'b'.repeat(64)}.bin`;
+const coreSessionId = 'brain-ch-chatbot-attachment-scenario';
+const savedImages = new Map();
+const files = {
+  async uploadProjectImage({ visitorScope, name, size, body }) {
+    const chunks = [];
+    for await (const chunk of body) chunks.push(Buffer.from(chunk));
+    const bytes = Buffer.concat(chunks);
+    assert(bytes.length === size && bytes.equals(imageBytes), 'The uploaded image was modified during transport');
+    const path = `/managed/${visitorScope}/${name}`;
+    savedImages.set(path, bytes);
+    return { path, relative: `${visitorScope}/${name}`, name, size, visitorScope, project: { id: PROJECT_ID, slug: 'ured' } };
+  },
+  async readProjectImage({ receipt }) {
+    const bytes = savedImages.get(receipt.path);
+    return bytes ? { bytes, mimeType: 'image/png' } : null;
+  },
+  readShared({ sessionId, kind, storedName }) {
+    if (sessionId !== coreSessionId) return null;
+    if (kind === 'image' && storedName === sharedImageName) return { bytes: imageBytes, mimeType: 'image/png' };
+    if (kind === 'file' && storedName === sharedFileName) return { bytes: Buffer.from('file'), mimeType: 'application/octet-stream', disposition: 'attachment; filename="document.pdf"' };
+    return null;
+  },
+};
 const actions = new PageActionService({ store, broker, now, info: () => undefined, warn });
-const queue = new ChatbotTurnQueue({ store, adapter, broker, now: () => now().toISOString(), warn });
+const queue = new ChatbotTurnQueue({ store, adapter, files, broker, now: () => now().toISOString(), warn });
 
 const bot = store.createBot({
   chatbotUserId: CHATBOT_ACCOUNT,
@@ -316,6 +347,7 @@ async function hookHandler(request, response) {
     // plugin's own gate requires, and it is the only thing faked about the transport.
     origin: { value: '127.0.0.1', kind: 'ip', trusted: true },
     acceptsStreamBody: true,
+    stream: () => new ReadableStream({ start(controller) { controller.enqueue(raw); controller.close(); } }),
     json: async () => JSON.parse(raw.toString('utf8')),
     body: async () => raw,
   });
@@ -343,6 +375,13 @@ function readRawPageState() {
 async function modelTurn({ src, observer }) {
   currentVisitorId = src.userId;
   const turn = store.runningTurnOf(CHATBOT_ACCOUNT, src.userId);
+  if (src.images?.length) {
+    assert(src.images.length === 1 && Buffer.from(src.images[0].data, 'base64').equals(imageBytes), 'The relay did not receive the visitor image');
+    observer?.onEvent({ type: 'session', sessionId: coreSessionId });
+    observer?.onEvent({ type: 'image', ref: `/api/brain/chat-images/${sharedImageName}`, caption: 'Preview' });
+    observer?.onEvent({ type: 'file', ref: `/api/brain/chat-files/${sharedFileName}`, name: 'document.pdf', size: 4 });
+    return undefined;
+  }
   if (turn.message.includes(QUICK_TEXT)) {
     observer?.onEvent({ type: 'text', delta: QUICK_ANSWER });
     return QUICK_ANSWER;
@@ -458,6 +497,7 @@ const publicRoute = createPublicRoute({
   queue,
   adapter,
   stores,
+  files,
   broker,
   actions,
   pingIntervalMs: 15_000,
@@ -998,6 +1038,57 @@ try {
   assert(desktop.messages.some((message) => message.text === QUICK_TEXT), `the returning visit lost the visitor's own message: ${JSON.stringify(desktop.messages)}`);
   pass('a returning visitor at 1440x900 gets the look before the panel is opened, at its configured 420x560, with the transcript restored into it');
 
+  // The real file picker sends an image-only turn through the streamed upload route, the durable event log,
+  // authenticated downloads and the panel. This follows a conversation with earlier visitor text.
+  // The throwaway hook is HTTP/1. Chrome only transports streaming fetch over HTTP/2, so model a browser
+  // without request-stream support and exercise the widget's single-attempt File upload path here.
+  await page.evaluate(() => {
+    const BrowserRequest = window.Request;
+    window.Request = class extends BrowserRequest {
+      constructor(url, options) {
+        if (options?.body instanceof ReadableStream && options?.duplex === 'half') throw new TypeError('request streaming unavailable');
+        super(url, options);
+      }
+    };
+  });
+  const attachmentPicker = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot
+    .querySelector('deep-chat').shadowRoot.querySelector('.input-button:has(#upload-images-icon)'));
+  const choosingImage = page.waitForFileChooser();
+  await attachmentPicker.asElement().click();
+  await (await choosingImage).accept([imagePath]);
+  await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]').shadowRoot
+    .querySelector('deep-chat').shadowRoot.querySelector('.input-button.inside-end:not(.custom-button):not(.disabled-button)'));
+  const sendImage = await page.evaluateHandle(() => document.querySelector('[data-elowen-chatbot]').shadowRoot
+    .querySelector('deep-chat').shadowRoot.querySelector('.input-button.inside-end:not(.custom-button):not(.disabled-button)'));
+  await sendImage.asElement().click();
+  const attachmentTurnId = await poll('the image-only turn to finish', () => {
+    const receipt = db.prepare('SELECT turn_id FROM p_chatbot_upload_receipts WHERE turn_id IS NOT NULL LIMIT 1').get();
+    const turn = receipt ? store.turn(receipt.turn_id) : null;
+    return turn?.status === 'done' ? turn.turn_id : null;
+  });
+  const attachmentTurn = store.turn(attachmentTurnId);
+  assert(attachmentTurn.message === '' && attachmentTurn.core_session_id === coreSessionId,
+    `the uploaded image was not an image-only turn bound to its session: ${JSON.stringify(attachmentTurn)}`);
+  assert(store.attachmentEventsOf(attachmentTurnId).length === 2, 'the two shared attachments were not durable');
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot;
+    return root.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2
+      && root.querySelector('.cb-shared-file img')?.naturalWidth === 1;
+  });
+  await page.screenshot({ path: '/tmp/chatbot-live-attachments-1440.png' });
+  assert(hook.requests.some(entry => entry.path.startsWith('/hooks/chatbot/v2/uploads?') && entry.method === 'POST'), 'the picker never called the upload route');
+  assert(hook.requests.filter(entry => entry.path.includes(`/turns/${attachmentTurnId}/files/`) && entry.method === 'GET').length === 2,
+    'the widget did not fetch both attachments using its visitor token');
+  pass('the browser uploads an image-only turn after history and fetches both shared attachments with its visitor token');
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => document.querySelector('[data-elowen-chatbot]')?.shadowRoot?.querySelector('.launcher'));
+  await page.evaluate(() => document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('.launcher').click());
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-elowen-chatbot]').shadowRoot.querySelector('deep-chat').shadowRoot;
+    return root.querySelectorAll('.cb-shared-file a[href^="blob:"]').length === 2;
+  });
+  pass('a reload restores the visitor upload and both authorized shared downloads');
+
   // An unreadable stored look is a refusal, not permission to flash a default launcher or create a visitor.
   // The failed bootstrap produces one expected browser error; no panel is attached.
   const errorsBefore = consoleErrors.length;
@@ -1058,4 +1149,6 @@ try {
   await browser?.close();
   hookServer.close();
   siteServer.close();
+  unlinkSync(imagePath);
+  rmdirSync(fixtureDirectory);
 }

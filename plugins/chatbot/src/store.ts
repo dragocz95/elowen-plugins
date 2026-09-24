@@ -13,6 +13,7 @@ import type {
   VisitorRow,
 } from './db.js';
 import { CHATBOT_PLATFORM } from './adapter.js';
+import type { ChatbotUploadReceipt } from './coreSeams.js';
 import { DEFAULT_LIMITS, readBotLimits, type BotLimits, type LimitValues } from './limits.js';
 import { NO_USAGE, decideBudget, secondsUntilNextUtcDay, utcDay, type OriginUsage, type DailyBudget } from './budget.js';
 import {
@@ -50,7 +51,7 @@ export type AdmissionOutcome =
   /** The day's spend could not be read, the visitor's conversation already has a live turn, the chatbot's
    *  queue is full, or its limits are not configured: refusals with no retry advice, because the honest
    *  answer is "not now" rather than a number. */
-  | { ok: false; reason: 'budget_unverifiable' | 'turn_in_progress' | 'chatbot_busy' | 'limits_missing' }
+  | { ok: false; reason: 'budget_unverifiable' | 'turn_in_progress' | 'chatbot_busy' | 'limits_missing' | 'invalid_upload' }
   /** This exact message is already a turn: the caller gets the SAME turn, never a second model call. */
   | { ok: false; reason: 'duplicate'; turn: TurnRow };
 
@@ -294,6 +295,54 @@ export class ChatbotStore {
     return (this.stmt('SELECT * FROM p_chatbot_tokens WHERE jti = ?').get(jti) as TokenRow | undefined) ?? null;
   }
 
+  /** An uploaded image is a Project file. This row is only an admission receipt; removing it never
+   *  removes the file from the bot's Project. */
+  pendingUploadCount(chatbotUserId: number, visitorId: string, now: string): number {
+    return (this.stmt(`SELECT COUNT(*) AS count FROM p_chatbot_upload_receipts
+      WHERE chatbot_user_id = ? AND visitor_id = ? AND turn_id IS NULL AND expires_at > ?`)
+      .get(chatbotUserId, visitorId, now) as { count: number }).count;
+  }
+
+  saveUpload(input: { id: string; chatbotUserId: number; visitorId: string; clientTurnId: string;
+    receipt: ChatbotUploadReceipt; now: string; expiresAt: string }): boolean {
+    return this.db.transaction(() => {
+      const pending = this.stmt(`SELECT COUNT(*) AS count FROM p_chatbot_upload_receipts
+        WHERE chatbot_user_id = ? AND visitor_id = ? AND turn_id IS NULL AND expires_at > ?`)
+        .get(input.chatbotUserId, input.visitorId, input.now) as { count: number };
+      if (pending.count >= 3) return false;
+      this.stmt(`INSERT INTO p_chatbot_upload_receipts
+        (id, chatbot_user_id, visitor_id, client_turn_id, receipt_json, name, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(input.id, input.chatbotUserId, input.visitorId, input.clientTurnId,
+          JSON.stringify(input.receipt), input.receipt.name, input.now, input.expiresAt);
+      return true;
+    });
+  }
+
+  uploadForTurn(turnId: string): { receipt: ChatbotUploadReceipt; name: string } | null {
+    const row = this.stmt('SELECT receipt_json, name FROM p_chatbot_upload_receipts WHERE turn_id = ?')
+      .get(turnId) as { receipt_json: string; name: string } | undefined;
+    return row ? { receipt: JSON.parse(row.receipt_json) as ChatbotUploadReceipt, name: row.name } : null;
+  }
+
+  uploadNameForTurn(turnId: string): string | null {
+    const row = this.stmt('SELECT name FROM p_chatbot_upload_receipts WHERE turn_id = ?')
+      .get(turnId) as { name: string } | undefined;
+    return row?.name ?? null;
+  }
+
+  attachmentEventsOf(turnId: string): Record<string, unknown>[] {
+    return (this.stmt("SELECT * FROM p_chatbot_turn_events WHERE turn_id = ? AND type = 'attachment' ORDER BY seq")
+      .all(turnId) as TurnEventRow[]).map((row) => ({ seq: row.seq, ...eventPayload(row) }));
+  }
+
+  purgeExpiredUploads(input: { now: string; limit: number }): number {
+    const changed = this.stmt(`DELETE FROM p_chatbot_upload_receipts WHERE id IN
+      (SELECT id FROM p_chatbot_upload_receipts WHERE expires_at <= ? AND turn_id IS NULL
+       ORDER BY expires_at LIMIT ?)`).run(input.now, input.limit);
+    return changed.changes;
+  }
+
   // ── turns and their public event log ───────────────────────────────────────────────────────────────
 
   turnByClientId(chatbotUserId: number, visitorId: string, clientTurnId: string): TurnRow | null {
@@ -367,6 +416,12 @@ export class ChatbotStore {
     const changed = this.stmt("UPDATE p_chatbot_turns SET status = 'running', started_at = ? WHERE turn_id = ? AND status = 'queued'")
       .run(now, turnId);
     return changed.changes > 0;
+  }
+
+  /** Make a relay session available to attachment readers before any public share event. */
+  setCoreSessionId(turnId: string, sessionId: string): void {
+    this.stmt("UPDATE p_chatbot_turns SET core_session_id = ? WHERE turn_id = ? AND status = 'running'")
+      .run(sessionId, turnId);
   }
 
   /** Close one turn, in one transaction: its own row and the conversation's retention stamp.
@@ -538,6 +593,7 @@ export class ChatbotStore {
     clientTurnId: string;
     message: string;
     page: TurnPage;
+    uploadId?: string | null;
     /** The address the HOST resolved for this request; the IP window's second half. */
     originValue: string;
     now: string;
@@ -574,6 +630,7 @@ export class ChatbotStore {
     clientTurnId: string;
     message: string;
     page: TurnPage;
+    uploadId?: string | null;
     originValue: string;
     now: string;
     nowMs: number;
@@ -583,6 +640,12 @@ export class ChatbotStore {
     // idempotence has to be the row the insert is about to be judged against.
     const existing = this.turnByClientId(input.chatbotUserId, input.visitorId, input.clientTurnId);
     if (existing) return { ok: false, reason: 'duplicate', turn: existing };
+    if (input.uploadId) {
+      const upload = this.stmt(`SELECT id FROM p_chatbot_upload_receipts WHERE id = ? AND chatbot_user_id = ?
+        AND visitor_id = ? AND client_turn_id = ? AND turn_id IS NULL AND expires_at > ?`)
+        .get(input.uploadId, input.chatbotUserId, input.visitorId, input.clientTurnId, input.now);
+      if (!upload) return { ok: false, reason: 'invalid_upload' };
+    }
 
     const day = utcDay(input.nowMs);
     const { verdict } = this.dailyBudget(input.chatbotUserId, input.limits, day);
@@ -610,7 +673,13 @@ export class ChatbotStore {
       retentionDays: input.limits.retentionDays,
       now: input.now,
     });
-    return { ok: true, turn: this.createTurn(input) };
+    const turn = this.createTurn(input);
+    if (input.uploadId) {
+      const claimed = this.stmt('UPDATE p_chatbot_upload_receipts SET turn_id = ? WHERE id = ? AND turn_id IS NULL')
+        .run(turn.turn_id, input.uploadId);
+      if (claimed.changes !== 1) throw new Error('upload receipt claim failed');
+    }
+    return { ok: true, turn };
   }
 
   /** One shared rate gate for visitor turns and feedback writes. Refused attempts count too. */
@@ -776,6 +845,7 @@ export class ChatbotStore {
     this.stmt(`DELETE FROM p_chatbot_handoffs WHERE action_id IN (SELECT id FROM p_chatbot_actions WHERE turn_id IN (${turns}))`).run(...args);
     this.stmt(`DELETE FROM p_chatbot_actions WHERE turn_id IN (${turns})`).run(...args);
     this.stmt(`DELETE FROM p_chatbot_turn_events WHERE turn_id IN (${turns})`).run(...args);
+    this.stmt('DELETE FROM p_chatbot_upload_receipts WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)').run(...args);
     this.stmt('DELETE FROM p_chatbot_turns WHERE chatbot_user_id = ? AND (? IS NULL OR visitor_id = ?)').run(...args);
   }
 

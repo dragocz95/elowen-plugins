@@ -26,6 +26,7 @@ export const WIDGET_ASSET_NAME = 'widget.js';
  *  the page it was written on travels beside it as its own field, so the widget refuses an overlong message
  *  against this same number before sending it. */
 export const MESSAGE_MAX_BYTES = 2 * 1024;
+export const VISITOR_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Ceiling on a snapshot action result, including aria text and its target capability list. */
 export const PAGE_STATE_MAX_BYTES = 32 * 1024;
@@ -58,7 +59,7 @@ export const ACTION_NONCE_MIN_CHARS = 8;
 export const ACTION_NONCE_MAX_CHARS = 128;
 export const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'ping'] as const;
+export const PUBLIC_FRAME_TYPES = ['accepted', 'text_delta', 'done', 'error', 'action', 'offer', 'attachment', 'ping'] as const;
 export type PublicFrameType = (typeof PUBLIC_FRAME_TYPES)[number];
 export type StoredFrameType = Exclude<PublicFrameType, 'ping'>;
 
@@ -108,6 +109,8 @@ export const PUBLIC_SEGMENTS = {
   visitors: 'visitors',
   refresh: 'refresh',
   turns: 'turns',
+  uploads: 'uploads',
+  files: 'files',
   events: 'events',
   feedback: 'feedback',
   actions: 'actions',
@@ -125,6 +128,9 @@ export const PUBLIC_PATHS = {
   visitors: PUBLIC_SEGMENTS.visitors,
   refresh: `${PUBLIC_SEGMENTS.visitors}/${PUBLIC_SEGMENTS.refresh}`,
   turns: PUBLIC_SEGMENTS.turns,
+  uploads: PUBLIC_SEGMENTS.uploads,
+  file: (turnId: string, kind: 'image' | 'file', storedName: string): string =>
+    `${PUBLIC_SEGMENTS.turns}/${turnId}/${PUBLIC_SEGMENTS.files}/${kind}/${storedName}`,
   conversation: PUBLIC_SEGMENTS.conversation,
   /** The chatbot's own avatar, as bytes. It exists because the owner's image host is not in a customer's
    *  `img-src`: the widget fetches it over the connection its page already allows and renders it locally. */

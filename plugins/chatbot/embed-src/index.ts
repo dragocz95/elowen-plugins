@@ -181,7 +181,7 @@ export function mount(): ElowenChatbotApi | null {
     storage: safeStorage('localStorage'),
     look: { name: '', appearance: DEFAULT_APPEARANCE },
     // deep-chat draws the submitted message before this callback runs.
-    onVisitorMessage: (text) => void session?.send(text),
+    onVisitorMessage: (text, image) => void session?.send(text, image),
     onStop: () => session?.stopWatching(),
     onFeedback: (turnId, rating, comment) => session!.sendFeedback(turnId, rating, comment),
     onOpen: () => {

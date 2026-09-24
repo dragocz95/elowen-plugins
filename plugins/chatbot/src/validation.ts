@@ -153,8 +153,8 @@ export interface TurnPage {
 
 /** `POST v2/turns`. The visitor token is the authority and is read from the request headers, never from
  *  the body, so the body cannot claim to be someone else. */
-export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId: string; message: string; page: TurnPage }> {
-  const outer = strictObject(body, ['schemaVersion', 'clientTurnId', 'message', 'page'], ['schemaVersion', 'clientTurnId', 'message', 'page']);
+export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId: string; message: string; page: TurnPage; uploadId: string | null }> {
+  const outer = strictObject(body, ['schemaVersion', 'clientTurnId', 'message', 'page', 'uploadId'], ['schemaVersion', 'clientTurnId', 'message', 'page']);
   if (!outer.ok) return outer;
   const version = readSchemaVersion(outer.value);
   if (!version.ok) return version;
@@ -163,11 +163,15 @@ export function validateTurnSubmission(body: unknown): Validated<{ clientTurnId:
   if (!isCanonicalUuid(clientTurnId.value)) return { ok: false, error: '"clientTurnId" must be a canonical UUID' };
   const message = readString(outer.value, 'message', MESSAGE_MAX_BYTES);
   if (!message.ok) return message;
-  if (message.value.trim() === '') return { ok: false, error: '"message" must not be empty' };
+  const uploadId = outer.value.uploadId;
+  if (uploadId !== undefined && (typeof uploadId !== 'string' || !isCanonicalUuid(uploadId))) {
+    return { ok: false, error: '"uploadId" must be a canonical UUID' };
+  }
+  if (message.value.trim() === '' && !uploadId) return { ok: false, error: '"message" must not be empty without an image' };
   if (utf8Length(message.value) > MESSAGE_MAX_BYTES) return { ok: false, error: '"message" is too long' };
   const page = readTurnPage(outer.value.page);
   if (!page.ok) return page;
-  return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value, page: page.value } };
+  return { ok: true, value: { clientTurnId: clientTurnId.value, message: message.value, page: page.value, uploadId: uploadId ?? null } };
 }
 
 function readTurnPage(input: unknown): Validated<TurnPage> {

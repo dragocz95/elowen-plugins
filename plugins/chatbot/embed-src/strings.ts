@@ -38,6 +38,12 @@ export interface WidgetStrings {
   errorTurn: string;
   errorUnavailable: string;
   errorTooLong: string;
+  errorImage: string;
+  errorImageUpload: string;
+  uploadProgress: string;
+  attachmentImage: string;
+  attachmentDownload: string;
+  errorAttachment: string;
   /** A question the visitor answers themselves before anything irreversible happens. */
   confirmTitle: string;
   confirmBody: string;
@@ -81,6 +87,12 @@ const CS: WidgetStrings = {
   errorTurn: 'Odpověď se nepodařilo dokončit. Zkuste to prosím znovu.',
   errorUnavailable: 'Chatbot teď není dostupný. Zkuste to prosím později.',
   errorTooLong: 'Zpráva je příliš dlouhá. Zkraťte ji prosím.',
+  errorImage: 'Přiložte prosím jeden obrázek PNG, JPEG, GIF nebo WebP do 10 MB.',
+  errorImageUpload: 'Obrázek se nepodařilo nahrát. Zkuste to prosím znovu.',
+  uploadProgress: 'Nahrávání obrázku: {percent} %',
+  attachmentImage: 'Sdílený obrázek',
+  attachmentDownload: 'Stáhnout soubor',
+  errorAttachment: 'Přílohu se nepodařilo načíst.',
   confirmTitle: 'Odeslat formulář {form}?',
   confirmBody: 'Zkontrolujte prosím vyplněné údaje. Odeslání potvrzujete vy, chatbot ho neprovede sám.',
   confirmSubmit: 'Potvrdit odeslání',
@@ -116,6 +128,12 @@ const SK: WidgetStrings = {
   errorTurn: 'Odpoveď sa nepodarilo dokončiť. Skúste to prosím znova.',
   errorUnavailable: 'Chatbot teraz nie je dostupný. Skúste to prosím neskôr.',
   errorTooLong: 'Správa je príliš dlhá. Skráťte ju prosím.',
+  errorImage: 'Priložte, prosím, jeden obrázok PNG, JPEG, GIF alebo WebP do 10 MB.',
+  errorImageUpload: 'Obrázok sa nepodarilo nahrať. Skúste to, prosím, znova.',
+  uploadProgress: 'Nahrávanie obrázka: {percent} %',
+  attachmentImage: 'Zdieľaný obrázok',
+  attachmentDownload: 'Stiahnuť súbor',
+  errorAttachment: 'Prílohu sa nepodarilo načítať.',
   confirmTitle: 'Odoslať formulár {form}?',
   confirmBody: 'Skontrolujte prosím vyplnené údaje. Odoslanie potvrdzujete vy, chatbot ho nevykoná sám.',
   confirmSubmit: 'Potvrdiť odoslanie',
@@ -151,6 +169,12 @@ const EN: WidgetStrings = {
   errorTurn: 'The answer could not be finished. Please try again.',
   errorUnavailable: 'The chatbot is not available right now. Please try again later.',
   errorTooLong: 'The message is too long. Please shorten it.',
+  errorImage: 'Please attach one PNG, JPEG, GIF or WebP image up to 10 MB.',
+  errorImageUpload: 'The image could not be uploaded. Please try again.',
+  uploadProgress: 'Uploading image: {percent}%',
+  attachmentImage: 'Shared image',
+  attachmentDownload: 'Download file',
+  errorAttachment: 'The attachment could not be loaded.',
   confirmTitle: 'Send form {form}?',
   confirmBody: 'Please check the details you filled in. You are the one sending it; the chatbot never submits on its own.',
   confirmSubmit: 'Confirm sending',
