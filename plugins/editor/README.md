@@ -14,4 +14,4 @@ Install **editor** from **Settings → Plugins → Available**, then enable it.
 
 This plugin has no configuration fields.
 
-See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [Project Editor page in the Elowen user manual](https://elowen.run/docs/editor-plugin).

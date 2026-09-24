@@ -14,4 +14,4 @@ Install **github** from **Settings → Plugins → Available**, connect GitHub i
 
 This plugin has no instance configuration fields. Each account connects its own GitHub identity and repository mappings.
 
-See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [GitHub page in the Elowen user manual](https://elowen.run/docs/github-plugin).

@@ -14,4 +14,4 @@ Install **codebase** from **Settings → Plugins → Available**, then enable it
 
 Configure include and exclude globs, file and chunk limits, result count and relevance floor, automatic and scheduled reindexing, embedding budget, scope, repository selection, and pass limits in the plugin settings.
 
-See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [Codebase page in the Elowen user manual](https://elowen.run/docs/codebase-plugin).

@@ -14,4 +14,4 @@ Install **lsp** from **Settings → Plugins → Available**, then enable it.
 
 Configure diagnostics availability and the language-server idle timeout in the plugin settings.
 
-See the [Code Tools page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/39-code-tools.md).
+See the [Language Server page in the Elowen user manual](https://elowen.run/docs/lsp-plugin).

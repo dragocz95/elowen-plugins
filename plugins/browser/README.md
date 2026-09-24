@@ -14,4 +14,4 @@ Install **browser** from **Settings → Plugins → Available**, then grant it t
 
 Configure the browser executable, session and user limits, timeouts, viewport and viewer limits, Chrome memory and target limits, proxy limits, and the private-network allowlist in the plugin settings.
 
-See the [Browser page in the Elowen user manual](https://github.com/dragocz95/elowen/blob/main/docs/site/40-browser-plugin.md).
+See the [Browser page in the Elowen user manual](https://elowen.run/docs/browser-plugin).
