@@ -1,6 +1,6 @@
 {
   "name": "sites",
-  "version": "0.14.12",
+  "version": "0.14.13",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Publish an application from a selected managed Project and preview it. Each site has its own visibility settings.",
@@ -287,6 +287,7 @@
       "domain_claimed": "This domain is already connected to another Site on this Elowen instance.",
       "domain_limit": "A Site can have at most {count} custom domains.",
       "claim_expired": "This unverified domain reservation expired. Add the domain again to get a new TXT value.",
+      "domain_not_ready": "This domain is not ready yet. Finish its ownership, routing and certificate checks first.",
       "lastPublish": "Last publish",
       "releases": "Releases",
       "port": "Port",

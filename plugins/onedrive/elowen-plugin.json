@@ -1,6 +1,6 @@
 {
   "name": "onedrive",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "apiVersion": "2",
   "requiresCore": "0.28.50",
   "description": "Syncs each project both ways with each person's OneDrive. Files created by the agent appear there without being shared in chat.",
@@ -95,7 +95,6 @@
       "lastSync": "Last sync",
       "never": "Never",
       "files": "Files",
-      "folder": "Folder",
       "openFolder": "Open in OneDrive",
       "workspaces": "Sandbox workspaces",
       "workspacesHint": "Each workspace is mirrored into its own folder, separate from the project itself.",

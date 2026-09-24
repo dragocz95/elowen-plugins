@@ -79,6 +79,7 @@ const unusableControl = { available: () => false, capture: async () => { throw n
 /** The capture service under test, over one store and one data directory. */
 function previewHarness(t, { store: providedStore, control, project = ACTIVE_PROJECT, gatewayHost = 'sites.example', root } = {}) {
   const store = providedStore ?? new SitesStore(makeDb(), { hostnameBase: gatewayHost });
+  store.migrateSourceReferences(() => null);
   const directory = root ?? tempDir('dir');
   if (!root) t.after(() => rmSync(directory, { recursive: true, force: true }));
   // `control: null` is the explicit "this instance has no capture control"; omitting it means a working one.
@@ -352,6 +353,7 @@ test('the wait after a failure doubles and stays capped', () => {
 
 test('a capture grant is spent exactly once, and only by the site and generation it was minted for', () => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
 
   store.putCaptureGrant('hash-a', 'site-1', 1, Date.now() + CAPTURE_GRANT_TTL_MS);
@@ -384,6 +386,7 @@ test('a capture grant is spent exactly once, and only by the site and generation
 test('the grant on the wire is the one the store minted, and it is hashed at rest', async (t) => {
   const control = captureControl();
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const { service } = previewHarness(t, { control, store });
   await service.request('site-1', 'publish');
@@ -398,6 +401,7 @@ test('the grant on the wire is the one the store minted, and it is hashed at res
 
 function serveHarness(t, { store: providedStore, proxyProject, allowPublicSites = true } = {}) {
   const store = providedStore ?? new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   const addresses = new SiteAddressService({
     store,
     scheme: () => 'https:',
@@ -446,6 +450,7 @@ function serveHarness(t, { store: providedStore, proxyProject, allowPublicSites 
 
 test('a grant renders a private page once and leaves a session behind for its own assets', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const { request, counted, upstream } = serveHarness(t, { store });
 
@@ -474,6 +479,7 @@ test('a grant renders a private page once and leaves a session behind for its ow
 
 test('an ordinary visitor is counted as a visit, and only a capture is exempt from it', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   store.addMember('site-1', 2);
   const { request, counted } = serveHarness(t, { store });
@@ -489,6 +495,7 @@ test('an ordinary visitor is counted as a visit, and only a capture is exempt fr
 
 test('a grant cannot be replayed, does not cross sites, and does not stand in for the gateway proof', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   store.insertSite(site({ id: 'site-2', slug: 'other-abc123' }));
   const { request, counted } = serveHarness(t, { store });
@@ -513,6 +520,7 @@ test('a grant cannot be replayed, does not cross sites, and does not stand in fo
 
 test('an access change kills a grant that was minted before it', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const { request } = serveHarness(t, { store });
   const token = mintGrant(store, 'site-1');
@@ -524,6 +532,7 @@ test('an access change kills a grant that was minted before it', async (t) => {
 
 test('a request with no grant, an unknown grant or an expired one is answered the same way', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site({ visibility: 'public' }));
   const { request } = serveHarness(t, { store });
 
@@ -534,6 +543,7 @@ test('a request with no grant, an unknown grant or an expired one is answered th
   }
 
   const privateStore = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  privateStore.migrateSourceReferences(() => null);
   privateStore.insertSite(site());
   const { request: privateRequest } = serveHarness(t, { store: privateStore });
   privateStore.putCaptureGrant(hashToken('expired-token'), 'site-1', 1, Date.now() - 1);
@@ -544,6 +554,7 @@ test('a request with no grant, an unknown grant or an expired one is answered th
 
 function apiHarness({ store: providedStore, previewImages, allowPublicSites = true } = {}) {
   const store = providedStore ?? new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   const addresses = new SiteAddressService({
     store,
     scheme: () => 'https:',
@@ -708,6 +719,7 @@ test('the drawer is told why there is no picture, and only its manager is', asyn
 
 test('a Sites surface with no capture service still lists and serves everything else', async () => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const { handlers, request } = apiHarness({ store, previewImages: undefined });
 
@@ -746,6 +758,7 @@ test('deleting a site takes its picture and its unspent grant with it', async (t
 
 test('a picture taken while its site was being deleted is not recorded', async (t) => {
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   const addresses = new SiteAddressService({
     store,
     scheme: () => 'https:',
@@ -775,6 +788,7 @@ test('a picture taken while its site was being deleted is not recorded', async (
 test('a minted grant resolves to the token the capture was handed', async (t) => {
   const control = captureControl();
   const store = new SitesStore(makeDb(), { hostnameBase: 'sites.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const { service } = previewHarness(t, { control, store });
   await service.request('site-1', 'publish');

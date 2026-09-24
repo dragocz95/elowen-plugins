@@ -51,6 +51,16 @@ const canonicalCandidate = (value: string): string | null => {
 const canonicalReserved = (value: string | null | undefined): string | null =>
   typeof value === 'string' ? canonicalCandidate(value) : null;
 
+/** The strict hostname check behind the Sites DNS destination. Unlike the user-facing candidate this
+ *  trims nothing and strips no trailing dot: the destination parser normalizes its input first and a
+ *  doubly dotted value must stay refused rather than normalize into a hostname. Null for anything that
+ *  is not exactly one dotted hostname; IP addresses never pass (IPv4 ends in a numeric label, IPv6
+ *  fails the character class, and the explicit `isIP` refusal covers the rest). */
+export function strictHostname(value: string): string | null {
+  if (!value || value !== value.trim() || value.endsWith('.')) return null;
+  return canonicalCandidate(value);
+}
+
 const isReserved = (hostname: string, reserved: ReservedSiteHostnames): boolean => {
   const app = canonicalReserved(reserved.appHostname);
   const generatedBase = canonicalReserved(reserved.generatedHostnameBase);

@@ -55,9 +55,10 @@ describe('scheduled explicit-image notification delivery', () => {
     const fake = {
       cfg: { language: 'en' }, imageDir: fixture(), sock: {},
       resolveImageFiles: (names: string[]) => WhatsAppAdapter.prototype.resolveImageFiles.call(fake, names),
-      sendImages: async (id: string, files: { name: string; data: Buffer }[]) => {
+      sendImages: async (id: string, files: { name: string; data: Buffer }[], _quoted: unknown, caption: string) => {
         expect(id).toBe('420111222333@s.whatsapp.net');
         expect(files.map((file) => [file.name, file.data.toString()])).toEqual([[name, 'PNG']]);
+        expect(caption).toBe('Generated');
         order.push('image');
       },
       sendText: async (_id: string, text: string) => { expect(text).toBe('Result'); order.push('text'); },

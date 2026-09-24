@@ -61,6 +61,16 @@ const PROBE_TIMEOUT_MS = 5_000;
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** Whether a scheduled certificate retry is due. Null (or undefined, where the row predates the
+ *  column) means nothing is scheduled, so the attempt is due; an unreadable timestamp cannot license
+ *  waiting, so it is due as well. Every writer stores ISO strings or null, so that arm is defense
+ *  rather than a path. A future timestamp holds the attempt off. */
+export function retryDue(retryAt: string | null | undefined, nowMs: number): boolean {
+  if (retryAt === null || retryAt === undefined) return true;
+  const at = Date.parse(retryAt);
+  return !Number.isFinite(at) || at <= nowMs;
+}
+
 /** The names a certificate claims, as a reader of a mismatch needs to see them. */
 const servedNames = (cert: PeerCertificate): string => {
   const alt = typeof cert.subjectaltname === 'string' ? cert.subjectaltname : '';

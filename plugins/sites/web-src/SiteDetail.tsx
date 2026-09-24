@@ -200,7 +200,6 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
   };
 
   const releases = detail.data?.releases ?? [];
-  const fileReleases = releases;
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const displayedStatus = displayStatus(site);
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
@@ -293,7 +292,7 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         <Metric
           icon={site.kind === 'proxy' ? Server : History}
           label={site.kind === 'proxy' ? strings.port : strings.releases}
-          value={site.kind === 'proxy' ? (site.target || '—') : String(fileReleases.length)}
+          value={site.kind === 'proxy' ? (site.target || '—') : String(releases.length)}
         />
       </div>
 
@@ -359,11 +358,11 @@ export function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }
         </DetailBlock>
       ) : (
         <DetailBlock icon={History} title={strings.releases}>
-          {fileReleases.length === 0 ? (
+          {releases.length === 0 ? (
             <p className="text-caption text-muted-foreground">{strings.noReleases}</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
-              {fileReleases.map((release) => {
+              {releases.map((release) => {
                 const live = release.id === site.currentReleaseId;
                 return (
                 <li key={release.id} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? 'border-primary/40 bg-primary/10' : 'border-border bg-muted/40'}`}>

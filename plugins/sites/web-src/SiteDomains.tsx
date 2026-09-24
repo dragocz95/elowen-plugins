@@ -10,6 +10,8 @@ import {
   jsonBody,
   relativeTime,
   runtime,
+  siteDetailKey,
+  SITES_LIST_KEY,
   siteDomainsKey,
   type SiteDomainsResponse,
   type SiteDomainRecordView,
@@ -74,7 +76,7 @@ const badgeFor = (domain: SiteDomainView, strings: Record<string, string>): Stat
   if (domain.status === 'ready') return { label: strings.domainReady, tone: 'success' };
   if (domain.status === 'renewal_blocked') return { label: strings.renewalBlocked, tone: 'warning' };
   if (domain.status === 'removing') return { label: strings.domainRemoving, tone: 'muted' };
-  if (['authority_refused', 'rate_limited', 'expired', 'misdirected'].includes(domain.status)) {
+  if (['authority_refused', 'expired', 'misdirected'].includes(domain.status)) {
     return { label: strings.domainAttention, tone: 'danger' };
   }
   return { label: strings.domainPending, tone: 'muted' };
@@ -82,7 +84,7 @@ const badgeFor = (domain: SiteDomainView, strings: Record<string, string>): Stat
 
 const stepBadge = (state: string, strings: Record<string, string>): StatusBadge => {
   if (state === 'ready') return { label: strings.domainReady, tone: 'success' };
-  if (['unavailable', 'misdirected', 'authority_refused', 'rate_limited', 'expired'].includes(state)) {
+  if (['unavailable', 'misdirected', 'authority_refused', 'expired'].includes(state)) {
     return { label: strings.domainAttention, tone: 'danger' };
   }
   if (state === 'renewal_blocked') return { label: strings.renewalBlocked, tone: 'warning' };
@@ -306,8 +308,8 @@ export function SiteDomains({ siteId }: { siteId: string }) {
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: siteDomainsKey(siteId) });
-    void queryClient.invalidateQueries({ queryKey: ['sites', 'detail', siteId] });
-    void queryClient.invalidateQueries({ queryKey: ['sites', 'list'] });
+    void queryClient.invalidateQueries({ queryKey: siteDetailKey(siteId) });
+    void queryClient.invalidateQueries({ queryKey: SITES_LIST_KEY });
   };
 
   /** Put the answer a mutation returned into the register straight away, so the dialog renders the new

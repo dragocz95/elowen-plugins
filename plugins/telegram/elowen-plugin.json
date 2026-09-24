@@ -1,6 +1,6 @@
 {
   "name": "telegram",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "requiresSharedApi": 5,

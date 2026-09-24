@@ -59,6 +59,7 @@ const harness = () => {
     randomId: () => 'custom-1',
     randomToken: () => 'ownership-token',
   });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site);
   const addresses = new SiteAddressService({
     store,

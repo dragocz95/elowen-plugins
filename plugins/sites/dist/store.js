@@ -119,6 +119,14 @@ export class HostnameClaimError extends Error {
         this.name = 'HostnameClaimError';
     }
 }
+export class HostnamePrimaryError extends Error {
+    code;
+    constructor(code, message) {
+        super(message);
+        this.code = code;
+        this.name = 'HostnamePrimaryError';
+    }
+}
 export class SitesStore {
     db;
     hostnameBase;
@@ -719,18 +727,18 @@ export class SitesStore {
         return this.db.transaction(fn);
     }
     insertSite(site) {
+        // No legacy `source_dir` branch: `register` runs `migrateSourceReferences` (which drops the column
+        // after moving real rows) before any handler can insert, so by the time this runs the column is gone.
         this.db.transaction(() => {
-            const legacyColumn = this.db.prepare("PRAGMA table_info('p_sites_sites')").all()
-                .some((column) => column.name === 'source_dir');
             this.db.prepare(`
         INSERT INTO p_sites_sites (
           id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-          ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
+          source_rel, spa, kind, target, runtime, start_command, bind, port,
           environment_cpus, environment_memory_mb, environment_pids_limit,
           environment_desired_state, status, current_release_id,
           created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error,
           primary_custom_hostname_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId, site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0, site.kind, site.target, 'static', '', 'socket', null, null, null, null, 'running', site.status, site.currentReleaseId, site.createdAt, site.updatedAt, site.createdModel, site.lastPublishAt, site.lastPublishModel, site.lastError, null);
             if (this.hostnameBase !== null) {
                 this.db.prepare(`
@@ -944,7 +952,7 @@ export class SitesStore {
             AND certificate_state = 'ready' AND removal_requested_at IS NULL
         `).get(hostnameId, siteId);
                 if (!row)
-                    throw new Error('The primary hostname must be a ready custom hostname of this Site.');
+                    throw new HostnamePrimaryError('domain_not_ready', 'The primary hostname must be a ready custom hostname of this Site.');
             }
             const now = new Date(this.now()).toISOString();
             const updated = this.db.prepare(`

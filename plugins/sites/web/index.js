@@ -720,14 +720,14 @@ var badgeFor = (domain, strings) => {
   if (domain.status === "ready") return { label: strings.domainReady, tone: "success" };
   if (domain.status === "renewal_blocked") return { label: strings.renewalBlocked, tone: "warning" };
   if (domain.status === "removing") return { label: strings.domainRemoving, tone: "muted" };
-  if (["authority_refused", "rate_limited", "expired", "misdirected"].includes(domain.status)) {
+  if (["authority_refused", "expired", "misdirected"].includes(domain.status)) {
     return { label: strings.domainAttention, tone: "danger" };
   }
   return { label: strings.domainPending, tone: "muted" };
 };
 var stepBadge = (state, strings) => {
   if (state === "ready") return { label: strings.domainReady, tone: "success" };
-  if (["unavailable", "misdirected", "authority_refused", "rate_limited", "expired"].includes(state)) {
+  if (["unavailable", "misdirected", "authority_refused", "expired"].includes(state)) {
     return { label: strings.domainAttention, tone: "danger" };
   }
   if (state === "renewal_blocked") return { label: strings.renewalBlocked, tone: "warning" };
@@ -912,8 +912,8 @@ function SiteDomains({ siteId }) {
   const [removeDomain, setRemoveDomain] = (0, import_react4.useState)(null);
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: siteDomainsKey(siteId) });
-    void queryClient.invalidateQueries({ queryKey: ["sites", "detail", siteId] });
-    void queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
+    void queryClient.invalidateQueries({ queryKey: siteDetailKey(siteId) });
+    void queryClient.invalidateQueries({ queryKey: SITES_LIST_KEY });
   };
   const storeDomain = (domain) => {
     queryClient.setQueryData(siteDomainsKey(siteId), (previous) => {
@@ -1421,7 +1421,6 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     runCall({ path: basePath(siteId), init: jsonBody("PATCH", { visibility: next }) });
   };
   const releases = detail.data?.releases ?? [];
-  const fileReleases = releases;
   const visits = (detail.data?.hits ?? []).reduce((sum, entry) => sum + entry.count, 0);
   const displayedStatus = displayStatus(site);
   const VisibilityIcon = VISIBILITY_ICON[site.visibility];
@@ -1525,7 +1524,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
         {
           icon: site.kind === "proxy" ? Server : History,
           label: site.kind === "proxy" ? strings.port : strings.releases,
-          value: site.kind === "proxy" ? site.target || "\u2014" : String(fileReleases.length)
+          value: site.kind === "proxy" ? site.target || "\u2014" : String(releases.length)
         }
       )
     ] }),
@@ -1566,7 +1565,7 @@ function SiteDetail({ siteId, allowPublicSites, onDeleted, onBusyChange }) {
     site.kind === "proxy" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(DetailBlock, { icon: Boxes, title: strings.kindProxy, children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-sm text-foreground", children: strings.projectPublicationLink.replace("{project}", site.projectSlug ?? "\u2014") }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Button, { variant: "ghost", icon: ExternalLink, onClick: () => runtime().navigate(`/projects?project=${site.projectId}`), children: strings.openProject }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: History, title: strings.releases, children: fileReleases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: fileReleases.map((release) => {
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(DetailBlock, { icon: History, title: strings.releases, children: releases.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "text-caption text-muted-foreground", children: strings.noReleases }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-1.5", children: releases.map((release) => {
       const live = release.id === site.currentReleaseId;
       return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: `flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${live ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "flex min-w-0 flex-col", children: [

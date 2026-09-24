@@ -4,6 +4,30 @@
 
 - Harden the admin surface: stale stats answers can no longer repaint the chart, plus source-of-truth cleanups across limits, strings and views.
 
+## editor 0.5.5 - 2026-09-24
+
+- Remove the unused empty web string.
+
+## onedrive 0.3.4 - 2026-09-24
+
+- Narrow four drive helpers to module scope and remove the unused folder web string.
+
+## msteams 0.8.9 - 2026-09-24
+
+- Remove the unused peopleSearchCount web string.
+
+## telegram 0.2.23 - 2026-09-24
+
+- Correct the reply helper comment: shared photos come from image events, not links in text.
+
+## sites 0.14.13 - 2026-09-24
+
+- Refuse a not-ready primary domain with a coded 409; share one hostname check, one retry rule and one query-key source.
+
+## whatsapp 0.2.27 - 2026-09-24
+
+- Forward the agent caption to the first image and document message.
+
 ## chatbot 0.3.13 - 2026-09-24
 
 - Keep room below a rated answer so its rating capsule is no longer covered by the next message or cut off at the end of the message list.

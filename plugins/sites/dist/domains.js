@@ -1,6 +1,6 @@
 import { ownershipTxtRecord } from './dns.js';
 import { parseSiteHostname, SiteHostnameError } from './hostname.js';
-import { CUSTOM_HOSTNAME_LIMIT, HostnameClaimError, } from './store.js';
+import { CUSTOM_HOSTNAME_LIMIT, HostnameClaimError, HostnamePrimaryError, } from './store.js';
 export class SiteDomainError extends Error {
     status;
     code;
@@ -227,7 +227,16 @@ export class SiteDomainService {
     }
     async makePrimary(site, id) {
         this.custom(site, id);
-        this.deps.store.setPrimaryCustomHostname(site.id, id);
+        try {
+            this.deps.store.setPrimaryCustomHostname(site.id, id);
+        }
+        catch (error) {
+            // The store predicate is the authority: state can change between reads, so a pre-check here
+            // could still promote a domain that stopped being ready. Its coded refusal becomes a 409.
+            if (error instanceof HostnamePrimaryError)
+                throw new SiteDomainError(409, error.code);
+            throw error;
+        }
         const current = this.deps.store.siteById(site.id) ?? { ...site, primaryCustomHostnameId: id };
         return this.view(current, this.custom(current, id));
     }

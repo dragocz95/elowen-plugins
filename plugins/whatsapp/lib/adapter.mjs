@@ -28,6 +28,7 @@ const MENU_PAGE = 18;                     // numbered-menu options per page (lea
 const MAX_UPLOAD_IMAGES = 4;             // default shared-image uploads per reply (cfg: maxUploadImages)
 const MAX_UPLOAD_FILES = 4;              // shared files (ShareFile) uploaded per reply — no config key: the agent
                                          // chooses what to share, so this is a transport bound, not a preference
+const WA_CAPTION_LIMIT = 1024;           // WhatsApp rejects an image/document caption above this, caption included
 
 /** Token-list settings arrive as arrays from current core and comma/newline strings from older installs. */
 export function splitList(value) {
@@ -768,10 +769,15 @@ export class WhatsAppAdapter {
     return firstKey;
   }
 
-  /** Send shared images as image messages (the first optionally quoting the trigger). */
-  async sendImages(chatJid, files, quoted) {
+  /** Send shared images as image messages (the first optionally quoting the trigger). The agent's
+   *  caption rides on the FIRST image only — repeating it under each would read as the bot saying the
+   *  same thing several times — clamped to the surface limit, since a caption over it would fail the
+   *  whole send and lose the picture. */
+  async sendImages(chatJid, files, quoted, caption) {
+    const text = typeof caption === 'string' && caption.trim() ? caption.slice(0, WA_CAPTION_LIMIT) : undefined;
     for (let i = 0; i < files.length; i++) {
-      await this.sock.sendMessage(chatJid, { image: files[i].data }, i === 0 && quoted ? { quoted } : {}).catch(() => {});
+      const content = i === 0 && text !== undefined ? { image: files[i].data, caption: text } : { image: files[i].data };
+      await this.sock.sendMessage(chatJid, content, i === 0 && quoted ? { quoted } : {}).catch(() => {});
     }
   }
 
@@ -779,13 +785,17 @@ export class WhatsAppAdapter {
 
   /** Send files the agent shared as document messages (the first optionally quoting the trigger). A
    *  document keeps its file name and its bytes, which an image message would not — WhatsApp re-encodes a
-   *  picture, and a shared PDF or spreadsheet is exactly the thing that must survive intact. */
-  async sendDocuments(chatJid, files, quoted) {
+   *  picture, and a shared PDF or spreadsheet is exactly the thing that must survive intact. The caption
+   *  rides the FIRST document only, for the same reason it does on the image path. */
+  async sendDocuments(chatJid, files, quoted, caption) {
+    const text = typeof caption === 'string' && caption.trim() ? caption.slice(0, WA_CAPTION_LIMIT) : undefined;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
+      const content = { document: f.data, fileName: f.name, mimetype: fileMimeType(f.name) };
+      if (i === 0 && text !== undefined) content.caption = text;
       await this.sock.sendMessage(
         chatJid,
-        { document: f.data, fileName: f.name, mimetype: fileMimeType(f.name) },
+        content,
         i === 0 && quoted ? { quoted } : {},
       ).catch((e) => this.log.error(`sendDocument failed: ${e?.message ?? e}`));
     }
@@ -815,9 +825,9 @@ export class WhatsAppAdapter {
     const target = (typeof chatId === 'string' && chatId.trim()) || (typeof this.cfg.notifyChat === 'string' ? this.cfg.notifyChat.trim() : '');
     if (!target || !this.sock) return;
     const jid = toJid(target);
-    const { names } = imageEventPayload(images);
+    const { names, caption } = imageEventPayload(images);
     const files = this.resolveImageFiles(names);
-    if (files.length) await this.sendImages(jid, files);
+    if (files.length) await this.sendImages(jid, files, undefined, caption);
     if (text) await this.sendText(jid, lifecycleText(this.cfg.language, notice, text));
   }
 

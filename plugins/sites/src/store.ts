@@ -356,6 +356,19 @@ export class HostnameClaimError extends Error {
   }
 }
 
+/** The transactional primary-hostname predicate refused this write: the hostname is not a ready custom
+ *  hostname of the Site (not ready, removed, or claimed elsewhere). An expected eligibility outcome,
+ *  so it carries a stable code the service layer converts to a coded refusal — unlike a missing or
+ *  deleting Site, which stays an exceptional error. */
+export type HostnamePrimaryErrorCode = 'domain_not_ready';
+
+export class HostnamePrimaryError extends Error {
+  constructor(readonly code: HostnamePrimaryErrorCode, message: string) {
+    super(message);
+    this.name = 'HostnamePrimaryError';
+  }
+}
+
 export interface SitesStoreOptions {
   hostnameBase?: string | null;
   now?: () => number;
@@ -1007,18 +1020,18 @@ export class SitesStore {
   }
 
   insertSite(site: Site): void {
+    // No legacy `source_dir` branch: `register` runs `migrateSourceReferences` (which drops the column
+    // after moving real rows) before any handler can insert, so by the time this runs the column is gone.
     this.db.transaction(() => {
-      const legacyColumn = (this.db.prepare("PRAGMA table_info('p_sites_sites')").all() as { name: string }[])
-        .some((column) => column.name === 'source_dir');
       this.db.prepare(`
         INSERT INTO p_sites_sites (
           id, slug, title, summary, project_id, owner_user_id, visibility, access_generation,
-          ${legacyColumn ? 'source_dir, ' : ''}source_rel, spa, kind, target, runtime, start_command, bind, port,
+          source_rel, spa, kind, target, runtime, start_command, bind, port,
           environment_cpus, environment_memory_mb, environment_pids_limit,
           environment_desired_state, status, current_release_id,
           created_at, updated_at, created_model, last_publish_at, last_publish_model, last_error,
           primary_custom_hostname_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${legacyColumn ? "'', " : ''}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         site.id, site.slug, site.title, site.summary, site.projectId, site.ownerUserId,
         site.visibility, site.accessGeneration, site.sourceRel, site.spa ? 1 : 0,
@@ -1285,7 +1298,7 @@ export class SitesStore {
           WHERE id = ? AND site_id = ? AND kind = 'custom'
             AND certificate_state = 'ready' AND removal_requested_at IS NULL
         `).get(hostnameId, siteId);
-        if (!row) throw new Error('The primary hostname must be a ready custom hostname of this Site.');
+        if (!row) throw new HostnamePrimaryError('domain_not_ready', 'The primary hostname must be a ready custom hostname of this Site.');
       }
       const now = new Date(this.now()).toISOString();
       const updated = this.db.prepare(`

@@ -69,6 +69,7 @@ const peerCertificate = ({ names = [HOSTNAME], from = '2026-01-01T00:00:00.000Z'
 const harness = ({ canIssue = true, issue, probe, mayAttempt = true, issuedSlugs = [] } = {}) => {
   const db = makeDb();
   const store = new SitesStore(db, { hostnameBase: 'sites.elowen.example' });
+  store.migrateSourceReferences(() => null);
   store.insertSite(site());
   const issued = [];
   const probed = [];

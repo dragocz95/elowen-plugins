@@ -1,8 +1,6 @@
 import { isIP } from 'node:net';
-import { domainToASCII } from 'node:url';
+import { strictHostname } from './hostname.js';
 const DNS_TARGET_ERROR = 'Sites DNS destination must be one hostname, IPv4 address or IPv6 address, with no scheme, path, port, network prefix, zone or wildcard.';
-const DNS_NAME_CHARACTERS = /^[a-z0-9.\-\u{80}-\u{10ffff}]+$/iu;
-const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const NEGATIVE_DNS_CODES = new Set(['ENODATA', 'ENOTFOUND', 'EAI_NONAME']);
 const normalizedHost = (value) => value.trim().replace(/\.+$/, '').toLowerCase();
 const fqdn = (value) => normalizedHost(value) + '.';
@@ -38,19 +36,6 @@ function canonicalDnsAddress(value) {
         return null;
     }
 }
-const dnsHostname = (value) => {
-    if (!DNS_NAME_CHARACTERS.test(value))
-        return null;
-    const ascii = domainToASCII(value.toLowerCase());
-    if (!ascii || ascii.length > 253 || !ascii.includes('.'))
-        return null;
-    const labels = ascii.split('.');
-    if (labels.some((label) => label.length < 1 || label.length > 63 || !DNS_LABEL.test(label)))
-        return null;
-    if (/^\d+$/.test(labels.at(-1) ?? ''))
-        return null;
-    return ascii;
-};
 const addresses = async (resolver, hostname, samples) => {
     const ipv4 = new Set();
     const ipv6 = new Set();
@@ -142,7 +127,6 @@ class GatewayDnsTarget {
                 delegatedRootWarning: hostname.delegatedRootWarning,
                 preferred: [{ name: hostname.ascii, type: 'ALIAS/ANAME', value: this.value + '.' }],
                 fallback: [],
-                detail: resolved.errors[0] ?? 'The configured destination currently has no A or AAAA answer.',
             };
         }
         return {
@@ -213,7 +197,7 @@ export function resolveGatewayDnsTarget(value, fallbackHostname, resolver) {
     const address = canonicalDnsAddress(candidate) ?? canonicalDnsAddress(bare);
     if (address)
         return { target: new GatewayDnsTarget(address.kind, address.value, resolver), error: null };
-    const hostname = dnsHostname(bare);
+    const hostname = strictHostname(bare);
     if (hostname)
         return { target: new GatewayDnsTarget('hostname', hostname, resolver), error: null };
     return { target: null, error: DNS_TARGET_ERROR };

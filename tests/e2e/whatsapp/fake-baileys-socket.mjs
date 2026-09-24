@@ -28,7 +28,8 @@ function projectContent(content) {
   if (!content || typeof content !== 'object') return { kind: 'unknown' };
   if (typeof content.text === 'string') return { kind: content.edit ? 'edit' : 'text', text: content.text };
   if (content.react) return { kind: 'react', react: content.react.text ?? '' };
-  if (content.image) return { kind: 'image' };
+  if (content.image) return { kind: 'image', caption: typeof content.caption === 'string' ? content.caption : '' };
+  if (content.document) return { kind: 'document', caption: typeof content.caption === 'string' ? content.caption : '' };
   return { kind: 'other' };
 }
 

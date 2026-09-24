@@ -30,25 +30,25 @@ export const uploadTimeoutMs = (size) => UPLOAD_GRACE_MS + Math.ceil(Math.max(si
 const asRecord = (value) => (value && typeof value === 'object' ? value : {});
 /** Only a genuine "it is not there" may be read as absence. Every other failure — throttling, an outage,
  *  a revoked grant — must propagate, because treating it as absence is how a mirror deletes files. */
-export function isNotFound(error) {
+function isNotFound(error) {
     const status = error?.status;
     return status === 404;
 }
 /** Graph's "that name is already taken", the answer to a create that was told to refuse a collision.
  *  Matched on the code as well as the status, because 409 also covers conflicts this must not react to —
  *  and what it drives is a retry that overwrites. */
-export function isNameConflict(error) {
+function isNameConflict(error) {
     const value = error;
     return value?.status === 409 && value?.code === 'nameAlreadyExists';
 }
 /** Percent-encode each path segment for a Graph `root:/…:` addressing expression. Encoding the whole
  *  path in one go would escape the separators too and address a single oddly named file. */
-export function encodePath(path) {
+function encodePath(path) {
     return path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 }
 /** Turn one Graph item into the shape the merge cares about. `parentReference.path` arrives as
  *  `/drive/root:/Elowen/projects/site`, so the mirror-relative path is what follows `root:`. */
-export function itemFromGraph(raw) {
+function itemFromGraph(raw) {
     const value = asRecord(raw);
     const id = typeof value.id === 'string' ? value.id : '';
     const name = typeof value.name === 'string' ? value.name : '';

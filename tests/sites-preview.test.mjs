@@ -22,6 +22,7 @@ function harness(t) {
     },
     { hostnameBase: 'sites.example' },
   );
+  store.migrateSourceReferences(() => null);
   const members = new Set([7]);
   const access = { accountExists: id => [7, 8, 99].includes(id), isAdmin: id => id === 99, canAccessProject: (id, projectId) => projectId === 11 && members.has(id), allowPublicSites: () => true };
   let available = true, active = true, proxy = async () => ({ status: 200, headers: {}, body: 'project application' });
