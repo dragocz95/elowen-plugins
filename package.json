@@ -33,7 +33,7 @@
     "check:web-types": "tsc -p tsconfig.plugins-web.json"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
     "@monaco-editor/react": "^4.7.0",
     "@novnc/novnc": "^1.7.0",
     "@page-agent/page-controller": "1.12.4",
@@ -50,9 +50,9 @@
     "deep-chat": "2.5.1",
     "dependency-cruiser": "^17.4.3",
     "dompurify": "3.4.14",
-    "elowen": "0.28.52",
-    "elowen-plugin-shared": "0.3.2",
-    "elowen-plugin-ui-kit": "0.14.0",
+    "elowen": "0.28.54",
+    "elowen-plugin-shared": "0.4.0",
+    "elowen-plugin-ui-kit": "0.15.0",
     "esbuild": "0.28.2",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
