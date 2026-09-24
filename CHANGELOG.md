@@ -1,5 +1,9 @@
 # Changelog
 
+## chatbot 0.3.14 - 2026-09-24
+
+- Harden the admin surface: stale stats answers can no longer repaint the chart, plus source-of-truth cleanups across limits, strings and views.
+
 ## chatbot 0.3.13 - 2026-09-24
 
 - Keep room below a rated answer so its rating capsule is no longer covered by the next message or cut off at the end of the message list.
