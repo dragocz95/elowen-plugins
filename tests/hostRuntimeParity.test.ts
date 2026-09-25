@@ -207,14 +207,8 @@ describe('the stand-in host runtime the UI suites render against', () => {
   });
 
   it('announces the API version the host it targets declares', () => {
-    // The published kit leads the pinned core by one API release until 0.28.55 reaches npm.
-    // The ahead list must disappear when the pinned core catches up, or these assertions fail.
+    // The stand-in, published kit and packaged host must agree on the API version.
     expect(copied.apiVersion).toBe(PLUGIN_UI_API_VERSION);
-    if (AHEAD_OF_RELEASE_RUNTIME.utils.length) {
-      expect(PLUGIN_UI_API_VERSION).toBe(23);
-      expect(packaged!.apiVersion).toBe(22);
-    } else {
-      expect(PLUGIN_UI_API_VERSION).toBe(packaged!.apiVersion);
-    }
+    expect(PLUGIN_UI_API_VERSION).toBe(packaged!.apiVersion);
   });
 });
