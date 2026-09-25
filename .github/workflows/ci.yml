@@ -27,7 +27,7 @@ jobs:
       ELOWEN_CORE_VERSION: '0.28.55'
       # Pin the exact released source whose daemon and UI-kit packages are installed below. The parity
       # suites need source files and built helpers that the published daemon package deliberately omits.
-      ELOWEN_CORE_REF: 'aeab4f9a4c7ab4c8955cf6a913f67aa9cc8d261f'
+      ELOWEN_CORE_REF: '7b2ca0166894e293a103b71212e7d8f4938bd708'
     steps:
       - uses: actions/checkout@v7
         with:
