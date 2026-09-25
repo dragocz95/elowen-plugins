@@ -130,6 +130,12 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
+// node_modules/lucide-react/dist/esm/icons/ban.js
+var Ban = createLucideIcon("Ban", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m4.9 4.9 14.2 14.2", key: "1m5liu" }]
+]);
+
 // node_modules/lucide-react/dist/esm/icons/chevron-right.js
 var ChevronRight = createLucideIcon("ChevronRight", [
   ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
@@ -293,6 +299,13 @@ function TodoCard({ card, sessionId, live, open }) {
   const query = hooks.useSessionTasks(sessionId);
   const update = hooks.useUpdateSessionTask();
   const [collapsed, setCollapsed] = (0, import_react4.useState)(false);
+  const { refetch } = query;
+  const pushedCard = (0, import_react4.useRef)(card);
+  (0, import_react4.useEffect)(() => {
+    if (pushedCard.current === card) return;
+    pushedCard.current = card;
+    if (sessionId) void refetch();
+  }, [card, refetch, sessionId]);
   const tasks = query.data?.tasks ?? (card.items ?? []).flatMap((item) => item.id ? [{
     id: item.id,
     subject: item.label ?? item.text,
@@ -411,6 +424,8 @@ function parseData(data) {
 }
 function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
   const active = task.status === "in_progress";
+  const blocked = task.status === "pending" && task.blockedBy.length > 0;
+  const blockedText = blocked ? `${strings.blocked} ${task.blockedBy.map((id) => `#${id}`).join(", ")}`.trim() : "";
   const elapsed = active && task.startedAt != null ? `${Math.max(0, Math.round((now - task.startedAt) / 1e3))}s` : null;
   const label = active && task.activeForm ? task.activeForm : task.subject;
   const actions = [
@@ -420,9 +435,10 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex min-w-0 items-center gap-1.5 text-xs", "data-testid": "telemetry-row", children: [
     active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleDot, { size: 11, "aria-hidden": true, className: "shrink-0 text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: "min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary", title: task.subject, children: label }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: `min-w-0 flex-1 truncate text-left text-xs hover:text-primary ${blocked ? "text-subtle-foreground" : "text-foreground"}`, title: task.subject, children: label }),
     elapsed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "shrink-0 font-mono text-tiny text-muted-foreground", children: elapsed }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { variant: "kebab", items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { variant: "kebab", items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy }),
+    blocked ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { "data-testid": "telemetry-task-blocked", role: "img", "aria-label": blockedText, title: blockedText, className: "shrink-0 text-subtle-foreground", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ban, { size: 11, "aria-hidden": true }) }) : null
   ] });
 }
 function TasksRail({ variant, data, sessionId, open }) {

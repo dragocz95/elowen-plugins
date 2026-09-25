@@ -154,6 +154,9 @@
   .text-primary {
     color: var(--color-primary, #ff5236);
   }
+  .text-subtle-foreground {
+    color: var(--color-subtle-foreground, #827974);
+  }
   .text-success {
     color: var(--color-success, #32c986);
   }
