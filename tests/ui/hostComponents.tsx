@@ -72,12 +72,12 @@ export function Field({ label, htmlFor, children, hint }: { label: string; htmlF
  *  a suite can stand on: the trigger BUTTON named by the caller's `label` (a list of records would
  *  otherwise present a column of buttons all called "Help"), the body rendered in place while open,
  *  `aria-describedby` from the trigger, and the same three gestures. */
-export function HelpTip({ children, align = 'right', label }: { children: ReactNode; align?: 'left' | 'right'; label?: string }) {
+export function HelpTip({ children, label }: { children: ReactNode; align?: 'left' | 'right'; label?: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
-    <span className="help-tip" data-align={align} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
         aria-label={label ?? t.common.help}
