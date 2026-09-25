@@ -8,8 +8,6 @@ import { SyncEngine, type SyncSettings } from './sync.js';
 import { normalizeIgnorePatterns, normalizeSubpath } from './scan.js';
 import { ManagedMirror } from './managed.js';
 
-// These schema fields accept any finite number, including negatives: preserve the positive-only
-// fallback and unbounded upper range rather than silently clamping invalid values to a minimum.
 const numberSetting = (value: unknown, fallback: number): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
