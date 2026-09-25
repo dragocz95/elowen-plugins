@@ -1,5 +1,9 @@
 # Changelog
 
+## todo 0.14.19 - 2026-09-25
+
+- Follow a pushed card with a fresh task read instead of rendering the list fetched on mount, and mark a blocked row in the rail with the blockers it waits on.
+
 ## chatbot 0.3.14 - 2026-09-24
 
 - Harden the admin surface: stale stats answers can no longer repaint the chart, plus source-of-truth cleanups across limits, strings and views.
