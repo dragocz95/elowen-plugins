@@ -8,9 +8,7 @@ export interface SessionTask {
   activeForm?: string;
   status: 'pending' | 'in_progress' | 'completed';
   startedAt?: number;
-  owner?: string;
   blockedBy: readonly string[];
-  blocks: string[];
 }
 interface Query<T> { data?: T; isLoading: boolean; isError: boolean; refetch(): void }
 interface Mutation<T> { mutate(vars: T, cb?: { onSuccess?: (value: any) => void; onError?: (error: unknown) => void }): void; isPending: boolean }
@@ -18,7 +16,7 @@ interface Components {
   /** The host's shared rail heading; a bundle must not rebuild its markup, because the skin styles it by class. */
   RailSectionHead: ComponentType<{ label: string; icon?: ReactNode; meta?: ReactNode }>;
   Modal: ComponentType<any>; ModalBody: ComponentType<any>; ModalFooter: ComponentType<any>; ConfirmDialog: ComponentType<any>;
-  Input: ComponentType<any>; Button: ComponentType<any>; Badge: ComponentType<any>; Checkbox: ComponentType<any>;
+  Input: ComponentType<any>; Button: ComponentType<any>; Checkbox: ComponentType<any>;
   ActionMenu: ComponentType<any>; Progress: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;
   /** The app's hint affordance: a "?" that opens on hover, focus AND tap, which a native `title` does not.
    *  The rail hangs a blocked row's blocker list on it, and `label` is what names each trigger: a column of
@@ -30,7 +28,6 @@ interface Components {
  *  `undefined` at render time; `AssertPublished` turns that into an error in this repository. */
 type PublishedNames = AssertPublished<keyof Components>;
 interface Hooks {
-  useTranslation(): { t: Record<string, any> };
   usePluginStrings(plugin: string): Record<string, string>;
   useToast(): { toast(message: string, tone?: 'ok' | 'error'): void };
   useSessionTasks(sessionId: string | null): Query<{ tasks: SessionTask[] }>;

@@ -306,9 +306,7 @@ function TodoCard({ card, sessionId, live, open }) {
     description: "",
     status: item.status ?? "pending",
     ...item.startedAt === void 0 ? {} : { startedAt: item.startedAt },
-    ...item.owner === void 0 ? {} : { owner: item.owner },
-    blockedBy: item.blockedBy ?? [],
-    blocks: []
+    blockedBy: item.blockedBy ?? []
   }] : []);
   const now = useClock(live && tasks.some((task) => task.status === "in_progress" && task.startedAt != null));
   const setStatus = (task, status) => {
@@ -410,7 +408,6 @@ function parseData(data) {
       description: typeof value.description === "string" ? value.description : "",
       status: value.status,
       blockedBy: value.blockedBy,
-      blocks: [],
       ...typeof value.startedAt === "number" ? { startedAt: value.startedAt } : {},
       ...typeof value.activeForm === "string" ? { activeForm: value.activeForm } : {}
     };

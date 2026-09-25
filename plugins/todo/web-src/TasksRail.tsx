@@ -21,7 +21,6 @@ function parseData(data: unknown): RailData | null {
       description: typeof value.description === 'string' ? value.description : '',
       status: value.status,
       blockedBy: value.blockedBy,
-      blocks: [],
       ...(typeof value.startedAt === 'number' ? { startedAt: value.startedAt } : {}),
       ...(typeof value.activeForm === 'string' ? { activeForm: value.activeForm } : {}),
     };
