@@ -1,6 +1,6 @@
 {
   "name": "todo",
-  "version": "0.14.19",
+  "version": "0.14.20",
   "apiVersion": "2",
   "requiresCore": "0.28.53",
   "description": "Session task list: the agent tracks multi-step work incrementally and shows progress live.",

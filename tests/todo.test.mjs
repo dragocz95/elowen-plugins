@@ -7,6 +7,7 @@ test('todo manifest and marketplace registry expose the same release', () => {
   const registry = JSON.parse(readFileSync(new URL('../registry.json', import.meta.url), 'utf8'));
   const catalog = registry.plugins.find((plugin) => plugin.name === 'todo');
 
+  // 0.14.20 opens a blocked row's blockers on tap, keeps a failed read visible and drops unread task fields.
   // 0.14.19 refreshes the chat card when a task tool pushes a new card, and marks a blocked row in the
   // rail with the blockers it waits on.
   // 0.14.18 moves user documentation into the plugin's docs/ folder.
@@ -17,7 +18,7 @@ test('todo manifest and marketplace registry expose the same release', () => {
   // 0.14.13 folds the chat task card, shares one preview rule with the rail and clocks the running row.
   // 0.14.12 isolated route card refresh failures from successful task mutations and pinned its task tools
   // through registration metadata. API 2 is the matched core contract after managed session migration.
-  assert.equal(manifest.version, '0.14.19');
+  assert.equal(manifest.version, '0.14.20');
   assert.equal(manifest.apiVersion, '2');
   assert.equal(manifest.requiresCore, '0.28.53');
   assert.equal(catalog?.version, manifest.version);

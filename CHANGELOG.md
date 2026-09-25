@@ -1,5 +1,9 @@
 # Changelog
 
+## todo 0.14.20 - 2026-09-25
+
+- Open a blocked row's blockers on tap as well as on keyboard focus, keep a failed task read visible with its retry instead of showing the shorter pushed list, and drop task fields nothing reads.
+
 ## todo 0.14.19 - 2026-09-25
 
 - Follow a pushed card with a fresh task read, show a failed read instead of falling back to the short pushed payload, and put a blocked rail row's blockers behind a disclosure that opens on tap and on keyboard focus, not only on hover.
