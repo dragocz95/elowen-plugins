@@ -90,11 +90,13 @@ describe('requiresCore gate against the built candidate', () => {
     expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_ENVIRONMENTS), `${name} would install on ${BASELINE_WITHOUT_ENVIRONMENTS}`).toBe(true);
   });
 
-  // chatbot needs 0.28.54 for the conversation-files seam and streamed hook bodies; the rest need the
-  // wave-two contracts of 0.28.53.
+  // These ten plugin releases consume core 0.28.55's shared helpers or UI API 23; the remaining
+  // wave-two plugins continue to require 0.28.53.
   const nextCoreFloors: Record<string, string> = {
-    chatbot: '0.28.54', cronjob: '0.28.53', editor: '0.28.53', github: '0.28.53', 'image-edit': '0.28.53',
-    'image-gen': '0.28.53', lsp: '0.28.53', msteams: '0.28.53', sites: '0.28.53', stats: '0.28.53', todo: '0.28.53',
+    browser: '0.28.55', chatbot: '0.28.55', codebase: '0.28.55', cronjob: '0.28.55',
+    discord: '0.28.55', editor: '0.28.53', github: '0.28.53', 'image-edit': '0.28.53',
+    'image-gen': '0.28.53', lsp: '0.28.53', msteams: '0.28.55', onedrive: '0.28.55',
+    sites: '0.28.53', stats: '0.28.55', telegram: '0.28.55', todo: '0.28.53', whatsapp: '0.28.55',
   };
 
   it.each(Object.keys(nextCoreFloors))('%s declares its next core floor', (name) => {

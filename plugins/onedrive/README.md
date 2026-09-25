@@ -8,8 +8,8 @@ Install **onedrive** from **Settings → Plugins → Available**, connect a Micr
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.3 |
-| requiresCore | 0.28.50 |
+| Version | 0.3.5 |
+| requiresCore | 0.28.55 |
 | requiresSharedApi | none |
 
 Configure the root folder, sync interval, file-size limit, extra ignore patterns, and remote-deletion policy in the plugin settings.

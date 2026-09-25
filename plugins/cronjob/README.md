@@ -8,8 +8,8 @@ Install **cronjob** from **Settings → Plugins → Available**, then grant it t
 
 | Field | Value |
 | --- | --- |
-| Version | 0.6.19 |
-| requiresCore | 0.28.53 |
+| Version | 0.6.20 |
+| requiresCore | 0.28.55 |
 | requiresSharedApi | 5 |
 
 Configure polling, retry, backoff, output, lookback, per-user job count, and minimum interval limits in the plugin settings.

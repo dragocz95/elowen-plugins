@@ -8,8 +8,8 @@ Install **chatbot** from **Settings → Plugins → Available**, then open **Cha
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.13 |
-| requiresCore | 0.28.54 |
+| Version | 0.3.15 |
+| requiresCore | 0.28.55 |
 | requiresSharedApi | none |
 
 Full user docs: https://elowen.run/docs/chatbot-plugin.

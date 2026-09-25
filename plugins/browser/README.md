@@ -8,9 +8,9 @@ Install **browser** from **Settings → Plugins → Available**, then grant it t
 
 | Field | Value |
 | --- | --- |
-| Version | 0.4.9 |
-| requiresCore | 0.28.50 |
-| requiresSharedApi | none |
+| Version | 0.4.10 |
+| requiresCore | 0.28.55 |
+| requiresSharedApi | 5 |
 
 Configure the browser executable, session and user limits, timeouts, viewport and viewer limits, Chrome memory and target limits, proxy limits, and the private-network allowlist in the plugin settings.
 

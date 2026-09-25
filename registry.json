@@ -3,8 +3,9 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.4.9",
-      "requiresCore": "0.28.50",
+      "version": "0.4.10",
+      "requiresCore": "0.28.55",
+      "requiresSharedApi": 5,
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
@@ -16,8 +17,8 @@
     },
     {
       "name": "chatbot",
-      "version": "0.3.14",
-      "requiresCore": "0.28.54",
+      "version": "0.3.15",
+      "requiresCore": "0.28.55",
       "description": "Visitor chatbots for third-party websites. Each chatbot is a non-interactive Elowen account of kind chatbot bound to exactly one managed Project, and visitors reach it through the customer's own website. The widget posts to the public hook /hooks/chatbot/v2, the plugin issues a server-signed visitor token, and every admitted message starts a real Elowen turn owned by that chatbot account through the host relay. The plugin never calls a model itself.",
       "category": "chat",
       "author": "Elowen",
@@ -31,8 +32,9 @@
     },
     {
       "name": "codebase",
-      "version": "0.1.9",
-      "requiresCore": "0.28.50",
+      "version": "0.1.10",
+      "requiresCore": "0.28.55",
+      "requiresSharedApi": 5,
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
@@ -43,12 +45,12 @@
     },
     {
       "name": "cronjob",
-      "version": "0.6.19",
+      "version": "0.6.20",
       "description": "Scheduled prompts with recurring jobs, one-shot wake-ups, shell collectors, a bounded week calendar and durable run history in Studio.",
       "category": "automation",
       "author": "Elowen",
       "apiVersion": "2",
-      "requiresCore": "0.28.53",
+      "requiresCore": "0.28.55",
       "provides": {
         "tools": 5,
         "apiRoutes": 5,
@@ -59,8 +61,8 @@
     },
     {
       "name": "discord",
-      "version": "0.3.26",
-      "requiresCore": "0.28.53",
+      "version": "0.3.27",
+      "requiresCore": "0.28.55",
       "description": "Discord bot: chat with Elowen in a server channel, thread or DM, with slash commands, live message editing and role-based admission; account permissions come from the linked Elowen account.",
       "category": "chat",
       "author": "Elowen",
@@ -140,8 +142,8 @@
     },
     {
       "name": "msteams",
-      "version": "0.8.9",
-      "requiresCore": "0.28.53",
+      "version": "0.8.10",
+      "requiresCore": "0.28.55",
       "description": "Microsoft Teams bot with delegated Entra account linking, a compact Microsoft 365 Graph tool suite, proactive messaging, file consent, Adaptive Cards and a clear identity workspace.",
       "category": "chat",
       "author": "Elowen",
@@ -158,8 +160,8 @@
     },
     {
       "name": "onedrive",
-      "version": "0.3.4",
-      "requiresCore": "0.28.50",
+      "version": "0.3.5",
+      "requiresCore": "0.28.55",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
       "author": "Elowen",
@@ -200,18 +202,18 @@
     },
     {
       "name": "stats",
-      "version": "0.2.10",
+      "version": "0.2.11",
       "description": "Model usage analytics for tokens, cost, cache efficiency and generation speed. Uses Elowen's shared usage ledger and keeps task tracking focused on work rather than infrastructure spend.",
       "category": "productivity",
       "author": "Elowen",
       "apiVersion": "2",
       "provides": {},
-      "requiresCore": "0.28.53"
+      "requiresCore": "0.28.55"
     },
     {
       "name": "telegram",
-      "version": "0.2.23",
-      "requiresCore": "0.28.53",
+      "version": "0.2.24",
+      "requiresCore": "0.28.55",
       "description": "Telegram bot: chat with Elowen in a private chat, group or forum topic, with slash commands, inline keyboards and live message editing.",
       "category": "chat",
       "author": "Elowen",
@@ -249,8 +251,8 @@
     },
     {
       "name": "whatsapp",
-      "version": "0.2.27",
-      "requiresCore": "0.28.53",
+      "version": "0.2.28",
+      "requiresCore": "0.28.55",
       "description": "WhatsApp bot over a paired phone: chat with Elowen from any WhatsApp conversation, with slash commands, numbered menus and a QR pairing screen in Settings.",
       "category": "chat",
       "author": "Elowen",

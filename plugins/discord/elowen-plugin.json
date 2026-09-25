@@ -1,8 +1,8 @@
 {
   "name": "discord",
-  "version": "0.3.26",
+  "version": "0.3.27",
   "apiVersion": "2",
-  "requiresCore": "0.28.53",
+  "requiresCore": "0.28.55",
   "requiresSharedApi": 5,
   "description": "Discord bot: mention it and it replies through Elowen AI. Includes commands (/model, /display, /new, /help), per-channel model and display settings, live tool activity, different ways to deliver replies, status reactions and proactive notifications from cron/tick jobs. Server tools show information about servers, channels and members, search members, and manage roles, pinned messages, threads, channels, categories and messages. Discord roles control access, trusted-admin context and the room prompt. Account permissions come from the linked Elowen account.",
   "entry": "index.mjs",

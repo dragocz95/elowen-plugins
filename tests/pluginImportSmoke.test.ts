@@ -23,8 +23,11 @@ import { BROWSER_BUNDLES } from '../scripts/browserBundles.mjs';
 const registryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The daemon package under test, and the dependency set an installed plugin can actually reach. */
+const daemonRoot = process.env.ELOWEN_CORE_ROOT?.trim()
+  ? resolve(process.env.ELOWEN_CORE_ROOT)
+  : join(registryRoot, 'node_modules', 'elowen');
 const daemonPkg = JSON.parse(
-  readFileSync(join(registryRoot, 'node_modules', 'elowen', 'package.json'), 'utf-8'),
+  readFileSync(join(daemonRoot, 'package.json'), 'utf-8'),
 ) as { version: string; dependencies: Record<string, string> };
 
 const plugins = readdirSync(join(registryRoot, 'plugins'), { withFileTypes: true })

@@ -8,8 +8,8 @@ Install **msteams** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.8.8 |
-| requiresCore | 0.28.53 |
+| Version | 0.8.10 |
+| requiresCore | 0.28.55 |
 | requiresSharedApi | 5 |
 
 Full user docs: https://elowen.run/docs/microsoft-365-plugin.

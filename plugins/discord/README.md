@@ -8,8 +8,8 @@ Install **discord** from **Settings → Plugins → Available**, configure the b
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.26 |
-| requiresCore | 0.28.53 |
+| Version | 0.3.27 |
+| requiresCore | 0.28.55 |
 | requiresSharedApi | 5 |
 
 Full user docs: https://elowen.run/docs/discord-plugin (shared concepts: https://elowen.run/docs/chat-platform-plugins).
