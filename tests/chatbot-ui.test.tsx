@@ -766,8 +766,12 @@ describe('the chatbots section', () => {
 
     // Every card in the drawer is a heading and rows that name a value; what used to be a sentence under
     // the heading waits behind the `?` the host draws for it, which is where this app keeps long-form copy.
-    expect(within(drawer).getByTitle(strings.limitsHint!)).toBeInTheDocument();
+    // It is not on screen until that mark is opened, which is the same gesture a phone reader gets: the
+    // app's help mark answers a tap and a focus, and it carries no `title` for a hovering pointer alone.
+    const limitsCard = within(drawer).getByText(strings.limitsTitle!);
     expect(within(drawer).queryByText(strings.limitsHint!)).not.toBeInTheDocument();
+    fireEvent.click(within(limitsCard).getByRole('button'));
+    expect(await within(drawer).findByRole('tooltip')).toHaveTextContent(strings.limitsHint!);
     // The value itself stays on the surface: what the reader opened the drawer for costs no click.
     expect(within(drawer).getByText(strings.detailAccount!)).toBeInTheDocument();
     expect(within(drawer).getByText('@ured-bot')).toBeInTheDocument();
@@ -782,8 +786,9 @@ describe('the chatbots section', () => {
 
     expect(within(drawer).getByText(strings.originsEmpty!)).toBeInTheDocument();
     // "answers nobody" is reasoning about a mechanism, so it reads behind the card's own mark rather than
-    // in the place a value belongs.
-    expect(within(drawer).getByTitle(strings.originsHint!)).toBeInTheDocument();
+    // in the place a value belongs, and it is there once that mark is opened.
+    fireEvent.click(within(within(drawer).getByText(strings.originsLabel!)).getByRole('button'));
+    expect(await within(drawer).findByRole('tooltip')).toHaveTextContent(strings.originsHint!);
   });
 
   it('reports a failed load with a retry instead of an empty register', async () => {

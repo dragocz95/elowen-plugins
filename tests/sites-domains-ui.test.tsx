@@ -172,8 +172,11 @@ describe('custom domains in Site detail', () => {
     expect(await screen.findByText(generated.displayHostname)).toBeVisible();
     expect(screen.getByText('Addresses')).toBeVisible();
     // What the fallback means sits behind the shared help mark beside the heading rather than as a line
-    // of text under it, so the register reads as one list of addresses.
-    expect(screen.getByTitle('This address stays available as a fallback and does not redirect.')).toBeVisible();
+    // of text under it, so the register reads as one list of addresses. The mark opens on a tap and on
+    // keyboard focus; production sets no `title`, so the copy is read after opening it.
+    const addressHeading = screen.getByText('Addresses').parentElement!;
+    fireEvent.click(within(addressHeading).getByRole('button', { name: 'Help' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('This address stays available as a fallback and does not redirect.');
     expect(screen.getByText('No custom domain has been added.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Add domain' })).toBeVisible();
   });
