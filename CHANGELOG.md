@@ -2,7 +2,7 @@
 
 ## todo 0.14.19 - 2026-09-25
 
-- Follow a pushed card with a fresh task read instead of rendering the list fetched on mount, and mark a blocked row in the rail with the blockers it waits on.
+- Follow a pushed card with a fresh task read, show a failed read instead of falling back to the short pushed payload, and put a blocked rail row's blockers behind a disclosure that opens on tap and on keyboard focus, not only on hover.
 
 ## chatbot 0.3.14 - 2026-09-24
 

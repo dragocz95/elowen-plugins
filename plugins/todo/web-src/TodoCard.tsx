@@ -58,6 +58,14 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
     { label: strings.inProgress, icon: CircleDot, onSelect: () => setStatus(task, 'in_progress') },
     { label: strings.completed, icon: CheckCircle2, onSelect: () => setStatus(task, 'completed') },
   ];
+  // A read that FAILED says so. The pushed payload is a short snapshot of the same list, not the task
+  // record, so rendering it here would present a degraded list as the truth and hide the failure. The
+  // retry is the card's own read; the pushed card is what asked for it in the first place.
+  if (query.isError) return (
+    <div data-testid="chat-card" className="flex max-w-[min(100%,28rem)] flex-col self-start leading-tight">
+      <C.ErrorState message={strings.unavailable} onRetry={() => void refetch()} />
+    </div>
+  );
   if (tasks.length > 0 && tasks.every((task) => task.status === 'completed')) return null;
   const done = tasks.filter((task) => task.status === 'completed').length;
   const previewable = tasks.length > utils.TODO_PREVIEW_ITEMS;

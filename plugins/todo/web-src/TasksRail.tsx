@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
-import { Ban, CheckCircle2, Circle, CircleDot, ListChecks, MoreHorizontal } from 'lucide-react';
+import { CheckCircle2, Circle, CircleDot, ListChecks, MoreHorizontal } from 'lucide-react';
 import { runtime, type PluginChatRailSectionProps, type SessionTask } from './runtime';
 
 type RailData = { tasks: SessionTask[] };
@@ -29,7 +29,7 @@ function parseData(data: unknown): RailData | null {
   return parsed.every((task): task is SessionTask => task !== null) ? { tasks: parsed } : null;
 }
 
-function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
+function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu, HelpTip }: {
   task: SessionTask;
   now: number;
   onStatus: (status: SessionTask['status']) => void;
@@ -37,6 +37,7 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
   strings: Record<string, string>;
   busy: boolean;
   ActionMenu: ComponentType<any>;
+  HelpTip: ComponentType<any>;
 }) {
   const active = task.status === 'in_progress';
   // Only a pending row can be waiting on something: a running task has already started despite its edges,
@@ -62,15 +63,11 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
       {/* A kebab, not the host's default destructive shape: this menu only changes a status, and the
           filled red square both shouts and takes width the subject needs. */}
       <ActionMenu variant="kebab" items={actions} label={strings.actions + ': ' + label} trigger={<MoreHorizontal size={13} aria-hidden />} disabled={busy} />
-      {/* Why the row cannot start yet. The host's own mark (`BlockedTip`) is a floating tooltip composed
-          from core's Tooltip parts, which are not published to bundles, so this one carries the same
-          information where a bundle can: the blocker ids in its accessible name, and the same sentence in
-          a native title beside it. */}
-      {blocked ? (
-        <span data-testid="telemetry-task-blocked" role="img" aria-label={blockedText} title={blockedText} className="shrink-0 text-subtle-foreground">
-          <Ban size={11} aria-hidden />
-        </span>
-      ) : null}
+      {/* Why the row cannot start yet, one gesture away. A native `title` answers a hovering pointer only,
+          so a phone reader never learned which dependency holds the row; the host's hint affordance opens
+          on tap and on keyboard focus as well, and its trigger carries the same sentence as its name
+          instead of a column of identical "Help" buttons. */}
+      {blocked ? <HelpTip align="right" label={blockedText}>{blockedText}</HelpTip> : null}
     </li>
   );
 }
@@ -107,7 +104,7 @@ export function TasksRail({ variant, data, sessionId, open }: PluginChatRailSect
       />
       {variant === 'expanded' ? <C.Progress className="h-1" value={(done / parsed.tasks.length) * 100} aria-label={strings.railTitle ?? strings.title} /> : null}
       <ul className="flex flex-col gap-0.5">
-        {shown.map((task) => <RailTaskRow key={task.id} task={task} now={now} onStatus={(status) => setStatus(task, status)} open={() => open('tasks')} strings={strings} busy={update.isPending} ActionMenu={C.ActionMenu} />)}
+        {shown.map((task) => <RailTaskRow key={task.id} task={task} now={now} onStatus={(status) => setStatus(task, status)} open={() => open('tasks')} strings={strings} busy={update.isPending} ActionMenu={C.ActionMenu} HelpTip={C.HelpTip} />)}
       </ul>
       {active.length > shown.length ? <button type="button" onClick={() => setExpanded((value) => !value)} className="self-start px-1 text-tiny text-muted-foreground hover:text-foreground">+{active.length - shown.length} {strings.more}</button> : null}
     </section>
