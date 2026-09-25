@@ -15,6 +15,7 @@ import { PICKER_CONTEXT, PICKER_PROJECT, applyPickerChoice, controlCommandsFrom,
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger images are noted, not downloaded (cfg: maxImageBytes)
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
@@ -70,11 +71,6 @@ function menuRank(entry) {
   if (entry.name === 'help') return 3;
   if (entry.local) return 1;
   return entry.kind === 'picker' ? 0 : 2;
-}
-
-/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
-function cfgNum(cfg, key, def, min, max) {
-  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
 }
 
 /** Coerce a user-supplied chat target into what grammY expects: a numeric id (private/group/channel) or
@@ -272,7 +268,7 @@ export class TelegramAdapter {
   }
 
   /** How long a parked prompt (ask or inline picker) stays answerable. */
-  askTtlMs() { return cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000); }
+  askTtlMs() { return clampConfig(this.cfg?.askTimeoutMs, ASK_TTL_MS, 30000, 1800000); }
 
   /** Remove the bot's own @mention token from the text (case-insensitive). */
   stripMention(text) {
@@ -422,8 +418,8 @@ export class TelegramAdapter {
     const images = [];
     const audio = [];
     const notes = [];
-    const maxImageBytes = cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520);
-    const maxImages = cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10);
+    const maxImageBytes = clampConfig(this.cfg?.maxImageBytes, MAX_IMAGE_BYTES, 1048576, 20971520);
+    const maxImages = clampConfig(this.cfg?.maxImages, MAX_IMAGES, 1, 10);
     const addImage = async (fileId, size, mime) => {
       if (images.length >= maxImages) return;
       if (size && size > maxImageBytes) { notes.push('[Attachment: image (too large to read)]'); return; }
@@ -862,7 +858,7 @@ export class TelegramAdapter {
   /** Load up to the configured cap of shared chat images by validated name.
    *  A missing/unreadable file is skipped silently. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, clampConfig(this.cfg?.maxUploadImages, MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the

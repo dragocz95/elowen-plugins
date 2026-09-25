@@ -50,6 +50,7 @@ interface StatsRuntime {
   };
   utils: {
     buildUsageSummary(data: ModelUsage[] | undefined, locale: string): UsageSummary;
+    formatUsd(value: number | null, locale: string, decimals?: number): string;
     DEFAULT_RANGE: DateRange;
     isStoredRange(raw: string): boolean;
     parseRange(raw: string): DateRange | null;
@@ -147,5 +148,5 @@ export function runtime(): StatsRuntime {
 }
 
 export function registerStatsUi(pages: Record<string, PluginPage>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 21, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('stats', { requiresApiVersion: 23, pages });
 }

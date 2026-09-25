@@ -108,6 +108,13 @@ export function formatDuration(ms: number): string {
   return `${hours}h ${mins % 60}m`;
 }
 
+export function formatUsd(value: number | null, locale: string, decimals = 2): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat(locale, {
+    style: 'currency', currency: 'USD', minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+  }).format(value);
+}
+
 export function formatCost(usd: number, decimals = 4): string {
   return `$${usd.toFixed(decimals)}`;
 }

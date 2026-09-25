@@ -2,6 +2,7 @@
 // conversation calls the adapter drives. Hand-rolled over global fetch, like the Discord adapter's
 // REST layer — the protocol is small and an SDK would bring its own middleware model.
 import { TokenSource } from './token.mjs';
+import { isTransportFailure, markTransportFailure } from 'elowen-plugin-shared/transport';
 
 const SCOPE = 'https://api.botframework.com/.default';
 
@@ -106,6 +107,7 @@ export class ConnectorClient {
     const host = (() => { try { return new URL(url).host; } catch { return 'invalid-url'; } })();
     const attempt = async () => {
       const started = Date.now();
+      let httpRejection = false;
       try {
         const res = await fetch(url, {
           method: 'PUT',
@@ -119,18 +121,24 @@ export class ConnectorClient {
           },
           body: data,
         });
-        if (!res.ok) throw new Error(`file upload → ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        httpRejection = !res.ok;
+        if (httpRejection) {
+          const detail = (await res.text()).slice(0, 200);
+          throw new Error(`file upload → ${res.status}: ${detail}`);
+        }
         this.log?.info?.(`msteams file upload ok: ${data.length} B to ${host} in ${Date.now() - started} ms`);
       } catch (error) {
+        // A completed HTTP refusal is not a transport failure; only a thrown request can be retried.
+        const failure = httpRejection ? error : markTransportFailure(error);
         // Both halves matter: the code says WHICH undici guard fired, the message says WHY. Logging only
         // the code left `UND_ERR_INVALID_ARG` with no hint at which argument was rejected.
         const chain = [];
-        for (let e = error; e && chain.length < 4; e = e.cause) {
+        for (let e = failure; e && chain.length < 4; e = e.cause) {
           chain.push([e.code ?? e.errno, String(e.message ?? '').slice(0, 120)].filter(Boolean).join(': '));
         }
         const body = `${data?.constructor?.name ?? typeof data}/${data?.byteLength ?? data?.length ?? '?'}B`;
-        error.uploadDetail = `${host}, body ${body}, url ${url.length} chars, after ${Date.now() - started} ms — ${chain.join(' ← ')}`;
-        throw error;
+        failure.uploadDetail = `${host}, body ${body}, url ${url.length} chars, after ${Date.now() - started} ms — ${chain.join(' ← ')}`;
+        throw failure;
       }
     };
     try {
@@ -139,7 +147,7 @@ export class ConnectorClient {
       // Retry ONLY a transport failure, never a rejection: an HTTP status means the service saw the bytes
       // and answered, so resending them would upload the file twice. `fetch` throwing means it never got
       // that far, and Teams' upload URL stays valid until it does.
-      if (!/^file upload → \d/.test(String(error?.message ?? ''))) {
+      if (isTransportFailure(error)) {
         this.log?.warn?.(`msteams file upload retrying after transport failure (${error.uploadDetail ?? error?.message})`);
         await attempt();
         return;

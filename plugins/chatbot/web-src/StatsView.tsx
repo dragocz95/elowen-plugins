@@ -5,7 +5,7 @@ import { Activity } from 'lucide-react';
 import { apiJson, chatbotApi, runtime, type DateRange, type PageFilterField } from './runtime';
 import { BotPicker } from './BotPicker';
 import { useChatbots } from './useChatbots';
-import { formatDay, integer, money } from './format';
+import { formatDay, integer } from './format';
 import type { ChatbotStatsAnswer, ChatbotStatsDayView } from './types';
 
 const SERIES_COLOURS = {
@@ -129,7 +129,7 @@ export function StatsSection() {
     { key: 'turns', label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'done', label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: 'bar' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
     { key: 'errors', label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: 'line' as const, axis: 'left' as const, format: (value: number) => integer(value, locale) },
-    { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => money(value, locale) },
+    { key: 'cost', label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: 'line' as const, axis: 'right' as const, format: (value: number) => runtime().utils.formatUsd(value, locale) },
   ];
 
   const rangeLabels: Record<DateRange['preset'], string> = {
@@ -198,7 +198,7 @@ export function StatsSection() {
                     {s.spendLine
                       .replace('{turns}', integer(spend.turns, locale))
                       .replace('{tokens}', spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale))
-                      .replace('{cost}', spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale))}
+                      .replace('{cost}', spend.cost === null ? s.budgetValueUnknown : runtime().utils.formatUsd(spend.cost, locale))}
                   </span>
                 )}
         />

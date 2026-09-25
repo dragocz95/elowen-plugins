@@ -122,8 +122,8 @@ describe('single-surface plugin workspace registration', () => {
     // `ownsPageFrame` names SETTINGS sections that draw their own page frame. There are no settings
     // sections here, so naming anything would name an id that matches nothing.
     expect(registration.ownsPageFrame).toBeUndefined();
-    // API 22 publishes the shared Textarea used by this bundle, and both gates must ask for it.
-    expect(web.requiresApiVersion).toBe(22);
+    // API 23 publishes the host account switch and USD formatter used by this bundle.
+    expect(web.requiresApiVersion).toBe(23);
     expect(registration.requiresApiVersion).toBe(web.requiresApiVersion);
     expect(registration.requiresApiVersion).toBeGreaterThanOrEqual(MINIMUM_API_VERSION);
     // It stays admin-only, and that flag is enforced by the SERVER rather than by the surface it is

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { LIMIT_FIELDS, specOf, type LimitField, type LimitValues } from '../src/limits';
 import { usdFromMicro } from '../src/budget';
-import { integer, money } from './format';
+import { integer } from './format';
 import { runtime } from './runtime';
 
 /** THE LIMITS WINDOW: one row per number, each a slider between the two ends its own specification names.
@@ -82,7 +82,7 @@ export function LimitsModal({ draft, disabled, onChange, onClose }: {
    *  is the only one naming a currency. The host answers an unknown string key with an EMPTY string rather
    *  than with nothing, so a unit is judged by being non-empty; `=== undefined` prints a trailing space. */
   const valueText = (field: LimitField, value: number): string => {
-    if (field === 'dailyCostMicrousd') return money(usdFromMicro(value), locale);
+    if (field === 'dailyCostMicrousd') return runtime().utils.formatUsd(usdFromMicro(value), locale);
     const unit = s[`limitUnit_${field}`];
     return unit ? `${integer(value, locale)} ${unit}` : integer(value, locale);
   };

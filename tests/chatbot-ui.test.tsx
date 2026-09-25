@@ -6,7 +6,7 @@ import manifest from '../plugins/chatbot/elowen-plugin.json' with { type: 'json'
 import { ChatbotDeck } from '../plugins/chatbot/web-src/ChatbotDeck';
 import { CHATBOT_SECTIONS } from '../plugins/chatbot/web-src/sections';
 import { blockerText, modelSourceText } from '../plugins/chatbot/web-src/BotDetail';
-import { AUTH_TRANSITION_EVENT } from '../plugins/chatbot/web-src/accountSwitch';
+import { AUTH_TRANSITION_EVENT } from './ui/hostRuntime';
 import { limitDraftOf, sliderRange } from '../plugins/chatbot/web-src/LimitsModal';
 import { originHint } from '../plugins/chatbot/web-src/OriginsField';
 import { matchingBots } from '../plugins/chatbot/web-src/search';
@@ -658,6 +658,20 @@ describe('the chatbots section', () => {
       expect(phases).toEqual(['start', 'commit']);
     } finally {
       window.removeEventListener(AUTH_TRANSITION_EVENT, watch);
+    }
+  });
+
+  it('keeps the host account switch working when cross-tab storage is unavailable', async () => {
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+    try {
+      renderSection('bots');
+      await settled();
+      await screen.findByText('Gymnázium');
+      const drawer = await openBot('Gymnázium');
+      fireEvent.click(within(drawer).getByRole('button', { name: strings.detailModelChange! }));
+      await waitFor(() => expect(asked.impersonate).toEqual([second.chatbotUserId]));
+    } finally {
+      storage.mockRestore();
     }
   });
 

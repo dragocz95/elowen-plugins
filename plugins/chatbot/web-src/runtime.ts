@@ -330,6 +330,8 @@ export interface ChatbotRuntime {
   hooks: ChatbotHooks;
   utils: {
     apiErrorMessage(error: unknown): string;
+    formatUsd(value: number | null, locale: string, decimals?: number): string;
+    impersonateUser(userId: number): Promise<void>;
     DEFAULT_RANGE: DateRange;
     isStoredRange(raw: string): boolean;
     parseRange(raw: string): DateRange | null;
@@ -381,9 +383,10 @@ export function runtime(): ChatbotRuntime {
  *
  *  API 19 is what publishes `SectionDeck` and `DeckNavigation`; the manifest's `web.requiresApiVersion`
  *  and the number below must agree, because the host gates the load on the manifest's copy and the mount
- *  on this one. API 20 adds the host-owned window opener for stored chat sessions; API 22 publishes Textarea. */
+ *  on this one. API 20 adds the host-owned window opener for stored chat sessions; API 22 publishes Textarea;
+ *  API 23 owns USD formatting and account switching. */
 export function registerChatbotUi(pages: Record<string, ChatbotPageComponent>): void {
-  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 22, pages });
+  (window as HostWindow).__elowenRegisterPluginUi?.('chatbot', { requiresApiVersion: 23, pages });
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -429,7 +432,4 @@ export const chatbotApi = {
     `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
   stats: (input: { chatbotUserId: number; from: string; to: string }): string =>
     `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
-  /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
-   *  and the only way to a setting that belongs to the account rather than to the chatbot. */
-  impersonate: (): string => '/auth/impersonate',
 } as const;

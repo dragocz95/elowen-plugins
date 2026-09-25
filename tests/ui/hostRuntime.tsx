@@ -26,6 +26,34 @@ interface HostWindow extends Window {
 
 const registrations = new Map<string, unknown>();
 
+/** Host-owned identity transition fixture; plugins only call this published util. */
+export const AUTH_TRANSITION_EVENT = 'elowen:auth-transition';
+let transitionPending = false;
+async function impersonateUser(userId: number): Promise<void> {
+  if (transitionPending) throw new Error('Account switch already in progress');
+  transitionPending = true;
+  const id = crypto.randomUUID();
+  const publish = (phase: 'start' | 'commit' | 'rollback') => {
+    window.dispatchEvent(new CustomEvent(AUTH_TRANSITION_EVENT, { detail: { id, phase } }));
+    try {
+      localStorage.setItem(AUTH_TRANSITION_EVENT, JSON.stringify({ id, phase }));
+      localStorage.removeItem(AUTH_TRANSITION_EVENT);
+    } catch { /* storage unavailable: the initiating tab still transitions */ }
+  };
+  publish('start');
+  try {
+    await api('/auth/impersonate', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userId }),
+    });
+    publish('commit');
+  } catch (error) {
+    publish('rollback');
+    throw error;
+  } finally {
+    transitionPending = false;
+  }
+}
+
 /** Idempotent, like the app's own — every bundle load calls it. */
 export function ensurePluginUiRuntime(): void {
   const host = window as HostWindow;
@@ -133,7 +161,8 @@ export function ensurePluginUiRuntime(): void {
       DEFAULT_RANGE: U.DEFAULT_RANGE, serializeRange: U.serializeRange, parseRange: U.parseRange,
       isStoredRange: U.isStoredRange, rangeBounds: U.rangeBounds,
       // Formatting + presentation vocabulary shared with the core surfaces.
-      formatCost: U.formatCost, formatDuration: U.formatDuration, formatBytes: U.formatBytes,
+      formatCost: U.formatCost, formatUsd: U.formatUsd, formatDuration: U.formatDuration, formatBytes: U.formatBytes,
+      impersonateUser,
       // The host's card-preview rule and its cap, published so the transcript card, the host's own
       // fallback card and the CLI panel cannot drift on which four rows a card shows.
       TODO_PREVIEW_ITEMS: U.TODO_PREVIEW_ITEMS, todoPreviewItems: U.todoPreviewItems,

@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { DelegatedGraphClient, DelegatedGraphError, bounded, htmlToText } from './delegatedGraph.mjs';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 const P = {
   me: 'User.Read',
@@ -46,7 +47,7 @@ const fail = (error) => {
 };
 const trimObject = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const limitOf = (p) => Math.min(Math.max(Number(p.limit) || 20, 1), 50);
-const transferCap = (cfg) => Math.min(Math.max(Number(cfg.m365MaxTransferBytes) || 20 * 1024 * 1024, 1024), 250 * 1024 * 1024);
+const transferCap = (cfg) => clampConfig(cfg.m365MaxTransferBytes, 20 * 1024 * 1024, 1024, 250 * 1024 * 1024);
 /** What may be decoded straight into the reply instead of being written to the workspace. */
 const TEXTUAL_CONTENT = /^(text\/|application\/(json|xml|javascript|csv))/;
 const INLINE_TEXT_CAP = 1024 * 1024;

@@ -9,7 +9,6 @@ import { OriginsField } from './OriginsField';
 import { LimitsModal, limitDraftOf, type LimitDraft } from './LimitsModal';
 import { BudgetUsage } from './BudgetUsage';
 import { AppearanceModal } from './AppearanceModal';
-import { switchToAccount } from './accountSwitch';
 import type { ChatbotBotView, ChatbotModelView } from './types';
 
 /** What decided the model this chatbot's visitors are answered by, in the row's own words. Three sources,
@@ -126,7 +125,7 @@ export function BotDetail({ bot, onChanged, unknownError, onClose }: {
     setError(null);
     setSwitching(true);
     try {
-      await switchToAccount(bot.chatbotUserId);
+      await utils.impersonateUser(bot.chatbotUserId);
     } catch (reason) {
       setError(utils.apiErrorMessage(reason) || s.detailModelSwitchFailed);
       setSwitching(false);

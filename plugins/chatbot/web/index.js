@@ -53,7 +53,7 @@ function runtime() {
   return value;
 }
 function registerChatbotUi(pages) {
-  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 22, pages });
+  window.__elowenRegisterPluginUi?.("chatbot", { requiresApiVersion: 23, pages });
 }
 async function apiJson(path, init) {
   return await runtime().api(path, init);
@@ -82,10 +82,7 @@ var chatbotApi = {
   },
   visitors: (chatbotUserId) => `/plugins/chatbot/api/visitors?chatbotUserId=${chatbotUserId}`,
   eraseConversations: (chatbotUserId) => `/plugins/chatbot/api/conversations?chatbotUserId=${chatbotUserId}`,
-  stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`,
-  /** The host's own switch-to-account route: the flow an administrator already uses on the Users screen,
-   *  and the only way to a setting that belongs to the account rather than to the chatbot. */
-  impersonate: () => "/auth/impersonate"
+  stats: (input) => `/plugins/chatbot/api/stats?chatbotUserId=${input.chatbotUserId}&from=${input.from}&to=${input.to}`
 };
 
 // plugins/chatbot/web-src/ChatbotDeck.tsx
@@ -101,7 +98,6 @@ var formatDay = (day, locale) => {
   return Number.isNaN(date.getTime()) ? day : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(date);
 };
 var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
-var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
 var botLabel = (bot, s) => bot.displayName || s.botFallback;
 var feedbackBotLabel = (row, s) => row.chatbotName || s.botFallback;
 
@@ -827,7 +823,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
   const { locale, t } = hooks.useTranslation();
   const [advanced, setAdvanced] = (0, import_react4.useState)(false);
   const valueText = (field, value) => {
-    if (field === "dailyCostMicrousd") return money(usdFromMicro(value), locale);
+    if (field === "dailyCostMicrousd") return runtime().utils.formatUsd(usdFromMicro(value), locale);
     const unit = s[`limitUnit_${field}`];
     return unit ? `${integer(value, locale)} ${unit}` : integer(value, locale);
   };
@@ -894,7 +890,7 @@ function LimitsModal({ draft, disabled, onChange, onClose }) {
 // plugins/chatbot/web-src/BudgetUsage.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function BudgetUsage({ bot }) {
-  const { hooks, components: C } = runtime();
+  const { hooks, components: C, utils } = runtime();
   const s = hooks.usePluginStrings("chatbot");
   const { locale } = hooks.useTranslation();
   const { budget, limits } = bot;
@@ -903,7 +899,7 @@ function BudgetUsage({ bot }) {
   const costLimit = limits.dailyCostMicrousd === null ? null : usdFromMicro(limits.dailyCostMicrousd);
   const status = verdict.ok ? s.budgetAvailable : verdict.reason === "limits_missing" ? s.budgetMissing : verdict.reason === "budget_unverifiable" ? s.budgetUnknown : verdict.ceiling === "turns" ? s.budgetTurnsExhausted : s.budgetCostExhausted;
   const entries = [
-    { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value) => money(value, locale) },
+    { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value) => utils.formatUsd(value, locale) },
     { label: s.limit_dailyTurnLimit, value: budget.admittedTurns, limit: limits.dailyTurnLimit, format: (value) => integer(value, locale) }
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "flex min-w-0 flex-col gap-4", "aria-label": s.budgetTitle, children: [
@@ -21920,32 +21916,6 @@ function AppearanceModal({ bot, onClose, onChanged }) {
   ] });
 }
 
-// plugins/chatbot/web-src/accountSwitch.ts
-var AUTH_TRANSITION_EVENT = "elowen:auth-transition";
-var AUTH_TRANSITION_STORAGE_KEY = "elowen:auth-transition";
-function publishTransition(id2, phase) {
-  try {
-    window.dispatchEvent(new CustomEvent(AUTH_TRANSITION_EVENT, { detail: { id: id2, phase } }));
-    localStorage.setItem(AUTH_TRANSITION_STORAGE_KEY, JSON.stringify({ id: id2, phase, nonce: Math.random() }));
-    localStorage.removeItem(AUTH_TRANSITION_STORAGE_KEY);
-  } catch {
-  }
-}
-function transitionId() {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-async function switchToAccount(userId) {
-  const id2 = transitionId();
-  publishTransition(id2, "start");
-  try {
-    await apiJson(chatbotApi.impersonate(), jsonRequest("POST", { userId }));
-  } catch (error) {
-    publishTransition(id2, "rollback");
-    throw error;
-  }
-  publishTransition(id2, "commit");
-}
-
 // plugins/chatbot/web-src/BotDetail.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function modelSourceText(model, s) {
@@ -22037,7 +22007,7 @@ function BotDetail({ bot, onChanged, unknownError, onClose }) {
     setError(null);
     setSwitching(true);
     try {
-      await switchToAccount(bot.chatbotUserId);
+      await utils.impersonateUser(bot.chatbotUserId);
     } catch (reason) {
       setError(utils.apiErrorMessage(reason) || s.detailModelSwitchFailed);
       setSwitching(false);
@@ -22893,7 +22863,7 @@ function StatsSection() {
     { key: "turns", label: s.chartTurns, colour: SERIES_COLOURS.turns, variant: "bar", axis: "left", format: (value) => integer(value, locale) },
     { key: "done", label: s.statsColumnDone, colour: SERIES_COLOURS.done, variant: "bar", axis: "left", format: (value) => integer(value, locale) },
     { key: "errors", label: s.chartErrors, colour: SERIES_COLOURS.errors, variant: "line", axis: "left", format: (value) => integer(value, locale) },
-    { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => money(value, locale) }
+    { key: "cost", label: s.spendTitle, colour: SERIES_COLOURS.cost, variant: "line", axis: "right", format: (value) => runtime().utils.formatUsd(value, locale) }
   ];
   const rangeLabels = {
     today: t.common.rangeToday,
@@ -22940,7 +22910,7 @@ function StatsSection() {
       {
         label: s.spendTitle,
         description: s.spendHint,
-        status: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-destructive", children: s.spendLoadError }) : spend === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingLine, { layout: "inline" }) : spend.turns === 0 && spend.cost === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-muted-foreground", children: s.spendEmptyTitle }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-mono text-xs tabular-nums", children: s.spendLine.replace("{turns}", integer(spend.turns, locale)).replace("{tokens}", spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale)).replace("{cost}", spend.cost === null ? s.budgetValueUnknown : money(spend.cost, locale)) })
+        status: loadError !== null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-destructive", children: s.spendLoadError }) : spend === null ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(C.LoadingLine, { layout: "inline" }) : spend.turns === 0 && spend.cost === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "text-xs text-muted-foreground", children: s.spendEmptyTitle }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "font-mono text-xs tabular-nums", children: s.spendLine.replace("{turns}", integer(spend.turns, locale)).replace("{tokens}", spend.tokens === null ? s.budgetValueUnknown : integer(spend.tokens, locale)).replace("{cost}", spend.cost === null ? s.budgetValueUnknown : runtime().utils.formatUsd(spend.cost, locale)) })
       }
     ) })
   ] });

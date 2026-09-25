@@ -1,5 +1,33 @@
 # Changelog
 
+## chatbot 0.3.15 - 2026-09-25
+
+- Use the host's guarded account switch and localized USD formatter in the chatbot administration UI.
+
+## stats 0.2.11 - 2026-09-25
+
+- Use the host's localized USD formatter in usage rows and the daily trend chart.
+
+## discord 0.3.27 - 2026-09-25
+
+- Read image, file and history limits through the shared numeric configuration helper.
+
+## telegram 0.2.24 - 2026-09-25
+
+- Read image and question timeout limits through the shared numeric configuration helper.
+
+## whatsapp 0.2.28 - 2026-09-25
+
+- Read image and question timeout limits through the shared numeric configuration helper.
+
+## msteams 0.8.10 - 2026-09-25
+
+- Use shared numeric configuration limits and classify upload transport failures with the shared marker.
+
+## cronjob 0.6.20 - 2026-09-25
+
+- Replace the local numeric configuration clamp with the shared helper.
+
 ## todo 0.14.20 - 2026-09-25
 
 - Open a blocked row's blockers on tap as well as on keyboard focus, keep a failed task read visible with its retry instead of showing the shorter pushed list, and drop task fields nothing reads.

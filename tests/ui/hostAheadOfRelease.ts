@@ -21,7 +21,7 @@
 export const AHEAD_OF_RELEASE_RUNTIME: { components: string[]; hooks: string[]; utils: string[] } = {
   components: [],
   hooks: [],
-  utils: [],
+  utils: ['formatUsd', 'impersonateUser'],
 };
 
 /** Host dictionary leaves added after the pinned release, as flattened `section.key` paths. */

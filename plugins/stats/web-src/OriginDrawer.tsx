@@ -1,7 +1,7 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { runtime } from './runtime';
-import { integer, money, shortDateTime } from './format';
+import { integer, shortDateTime } from './format';
 import type { UsageByOriginResult, UsageOriginGroup, UsageOriginRow } from './types';
 
 const {
@@ -96,7 +96,7 @@ function OriginRows({
             <div className="mt-1.5 flex items-center gap-3">
               <ShareBar share={peak > 0 ? value / peak : 0} />
               <span className="shrink-0 font-mono text-xs tabular-nums text-foreground">{integer(row.tokens, locale)}</span>
-              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{money(row.cost, locale)}</span>
+              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{runtime().utils.formatUsd(row.cost, locale)}</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {group === 'user'
