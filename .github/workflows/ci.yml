@@ -24,10 +24,10 @@ jobs:
         working-directory: registry
     env:
       ELOWEN_CORE_ROOT: ${{ github.workspace }}/core
-      ELOWEN_CORE_VERSION: '0.28.55'
+      ELOWEN_CORE_VERSION: '0.28.56'
       # Pin the exact released source whose daemon and UI-kit packages are installed below. The parity
       # suites need source files and built helpers that the published daemon package deliberately omits.
-      ELOWEN_CORE_REF: '7b2ca0166894e293a103b71212e7d8f4938bd708'
+      ELOWEN_CORE_REF: 'bbccc6a6262e2087a0eae7103ecd62f6ba53964b'
     steps:
       - uses: actions/checkout@v7
         with:
