@@ -7,6 +7,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { retryAfterMs } from '../plugins/msteams/lib/connector.mjs';
+import { isTransportFailure } from 'elowen-plugin-shared/transport';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const log = { info() {}, warn() {}, error() {} };
@@ -154,6 +155,31 @@ describe('ConnectorClient.upload transport failures', () => {
   /** `content-length` is a forbidden request header the runtime derives from the body. Sending it by hand
    *  made undici reject every consented upload with `invalid content-length header` before any byte left
    *  the process — invisible to a plain `node` probe, because the daemon wraps global fetch. */
+  it('does not resend an HTTP refusal when reading its body fails', async () => {
+    const client = await uploader();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return { ok: false, status: 409, text: async () => { throw new Error('response body lost'); } };
+    }) as unknown as typeof fetch;
+    const failure = await client.upload('https://x/upload', Buffer.alloc(4)).catch((error: Error) => error);
+    expect(failure.message).toBe('response body lost');
+    expect(isTransportFailure(failure)).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('retries a thrown request even if its message resembles an HTTP refusal', async () => {
+    const client = await uploader();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) throw new Error('file upload → 409: misleading transport message');
+      return { ok: true, status: 201, text: async () => '' };
+    }) as unknown as typeof fetch;
+    await client.upload('https://x/upload', Buffer.alloc(4));
+    expect(calls).toBe(2);
+  });
+
   it('lets the runtime set content-length instead of declaring it', async () => {
     const client = await uploader();
     let sent: Record<string, string> = {};
@@ -172,7 +198,9 @@ describe('ConnectorClient.upload transport failures', () => {
     let calls = 0;
     globalThis.fetch = (async () => { calls++; return { ok: false, status: 409, text: async () => 'conflict' }; }) as unknown as typeof fetch;
 
-    await expect(client.upload('https://x/upload', Buffer.alloc(4))).rejects.toThrow(/409/);
+    const failure = await client.upload('https://x/upload', Buffer.alloc(4)).catch((error: Error) => error);
+    expect(failure.message).toMatch(/409/);
+    expect(isTransportFailure(failure)).toBe(false);
     expect(calls).toBe(1);
   });
 
@@ -186,6 +214,7 @@ describe('ConnectorClient.upload transport failures', () => {
     }) as unknown as typeof fetch;
 
     const failure = await client.upload('https://chettyai-my.sharepoint.com/personal/x/upload', Buffer.alloc(16)).catch((e: Error & { uploadDetail?: string }) => e);
+    expect(isTransportFailure(failure)).toBe(true);
     expect(failure.uploadDetail).toContain('chettyai-my.sharepoint.com');
     expect(failure.uploadDetail).toContain('ENOTFOUND'); // the cause undici buries
     expect(failure.uploadDetail).toContain("16B");

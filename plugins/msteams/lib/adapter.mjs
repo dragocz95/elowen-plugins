@@ -22,6 +22,7 @@ import { applyVisionModel, buildRoleAccess } from 'elowen-plugin-shared/access';
 import { resolveImageFiles, imageEventPayload, imageMimeType, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 /** The `/display` axes and their values — mirrors the resolution sets in _shared/display.mjs. */
 const DISPLAY_AXES = {
@@ -117,11 +118,6 @@ const personLabel = (p) => String(p?.name || p?.upn || p?.aad || p?.id || 'that 
 
 /** How the REQUESTED target is quoted back when it resolves to nobody (or to too many). */
 const targetLabel = (t) => String(t?.email || t?.name || t?.aadObjectId || t?.userId || t?.query || '').trim() || 'that person';
-
-/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
-function cfgNum(cfg, key, def, min, max) {
-  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
-}
 
 export class MsTeamsAdapter {
   name = 'msteams';
@@ -385,7 +381,7 @@ export class MsTeamsAdapter {
 
   /** How many past messages a brand-new conversation may load, 0 (off) to HISTORY_MAX. */
   historyLimit() {
-    return Math.min(Math.max(Number(this.cfg.historyLimit) || 0, 0), HISTORY_MAX);
+    return clampConfig(this.cfg.historyLimit, 0, 0, HISTORY_MAX);
   }
 
   /**
@@ -855,8 +851,8 @@ export class MsTeamsAdapter {
   async collectMedia(m) {
     const images = [];
     const notes = [];
-    const maxImageBytes = cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520);
-    const maxImages = cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10);
+    const maxImageBytes = clampConfig(this.cfg?.maxImageBytes, MAX_IMAGE_BYTES, 1048576, 20971520);
+    const maxImages = clampConfig(this.cfg?.maxImages, MAX_IMAGES, 1, 10);
     for (const a of m.attachments ?? []) {
       const type = String(a?.contentType ?? '');
       if (type === 'text/html' || type === 'text/plain') continue; // the body's own echo
@@ -1019,7 +1015,7 @@ export class MsTeamsAdapter {
 
   /** Shared chat images by validated name as upload-ready buffers. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, clampConfig(this.cfg?.maxUploadImages, MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** The bytes behind this turn's `file` events — the counterpart of {@link resolveImageFiles} for a file
