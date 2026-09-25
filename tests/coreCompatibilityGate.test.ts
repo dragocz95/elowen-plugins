@@ -90,12 +90,12 @@ describe('requiresCore gate against the built candidate', () => {
     expect(isNewer(manifest.requiresCore!, BASELINE_WITHOUT_ENVIRONMENTS), `${name} would install on ${BASELINE_WITHOUT_ENVIRONMENTS}`).toBe(true);
   });
 
-  // These ten plugin releases consume core 0.28.55's shared helpers or UI API 23; the remaining
+  // These seven plugin releases consume core 0.28.55's shared helpers or UI API 23; the remaining
   // wave-two plugins continue to require 0.28.53.
   const nextCoreFloors: Record<string, string> = {
-    browser: '0.28.55', chatbot: '0.28.55', codebase: '0.28.55', cronjob: '0.28.55',
+    chatbot: '0.28.55', cronjob: '0.28.55',
     discord: '0.28.55', editor: '0.28.53', github: '0.28.53', 'image-edit': '0.28.53',
-    'image-gen': '0.28.53', lsp: '0.28.53', msteams: '0.28.55', onedrive: '0.28.55',
+    'image-gen': '0.28.53', lsp: '0.28.53', msteams: '0.28.55',
     sites: '0.28.53', stats: '0.28.55', telegram: '0.28.55', todo: '0.28.53', whatsapp: '0.28.55',
   };
 

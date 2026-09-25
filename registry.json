@@ -3,9 +3,8 @@
   "plugins": [
     {
       "name": "browser",
-      "version": "0.4.10",
-      "requiresCore": "0.28.55",
-      "requiresSharedApi": 5,
+      "version": "0.4.9",
+      "requiresCore": "0.28.50",
       "description": "Persistent private Chrome automation for linked accounts with accessibility-first typed actions, a live view served over VNC that carries native keyboard and mouse input, exclusive user takeover and a deny-by-default enforcing network boundary.",
       "category": "tools",
       "author": "Elowen",
@@ -32,9 +31,8 @@
     },
     {
       "name": "codebase",
-      "version": "0.1.10",
-      "requiresCore": "0.28.55",
-      "requiresSharedApi": 5,
+      "version": "0.1.9",
+      "requiresCore": "0.28.50",
       "description": "Semantic code index: search your repositories by MEANING, not literal text. Chunks each accessible repo, embeds every chunk with the SAME embedding model your memory uses (Settings → Memory), and stores the vectors in a private per-repo index. CodebaseSearch finds the most relevant code/docs for a natural-language query; CodebaseReindex refreshes it incrementally; CodebaseStatus reports coverage. Complements the files plugin's literal Search.",
       "category": "tools",
       "author": "Elowen",
@@ -160,8 +158,8 @@
     },
     {
       "name": "onedrive",
-      "version": "0.3.5",
-      "requiresCore": "0.28.55",
+      "version": "0.3.4",
+      "requiresCore": "0.28.50",
       "description": "Mirrors a Project between the daemon and each person's own OneDrive in both directions, so files the agent produces appear in their OneDrive without being handed over in chat.",
       "category": "productivity",
       "author": "Elowen",

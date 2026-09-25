@@ -1,9 +1,8 @@
 {
   "name": "browser",
-  "version": "0.4.10",
+  "version": "0.4.9",
   "apiVersion": "2",
-  "requiresCore": "0.28.55",
-  "requiresSharedApi": 5,
+  "requiresCore": "0.28.50",
   "description": "Browser automation for linked accounts. Each account has its own private profile on the host, a virtual display and a live VNC view. Only the user can take control. A network proxy that enforces rules protects every session.",
   "entry": "dist/index.js",
   "userGrantable": true,

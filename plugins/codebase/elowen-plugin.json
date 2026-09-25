@@ -1,9 +1,8 @@
 {
   "name": "codebase",
-  "version": "0.1.10",
+  "version": "0.1.9",
   "apiVersion": "2",
-  "requiresCore": "0.28.55",
-  "requiresSharedApi": 5,
+  "requiresCore": "0.28.50",
   "description": "Search code and documentation in repositories by meaning, not exact wording. It splits accessible files into chunks, embeds each one with the same model as memory, and stores them in a private index for that repository. Find settings under Settings → Memory. CodebaseSearch finds relevant code and documentation from a plain-language query. CodebaseReindex refreshes the index incrementally, and CodebaseStatus shows its coverage. It complements literal Search in the files plugin.",
   "entry": "index.mjs",
   "consumesControls": [

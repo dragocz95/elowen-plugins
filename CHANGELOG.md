@@ -28,18 +28,6 @@
 
 - Replace the local numeric configuration clamp with the shared helper.
 
-## codebase 0.1.10 - 2026-09-25
-
-- Use shared numeric configuration limits while retaining an explicit zero relevance floor.
-
-## browser 0.4.10 - 2026-09-25
-
-- Use shared numeric configuration limits with rounding while retaining zero as the close-grace setting.
-
-## onedrive 0.3.5 - 2026-09-25
-
-- Document why unrestricted positive numeric settings retain their existing fallback semantics.
-
 ## todo 0.14.20 - 2026-09-25
 
 - Open a blocked row's blockers on tap as well as on keyboard focus, keep a failed task read visible with its retry instead of showing the shorter pushed list, and drop task fields nothing reads.
