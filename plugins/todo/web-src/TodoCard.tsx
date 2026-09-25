@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, Circle, CircleDot, ListChecks } from 'lucide-react';
 import { runtime, type PluginChatCardProps, type SessionTask } from './runtime';
 
@@ -25,6 +25,19 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
   const query = hooks.useSessionTasks(sessionId);
   const update = hooks.useUpdateSessionTask();
   const [collapsed, setCollapsed] = useState(false);
+  // The pushed card is the plugin's own snapshot, taken when the list last changed: a task tool emits one
+  // per call, and a browser mutation writes one from its route. NOTHING else invalidates this query while
+  // an agent works, so the cached read has to follow the push — otherwise the card keeps rendering the
+  // list as it was at the last fetch while the rail, which the host feeds from the card itself, is new.
+  // The daemon hands over a fresh card object per event, and only such an object refetches: the read on
+  // mount already covers the payload the card arrives with.
+  const { refetch } = query;
+  const pushedCard = useRef(card);
+  useEffect(() => {
+    if (pushedCard.current === card) return;
+    pushedCard.current = card;
+    if (sessionId) void refetch();
+  }, [card, refetch, sessionId]);
   const tasks = query.data?.tasks ?? (card.items ?? []).flatMap((item) => item.id ? [{
     id: item.id,
     subject: item.label ?? item.text,

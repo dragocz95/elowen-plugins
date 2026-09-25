@@ -44,6 +44,7 @@
       "pending": "Pending",
       "inProgress": "In progress",
       "completed": "Completed",
+      "blocked": "Waiting for",
       "rename": "Rename",
       "delete": "Delete",
       "actions": "Task actions",

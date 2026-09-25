@@ -1018,6 +1018,20 @@ export function Progress({ value = 0, className = '', indicatorClassName = '', .
   );
 }
 
+/** Ported from web/components/ui/RailSectionHead.tsx: the ONE heading every telemetry-rail section
+ *  shares, which a bundle section draws itself because half the rail's sections are bundles now. The
+ *  `telemetry-section-head` class is the seam a skin styles, so the stub keeps it and both slots — the
+ *  icon (or the fold chevron) on the left, the label, then the meta pinned right. */
+export function RailSectionHead({ label, icon, meta }: { label: string; icon?: ReactNode; meta?: ReactNode }) {
+  return (
+    <div className="telemetry-section-head flex w-full min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground">
+      {icon ?? null}
+      <span className="min-w-0 truncate">{label}</span>
+      {meta ? <span className="ml-auto shrink-0 truncate">{meta}</span> : null}
+    </div>
+  );
+}
+
 /** Ported from web/components/ui/AutoSaveStatus.tsx. Idle renders an EMPTY live region rather than
  *  nothing — the row keeps one stable `role="status"` node, so the first "Saving…" is announced instead
  *  of arriving with a brand-new region a screen reader may not read. The error is `role="alert"` and

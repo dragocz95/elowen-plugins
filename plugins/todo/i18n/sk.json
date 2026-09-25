@@ -7,6 +7,7 @@
       "pending": "Čaká na začatie",
       "inProgress": "Prebieha",
       "completed": "Hotové",
+      "blocked": "Čaká na dokončenie",
       "rename": "Premenovať",
       "delete": "Vymazať",
       "actions": "Možnosti úlohy",

@@ -4,8 +4,12 @@ import { http, HttpResponse, listen, resetHandlers, setupServer, close } from '.
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { TasksPicker } from '../plugins/todo/web-src/TasksPicker';
+import { TasksRail } from '../plugins/todo/web-src/TasksRail';
 import { TodoCard } from '../plugins/todo/web-src/TodoCard';
 import manifest from '../plugins/todo/elowen-plugin.json';
+
+type TodoCardProps = Parameters<typeof TodoCard>[0];
+type CardItems = NonNullable<TodoCardProps['card']['items']>;
 
 /** Behaviour of the task surfaces the core handed to this plugin.
  *
@@ -202,6 +206,32 @@ describe('the todo chat card', () => {
     expect(screen.queryByText('an older label')).toBeNull();
   });
 
+  it('follows a pushed card with a fresh read instead of keeping the list fetched at mount', async () => {
+    // The agent's task tools push a card on every change, and nothing invalidates this query while a turn
+    // runs. A card that only ever rendered the mount-time read therefore kept showing a list the rail —
+    // which the host feeds from the pushed card itself — had already moved past.
+    tasks = [task({ subject: 'Write the migration' })];
+    const pushed = (items: CardItems): TodoCardProps['card'] => ({ id: 'c1', title: 'Tasks', items });
+    const card = (items: CardItems) => (
+      <TodoCard card={pushed(items)} sessionId={SESSION} live open={() => {}} />
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    const view = render(
+      <Wrapper><ToastProvider>{card([{ text: '#t1 Write the migration', id: 't1', status: 'pending' }])}</ToastProvider></Wrapper>,
+    );
+    expect(await screen.findByText('Write the migration')).toBeTruthy();
+
+    // The agent starts the next task: the plugin emits a card carrying the list as it now stands.
+    tasks = [...tasks, task({ id: 't2', subject: 'Ship it', status: 'in_progress' })];
+    view.rerender(
+      <Wrapper><ToastProvider>{card([
+        { text: '#t1 Write the migration', id: 't1', status: 'pending' },
+        { text: '#t2 Ship it', id: 't2', label: 'Ship it', status: 'in_progress' },
+      ])}</ToastProvider></Wrapper>,
+    );
+    expect(await screen.findByText('Ship it')).toBeTruthy();
+  });
+
   it('completes a task from its row menu and reaches the same route the picker uses', async () => {
     // The card is deliberately menu-driven rather than checkbox-driven: its row IS the menu trigger, so
     // a stray click in a narrow chat column cannot silently change a task's status.
@@ -272,5 +302,36 @@ describe('the todo chat card', () => {
     // It is a clock, not a timestamp: a live turn's row keeps counting.
     const first = clock.textContent;
     await waitFor(() => expect(clock.textContent).not.toBe(first), { timeout: 3_000 });
+  });
+});
+
+describe('the task rail', () => {
+  // What the host projects into the section: the plugin's own card rows, whose `blockedBy` is already the
+  // UNRESOLVED blockers — a finished blocker no longer blocks anyone.
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 't1', label: 'Write the migration', status: 'pending', blockedBy: [] as string[], ...over,
+  });
+  const rail = (tasks: ReturnType<typeof row>[]) =>
+    mount(<TasksRail variant="expanded" sessionId={SESSION} data={{ tasks }} open={() => {}} />);
+
+  it('marks a waiting row that is blocked, and names the blockers it waits on', async () => {
+    rail([
+      row({ id: 't2', label: 'Ship it', blockedBy: ['t3'] }),
+      row({ id: 't3', label: 'Pass review', status: 'in_progress' }),
+      row({ id: 't4', label: 'Tag the release' }),
+    ]);
+    // Exactly one row is waiting on something: the running row has started despite its edges and the
+    // free one has none, so neither is marked. The label is asserted once the plugin's strings have
+    // arrived — a section renders its rows before the listing resolves.
+    const marks = await screen.findAllByTestId('telemetry-task-blocked');
+    expect(marks).toHaveLength(1);
+    await waitFor(() => expect(marks[0]).toHaveAttribute('aria-label', 'Waiting for #t3'));
+    expect(marks[0]).toHaveAttribute('title', 'Waiting for #t3');
+  });
+
+  it('shows no marker when nothing waits on anything', async () => {
+    rail([row({ id: 't4', label: 'Tag the release' })]);
+    expect(await screen.findByText('Tag the release')).toBeTruthy();
+    expect(screen.queryByTestId('telemetry-task-blocked')).toBeNull();
   });
 });

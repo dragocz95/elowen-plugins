@@ -71,8 +71,8 @@ export function ensurePluginUiRuntime(): void {
       MotionLayout: C.MotionLayout, MotionLayoutItem: C.MotionLayoutItem, MotionPresence: C.MotionPresence,
       OutcomeBadge: C.OutcomeBadge, PatchView: C.PatchView, ProgressRibbon: C.ProgressRibbon,
       // The plain determinate meter, which the rail section and the chat card both draw their
-      // done/total bar with.
-      Progress: C.Progress,
+      // done/total bar with, and the shared rail heading a bundle section labels itself through.
+      Progress: C.Progress, RailSectionHead: C.RailSectionHead,
       ProjectFilterPills: C.ProjectFilterPills, ProjectIcon: C.ProjectIcon, ProjectPill: C.ProjectPill,
       ChangeStrip: C.ChangeStrip,
       // The settings-extraction surface (the moved CLI-agents / autopilot / GitHub sections).
