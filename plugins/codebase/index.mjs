@@ -15,6 +15,7 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 // ── defaults (all overridable via configSchema) ──────────────────────────────────────────────────────
 const DEFAULT_INCLUDE = [
@@ -78,9 +79,10 @@ export function cosine(a, b) {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-const clampNum = (v, def, min, max) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : def;
+// Finite zero used to clamp up to the positive minimum; shared config treats it as absent.
+const clampFiniteConfig = (value, def, min, max) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampConfig(parsed || min, def, min, max) : def;
 };
 
 /** A best-effort enclosing symbol for a chunk: the nearest declaration/heading at or above `startIdx`.
@@ -118,8 +120,8 @@ function enclosingSymbol(lines, startIdx, isMd) {
  *  logical block. `symbol` is a best-effort enclosing declaration/heading. Trailing whitespace is dropped;
  *  an empty file yields no chunks. Exported for tests. */
 export function chunkFile(text, path = '', cfg = {}) {
-  const maxChars = clampNum(cfg.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000);
-  const maxLines = clampNum(cfg.chunkMaxLines, DEFAULT_CHUNK_MAX_LINES, 5, 400);
+  const maxChars = clampFiniteConfig(cfg.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000);
+  const maxLines = clampFiniteConfig(cfg.chunkMaxLines, DEFAULT_CHUNK_MAX_LINES, 5, 400);
   const trimmed = text.replace(/\s+$/, '');
   if (trimmed === '') return [];
   const lines = trimmed.split('\n');
@@ -222,18 +224,21 @@ export function readConfig(raw = {}) {
   return {
     includeGlobs: include.length ? include : DEFAULT_INCLUDE,
     excludeGlobs: exclude.length ? exclude : DEFAULT_EXCLUDE,
-    maxFileBytes: clampNum(source.maxFileBytes, 300_000, 1_000, 5_000_000),
-    chunkMaxChars: clampNum(source.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000),
+    maxFileBytes: clampFiniteConfig(source.maxFileBytes, 300_000, 1_000, 5_000_000),
+    chunkMaxChars: clampFiniteConfig(source.chunkMaxChars, DEFAULT_CHUNK_MAX_CHARS, 200, 20_000),
     chunkMaxLines: DEFAULT_CHUNK_MAX_LINES,
-    topK: clampNum(source.topK, DEFAULT_TOP_K, 1, 50),
-    relevanceFloor: clampNum(source.relevanceFloor, DEFAULT_RELEVANCE_FLOOR, 0, 1),
+    topK: clampFiniteConfig(source.topK, DEFAULT_TOP_K, 1, 50),
+    // A stored 0 disables filtering; clampConfig would substitute the nonzero default.
+    relevanceFloor: Number.isFinite(Number(source.relevanceFloor))
+      ? Math.min(Math.max(Number(source.relevanceFloor), 0), 1)
+      : DEFAULT_RELEVANCE_FLOOR,
     autoReindex: bool(source.autoReindex, true),
-    reindexEmbedBudget: clampNum(source.reindexEmbedBudget, DEFAULT_EMBED_BUDGET, 1, 5_000),
+    reindexEmbedBudget: clampFiniteConfig(source.reindexEmbedBudget, DEFAULT_EMBED_BUDGET, 1, 5_000),
     scheduledReindex: bool(source.scheduledReindex, false),
-    reindexIntervalMs: clampNum(source.reindexIntervalMinutes, DEFAULT_SCHEDULE_MINUTES, 5, 1_440) * 60_000,
+    reindexIntervalMs: clampFiniteConfig(source.reindexIntervalMinutes, DEFAULT_SCHEDULE_MINUTES, 5, 1_440) * 60_000,
     reindexScope: source.reindexScope === 'listed' ? 'listed' : 'indexed',
     reindexRepos: splitList(source.reindexRepos),
-    reindexMaxPasses: clampNum(source.reindexMaxPassesPerRepo, DEFAULT_SCHEDULE_MAX_PASSES, 1, 20),
+    reindexMaxPasses: clampFiniteConfig(source.reindexMaxPassesPerRepo, DEFAULT_SCHEDULE_MAX_PASSES, 1, 20),
   };
 }
 
@@ -788,7 +793,7 @@ export function register(ctx) {
 
         const qv = await ctx.embeddings.embed(query);
         const glob = p.pathGlob ? globToRegExp(String(p.pathGlob)) : null;
-        const k = clampNum(p.k, cfg.topK, 1, 50);
+        const k = clampFiniteConfig(p.k, cfg.topK, 1, 50);
         const top = [];
         let scanned = 0;
         // Stream candidates (current-model, matching-width, in-scope — all filtered in SQL) and keep only a
