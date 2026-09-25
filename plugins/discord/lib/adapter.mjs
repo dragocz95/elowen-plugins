@@ -12,6 +12,7 @@ import { SHARED_PICKERS, applyPickerChoice, controlCommandsFrom, localCommandsFr
 import { lifecycleText } from 'elowen-plugin-shared/lifecycle';
 import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 const API = 'https://discord.com/api/v10';
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json';
@@ -108,11 +109,6 @@ const ADAPTER_STATE_COMMANDS = [
     ],
   },
 ];
-
-/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
-function cfgNum(cfg, key, def, min, max) {
-  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
-}
 
 function isDirectChannel(meta) {
   return meta?.type === 1; // Discord channel type 1 is a 1:1 DM; unknown types fail closed as shared.
@@ -427,7 +423,7 @@ export class DiscordAdapter {
   /** Recent channel history for a BRAND-NEW brain conversation. The API returns newest-first; core receives
    *  bounded chronological message objects and persists each under its original conversational role. */
   async fetchHistory(channelId, beforeMessageId) {
-    const limit = Math.min(Math.max(Number(this.cfg.historyLimit) || 0, 0), 100);
+    const limit = clampConfig(this.cfg.historyLimit, 0, 0, 100);
     if (!limit) return [];
     const msgs = await this.rest('GET', `/channels/${channelId}/messages?before=${beforeMessageId}&limit=${limit}`).catch(() => []);
     if (!Array.isArray(msgs) || msgs.length === 0) return [];
@@ -552,10 +548,10 @@ export class DiscordAdapter {
     text = resolveMentions(text, m.mentions ?? [], this.cfg.rolePolicies, channelNames);
     const { images, audio, files, notes } = await collectAttachments(
       m.attachments,
-      cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520),
-      cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10),
-      cfgNum(this.cfg, 'maxFileBytes', MAX_FILE_BYTES, 1048576, 26214400),
-      cfgNum(this.cfg, 'maxFiles', MAX_FILES, 1, 10),
+      clampConfig(this.cfg?.maxImageBytes, MAX_IMAGE_BYTES, 1048576, 20971520),
+      clampConfig(this.cfg?.maxImages, MAX_IMAGES, 1, 10),
+      clampConfig(this.cfg?.maxFileBytes, MAX_FILE_BYTES, 1048576, 26214400),
+      clampConfig(this.cfg?.maxFiles, MAX_FILES, 1, 10),
     );
     if (notes.length) text = [text, ...notes].filter(Boolean).join('\n');
     // Voice messages / audio uploads: transcribe with Whisper when STT is enabled + keyed, else note.
@@ -1013,7 +1009,7 @@ export class DiscordAdapter {
   /** Load up to the configured cap of shared chat images by validated name.
    *  A missing/unreadable file is skipped; the answer text still goes out. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, clampConfig(this.cfg?.maxUploadImages, MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind the `file` events of this turn — the counterpart of resolveImageFiles for a
