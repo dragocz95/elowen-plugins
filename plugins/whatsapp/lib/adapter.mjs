@@ -17,6 +17,7 @@ import { runTurn } from 'elowen-plugin-shared/turnRunner';
 import { buildRoleAccess, applyVisionModel } from 'elowen-plugin-shared/access';
 import { fileMimeType, resolveImageFiles, imageEventPayload, resolveSharedFiles } from 'elowen-plugin-shared/images';
 import { createConversationOrderTracker } from 'elowen-plugin-shared/liveMessage';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // default: larger inbound images are noted, not downloaded (cfg: maxImageBytes)
 const MAX_IMAGES = 4;                    // default vision cap per message (cfg: maxImages)
@@ -34,11 +35,6 @@ const WA_CAPTION_LIMIT = 1024;           // WhatsApp rejects an image/document c
 export function splitList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
-}
-
-/** Read a numeric config field, clamped to [min,max], falling back to `def` when unset/invalid. */
-function cfgNum(cfg, key, def, min, max) {
-  return Math.min(Math.max(Number(cfg?.[key]) || def, min), max);
 }
 
 /** A minimal pino-shaped logger Baileys accepts, forwarding only warn/error to Elowen's logger (trace/
@@ -458,8 +454,8 @@ export class WhatsAppAdapter {
     const img = m.message?.imageMessage;
     if (img) {
       const size = Number(img.fileLength ?? 0);
-      const maxImageBytes = cfgNum(this.cfg, 'maxImageBytes', MAX_IMAGE_BYTES, 1048576, 20971520);
-      const maxImages = cfgNum(this.cfg, 'maxImages', MAX_IMAGES, 1, 10);
+      const maxImageBytes = clampConfig(this.cfg?.maxImageBytes, MAX_IMAGE_BYTES, 1048576, 20971520);
+      const maxImages = clampConfig(this.cfg?.maxImages, MAX_IMAGES, 1, 10);
       if (size && size > maxImageBytes) {
         notes.push('[Attachment: image (too large to read)]');
       } else if (images.length < maxImages) {
@@ -542,7 +538,7 @@ export class WhatsAppAdapter {
   }
 
   /** How long a parked prompt (ask or numbered menu) stays answerable. */
-  askTtlMs() { return cfgNum(this.cfg, 'askTimeoutMs', ASK_TTL_MS, 30000, 1800000); }
+  askTtlMs() { return clampConfig(this.cfg?.askTimeoutMs, ASK_TTL_MS, 30000, 1800000); }
 
   /** Resolve a text reply against a pending prompt: a numeric pick on a model/thinking menu, or an
    *  answer to a parked ask (a number picks that option on a single-question ask; `submit` delivers;
@@ -803,7 +799,7 @@ export class WhatsAppAdapter {
 
   /** Load up to the configured cap of shared chat images by validated name. */
   resolveImageFiles(names) {
-    return resolveImageFiles(this.imageDir, names, cfgNum(this.cfg, 'maxUploadImages', MAX_UPLOAD_IMAGES, 1, 10));
+    return resolveImageFiles(this.imageDir, names, clampConfig(this.cfg?.maxUploadImages, MAX_UPLOAD_IMAGES, 1, 10));
   }
 
   /** Load the bytes behind this turn's `file` events — the counterpart of resolveImageFiles for a file the
