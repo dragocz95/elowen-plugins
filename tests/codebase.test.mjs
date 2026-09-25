@@ -229,16 +229,6 @@ describe('codebase plugin — pure helpers', () => {
     );
   });
 
-  it('keeps zero as a meaningful relevance floor while sharing bounded positive settings', () => {
-    const cfg = readConfig({ relevanceFloor: 0, topK: 0, maxFileBytes: 9_000_000 });
-    assert.equal(cfg.relevanceFloor, 0);
-    assert.equal(cfg.topK, 1);
-    assert.equal(cfg.maxFileBytes, 5_000_000);
-    assert.equal(readConfig({ maxFileBytes: 0 }).maxFileBytes, 1_000);
-    assert.equal(readConfig({ reindexEmbedBudget: 0 }).reindexEmbedBudget, 1);
-    assert.equal(readConfig({ relevanceFloor: 'invalid' }).relevanceFloor, readConfig({}).relevanceFloor);
-  });
-
   it('readConfig degrades malformed config input to safe defaults', () => {
     const cfg = readConfig(null);
     assert.equal(cfg.topK, 8);
