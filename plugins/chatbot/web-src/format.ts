@@ -1,7 +1,5 @@
-/** How this admin surface writes a number, a price and a moment.
+/** How this admin surface writes a number and a moment.
  *
- *  One place, because the register, the transcript and the statistics tiles all show the same kinds of
- *  value and two of them disagreeing about what "no price reported" looks like is a reader's bug to find.
  *  Every helper takes the locale the host reports, so a page rendered in Czech formats in Czech. */
 
 import type { ChatbotBotView, ChatbotFeedbackAnswer } from './types';
@@ -22,11 +20,6 @@ export const formatDay = (day: string, locale: string): string => {
 };
 
 export const integer = (value: number, locale: string): string => new Intl.NumberFormat(locale).format(value);
-
-/** A price, or an em dash when the rollup carried none. Deliberately NOT "$0.00": a bucket whose turns
- *  reported no price is unpriced, and printing it as free is a claim the data does not support. */
-export const money = (value: number | null, locale: string): string =>
-  value == null ? '—' : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value);
 
 /** A chatbot's name as the reader sees it: its own display name, or the fallback when the owner gave it
  *  none. One place, because the register, the pickers, the drawer and the confirmations all name one. */

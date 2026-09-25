@@ -1,11 +1,11 @@
 import { knownCost, usdFromMicro } from '../src/budget';
 import type { ChatbotBotView } from './types';
-import { formatDay, integer, money } from './format';
+import { formatDay, integer } from './format';
 import { runtime } from './runtime';
 
 /** A read of the admission rule, not a second decision made in the browser. */
 export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
-  const { hooks, components: C } = runtime();
+  const { hooks, components: C, utils } = runtime();
   const s = hooks.usePluginStrings('chatbot');
   const { locale } = hooks.useTranslation();
   const { budget, limits } = bot;
@@ -17,7 +17,7 @@ export function BudgetUsage({ bot }: { bot: ChatbotBotView }) {
       : verdict.reason === 'budget_unverifiable' ? s.budgetUnknown
         : verdict.ceiling === 'turns' ? s.budgetTurnsExhausted : s.budgetCostExhausted;
   const entries = [
-    { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value: number) => money(value, locale) },
+    { label: s.limit_dailyCostMicrousd, value: cost, limit: costLimit, format: (value: number) => utils.formatUsd(value, locale) },
     { label: s.limit_dailyTurnLimit, value: budget.admittedTurns, limit: limits.dailyTurnLimit, format: (value: number) => integer(value, locale) },
   ];
   return (
