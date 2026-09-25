@@ -53,7 +53,7 @@ function runtime() {
   return value;
 }
 function registerStatsUi(pages) {
-  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 21, pages });
+  window.__elowenRegisterPluginUi?.("stats", { requiresApiVersion: 23, pages });
 }
 
 // plugins/stats/web-src/StatsView.tsx
@@ -238,7 +238,6 @@ var STATS_TREND_COLORS = {
 
 // plugins/stats/web-src/format.ts
 var integer = (value, locale) => new Intl.NumberFormat(locale).format(value);
-var money = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(value);
 var percentage = (value, locale) => value == null ? "\u2014" : `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)}%`;
 var shortDateTime = (ms, locale) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(ms));
 
@@ -325,13 +324,12 @@ function PieChart({ title, data, emptyText, renderIcon, locale }) {
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var formatTokens = (value, locale) => new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-var formatCost = (value, locale) => value == null ? "\u2014" : new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(value);
 function UsageTrend({ data, locale, tokenLabel, costLabel, emptyText }) {
   const { components: C } = runtime();
   const points = (0, import_react4.useMemo)(() => data.map((row) => ({ label: row.day, tokens: row.tokens, cost: row.cost })), [data]);
   const series = (0, import_react4.useMemo)(() => [
     { key: "tokens", label: tokenLabel, colour: STATS_TREND_COLORS.tokens, variant: "bar", axis: "left", format: (value) => formatTokens(value, locale) },
-    { key: "cost", label: costLabel, colour: STATS_TREND_COLORS.cost, variant: "line", axis: "right", format: (value) => formatCost(value, locale) }
+    { key: "cost", label: costLabel, colour: STATS_TREND_COLORS.cost, variant: "line", axis: "right", format: (value) => runtime().utils.formatUsd(value, locale, 4) }
   ], [costLabel, locale, tokenLabel]);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.TimeSeriesChart, { data: points, series, height: 220, emptyText });
 }
@@ -451,7 +449,7 @@ function OriginRows({
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mt-1.5 flex items-center gap-3", children: [
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ShareBar, { share: peak > 0 ? value / peak : 0 }),
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-foreground", children: integer(row.tokens, locale) }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-muted-foreground", children: money(row.cost, locale) })
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "shrink-0 font-mono text-xs tabular-nums text-muted-foreground", children: runtime().utils.formatUsd(row.cost, locale) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "mt-1 text-xs text-muted-foreground", children: [
             group === "user" ? strings.rowOrigins.replace("{count}", String(row.origins)) : strings.rowTurns.replace("{count}", String(row.turns)),
