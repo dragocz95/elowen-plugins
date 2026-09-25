@@ -8,7 +8,7 @@ Install **lsp** from **Settings → Plugins → Available**, then enable it.
 
 | Field | Value |
 | --- | --- |
-| Version | 0.3.3 |
+| Version | 0.3.4 |
 | requiresCore | 0.28.53 |
 | requiresSharedApi | none |
 

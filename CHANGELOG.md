@@ -1,5 +1,9 @@
 # Changelog
 
+## lsp 0.3.4 - 2026-09-25
+
+- Remove the dead setup-step registration and its hand-copied setup types; the host reads no registered steps and the wizard keeps its own code-intelligence step.
+
 ## chatbot 0.3.14 - 2026-09-24
 
 - Harden the admin surface: stale stats answers can no longer repaint the chart, plus source-of-truth cleanups across limits, strings and views.

@@ -4,9 +4,7 @@ import { registerLspApi } from './api.js';
 import { registerAfterEditDiagnostics } from './afterEdit.js';
 import { lspPluginConfig } from './config.js';
 import { ManagedLspManager } from './managed.js';
-import { registerLspSetup } from './setup.js';
 export function register(ctx, deps = {}) {
-    registerLspSetup(ctx);
     // Lazy: registration must not spawn anything, and a sub-agent runner loads this plugin too (it gets
     // the tools, never the services) — so the manager appears on the first tool call there.
     // The idle-server lifetime comes from the same config slice as the toggle and is read when a manager is
