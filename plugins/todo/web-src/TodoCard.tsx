@@ -44,9 +44,7 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
     description: '',
     status: item.status ?? 'pending',
     ...(item.startedAt === undefined ? {} : { startedAt: item.startedAt }),
-    ...(item.owner === undefined ? {} : { owner: item.owner }),
     blockedBy: item.blockedBy ?? [],
-    blocks: [],
   }] : [] as SessionTask[]);
   const now = useClock(live && tasks.some((task) => task.status === 'in_progress' && task.startedAt != null));
   const setStatus = (task: SessionTask, status: SessionTask['status']): void => {
