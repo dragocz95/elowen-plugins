@@ -29,7 +29,7 @@ function parseData(data: unknown): RailData | null {
   return parsed.every((task): task is SessionTask => task !== null) ? { tasks: parsed } : null;
 }
 
-function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
+function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu, HelpTip }: {
   task: SessionTask;
   now: number;
   onStatus: (status: SessionTask['status']) => void;
@@ -37,8 +37,14 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
   strings: Record<string, string>;
   busy: boolean;
   ActionMenu: ComponentType<any>;
+  HelpTip: ComponentType<any>;
 }) {
   const active = task.status === 'in_progress';
+  // Only a pending row can be waiting on something: a running task has already started despite its edges,
+  // and a finished one is nobody's dependant. The host's own row (`TodoRow`, which the transcript card
+  // falls back to) reads it the same way, so the rail and the card cannot tell two stories about one list.
+  const blocked = task.status === 'pending' && task.blockedBy.length > 0;
+  const blockedText = blocked ? `${strings.blocked} ${task.blockedBy.map((id) => `#${id}`).join(', ')}`.trim() : '';
   const elapsed = active && task.startedAt != null ? `${Math.max(0, Math.round((now - task.startedAt) / 1000))}s` : null;
   const label = active && task.activeForm ? task.activeForm : task.subject;
   const actions = [
@@ -52,11 +58,16 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }: {
   return (
     <li className="flex min-w-0 items-center gap-1.5 text-xs" data-testid="telemetry-row">
       {active ? <CircleDot size={11} aria-hidden className="shrink-0 text-primary" /> : task.status === 'completed' ? <CheckCircle2 size={11} aria-hidden className="shrink-0 text-success" /> : <Circle size={11} aria-hidden className="shrink-0 text-muted-foreground" />}
-      <button type="button" onClick={open} className="min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary" title={task.subject}>{label}</button>
+      <button type="button" onClick={open} className={`min-w-0 flex-1 truncate text-left text-xs hover:text-primary ${blocked ? 'text-subtle-foreground' : 'text-foreground'}`} title={task.subject}>{label}</button>
       {elapsed ? <span className="shrink-0 font-mono text-tiny text-muted-foreground">{elapsed}</span> : null}
       {/* A kebab, not the host's default destructive shape: this menu only changes a status, and the
           filled red square both shouts and takes width the subject needs. */}
       <ActionMenu variant="kebab" items={actions} label={strings.actions + ': ' + label} trigger={<MoreHorizontal size={13} aria-hidden />} disabled={busy} />
+      {/* Why the row cannot start yet, one gesture away. A native `title` answers a hovering pointer only,
+          so a phone reader never learned which dependency holds the row; the host's hint affordance opens
+          on tap and on keyboard focus as well, and its trigger carries the same sentence as its name
+          instead of a column of identical "Help" buttons. */}
+      {blocked ? <HelpTip align="right" label={blockedText}>{blockedText}</HelpTip> : null}
     </li>
   );
 }
@@ -93,7 +104,7 @@ export function TasksRail({ variant, data, sessionId, open }: PluginChatRailSect
       />
       {variant === 'expanded' ? <C.Progress className="h-1" value={(done / parsed.tasks.length) * 100} aria-label={strings.railTitle ?? strings.title} /> : null}
       <ul className="flex flex-col gap-0.5">
-        {shown.map((task) => <RailTaskRow key={task.id} task={task} now={now} onStatus={(status) => setStatus(task, status)} open={() => open('tasks')} strings={strings} busy={update.isPending} ActionMenu={C.ActionMenu} />)}
+        {shown.map((task) => <RailTaskRow key={task.id} task={task} now={now} onStatus={(status) => setStatus(task, status)} open={() => open('tasks')} strings={strings} busy={update.isPending} ActionMenu={C.ActionMenu} HelpTip={C.HelpTip} />)}
       </ul>
       {active.length > shown.length ? <button type="button" onClick={() => setExpanded((value) => !value)} className="self-start px-1 text-tiny text-muted-foreground hover:text-foreground">+{active.length - shown.length} {strings.more}</button> : null}
     </section>

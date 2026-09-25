@@ -20,6 +20,10 @@ interface Components {
   Modal: ComponentType<any>; ModalBody: ComponentType<any>; ModalFooter: ComponentType<any>; ConfirmDialog: ComponentType<any>;
   Input: ComponentType<any>; Button: ComponentType<any>; Badge: ComponentType<any>; Checkbox: ComponentType<any>;
   ActionMenu: ComponentType<any>; Progress: ComponentType<any>; LoadingState: ComponentType<any>; ErrorState: ComponentType<any>; EmptyState: ComponentType<any>; Spinner: ComponentType<any>;
+  /** The app's hint affordance: a "?" that opens on hover, focus AND tap, which a native `title` does not.
+   *  The rail hangs a blocked row's blocker list on it, and `label` is what names each trigger: a column of
+   *  rows would otherwise present as many buttons all called the same thing. */
+  HelpTip: ComponentType<{ children: ReactNode; align?: 'left' | 'right'; label?: string }>;
 }
 /** Every key of the interface above has to be a component the host really publishes. The runtime
  *  hands over an object, not a type, so a name invented here compiles and then reaches React as

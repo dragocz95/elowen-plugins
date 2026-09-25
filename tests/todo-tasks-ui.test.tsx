@@ -4,8 +4,12 @@ import { http, HttpResponse, listen, resetHandlers, setupServer, close } from '.
 import { createWrapper, ToastProvider } from './ui/hostHooks';
 import { ensurePluginUiRuntime } from './ui/hostRuntime';
 import { TasksPicker } from '../plugins/todo/web-src/TasksPicker';
+import { TasksRail } from '../plugins/todo/web-src/TasksRail';
 import { TodoCard } from '../plugins/todo/web-src/TodoCard';
 import manifest from '../plugins/todo/elowen-plugin.json';
+
+type TodoCardProps = Parameters<typeof TodoCard>[0];
+type CardItems = NonNullable<TodoCardProps['card']['items']>;
 
 /** Behaviour of the task surfaces the core handed to this plugin.
  *
@@ -29,6 +33,7 @@ const task = (over: Partial<Record<string, unknown>> = {}) => ({
 let tasks: ReturnType<typeof task>[] = [];
 const received: { patches: unknown[]; deletes: string[]; clears: string[] } = { patches: [], deletes: [], clears: [] };
 let patchStatus = 200;
+let tasksReadFails = false;
 
 const server = setupServer(
   http.get('/api/plugins/ui', () => HttpResponse.json([{
@@ -36,7 +41,9 @@ const server = setupServer(
     nav: [], account: [], user: [], project: [], settings: [],
     strings: manifest.web.strings,
   }])),
-  http.get('/api/plugins/todo/api/tasks', () => HttpResponse.json({ tasks })),
+  http.get('/api/plugins/todo/api/tasks', () => tasksReadFails
+    ? HttpResponse.json({ error: 'task store unavailable' }, { status: 503 })
+    : HttpResponse.json({ tasks })),
   http.patch('/api/plugins/todo/api/task', async ({ request }) => {
     const body = await request.json() as { taskId: string; status?: string; subject?: string };
     received.patches.push(body);
@@ -67,6 +74,7 @@ afterEach(() => {
   received.deletes = [];
   received.clears = [];
   patchStatus = 200;
+  tasksReadFails = false;
 });
 afterAll(() => close());
 
@@ -202,6 +210,52 @@ describe('the todo chat card', () => {
     expect(screen.queryByText('an older label')).toBeNull();
   });
 
+  it('follows a pushed card with a fresh read instead of keeping the list fetched at mount', async () => {
+    // The agent's task tools push a card on every change, and nothing invalidates this query while a turn
+    // runs. A card that only ever rendered the mount-time read therefore kept showing a list the rail —
+    // which the host feeds from the pushed card itself — had already moved past.
+    tasks = [task({ subject: 'Write the migration' })];
+    const pushed = (items: CardItems): TodoCardProps['card'] => ({ id: 'c1', title: 'Tasks', items });
+    const card = (items: CardItems) => (
+      <TodoCard card={pushed(items)} sessionId={SESSION} live open={() => {}} />
+    );
+    const { wrapper: Wrapper } = createWrapper();
+    const view = render(
+      <Wrapper><ToastProvider>{card([{ text: '#t1 Write the migration', id: 't1', status: 'pending' }])}</ToastProvider></Wrapper>,
+    );
+    expect(await screen.findByText('Write the migration')).toBeTruthy();
+
+    // The agent starts the next task: the plugin emits a card carrying the list as it now stands.
+    tasks = [...tasks, task({ id: 't2', subject: 'Ship it', status: 'in_progress' })];
+    view.rerender(
+      <Wrapper><ToastProvider>{card([
+        { text: '#t1 Write the migration', id: 't1', status: 'pending' },
+        { text: '#t2 Ship it', id: 't2', label: 'Ship it', status: 'in_progress' },
+      ])}</ToastProvider></Wrapper>,
+    );
+    expect(await screen.findByText('Ship it')).toBeTruthy();
+  });
+
+  it('shows the failed read instead of the short pushed payload', async () => {
+    // The pushed card is a short snapshot of the same list, not the task record: rendering it here after a
+    // failed read would present a degraded list as the truth and hide that the list could not be read.
+    tasksReadFails = true;
+    mount(<TodoCard
+      card={{ id: 'c1', title: 'Tasks', items: [{ text: '#t1 Write the migration', id: 't1', status: 'pending' }] }}
+      sessionId={SESSION}
+      live
+      open={() => {}}
+    />);
+    expect(await screen.findByText('The todo plugin is unavailable.')).toBeTruthy();
+    expect(screen.queryByText('Write the migration')).toBeNull();
+
+    // The retry is the card's own read, and it brings the full record back.
+    tasksReadFails = false;
+    tasks = [task({ subject: 'Write the migration' })];
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Write the migration')).toBeTruthy();
+  });
+
   it('completes a task from its row menu and reaches the same route the picker uses', async () => {
     // The card is deliberately menu-driven rather than checkbox-driven: its row IS the menu trigger, so
     // a stray click in a narrow chat column cannot silently change a task's status.
@@ -272,5 +326,44 @@ describe('the todo chat card', () => {
     // It is a clock, not a timestamp: a live turn's row keeps counting.
     const first = clock.textContent;
     await waitFor(() => expect(clock.textContent).not.toBe(first), { timeout: 3_000 });
+  });
+});
+
+describe('the task rail', () => {
+  // What the host projects into the section: the plugin's own card rows, whose `blockedBy` is already the
+  // UNRESOLVED blockers — a finished blocker no longer blocks anyone.
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 't1', label: 'Write the migration', status: 'pending', blockedBy: [] as string[], ...over,
+  });
+  const rail = (tasks: ReturnType<typeof row>[]) =>
+    mount(<TasksRail variant="expanded" sessionId={SESSION} data={{ tasks }} open={() => {}} />);
+
+  it('keeps a blocked row\'s blockers one tap and one keyboard focus away, and names them', async () => {
+    rail([
+      row({ id: 't2', label: 'Ship it', blockedBy: ['t3'] }),
+      row({ id: 't3', label: 'Pass review', status: 'in_progress' }),
+      row({ id: 't4', label: 'Tag the release' }),
+    ]);
+    // Exactly one row is waiting on something: the running row has started despite its edges and the
+    // free one has none, so neither offers a disclosure. The trigger's accessible name IS the sentence,
+    // and it is asserted through `findByRole`, which waits for the plugin's strings: a section renders
+    // its rows before the listing resolves.
+    const marks = await screen.findAllByRole('button', { name: 'Waiting for #t3' });
+    expect(marks).toHaveLength(1);
+    // A native `title` answered a hovering pointer only, which a phone does not have.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.click(marks[0]!);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Waiting for #t3');
+    // And it is a keyboard stop, not only a pointer target: focus opens it, leaving closes it.
+    fireEvent.blur(marks[0]!);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+    fireEvent.focus(marks[0]!);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Waiting for #t3');
+  });
+
+  it('offers no disclosure when nothing waits on anything', async () => {
+    rail([row({ id: 't4', label: 'Tag the release' })]);
+    expect(await screen.findByText('Tag the release')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Waiting for/ })).toBeNull();
   });
 });

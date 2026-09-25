@@ -65,10 +65,30 @@ export function Field({ label, htmlFor, children, hint }: { label: string; htmlF
   );
 }
 
-export function HelpTip({ children, align = 'right' }: { children: ReactNode; align?: 'left' | 'right' }) {
+/** Ported from web/components/ui/HelpTip.tsx: a small "?" that reveals inline help on hover, focus or
+ *  tap — a phone has no hover, and a native `title` answers none of the three, which is why a per-record
+ *  detail (the todo rail's blocker list) is hung on this rather than on a title attribute. The app
+ *  composes the body from its controlled tooltip parts so they place and dismiss it; the stub keeps what
+ *  a suite can stand on: the trigger BUTTON named by the caller's `label` (a list of records would
+ *  otherwise present a column of buttons all called "Help"), the body rendered in place while open,
+ *  `aria-describedby` from the trigger, and the same three gestures. */
+export function HelpTip({ children, align = 'right', label }: { children: ReactNode; align?: 'left' | 'right'; label?: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const id = useId();
   return (
-    <span className="help-tip" data-align={align}>
-      <button type="button" aria-label="Help" title={typeof children === 'string' ? children : undefined}>?</button>
+    <span className="help-tip" data-align={align} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={label ?? t.common.help}
+        aria-describedby={open ? id : undefined}
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        ?
+      </button>
+      {open ? <span id={id} role="tooltip">{children}</span> : null}
     </span>
   );
 }
@@ -1014,6 +1034,20 @@ export function Progress({ value = 0, className = '', indicatorClassName = '', .
   return (
     <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className={className} {...rest}>
       <div data-slot="progress-indicator" className={indicatorClassName} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+/** Ported from web/components/ui/RailSectionHead.tsx: the ONE heading every telemetry-rail section
+ *  shares, which a bundle section draws itself because half the rail's sections are bundles now. The
+ *  `telemetry-section-head` class is the seam a skin styles, so the stub keeps it and both slots — the
+ *  icon (or the fold chevron) on the left, the label, then the meta pinned right. */
+export function RailSectionHead({ label, icon, meta }: { label: string; icon?: ReactNode; meta?: ReactNode }) {
+  return (
+    <div className="telemetry-section-head flex w-full min-w-0 items-center gap-1.5 text-xs uppercase tracking-wide text-subtle-foreground">
+      {icon ?? null}
+      <span className="min-w-0 truncate">{label}</span>
+      {meta ? <span className="ml-auto shrink-0 truncate">{meta}</span> : null}
     </div>
   );
 }

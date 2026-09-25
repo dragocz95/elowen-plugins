@@ -1,5 +1,9 @@
 # Changelog
 
+## todo 0.14.19 - 2026-09-25
+
+- Follow a pushed card with a fresh task read, show a failed read instead of falling back to the short pushed payload, and put a blocked rail row's blockers behind a disclosure that opens on tap and on keyboard focus, not only on hover.
+
 ## lsp 0.3.4 - 2026-09-25
 
 - Remove the dead setup-step registration and its hand-copied setup types; the host reads no registered steps and the wizard keeps its own code-intelligence step.

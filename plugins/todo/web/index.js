@@ -293,6 +293,13 @@ function TodoCard({ card, sessionId, live, open }) {
   const query = hooks.useSessionTasks(sessionId);
   const update = hooks.useUpdateSessionTask();
   const [collapsed, setCollapsed] = (0, import_react4.useState)(false);
+  const { refetch } = query;
+  const pushedCard = (0, import_react4.useRef)(card);
+  (0, import_react4.useEffect)(() => {
+    if (pushedCard.current === card) return;
+    pushedCard.current = card;
+    if (sessionId) void refetch();
+  }, [card, refetch, sessionId]);
   const tasks = query.data?.tasks ?? (card.items ?? []).flatMap((item) => item.id ? [{
     id: item.id,
     subject: item.label ?? item.text,
@@ -313,6 +320,7 @@ function TodoCard({ card, sessionId, live, open }) {
     { label: strings.inProgress, icon: CircleDot, onSelect: () => setStatus(task, "in_progress") },
     { label: strings.completed, icon: CircleCheck, onSelect: () => setStatus(task, "completed") }
   ];
+  if (query.isError) return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { "data-testid": "chat-card", className: "flex max-w-[min(100%,28rem)] flex-col self-start leading-tight", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(C.ErrorState, { message: strings.unavailable, onRetry: () => void refetch() }) });
   if (tasks.length > 0 && tasks.every((task) => task.status === "completed")) return null;
   const done = tasks.filter((task) => task.status === "completed").length;
   const previewable = tasks.length > utils.TODO_PREVIEW_ITEMS;
@@ -409,8 +417,10 @@ function parseData(data) {
   });
   return parsed.every((task) => task !== null) ? { tasks: parsed } : null;
 }
-function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
+function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu, HelpTip }) {
   const active = task.status === "in_progress";
+  const blocked = task.status === "pending" && task.blockedBy.length > 0;
+  const blockedText = blocked ? `${strings.blocked} ${task.blockedBy.map((id) => `#${id}`).join(", ")}`.trim() : "";
   const elapsed = active && task.startedAt != null ? `${Math.max(0, Math.round((now - task.startedAt) / 1e3))}s` : null;
   const label = active && task.activeForm ? task.activeForm : task.subject;
   const actions = [
@@ -420,9 +430,10 @@ function RailTaskRow({ task, now, onStatus, open, strings, busy, ActionMenu }) {
   ];
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "flex min-w-0 items-center gap-1.5 text-xs", "data-testid": "telemetry-row", children: [
     active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleDot, { size: 11, "aria-hidden": true, className: "shrink-0 text-primary" }) : task.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CircleCheck, { size: 11, "aria-hidden": true, className: "shrink-0 text-success" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Circle, { size: 11, "aria-hidden": true, className: "shrink-0 text-muted-foreground" }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: "min-w-0 flex-1 truncate text-left text-xs text-foreground hover:text-primary", title: task.subject, children: label }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: open, className: `min-w-0 flex-1 truncate text-left text-xs hover:text-primary ${blocked ? "text-subtle-foreground" : "text-foreground"}`, title: task.subject, children: label }),
     elapsed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "shrink-0 font-mono text-tiny text-muted-foreground", children: elapsed }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { variant: "kebab", items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ActionMenu, { variant: "kebab", items: actions, label: strings.actions + ": " + label, trigger: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Ellipsis, { size: 13, "aria-hidden": true }), disabled: busy }),
+    blocked ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(HelpTip, { align: "right", label: blockedText, children: blockedText }) : null
   ] });
 }
 function TasksRail({ variant, data, sessionId, open }) {
@@ -469,7 +480,7 @@ function TasksRail({ variant, data, sessionId, open }) {
       }
     ),
     variant === "expanded" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(C.Progress, { className: "h-1", value: done / parsed.tasks.length * 100, "aria-label": strings.railTitle ?? strings.title }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-0.5", children: shown.map((task) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RailTaskRow, { task, now, onStatus: (status) => setStatus(task, status), open: () => open("tasks"), strings, busy: update.isPending, ActionMenu: C.ActionMenu }, task.id)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "flex flex-col gap-0.5", children: shown.map((task) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RailTaskRow, { task, now, onStatus: (status) => setStatus(task, status), open: () => open("tasks"), strings, busy: update.isPending, ActionMenu: C.ActionMenu, HelpTip: C.HelpTip }, task.id)) }),
     active.length > shown.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", onClick: () => setExpanded((value) => !value), className: "self-start px-1 text-tiny text-muted-foreground hover:text-foreground", children: [
       "+",
       active.length - shown.length,

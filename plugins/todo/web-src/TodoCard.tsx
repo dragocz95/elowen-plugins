@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, Circle, CircleDot, ListChecks } from 'lucide-react';
 import { runtime, type PluginChatCardProps, type SessionTask } from './runtime';
 
@@ -25,6 +25,19 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
   const query = hooks.useSessionTasks(sessionId);
   const update = hooks.useUpdateSessionTask();
   const [collapsed, setCollapsed] = useState(false);
+  // The pushed card is the plugin's own snapshot, taken when the list last changed: a task tool emits one
+  // per call, and a browser mutation writes one from its route. NOTHING else invalidates this query while
+  // an agent works, so the cached read has to follow the push — otherwise the card keeps rendering the
+  // list as it was at the last fetch while the rail, which the host feeds from the card itself, is new.
+  // The daemon hands over a fresh card object per event, and only such an object refetches: the read on
+  // mount already covers the payload the card arrives with.
+  const { refetch } = query;
+  const pushedCard = useRef(card);
+  useEffect(() => {
+    if (pushedCard.current === card) return;
+    pushedCard.current = card;
+    if (sessionId) void refetch();
+  }, [card, refetch, sessionId]);
   const tasks = query.data?.tasks ?? (card.items ?? []).flatMap((item) => item.id ? [{
     id: item.id,
     subject: item.label ?? item.text,
@@ -45,6 +58,14 @@ export function TodoCard({ card, sessionId, live, open }: PluginChatCardProps) {
     { label: strings.inProgress, icon: CircleDot, onSelect: () => setStatus(task, 'in_progress') },
     { label: strings.completed, icon: CheckCircle2, onSelect: () => setStatus(task, 'completed') },
   ];
+  // A read that FAILED says so. The pushed payload is a short snapshot of the same list, not the task
+  // record, so rendering it here would present a degraded list as the truth and hide the failure. The
+  // retry is the card's own read; the pushed card is what asked for it in the first place.
+  if (query.isError) return (
+    <div data-testid="chat-card" className="flex max-w-[min(100%,28rem)] flex-col self-start leading-tight">
+      <C.ErrorState message={strings.unavailable} onRetry={() => void refetch()} />
+    </div>
+  );
   if (tasks.length > 0 && tasks.every((task) => task.status === 'completed')) return null;
   const done = tasks.filter((task) => task.status === 'completed').length;
   const previewable = tasks.length > utils.TODO_PREVIEW_ITEMS;

@@ -597,7 +597,11 @@ describe('the appearance editor', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(dot()).toBeNull();
     expect(css()).not.toContain('.launcher-dot');
-    expect(within(dialog).getByTitle(strings.appearancePresenceHint!)).toBeInTheDocument();
+    // The copy explaining the dot waits behind the row's own help mark; production sets no `title`, so it
+    // is read where the app exposes it, after the mark is opened.
+    const presenceHeading = within(dialog).getByText(strings.appearancePresenceLabel!).parentElement!;
+    fireEvent.click(within(presenceHeading).getByRole('button', { name: 'Help' }));
+    expect(await within(dialog).findByRole('tooltip')).toHaveTextContent(strings.appearancePresenceHint!);
 
     fireEvent.click(toggle);
     expect(dot()).not.toBeNull();
