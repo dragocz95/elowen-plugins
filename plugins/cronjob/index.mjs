@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runtimeFooter, imageRefName } from 'elowen-plugin-shared/format';
 import { readJsonSafe, writeJsonAtomic } from 'elowen-plugin-shared/atomicJson';
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
 import { openRunJournal } from './lib/runJournal.mjs';
 
 /** This plugin's own manifest name — the key an account's grant is stored under. */
@@ -93,9 +94,6 @@ function jobRunLocation(job, ownerUserId) {
 /** Identifier for a job, a pending delivery or an adapter generation — short, sortable-ish, collision-free
  *  enough for records that live in one small JSON file. */
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-
-/** Read a number config field, falling back to `def` when unset/invalid, then clamp to [min, max]. */
-const clampConfig = (value, def, min, max) => Math.min(Math.max(Number(value) || def, min), max);
 
 import {
   DEFAULT_CRON_LOOKBACK_MS, DEFAULT_TICK_MS,
