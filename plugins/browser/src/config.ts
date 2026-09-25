@@ -1,3 +1,5 @@
+import { clampConfig } from 'elowen-plugin-shared/configNumber';
+
 export interface BrowserConfig {
   chromeExecutable: string | null;
   maxActiveUsers: number;
@@ -34,10 +36,12 @@ export interface BrowserConfig {
   vncDeferMs: number;
 }
 
-const bounded = (value: unknown, fallback: number, min: number, max: number): number => {
+// Numeric fields with a positive schema minimum share the fallback/clamp rule; this plugin rounds first.
+const roundedConfig = (value: unknown, fallback: number, min: number, max: number): number => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(parsed)));
+  // An explicit zero below a positive minimum used to clamp up, not trigger the shared fallback.
+  return clampConfig(Math.round(parsed) || min, fallback, min, max);
 };
 
 const tokenList = (value: unknown): string[] => {
@@ -46,23 +50,26 @@ const tokenList = (value: unknown): string[] => {
 };
 
 export function resolveConfig(raw: Record<string, unknown>): BrowserConfig {
-  const width = bounded(raw.maxViewportWidth, 1280, 800, 1920);
+  const width = roundedConfig(raw.maxViewportWidth, 1280, 800, 1920);
   return {
     chromeExecutable: typeof raw.chromeExecutable === 'string' && raw.chromeExecutable.trim() ? raw.chromeExecutable.trim() : null,
-    maxActiveUsers: bounded(raw.maxActiveUsers, 4, 1, 20),
-    maxSessionsPerUser: bounded(raw.maxSessionsPerUser, 2, 1, 8),
-    idleTimeoutMs: bounded(raw.idleTimeoutMinutes, 10, 1, 60) * 60_000,
-    hardSessionLimitMs: bounded(raw.hardSessionLimitMinutes, 60, 5, 240) * 60_000,
+    maxActiveUsers: roundedConfig(raw.maxActiveUsers, 4, 1, 20),
+    maxSessionsPerUser: roundedConfig(raw.maxSessionsPerUser, 2, 1, 8),
+    idleTimeoutMs: roundedConfig(raw.idleTimeoutMinutes, 10, 1, 60) * 60_000,
+    hardSessionLimitMs: roundedConfig(raw.hardSessionLimitMinutes, 60, 5, 240) * 60_000,
     maxViewportWidth: width,
     viewportHeight: Math.max(500, Math.round(width * 0.625)),
-    takeoverLeaseMs: bounded(raw.takeoverLeaseSeconds, 120, 30, 600) * 1000,
-    maxViewersPerSession: bounded(raw.maxViewersPerSession, 4, 1, 8),
-    maxChromeRssBytesPerUser: bounded(raw.maxChromeRssMb, 768, 256, 2048) * 1048576,
-    maxTargetsPerUser: bounded(raw.maxTargetsPerUser, 12, 4, 32),
-    proxyConcurrency: bounded(raw.proxyConcurrency, 96, 1, 200),
-    proxyRequestsPerMinute: bounded(raw.proxyRequestsPerMinute, 3000, 30, 6000),
+    takeoverLeaseMs: roundedConfig(raw.takeoverLeaseSeconds, 120, 30, 600) * 1000,
+    maxViewersPerSession: roundedConfig(raw.maxViewersPerSession, 4, 1, 8),
+    maxChromeRssBytesPerUser: roundedConfig(raw.maxChromeRssMb, 768, 256, 2048) * 1048576,
+    maxTargetsPerUser: roundedConfig(raw.maxTargetsPerUser, 12, 4, 32),
+    proxyConcurrency: roundedConfig(raw.proxyConcurrency, 96, 1, 200),
+    proxyRequestsPerMinute: roundedConfig(raw.proxyRequestsPerMinute, 3000, 30, 6000),
     privateNetworkAllowlist: tokenList(raw.privateNetworkAllowlist),
-    browserCloseGraceMs: bounded(raw.browserCloseGraceSeconds, 15, 0, 120) * 1000,
-    vncDeferMs: bounded(raw.vncDeferMs, 10, 5, 400),
+    // Zero explicitly disables the grace period; the shared helper would replace it with 15.
+    browserCloseGraceMs: (Number.isFinite(Number(raw.browserCloseGraceSeconds))
+      ? Math.min(120, Math.max(0, Math.round(Number(raw.browserCloseGraceSeconds))))
+      : 15) * 1000,
+    vncDeferMs: roundedConfig(raw.vncDeferMs, 10, 5, 400),
   };
 }

@@ -114,6 +114,12 @@ describe('browser live view configuration', () => {
     expect(resolveConfig({}).vncDeferMs).toBe(10);
     expect(resolveConfig({ vncDeferMs: 100_000 }).vncDeferMs).toBe(400);
     expect(resolveConfig({ vncDeferMs: 1 }).vncDeferMs).toBe(5);
+    expect(resolveConfig({ vncDeferMs: 0 }).vncDeferMs).toBe(5);
+    expect(resolveConfig({ vncDeferMs: '' }).vncDeferMs).toBe(5);
+    expect(resolveConfig({ maxActiveUsers: 0 }).maxActiveUsers).toBe(1);
+    expect(resolveConfig({ maxActiveUsers: 30 }).maxActiveUsers).toBe(20);
+    expect(resolveConfig({ browserCloseGraceSeconds: 0 }).browserCloseGraceMs).toBe(0);
+    expect(resolveConfig({ browserCloseGraceSeconds: '' }).browserCloseGraceMs).toBe(0);
   });
 
   it('has retired every setting the screencast owned', () => {
